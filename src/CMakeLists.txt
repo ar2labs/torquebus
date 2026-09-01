@@ -33,6 +33,11 @@ add_library(torquebus_core STATIC
     core/pipeline/PipelineGraph.h
     core/pipeline/PipelineGraph.cpp
     core/pipeline/nodes/FrameNodes.h
+    core/pipeline/NodeParameters.h
+    core/pipeline/NodeCatalog.h
+    core/pipeline/NodeCatalog.cpp
+    core/pipeline/GraphDescription.h
+    core/pipeline/GraphDescription.cpp
 
     core/trace/TraceStore.h
     core/trace/TraceStore.cpp
