@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>TorqueBus — surface ladder</title>
+<!--
+  A static preview of the chrome colours, so a palette change can be judged
+  before a rebuild rather than after one.
+
+  It is not a screenshot and does not pretend to be: no real widget metrics, no
+  real fonts, no Qt. What it does show accurately is the thing that was wrong -
+  which surface sits in front of which, and whether the steps between them are
+  large enough to read at a glance.
+
+  Open it in a browser. Delete it freely; nothing builds against it.
+-->
+<style>
+  body {
+    margin: 0; padding: 28px;
+    background: #2b2b2b; color: #ddd;
+    font: 13px/1.5 "Segoe UI", system-ui, sans-serif;
+  }
+  h1 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+  p.note { margin: 0 0 22px; color: #999; max-width: 62ch; }
+  .themes { display: flex; gap: 28px; flex-wrap: wrap; }
+  .theme { flex: 1 1 420px; min-width: 380px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
+       color: #888; font-weight: 600; margin: 0 0 8px; }
+
+  .window { border-radius: 4px; overflow: hidden; }
+
+  .toolbar { padding: 7px 12px; font-size: 12px; }
+  .body { display: flex; }
+  .col { display: flex; flex-direction: column; }
+
+  .tabstrip { display: flex; }
+  .tab { padding: 5px 12px; font-size: 12px; border-top: 2px solid transparent; }
+  .tab.active { border-top-color: var(--accent); }
+
+  .content { padding: 16px 12px; font-size: 12px; min-height: 92px; }
+  .swatches { display: flex; margin-top: 16px; font-size: 10px; }
+  .sw { flex: 1; padding: 5px 4px; text-align: center; font-family: ui-monospace, monospace; }
+</style>
+
+<h1>TorqueBus — the chrome surface ladder</h1>
+<p class="note">
+  Left to right in each window: the tab strip is <em>darker</em> than the panel,
+  and the active tab is exactly the panel colour, so it merges into the content
+  under it. The vertical bar between the two panels is the splitter — its own
+  colour, darker than everything, so the gap reads as a groove.
+</p>
+
+<div class="themes">
+
+  <div class="theme">
+    <h2>TorqueBus Dark</h2>
+    <div class="window" style="--accent:#2FB6CC">
+      <div class="toolbar" style="background:#2A2D30;color:#D4D7DA">
+        ▶ Start &nbsp;&nbsp; ■ Stop &nbsp;&nbsp; ● Record
+      </div>
+      <div class="body" style="background:#1A1C1E">
+        <div class="col" style="flex:0 0 40%">
+          <div class="tabstrip" style="background:#16191B">
+            <div class="tab active" style="background:#202325;color:#D4D7DA">Project Explorer</div>
+          </div>
+          <div class="content" style="background:#202325;color:#8A8F94">Untitled project</div>
+        </div>
+        <div style="flex:0 0 5px;background:#0E1011"></div>
+        <div class="col" style="flex:1">
+          <div class="tabstrip" style="background:#16191B">
+            <div class="tab active" style="background:#202325;color:#D4D7DA">CAN Trace</div>
+            <div class="tab" style="background:#16191B;color:#8A8F94;border-right:1px solid #0E1011">Transmit</div>
+            <div class="tab" style="background:#16191B;color:#8A8F94">Graph</div>
+          </div>
+          <div class="content" style="background:#202325;color:#8A8F94">0 frames · 0 identifiers</div>
+        </div>
+      </div>
+      <div class="swatches">
+        <div class="sw" style="background:#0E1011;color:#8A8F94">#0E1011<br>separator</div>
+        <div class="sw" style="background:#16191B;color:#8A8F94">#16191B<br>tabStrip</div>
+        <div class="sw" style="background:#1A1C1E;color:#8A8F94">#1A1C1E<br>background</div>
+        <div class="sw" style="background:#202325;color:#D4D7DA">#202325<br>panel</div>
+        <div class="sw" style="background:#2A2D30;color:#D4D7DA">#2A2D30<br>toolbar</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="theme">
+    <h2>TorqueBus Light</h2>
+    <div class="window" style="--accent:#0B7490">
+      <div class="toolbar" style="background:#DDE2E8;color:#17191D">
+        ▶ Start &nbsp;&nbsp; ■ Stop &nbsp;&nbsp; ● Record
+      </div>
+      <div class="body" style="background:#E8EBEF">
+        <div class="col" style="flex:0 0 40%">
+          <div class="tabstrip" style="background:#D7DCE3">
+            <div class="tab active" style="background:#FFFFFF;color:#17191D">Project Explorer</div>
+          </div>
+          <div class="content" style="background:#FFFFFF;color:#626A75">Untitled project</div>
+        </div>
+        <div style="flex:0 0 5px;background:#C3CAD4"></div>
+        <div class="col" style="flex:1">
+          <div class="tabstrip" style="background:#D7DCE3">
+            <div class="tab active" style="background:#FFFFFF;color:#17191D">CAN Trace</div>
+            <div class="tab" style="background:#D7DCE3;color:#626A75;border-right:1px solid #C3CAD4">Transmit</div>
+            <div class="tab" style="background:#D7DCE3;color:#626A75">Graph</div>
+          </div>
+          <div class="content" style="background:#FFFFFF;color:#626A75">0 frames · 0 identifiers</div>
+        </div>
+      </div>
+      <div class="swatches">
+        <div class="sw" style="background:#C3CAD4;color:#17191D">#C3CAD4<br>separator</div>
+        <div class="sw" style="background:#D7DCE3;color:#17191D">#D7DCE3<br>tabStrip</div>
+        <div class="sw" style="background:#E8EBEF;color:#17191D">#E8EBEF<br>background</div>
+        <div class="sw" style="background:#FFFFFF;color:#17191D">#FFFFFF<br>panel</div>
+        <div class="sw" style="background:#DDE2E8;color:#17191D">#DDE2E8<br>toolbar</div>
+      </div>
+    </div>
+  </div>
+
+</div>
