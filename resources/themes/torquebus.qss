@@ -1,0 +1,631 @@
+/*
+ * TorqueBus Studio - style sheet template
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * This file is NOT valid QSS on its own. The tokens below are substituted by
+ * ThemeManager::buildStyleSheet() with the colours of the active Theme, which
+ * is why TorqueBus Dark and TorqueBus Light share one layout definition and
+ * can never drift apart structurally.
+ *
+ *   @background @panel @panelAlternate @toolbar @border @hover @selection
+ *   @text @textMuted @textInverted @accent @accentHover
+ *   @warning @error @success
+ *
+ * Longer tokens are substituted first (see the order in ThemeManager), so
+ * @panelAlternate is never eaten by @panel.
+ *
+ * ---------------------------------------------------------------------------
+ * DENSITY IS THE POINT
+ * ---------------------------------------------------------------------------
+ *
+ * An automotive workbench is judged on how much verifiable state fits on one
+ * screen. A trace row that wastes four vertical pixels costs about three rows
+ * per screenful, and the user is scrolling a million of them.
+ *
+ * So the rules here are deliberately tighter than a general desktop app:
+ *
+ *   - Row padding is 1-2px, not 6-8px. Rows are ~20px, not ~30px.
+ *   - Borders are 1px and low-contrast; separation comes from surface colour,
+ *     not from heavy lines.
+ *   - Corner radii are 2-3px. Large radii read as "consumer app" and waste
+ *     the corners of every small control.
+ *   - Nothing animates. A tool that slides and fades feels slower than one
+ *     that redraws instantly, however fast it actually is.
+ *
+ * When adding a rule, the question to ask is not "does this look nice on its
+ * own" but "what does this cost, multiplied by every row on screen".
+ */
+
+/* ---------------------------------------------------------------- base --- */
+
+QWidget {
+    background-color: @background;
+    color: @text;
+    selection-background-color: @selection;
+    selection-color: @text;
+}
+
+QMainWindow,
+QDialog {
+    background-color: @background;
+}
+
+QToolTip {
+    background-color: @toolbar;
+    color: @text;
+    border: 1px solid @border;
+    padding: 3px 6px;
+}
+
+/* ------------------------------------------------------------- chrome --- */
+
+QMenuBar {
+    background-color: @toolbar;
+    border-bottom: 1px solid @border;
+    padding: 0px 2px;
+    min-height: 22px;
+}
+
+QMenuBar::item {
+    background: transparent;
+    padding: 4px 9px;
+    border-radius: 2px;
+}
+
+QMenuBar::item:selected {
+    background-color: @hover;
+}
+
+QMenuBar::item:pressed {
+    background-color: @selection;
+}
+
+QMenu {
+    background-color: @panel;
+    border: 1px solid @border;
+    padding: 3px;
+}
+
+QMenu::item {
+    padding: 4px 26px 4px 22px;
+    border-radius: 2px;
+}
+
+QMenu::item:selected {
+    background-color: @selection;
+}
+
+QMenu::item:disabled {
+    color: @textMuted;
+}
+
+QMenu::separator {
+    height: 1px;
+    background-color: @border;
+    margin: 3px 6px;
+}
+
+QToolBar {
+    background-color: @toolbar;
+    border: none;
+    border-bottom: 1px solid @border;
+    spacing: 1px;
+    padding: 2px 4px;
+}
+
+QToolBar::separator {
+    width: 1px;
+    background-color: @border;
+    margin: 3px 5px;
+}
+
+QToolButton {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    padding: 3px 7px;
+}
+
+QToolButton:hover {
+    background-color: @hover;
+    border-color: @border;
+}
+
+QToolButton:pressed,
+QToolButton:checked {
+    background-color: @selection;
+    border-color: @accent;
+}
+
+QToolButton:disabled {
+    color: @textMuted;
+}
+
+/* --------------------------------------------------------- status bar --- */
+/*
+ * Segmented, like the instrument readouts it stands in for. Each field keeps
+ * its own padding and a separator, so a value changing length does not shove
+ * its neighbours sideways - a status bar that twitches is unreadable at a
+ * glance, which is the only way anyone reads one.
+ */
+
+QStatusBar {
+    background-color: @toolbar;
+    border-top: 1px solid @border;
+    color: @textMuted;
+    min-height: 22px;
+}
+
+QStatusBar::item {
+    border: none;
+}
+
+QStatusBar QLabel {
+    background: transparent;
+    padding: 0px 8px;
+}
+
+QStatusBar QFrame[frameShape="5"] {
+    color: @border;
+    max-width: 1px;
+}
+
+/* ------------------------------------------------------------ panels --- */
+
+QDockWidget {
+    background-color: @panel;
+    titlebar-close-icon: none;
+    titlebar-normal-icon: none;
+}
+
+QDockWidget::title {
+    background-color: @toolbar;
+    border-bottom: 1px solid @border;
+    padding: 4px 6px;
+    text-align: left;
+}
+
+QGroupBox {
+    background-color: @panel;
+    border: 1px solid @border;
+    border-radius: 2px;
+    margin-top: 12px;
+    padding: 6px;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 6px;
+    padding: 0 3px;
+    color: @textMuted;
+}
+
+QSplitter::handle {
+    background-color: @border;
+}
+
+QSplitter::handle:horizontal { width: 1px; }
+QSplitter::handle:vertical   { height: 1px; }
+
+/* -------------------------------------------------------------- tabs --- */
+
+/* Borderless: the enclosing KDDockWidgets Group already draws the outline, and
+ * a pane border inside it produces the doubled edge that read as a defect. */
+QTabWidget::pane {
+    background-color: @panel;
+    border: none;
+}
+
+/*
+ * qproperty-drawBase: 0 is not cosmetic. With it left on, QTabBar asks the
+ * style to paint a base line under the whole strip, and Fusion draws that line
+ * out of the palette's bevel roles - the same roles that produced a white edge
+ * above the panels. Turning it off means the only line under a tab strip is the
+ * one this file draws deliberately.
+ */
+QTabBar {
+    background-color: @toolbar;
+    border: none;
+    qproperty-drawBase: 0;
+}
+
+QTabBar::tab:!selected {
+    margin-top: 0px;
+}
+
+QTabBar::tab {
+    background-color: @toolbar;
+    color: @textMuted;
+    border: 1px solid transparent;
+    border-bottom: 2px solid transparent;
+    padding: 4px 11px;
+    margin-right: 1px;
+    min-height: 16px;
+}
+
+QTabBar::tab:hover {
+    background-color: @hover;
+    color: @text;
+}
+
+QTabBar::tab:selected {
+    background-color: @panel;
+    color: @text;
+    border-bottom: 2px solid @accent;
+}
+
+/*
+ * Tab scroll buttons.
+ *
+ * These appear when the tabs do not fit. Qt draws their arrows through the
+ * style, and a style sheet that restyles QTabBar without saying anything about
+ * them leaves them as blank rectangles - which is exactly what they were: pale
+ * empty boxes next to "Project Explorer" and after the truncated "Diagn" tab.
+ *
+ * The arrow glyphs are baked into two icon sets rather than tinted at runtime,
+ * because QSS `image:` cannot recolour what it loads. ThemeManager substitutes
+ * @arrowLeft / @arrowRight with the pair that suits the active theme.
+ */
+
+QTabBar::scroller {
+    width: 32px;
+}
+
+QTabBar QToolButton {
+    background-color: @toolbar;
+    border: 1px solid @border;
+    border-radius: 2px;
+    margin: 2px 1px;
+    padding: 0px;
+    width: 14px;
+}
+
+QTabBar QToolButton:hover {
+    background-color: @hover;
+    border-color: @accent;
+}
+
+QTabBar QToolButton:disabled {
+    background-color: @toolbar;
+    border-color: @border;
+}
+
+QTabBar QToolButton::left-arrow {
+    image: url(@arrowLeft);
+    width: 10px;
+    height: 10px;
+}
+
+QTabBar QToolButton::right-arrow {
+    image: url(@arrowRight);
+    width: 10px;
+    height: 10px;
+}
+
+/* The same arrows serve combo boxes and tree branches, so they are styled here
+ * too rather than left to the platform style, which would look imported. */
+QComboBox::down-arrow {
+    image: url(@arrowDown);
+    width: 10px;
+    height: 10px;
+}
+
+/* ------------------------------------------------------------- views --- */
+/*
+ * The densest surfaces in the application. Row padding here is multiplied by
+ * every visible row, so it stays at 1px vertical and the row height is left to
+ * the font. Grid lines use the border colour rather than a mid grey: at this
+ * density a strong grid is louder than the data in it.
+ */
+
+QTreeView,
+QTableView,
+QListView,
+QPlainTextEdit,
+QTextEdit {
+    background-color: @panel;
+    alternate-background-color: @panelAlternate;
+    border: 1px solid @border;
+    gridline-color: @border;
+    outline: none;
+}
+
+QTreeView::item,
+QTableView::item,
+QListView::item {
+    padding: 1px 3px;
+    border: none;
+    min-height: 18px;
+}
+
+QTreeView::item:hover,
+QTableView::item:hover,
+QListView::item:hover {
+    background-color: @hover;
+}
+
+QTreeView::item:selected,
+QTableView::item:selected,
+QListView::item:selected {
+    background-color: @selection;
+    color: @text;
+}
+
+/* Selection must stay visible when the view loses focus - the user clicks a
+ * channel in the tree and then reads its values in another panel. */
+QTreeView::item:selected:!active,
+QTableView::item:selected:!active,
+QListView::item:selected:!active {
+    background-color: @selection;
+    color: @text;
+}
+
+QTreeView::branch:hover {
+    background-color: @hover;
+}
+
+QHeaderView {
+    background-color: @toolbar;
+    border: none;
+}
+
+QHeaderView::section {
+    background-color: @toolbar;
+    color: @textMuted;
+    border: none;
+    border-right: 1px solid @border;
+    border-bottom: 1px solid @border;
+    padding: 3px 6px;
+}
+
+QHeaderView::section:hover {
+    background-color: @hover;
+    color: @text;
+}
+
+QHeaderView::section:last {
+    border-right: none;
+}
+
+/* --------------------------------------------------------- scrollbars --- */
+
+QScrollBar:vertical {
+    background: transparent;
+    width: 10px;
+    margin: 0;
+}
+
+QScrollBar:horizontal {
+    background: transparent;
+    height: 10px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical,
+QScrollBar::handle:horizontal {
+    background-color: @border;
+    border-radius: 4px;
+    margin: 2px;
+}
+
+QScrollBar::handle:vertical   { min-height: 24px; }
+QScrollBar::handle:horizontal { min-width: 24px; }
+
+QScrollBar::handle:hover {
+    background-color: @textMuted;
+}
+
+QScrollBar::add-line,
+QScrollBar::sub-line {
+    height: 0;
+    width: 0;
+}
+
+QScrollBar::add-page,
+QScrollBar::sub-page {
+    background: transparent;
+}
+
+/* ------------------------------------------------------------ inputs --- */
+
+QLineEdit,
+QSpinBox,
+QDoubleSpinBox,
+QComboBox {
+    background-color: @panel;
+    border: 1px solid @border;
+    border-radius: 2px;
+    padding: 2px 6px;
+    min-height: 18px;
+}
+
+QLineEdit:focus,
+QSpinBox:focus,
+QDoubleSpinBox:focus,
+QComboBox:focus {
+    border-color: @accent;
+}
+
+QLineEdit:disabled,
+QSpinBox:disabled,
+QDoubleSpinBox:disabled,
+QComboBox:disabled {
+    color: @textMuted;
+    background-color: @background;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 16px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: @panel;
+    border: 1px solid @border;
+    selection-background-color: @selection;
+}
+
+QPushButton {
+    background-color: @toolbar;
+    border: 1px solid @border;
+    border-radius: 2px;
+    padding: 4px 14px;
+    min-width: 68px;
+    min-height: 18px;
+}
+
+QPushButton:hover {
+    background-color: @hover;
+    border-color: @accent;
+}
+
+QPushButton:pressed {
+    background-color: @selection;
+}
+
+QPushButton:default {
+    border-color: @accent;
+}
+
+QPushButton:disabled {
+    color: @textMuted;
+    border-color: @border;
+}
+
+QCheckBox,
+QRadioButton {
+    background: transparent;
+    spacing: 5px;
+}
+
+QCheckBox::indicator,
+QRadioButton::indicator {
+    width: 13px;
+    height: 13px;
+    border: 1px solid @border;
+    background-color: @panel;
+}
+
+QCheckBox::indicator { border-radius: 2px; }
+QRadioButton::indicator { border-radius: 7px; }
+
+QCheckBox::indicator:checked,
+QRadioButton::indicator:checked {
+    background-color: @accent;
+    border-color: @accent;
+}
+
+/* ----------------------------------------------------- docking system --- */
+/*
+ * KDDockWidgets' own view classes. A namespaced C++ class is addressed in QSS
+ * by replacing "::" with "--", which is the only way to reach these: they are
+ * plain QWidget subclasses, so the universal QWidget rule at the top of this
+ * file would otherwise paint them with the window background and leave them
+ * looking like holes punched in the chrome.
+ *
+ * This is what the pale empty rectangles beside the panel tabs were - dock
+ * furniture drawn with the wrong surface colour.
+ */
+
+/*
+ * Since Config::setDisabledPaintEvents() turns off the library's own painting,
+ * these widgets now draw nothing except what is written here. That is the
+ * point - the chrome is ours - but it also means a border the library used to
+ * draw is simply gone unless this file draws it.
+ *
+ * The Group is the container for one tabbed set of panels, so its outline is
+ * what separates a panel from its neighbour. It gets the border; everything
+ * inside it stays flat, or the edges stack up into the doubled lines that were
+ * showing before.
+ */
+
+KDDockWidgets--QtWidgets--TitleBar,
+KDDockWidgets--QtWidgets--TabBar,
+KDDockWidgets--QtWidgets--Stack,
+KDDockWidgets--QtWidgets--SideBar {
+    background-color: @toolbar;
+    border: none;
+}
+
+KDDockWidgets--QtWidgets--Group {
+    background-color: @panel;
+    border: 1px solid @border;
+}
+
+KDDockWidgets--QtWidgets--DropArea,
+KDDockWidgets--QtWidgets--MDILayout {
+    background-color: @background;
+    border: none;
+}
+
+KDDockWidgets--QtWidgets--DockWidget {
+    background-color: @panel;
+    border: none;
+}
+
+/*
+ * The drag handle between panels.
+ *
+ * Painted as the window void rather than as a line: at the width a handle
+ * needs to be grabbable (5px, set in Docking.cpp) a grey stripe reads as a
+ * stray border, while the background colour reads as the gap between panels -
+ * which is what it is. The affordance comes from the hover state, the way an
+ * editor sash stays invisible until you reach for it.
+ *
+ * Do not solve "this stripe looks wrong" by making it thinner. It is a mouse
+ * target; below about 4px it stops being usable, and at 1px it disappears.
+ */
+KDDockWidgets--QtWidgets--Separator {
+    background-color: @background;
+    border: none;
+}
+
+KDDockWidgets--QtWidgets--Separator:hover {
+    background-color: @accent;
+}
+
+KDDockWidgets--QtWidgets--FloatingWindow {
+    background-color: @background;
+    border: 1px solid @border;
+}
+
+/* --------------------------------------------------- TorqueBus objects --- */
+
+/* Status bar indicators: colour comes from a dynamic property, so a channel
+ * going bus-off is a property change plus a polish, not a repaint by hand. */
+
+QLabel[torquebusState="offline"] { color: @textMuted; }
+QLabel[torquebusState="ready"]   { color: @textMuted; }
+QLabel[torquebusState="online"]  { color: @success; }
+QLabel[torquebusState="warning"] { color: @warning; }
+QLabel[torquebusState="error"]   { color: @error; }
+
+/* Numeric status fields are monospaced so a changing count does not reflow the
+ * bar underneath the reader's eye. */
+QLabel[torquebusRole="metric"] {
+    font-family: "Cascadia Mono", "Consolas", "DejaVu Sans Mono", monospace;
+    color: @text;
+}
+
+/* Monospace surfaces: trace, console, hex payloads. */
+
+QPlainTextEdit#torquebusConsole {
+    background-color: @background;
+    border: none;
+    border-top: 1px solid @border;
+    font-family: "Cascadia Mono", "Consolas", "DejaVu Sans Mono", monospace;
+    padding: 2px 4px;
+}
+
+QLabel#torquebusPlaceholder {
+    color: @textMuted;
+}
+
+/* Panel headers inside a dock: a small caps-ish strip naming the section. */
+QLabel[torquebusRole="panelHeading"] {
+    color: @textMuted;
+    background-color: @toolbar;
+    border-bottom: 1px solid @border;
+    padding: 3px 6px;
+}
