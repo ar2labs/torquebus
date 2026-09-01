@@ -1,0 +1,94 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 24, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "TORQUEBUS_BUILD_TESTS": "ON"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+
+    {
+      "name": "windows-msvc-vs",
+      "displayName": "Windows x64 - MSVC - Visual Studio generator (works from any prompt)",
+      "description": "Start here. The Visual Studio generator locates the MSVC toolchain by itself, so this needs no developer command prompt and cannot be hijacked by another compiler on PATH. Multi-config: pass --config Debug or Release when building.",
+      "inherits": "base",
+      "generator": "Visual Studio 17 2022",
+      "architecture": { "value": "x64", "strategy": "set" },
+      "toolset": { "value": "host=x64", "strategy": "set" }
+    },
+
+    {
+      "name": "windows-msvc-debug",
+      "displayName": "Windows x64 - MSVC - Ninja - Debug",
+      "description": "Faster builds, but cl.exe must already be on PATH: run this from an 'x64 Native Tools Command Prompt for VS 2022'. From a plain prompt it fails with 'CMAKE_CXX_COMPILER: cl is not a full path' - use windows-msvc-vs instead.",
+      "inherits": "base",
+      "generator": "Ninja",
+      "architecture": { "value": "x64", "strategy": "external" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+
+        "//": "Pinned deliberately. Without this, CMake picks whatever C++ compiler comes first on PATH - an installed LLVM silently wins over cl.exe, and you end up building against MSVC-compiled Qt with a GNU-like driver while CI builds with MSVC. PLAN.md section 1 froze MSVC x64.",
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl"
+      }
+    },
+    {
+      "name": "windows-msvc-release",
+      "displayName": "Windows x64 - MSVC - Ninja - Release",
+      "inherits": "windows-msvc-debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    },
+    {
+      "name": "windows-msvc-strict",
+      "displayName": "Windows x64 - MSVC - Ninja - Debug, warnings as errors",
+      "description": "What CI runs. Use before opening a pull request.",
+      "inherits": "windows-msvc-debug",
+      "cacheVariables": { "TORQUEBUS_WARNINGS_AS_ERRORS": "ON" }
+    }
+  ],
+
+  "buildPresets": [
+    {
+      "name": "windows-msvc-vs",
+      "displayName": "Visual Studio - Debug",
+      "configurePreset": "windows-msvc-vs",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-msvc-vs-release",
+      "displayName": "Visual Studio - Release",
+      "configurePreset": "windows-msvc-vs",
+      "configuration": "RelWithDebInfo"
+    },
+
+    { "name": "windows-msvc-debug",   "configurePreset": "windows-msvc-debug" },
+    { "name": "windows-msvc-release", "configurePreset": "windows-msvc-release" },
+    { "name": "windows-msvc-strict",  "configurePreset": "windows-msvc-strict" }
+  ],
+
+  "testPresets": [
+    {
+      "name": "windows-msvc-vs",
+      "configurePreset": "windows-msvc-vs",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "hardware" } }
+    },
+    {
+      "name": "windows-msvc-debug",
+      "configurePreset": "windows-msvc-debug",
+      "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "hardware" } }
+    }
+  ]
+}
