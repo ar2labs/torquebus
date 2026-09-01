@@ -220,4 +220,15 @@ CanBusStatus CanChannel::status() const
     return result;
 }
 
+std::size_t CanChannel::beginPass(std::size_t maximumBatchSize)
+{
+    // reserve() once and reuse: a pass must allocate nothing (rule #12).
+    if (m_passBuffer.capacity() < maximumBatchSize) {
+        m_passBuffer.reserve(maximumBatchSize);
+    }
+
+    m_passCount = drain(m_passBuffer, maximumBatchSize);
+    return m_passCount;
+}
+
 } // namespace torquebus
