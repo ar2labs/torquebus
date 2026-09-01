@@ -40,6 +40,20 @@ Theme Theme::dark()
     theme.panel          = QColor(0x20, 0x23, 0x25);
     theme.panelAlternate = QColor(0x25, 0x28, 0x2A);
     theme.toolbar        = QColor(0x2A, 0x2D, 0x30);
+
+    // The surface ladder, darkest first:
+    //
+    //   separator  #0E1011   the groove between panels
+    //   tabStrip   #16191B   behind the tabs
+    //   background #1A1C1E   the window void
+    //   panel      #202325   content, and the active tab
+    //
+    // Each step is 6-10 points per channel: enough to read as a different
+    // surface at a glance, small enough that the window still looks like one
+    // object rather than a collage. The active tab shares `panel` exactly, so
+    // it merges into the content below it.
+    theme.tabStrip       = QColor(0x16, 0x19, 0x1B);
+    theme.separator      = QColor(0x0E, 0x10, 0x11);
     theme.border         = QColor(0x34, 0x38, 0x3B);
     theme.hover          = QColor(0x2F, 0x33, 0x36);
     theme.selection      = QColor(0x1B, 0x42, 0x56);
@@ -78,6 +92,18 @@ Theme Theme::light()
     theme.panel          = QColor(0xFF, 0xFF, 0xFF);
     theme.panelAlternate = QColor(0xF4, 0xF6, 0xF8);
     theme.toolbar        = QColor(0xDD, 0xE2, 0xE8);
+
+    // The same ladder inverted, and it has to be inverted rather than
+    // mirrored: on a light theme the recessed surfaces go *darker* than the
+    // content, exactly as they go darker on the dark theme. What flips is
+    // which end the content sits at - white here, mid-grey there.
+    //
+    //   panel      #FFFFFF   content, and the active tab
+    //   background #E8EBEF   the window void
+    //   tabStrip   #D7DCE3   behind the tabs
+    //   separator  #C3CAD4   the groove between panels
+    theme.tabStrip       = QColor(0xD7, 0xDC, 0xE3);
+    theme.separator      = QColor(0xC3, 0xCA, 0xD4);
     theme.border         = QColor(0xBF, 0xC5, 0xCE);
     theme.hover          = QColor(0xD2, 0xD8, 0xE0);
     theme.selection      = QColor(0xC4, 0xE3, 0xF5);
