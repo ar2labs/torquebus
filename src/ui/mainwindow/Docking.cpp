@@ -5,9 +5,12 @@
 
 #include "ui/mainwindow/Docking.h"
 
+#include <kddockwidgets/qtcommon/View.h>
 #include <kddockwidgets/qtwidgets/ViewFactory.h>
+#include <kddockwidgets/qtwidgets/views/Group.h>
 
 #include <QIcon>
+#include <QPaintEvent>
 #include <QPalette>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -41,11 +44,27 @@ static void initializeDockingResources()
 namespace torquebus::ui {
 namespace {
 
-/// Supplies TorqueBus' own glyphs for the panel title-bar buttons.
+/// A Group that leaves its frame to the style sheet.
+class StyledGroup final : public KDDockWidgets::QtWidgets::Group {
+public:
+    using KDDockWidgets::QtWidgets::Group::Group;
+
+protected:
+    void paintEvent(QPaintEvent* event) override
+    {
+        // QWidget's, not Group's: draws the style sheet's background and
+        // border and nothing else. Skipping the base implementation is the
+        // entire point - see createGroup below for what it was painting.
+        QWidget::paintEvent(event);
+    }
+};
+
+/// Supplies TorqueBus' own glyphs for the panel title-bar buttons, and a Group
+/// that does not paint over the style sheet.
 ///
-/// KDDockWidgets' defaults are PNGs loaded from `:/img/close.png` and friends,
-/// drawn as dark glyphs for a light title bar. Two things were wrong with
-/// relying on them:
+/// KDDockWidgets' default button glyphs are PNGs loaded from `:/img/close.png`
+/// and friends, drawn as dark glyphs for a light title bar. Two things were
+/// wrong with relying on them:
 ///
 ///   1. In a static build their resource is not registered unless something
 ///      forces it (see initializeDockingResources above), so the buttons were
@@ -53,10 +72,51 @@ namespace {
 ///   2. Even registered, a dark glyph on our dark chrome would be nearly as
 ///      invisible as no glyph at all.
 ///
-/// Overriding iconForButtonType is the whole customisation: the buttons, their
-/// placement and their behaviour stay KDDockWidgets'. Only the picture changes.
+/// Overriding these two factory methods is the whole customisation: placement,
+/// behaviour and layout stay KDDockWidgets'. Only the painting changes.
 class DockButtonIconFactory final : public KDDockWidgets::QtWidgets::ViewFactory {
 public:
+    /// Substitutes a Group that does not paint the library's hardcoded frame.
+    ///
+    /// This is the white border, found at last, and it was never in our style
+    /// sheet. KDDockWidgets 2.2.5, src/qtwidgets/views/Group.cpp:
+    ///
+    ///     void Group::paintEvent(QPaintEvent *)
+    ///     {
+    ///         if (d->freed()) return;
+    ///         if (!m_group->isFloating()) {
+    ///             ...
+    ///             const QColor penColor = isOverlayed ? QColor(0x666666)
+    ///                                                 : QColor(184, 184, 184, 184);
+    ///             p.drawRoundedRect(...);
+    ///         }
+    ///     }
+    ///
+    /// A hardcoded light grey rectangle around every group, taken from no
+    /// palette and no style sheet. Separator::paintEvent and
+    /// FloatingWindow::paintEvent both begin by checking
+    /// Config::disabledPaintEvents() and deferring to QWidget::paintEvent when
+    /// their bit is set. Group does not check it at all - so
+    /// CustomizableWidget_Frame, which we do set, has no effect on the one
+    /// widget whose frame was the problem.
+    ///
+    /// Three earlier attempts went to the style sheet, the palette's bevel
+    /// roles, and the paint-event flags. All three were reasonable and none
+    /// could have worked: the rectangle is painted after everything they
+    /// control, by code that consults none of them.
+    ///
+    /// Overriding createGroup is the supported way in. QWidget::paintEvent
+    /// still runs, so the Group keeps the background and border from
+    /// torquebus.qss - which is what the KDDockWidgets--QtWidgets--Group rule
+    /// there has been describing all along.
+    [[nodiscard]] KDDockWidgets::Core::View* createGroup(
+        KDDockWidgets::Core::Group* controller,
+        KDDockWidgets::Core::View* parent) const override
+    {
+        return new StyledGroup{controller,
+                               KDDockWidgets::QtCommon::View_qt::asQWidget(parent)};
+    }
+
     [[nodiscard]] QIcon iconForButtonType(KDDockWidgets::TitleBarButtonType type,
                                           qreal dpr) const override
     {
@@ -95,6 +155,7 @@ private:
 
         return {};
     }
+
 };
 
 } // namespace
@@ -142,19 +203,38 @@ void configureDockingSystem()
     flags |= KDDockWidgets::Config::Flag_AllowReorderTabs;
     flags |= KDDockWidgets::Config::Flag_AlwaysShowTabs;
     flags |= KDDockWidgets::Config::Flag_CloseOnlyCurrentTab;
+
+    // Every panel was showing its name twice: once in a title bar and again in
+    // the tab immediately below it, each with its own icon, costing about 28
+    // vertical pixels per panel for no information. With four panels open that
+    // is over a hundred pixels of chrome saying nothing.
+    //
+    // The tab is the better of the two to keep. It is where a second panel
+    // would appear if one were docked here, so the strip has to exist anyway;
+    // it is what the user drags to move a panel; and it is the one that shows
+    // which of several panels is current. A title bar above it is a label for a
+    // label.
+    //
+    // Paired with Flag_AlwaysShowTabs above: without that, a lone panel would
+    // show neither tab nor title bar and lose its name entirely.
+    flags |= KDDockWidgets::Config::Flag_HideTitleBarWhenTabsVisible;
+
     config.setFlags(flags);
 
-    // Flag_ShowButtonsOnTabBarIfTitleBarHidden is deliberately NOT set.
+    // Flag_ShowButtonsOnTabBarIfTitleBarHidden is still NOT set, but the reason
+    // has changed and is worth restating.
     //
-    // It puts float and close buttons at the right of the tab strip, and those
-    // buttons have resisted three rounds of fixing: blank in both themes, with
-    // a broken edge beside the second one. Two of those rounds were spent on
-    // plausible causes that turned out not to be it.
+    // It puts float and close buttons at the right of the tab strip. Those
+    // buttons appeared blank and with a broken edge beside them, and two causes
+    // have since been found and fixed: the icon resource that a static build
+    // never registered (initializeDockingResources) and the hardcoded frame
+    // Group painted over everything (StyledGroup above). Either could have
+    // produced what was seen.
     //
-    // Shipping a control that looks broken is worse than not shipping it: every
-    // panel is still closable from the View menu and still floats by dragging
-    // its tab, so nothing is actually lost. describeDockChrome() exists to find
-    // the real cause; when it is understood, this comes back.
+    // So this is now a candidate to turn back on rather than a known defect -
+    // but it is turned on *after* someone confirms the border is gone, not in
+    // the same change that claims to fix it. Until then panels close from the
+    // View menu, and float by dragging their tab or the empty space beside it.
 
     // The separator is the drag handle between panels, so its thickness is a
     // hit target before it is a visual choice. This was briefly set to 1px to

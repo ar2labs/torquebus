@@ -542,3 +542,29 @@ message but not the constraint. Concretely:
 This is inherited from the docking library rather than chosen. If it ever
 becomes painful, the escape route is the seam that already exists:
 `src/ui/mainwindow/Docking.h` is the only file that includes KDDockWidgets.
+
+### KDDockWidgets paints one frame we cannot turn off
+
+`Config::setDisabledPaintEvents()` is the documented way to stop the library
+painting its own chrome so a style sheet can do it instead. Every widget honours
+it — except `Group`.
+
+In 2.2.5, `Separator::paintEvent` and `FloatingWindow::paintEvent` both open by
+checking `Config::self().disabledPaintEvents()` and deferring to
+`QWidget::paintEvent`. `Group::paintEvent` never consults it, and unconditionally
+draws a 1px rounded rectangle in a hardcoded `QColor(184, 184, 184, 184)` — from
+no palette and no style sheet.
+
+That was the pale border around every panel, and it survived three rounds of
+fixes aimed at the style sheet, at the palette's bevel roles, and at the
+paint-event flags. All three were reasonable and none could have worked: the
+rectangle is painted after everything they control.
+
+The fix is a `ViewFactory::createGroup` override returning a `Group` subclass
+whose `paintEvent` calls `QWidget::paintEvent` directly (`src/ui/mainwindow/
+Docking.cpp`). The supported extension point, and it leaves the frame to
+`torquebus.qss` where the rest of the chrome already lives.
+
+The general lesson is the one this project keeps relearning: when a UI defect
+survives two fixes aimed at plausible causes, stop proposing a third and read
+the code that draws the pixels. The dependency's source is in the build tree.
