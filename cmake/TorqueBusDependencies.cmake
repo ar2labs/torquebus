@@ -34,6 +34,47 @@ set(FETCHCONTENT_QUIET OFF)
 # Recorded in docs/ARCHITECTURE.md under the decision log.
 set(QT_NO_PRIVATE_MODULE_WARNING ON)
 
+# --- Finding Qt without depending on the prompt -------------------------
+#
+# Qt does not have to be on PATH for CMake to find it, and relying on it being
+# there is how a build becomes "works in my shortcut". qtenv2.bat, the obvious
+# thing to run, sets QTDIR and PATH and *nothing else* - in particular it does
+# not set up MSVC, which it says on startup in a line that is easy to scroll
+# past. A prompt built only from it produces a confusing link failure rather
+# than an honest "Qt not found".
+#
+# So: look where Qt actually is. QTDIR first (that much qtenv2.bat does give
+# us), then the default installer layout. Anything the user passes explicitly
+# in CMAKE_PREFIX_PATH or Qt6_DIR still wins - these are only appended.
+
+if(NOT DEFINED Qt6_DIR)
+    set(_torquebus_qt_hints "")
+
+    if(DEFINED ENV{QTDIR})
+        list(APPEND _torquebus_qt_hints "$ENV{QTDIR}")
+    endif()
+
+    if(WIN32)
+        # The version is pinned (PLAN.md section 1), so this is a short list of
+        # one rather than a glob that might find 6.9 and fail confusingly later.
+        list(APPEND _torquebus_qt_hints
+            "C:/Qt/6.11.2/msvc2022_64"
+            "D:/Qt/6.11.2/msvc2022_64"
+        )
+    endif()
+
+    foreach(_torquebus_qt_hint IN LISTS _torquebus_qt_hints)
+        if(EXISTS "${_torquebus_qt_hint}/lib/cmake/Qt6/Qt6Config.cmake")
+            list(APPEND CMAKE_PREFIX_PATH "${_torquebus_qt_hint}")
+            message(STATUS "Qt found at ${_torquebus_qt_hint}")
+            break()
+        endif()
+    endforeach()
+
+    unset(_torquebus_qt_hint)
+    unset(_torquebus_qt_hints)
+endif()
+
 find_package(Qt6 6.11 REQUIRED COMPONENTS
     Core
     Gui

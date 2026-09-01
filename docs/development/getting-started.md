@@ -18,13 +18,22 @@ green test suite.
 Nothing else needs installing. KDDockWidgets and Catch2 are built from source
 into your build tree on the first configure.
 
-Make sure CMake can find Qt. Either add Qt to `CMAKE_PREFIX_PATH`:
+CMake finds Qt on its own if it is at `C:\Qt\6.11.2\msvc2022_64` (the installer
+default) or if `QTDIR` is set. Anywhere else, point at it:
 
 ```powershell
 $env:CMAKE_PREFIX_PATH = "C:\Qt\6.11.2\msvc2022_64"
 ```
 
-…or pass it explicitly with `-DCMAKE_PREFIX_PATH=C:\Qt\6.11.2\msvc2022_64`.
+…or pass `-DCMAKE_PREFIX_PATH=...` on the configure line. Qt does **not** need to
+be on `PATH` to build — only to run the executable, which the presets handle.
+
+> **If you use a Qt prompt, it is not enough on its own.** `qtenv2.bat` sets
+> `QTDIR` and `PATH` and nothing else; it does not set up MSVC, which it tells
+> you on startup. Run `tools\torquebus-prompt.bat` instead — it runs
+> `vcvars64.bat` and then `qtenv2.bat` — or just use the `windows-msvc-vs`
+> preset, which needs neither. See Troubleshooting if you have already hit the
+> `ld.exe: cannot find /nologo` wall.
 
 ---
 
@@ -192,20 +201,43 @@ culprit). Use `cmake --preset windows-msvc-vs`. Delete the stale `build/`
 directory first — CMake caches the compiler it picked and will not change its
 mind otherwise.
 
-**`ld.exe: cannot find /nologo`, `ld.exe: cannot find kernel32.lib`** — the
-compiler is fine and the linker is not. `cl.exe` compiled CMake's test file,
-then the link step ran **GNU ld** with MSVC flags, so every `/switch` looked
-like a missing input file to it. It reads like a broken Windows SDK and is
-nothing of the sort. The tell is the linker path in the failing command line —
-`ld.exe` rather than `link.exe`:
+**`ld.exe: cannot find /nologo`, `ld.exe: cannot find kernel32.lib`** — nine
+times out of ten this is a prompt started from `qtenv2.bat` alone.
+
+`qtenv2.bat` sets `QTDIR` and puts Qt on `PATH`. That is all it does — it prints
+*"Remember to call vcvarsall.bat to complete environment setup!"* on startup,
+and that line is very easy to scroll past. Without vcvars there is no `INCLUDE`,
+no `LIB`, and no MSVC linker ahead of whatever else is on `PATH`, so CMake finds
+`cl.exe` (usually still there from a system-wide entry), compiles its test file,
+and then links it with the first `ld.exe` it can find.
+
+Use the prompt that has both halves:
+
+```bat
+tools\torquebus-prompt.bat
+```
+
+It locates Visual Studio with `vswhere`, runs `vcvars64.bat` and then
+`qtenv2.bat`, in that order, and drops you in the repository root. Or do it by
+hand:
+
+```bat
+cmd /A /Q /K "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" ^
+  && "C:\Qt\6.11.2\msvc2022_64\bin\qtenv2.bat"
+```
+
+The `windows-msvc-vs` preset needs none of this: the Visual Studio generator
+brings its own toolchain, and CMake now finds Qt from `QTDIR` or from
+`C:/Qt/6.11.2/msvc2022_64` without help from `PATH`.
+
+If that was not it, the cause is one of the two below. The tell either way is
+the linker path in the failing command line — `ld.exe` rather than `link.exe`:
 
 ```
 -- Check for working CXX compiler: .../cl.exe - broken
     ... -- C:\Tools\gcc-v14.2.0\bin\ld.exe /nologo ...
                                    ^^^^^^
 ```
-
-Two ways to get here, in the order worth checking:
 
 1. **A stale build directory.** `CMAKE_LINKER` is cached separately from the
    compiler, so a directory configured once with a GNU toolchain on `PATH` keeps
