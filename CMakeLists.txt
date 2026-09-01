@@ -7,11 +7,25 @@
 
 cmake_minimum_required(VERSION 3.24)
 
+# C alongside CXX because of the vendored Lua: it is 32 .c files, and without C
+# enabled here CMake configures happily and then fails at *generate* time with
+# thirty-odd copies of
+#
+#     Error required internal CMake variable not set, cmake may not be built
+#     correctly.  Missing variable is: CMAKE_C_COMPILE_OBJECT
+#
+# one per .c file. The message blames CMake's own installation, which is a red
+# herring: it means "you gave me C sources in a project that never enabled C".
+# Detecting a C compiler in a FetchContent sub-build does not enable it here.
+#
+# The wording is generator-dependent - with Makefiles the same mistake reads
+# "Cannot determine link language for target torquebus_lua" - so match on the
+# cause rather than on the sentence.
 project(TorqueBusStudio
     VERSION 0.5.0
     DESCRIPTION "Open Automotive Network & Diagnostics Workbench"
     HOMEPAGE_URL "https://github.com/ar2labs/torquebus"
-    LANGUAGES CXX
+    LANGUAGES CXX C
 )
 
 # --------------------------------------------------------------------------
