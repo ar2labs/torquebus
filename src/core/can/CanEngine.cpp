@@ -262,6 +262,30 @@ void CanEngine::setGraphBuilder(GraphBuilder builder)
     m_graphBuilder = std::move(builder);
 }
 
+void CanEngine::setGraphDescription(GraphDescription description, NodeCatalog catalog)
+{
+    // Captured by value into the builder, which is what makes the description
+    // safe to edit while a measurement runs.
+    setGraphBuilder([this, description = std::move(description),
+                     catalog = std::move(catalog)](PipelineGraph& graph,
+                                                   std::span<const NodeId>) -> Result {
+        NodeBuildContext context;
+        context.traceStore = &m_traceStore;
+        context.channel = [this](std::uint8_t index) { return channel(index); };
+        context.log = [this](const std::string& text, bool isError) {
+            // Copied under the lock and called outside it, like every other
+            // fan-out here: a sink that blocks must not be holding the mutex
+            // that the next node needs in order to log.
+            const auto sinks = copySinks(m_sinksMutex, m_logSinks);
+            for (const LogSink& sink : sinks) {
+                sink(text, isError);
+            }
+        };
+
+        return description.build(catalog, context, graph);
+    });
+}
+
 NodeId CanEngine::sourceNode(std::uint8_t applicationChannel) const
 {
     return applicationChannel < m_sourceNodes.size() ? m_sourceNodes[applicationChannel]
@@ -348,6 +372,13 @@ std::size_t CanEngine::dispatchPass()
     }
 
     const std::lock_guard lock{m_channelsMutex};
+
+    // Drain every channel first, then run the graph once. Two steps and not
+    // one, so that every source node reading a channel sees the same frames -
+    // see the note in CanChannel on the current pass.
+    for (const std::unique_ptr<CanChannel>& channel : m_channels) {
+        channel->beginPass(m_configuration.maximumBatchSize);
+    }
 
     const std::uint64_t before = totalSourceFrames();
     m_graph.execute();
@@ -436,6 +467,19 @@ SinkId CanEngine::addStatisticsSink(StatisticsSink sink)
 void CanEngine::removeStatisticsSink(SinkId id)
 {
     eraseSink(m_sinksMutex, m_statisticsSinks, id);
+}
+
+SinkId CanEngine::addLogSink(LogSink sink)
+{
+    const std::lock_guard lock{m_sinksMutex};
+    const SinkId id = m_nextSinkId++;
+    m_logSinks.push_back({id, std::move(sink)});
+    return id;
+}
+
+void CanEngine::removeLogSink(SinkId id)
+{
+    eraseSink(m_sinksMutex, m_logSinks, id);
 }
 
 // ---------------------------------------------------------------------------

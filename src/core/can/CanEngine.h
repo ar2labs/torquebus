@@ -35,6 +35,8 @@
 #include "core/can/CanFrame.h"
 #include "core/can/CanStatistics.h"
 #include "core/can/CanTypes.h"
+#include "core/pipeline/GraphDescription.h"
+#include "core/pipeline/NodeCatalog.h"
 #include "core/pipeline/PipelineGraph.h"
 #include "core/trace/TraceStore.h"
 
@@ -62,6 +64,11 @@ using FrameSink = std::function<void(std::span<const CanFrame>)>;
 
 /// Called after each statistics window closes, with one snapshot per channel.
 using StatisticsSink = std::function<void(std::span<const CanStatisticsSnapshot>)>;
+
+/// Receives a line of text from a node - a Lua script's log_message(), or a
+/// script error. Called on the engine thread, so the same rules apply: do not
+/// block, post to the UI thread rather than touching it.
+using LogSink = std::function<void(const std::string& text, bool isError)>;
 
 /// Opaque handle used to remove a sink again.
 using SinkId = std::uint64_t;
@@ -140,6 +147,11 @@ public:
     SinkId addStatisticsSink(StatisticsSink sink);
     void removeStatisticsSink(SinkId id);
 
+    /// Registers a sink for node output - the Output panel's supply. Safe to
+    /// call while running.
+    SinkId addLogSink(LogSink sink);
+    void removeLogSink(SinkId id);
+
     // --- Observation ------------------------------------------------------
 
     /// One snapshot per channel, in channel order.
@@ -198,6 +210,15 @@ public:
 
     /// Replaces the current builder. Takes effect at the next start().
     void setGraphBuilder(GraphBuilder builder);
+
+    /// Builds the project's nodes from a description instead of from C++.
+    ///
+    /// This is the form the canvas and the project file use: the description is
+    /// data the user edited, and the engine turns it into nodes on every start
+    /// through the same builder as above. A copy is taken, so the caller may go
+    /// on editing its own description while a measurement runs - what runs is
+    /// what was set, not whatever the canvas has become since.
+    void setGraphDescription(GraphDescription description, NodeCatalog catalog);
 
     /// The trace store the default graph fills.
     ///
@@ -258,6 +279,7 @@ private:
     mutable std::mutex m_sinksMutex;
     std::vector<Registration<FrameSink>> m_frameSinks;
     std::vector<Registration<StatisticsSink>> m_statisticsSinks;
+    std::vector<Registration<LogSink>> m_logSinks;
     SinkId m_nextSinkId{1};
 
     std::thread m_thread;

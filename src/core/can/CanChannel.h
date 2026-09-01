@@ -85,6 +85,30 @@ public:
     /// Returns how many frames survived filtering.
     std::size_t drain(std::vector<CanFrame>& out, std::size_t maximum);
 
+    // --- The current pass -------------------------------------------------
+    //
+    // Draining consumes. That is exactly right for a queue and exactly wrong
+    // for a graph, where two blocks reading CAN 1 must both see CAN 1 - and
+    // where the engine's own trace path is already one of those readers. Before
+    // the graph runs, the engine drains each channel once into the buffer
+    // below; every source node for that channel then publishes the same view.
+    //
+    // Found by a test, not by reading: a described graph with its own
+    // can.source for CAN 1 answered nothing, because the engine's default
+    // source had taken the batch first. Whichever node ran first won, which is
+    // the worst kind of bug - intermittent, silent, and dependent on the order
+    // the user happened to add blocks in.
+
+    /// Drains the queue into this channel's buffer for the pass about to run.
+    /// Engine thread only, once per pass, before the graph executes.
+    std::size_t beginPass(std::size_t maximumBatchSize);
+
+    /// What beginPass() collected. Valid until the next beginPass().
+    [[nodiscard]] std::span<const CanFrame> passFrames() const noexcept
+    {
+        return {m_passBuffer.data(), m_passCount};
+    }
+
     // --- Filtering --------------------------------------------------------
 
     [[nodiscard]] CanFilterSet& filters() noexcept { return m_filters; }
@@ -112,6 +136,12 @@ private:
 
     FrameQueue m_queue;
     CanFilterSet m_filters;
+
+    /// The frames of the pass currently running. Owned by the channel because
+    /// the channel is what they came from, and because a node must not outlive
+    /// the memory it publishes.
+    std::vector<CanFrame> m_passBuffer;
+    std::size_t m_passCount{0};
     CanStatistics m_statistics;
 
     /// Written by the backend's status callback, read by the engine.

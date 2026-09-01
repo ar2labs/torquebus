@@ -58,24 +58,24 @@ public:
         return kOutputs;
     }
 
-    [[nodiscard]] Result prepare(std::size_t maximumBatchSize) override
-    {
-        m_maximumBatchSize = maximumBatchSize;
-        m_buffer.reserve(maximumBatchSize);
-        return Result::ok();
-    }
+    [[nodiscard]] Result prepare(std::size_t) override { return Result::ok(); }
 
     void process(NodeContext& context) override
     {
-        // drain() applies the channel's filter and updates its statistics, so
-        // the numbers on the status bar stay the numbers of what entered the
-        // graph - not of what the driver happened to hand us.
-        const std::size_t count = m_channel.drain(m_buffer, m_maximumBatchSize);
-        if (count == 0) {
+        // A view of what the engine already drained this pass, not a drain of
+        // its own. Draining here would consume, and two source nodes on one
+        // channel - the user's block plus the engine's default trace path -
+        // would split the frames between them depending on which ran first.
+        //
+        // The filtering and the statistics still happen exactly once, in
+        // CanChannel::beginPass, so the numbers on the status bar remain the
+        // numbers of what entered the graph.
+        const std::span<const CanFrame> frames = m_channel.passFrames();
+        if (frames.empty()) {
             return;
         }
 
-        context.publish<CanFrame>(0, std::span<const CanFrame>{m_buffer.data(), count});
+        context.publish<CanFrame>(0, frames);
     }
 
     [[nodiscard]] CanChannel& channel() noexcept { return m_channel; }
@@ -86,10 +86,6 @@ private:
     };
 
     CanChannel& m_channel;
-    std::vector<CanFrame> m_buffer;
-    // Overwritten by prepare() before the first pass; this value only matters
-    // if someone runs a node outside a compiled graph.
-    std::size_t m_maximumBatchSize{4096};
 };
 
 /// Passes through the frames that match a filter set.
