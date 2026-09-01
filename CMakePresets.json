@@ -30,18 +30,14 @@
     {
       "name": "windows-msvc-debug",
       "displayName": "Windows x64 - MSVC - Ninja - Debug",
-      "description": "Faster builds, but cl.exe must already be on PATH: run this from an 'x64 Native Tools Command Prompt for VS 2022'. From a plain prompt it fails with 'CMAKE_CXX_COMPILER: cl is not a full path' - use windows-msvc-vs instead.",
+      "description": "Faster builds, but needs the MSVC environment: run tools/torquebus-prompt.bat, or an 'x64 Native Tools Command Prompt for VS 2022'. The compiler and linker are pinned to cl and link on purpose - otherwise CMake takes whatever comes first on PATH, and an LLVM or an embedded GNU toolchain wins silently. The linker matters as much as the compiler and is easier to miss, because it fails later and looks unrelated: cl compiles CMake's test file, then GNU ld gets MSVC flags and reports 'cannot find /nologo'. Note that CMAKE_LINKER is cached separately from the compiler, so a build directory configured once with a GNU toolchain keeps the GNU linker even after the compiler is re-detected as MSVC - delete the directory rather than reconfiguring it. PLAN.md section 1 froze MSVC x64.",
       "inherits": "base",
       "generator": "Ninja",
       "architecture": { "value": "x64", "strategy": "external" },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-
-        "//": "Pinned deliberately. Without this, CMake picks whatever C++ compiler comes first on PATH - an installed LLVM silently wins over cl.exe, and you end up building against MSVC-compiled Qt with a GNU-like driver while CI builds with MSVC. PLAN.md section 1 froze MSVC x64.",
         "CMAKE_C_COMPILER": "cl",
         "CMAKE_CXX_COMPILER": "cl",
-
-        "//linker": "The linker needs pinning for the same reason and is easier to miss, because it fails later and looks unrelated: cl.exe compiles the test file, then the link step runs GNU ld with MSVC flags and reports 'cannot find /nologo'. CMAKE_LINKER is a separate cache entry from the compiler, so it also survives the compiler being re-detected in a build directory that was configured once with a GNU toolchain on PATH.",
         "CMAKE_LINKER": "link"
       }
     },
