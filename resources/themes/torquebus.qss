@@ -7,7 +7,8 @@
  * is why TorqueBus Dark and TorqueBus Light share one layout definition and
  * can never drift apart structurally.
  *
- *   @background @panel @panelAlternate @toolbar @border @hover @selection
+ *   @background @panel @panelAlternate @toolbar @tabStrip @separator
+ *   @border @hover @selection
  *   @text @textMuted @textInverted @accent @accentHover
  *   @warning @error @success
  *
@@ -224,27 +225,41 @@ QTabWidget::pane {
  * above the panels. Turning it off means the only line under a tab strip is the
  * one this file draws deliberately.
  */
+/*
+ * The tab strip is DARKER than the panel, and the active tab is exactly the
+ * panel colour. That inversion is the whole effect: the active tab merges into
+ * the content below it and reads as attached to it, while the inactive tabs
+ * stay recessed on the darker strip. Painting the strip lighter - which is the
+ * intuitive choice, and what this file did before - makes every tab read as a
+ * button in a row of buttons instead.
+ *
+ * The accent sits on TOP of the active tab, not underneath. Underneath it would
+ * draw a line exactly where the tab is supposed to join the content, cutting
+ * apart the two things the colour match just joined.
+ */
 QTabBar {
-    background-color: @toolbar;
+    background-color: @tabStrip;
     border: none;
     qproperty-drawBase: 0;
 }
 
-QTabBar::tab:!selected {
-    margin-top: 0px;
-}
-
 QTabBar::tab {
-    background-color: @toolbar;
+    background-color: @tabStrip;
     color: @textMuted;
     border: 1px solid transparent;
-    border-bottom: 2px solid transparent;
-    padding: 4px 11px;
-    margin-right: 1px;
-    min-height: 16px;
+    border-top: 2px solid transparent;
+    padding: 4px 12px;
+    margin: 0px;
+    min-height: 17px;
 }
 
-QTabBar::tab:hover {
+/* A hairline between tabs, so two inactive tabs of the same colour are still
+ * two tabs. On the right only, so it never doubles with the neighbour's. */
+QTabBar::tab:!selected {
+    border-right: 1px solid @separator;
+}
+
+QTabBar::tab:hover:!selected {
     background-color: @hover;
     color: @text;
 }
@@ -252,7 +267,7 @@ QTabBar::tab:hover {
 QTabBar::tab:selected {
     background-color: @panel;
     color: @text;
-    border-bottom: 2px solid @accent;
+    border-top: 2px solid @accent;
 }
 
 /*
@@ -273,7 +288,7 @@ QTabBar::scroller {
 }
 
 QTabBar QToolButton {
-    background-color: @toolbar;
+    background-color: @tabStrip;
     border: 1px solid @border;
     border-radius: 2px;
     margin: 2px 1px;
@@ -287,7 +302,7 @@ QTabBar QToolButton:hover {
 }
 
 QTabBar QToolButton:disabled {
-    background-color: @toolbar;
+    background-color: @tabStrip;
     border-color: @border;
 }
 
@@ -540,11 +555,14 @@ QRadioButton::indicator:checked {
  * showing before.
  */
 
+/* The dock furniture sits on the tab strip's surface: the Stack is the frame
+ * around a tabbed set, and the empty space to the right of the last tab is part
+ * of that strip - it must not be a lighter rectangle hanging off the end. */
 KDDockWidgets--QtWidgets--TitleBar,
 KDDockWidgets--QtWidgets--TabBar,
 KDDockWidgets--QtWidgets--Stack,
 KDDockWidgets--QtWidgets--SideBar {
-    background-color: @toolbar;
+    background-color: @tabStrip;
     border: none;
 }
 
@@ -567,17 +585,18 @@ KDDockWidgets--QtWidgets--DockWidget {
 /*
  * The drag handle between panels.
  *
- * Painted as the window void rather than as a line: at the width a handle
- * needs to be grabbable (5px, set in Docking.cpp) a grey stripe reads as a
- * stray border, while the background colour reads as the gap between panels -
- * which is what it is. The affordance comes from the hover state, the way an
- * editor sash stays invisible until you reach for it.
+ * Painted in its own colour, darker than every panel and darker than the
+ * window void, so the 5px gap reads as a groove cut between two panels. It was
+ * previously painted as the void itself, on the theory that an invisible sash
+ * is a tidy sash - but with the panels flush against it there was nothing to
+ * say the edge could be dragged at all, which is worse than a visible line.
  *
  * Do not solve "this stripe looks wrong" by making it thinner. It is a mouse
  * target; below about 4px it stops being usable, and at 1px it disappears.
+ * If it looks wrong, it is the colour - as it was twice before.
  */
 KDDockWidgets--QtWidgets--Separator {
-    background-color: @background;
+    background-color: @separator;
     border: none;
 }
 

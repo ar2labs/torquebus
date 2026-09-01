@@ -31,8 +31,27 @@ struct Theme final {
     QColor background;      ///< The window itself, behind every panel.
     QColor panel;           ///< Dock widget and view background.
     QColor panelAlternate;  ///< Alternating row background in tables.
-    QColor toolbar;         ///< Toolbars, menu bar, tab bars.
-    QColor border;          ///< Separators, panel outlines, grid lines.
+    QColor toolbar;         ///< Toolbars and the menu bar.
+
+    /// The strip a panel's tabs sit on, behind the tabs themselves.
+    ///
+    /// Deliberately *darker* than `panel`, which is the opposite of what a
+    /// naive reading suggests. The active tab is painted in `panel`, so it
+    /// merges into the content below it and reads as attached to it, while the
+    /// inactive tabs stay recessed on the darker strip. This is how VS Code,
+    /// Visual Studio and every editor with a tab strip do it, and it is what
+    /// makes a tab look like a tab rather than a button in a row of buttons.
+    QColor tabStrip;
+
+    QColor border;          ///< Panel outlines and grid lines.
+
+    /// The draggable gap between two panels.
+    ///
+    /// Darker than the window void, so the gap reads as a groove cut between
+    /// panels rather than as more background. Without a distinct colour the
+    /// splitters vanish: the panels sit flush and nothing says the edge can be
+    /// dragged. Its hover state is the accent, which is the actual affordance.
+    QColor separator;
     QColor hover;
     QColor selection;
 
