@@ -143,3 +143,20 @@ with:
 Do not paste code from proprietary tools, vendor SDK samples under restrictive
 terms, or any source whose licence is incompatible with GPLv3. Interoperating
 with a proprietary API is fine; copying its implementation is not.
+
+### Narrowing through perfect forwarding
+
+`std::make_unique`, `emplace_back` and friends forward their arguments by
+reference, which loses the fact that a literal is a constant. A bare `3` passed
+to a `std::uint8_t` parameter therefore becomes an `int&&` and narrows *inside*
+`<memory>`, where the compiler can no longer see that the value fits:
+
+```cpp
+std::make_unique<LuaEcuNode>(source, name, 3);                 // MSVC C4242
+std::make_unique<LuaEcuNode>(source, name, std::uint8_t{3});   // fine
+```
+
+MSVC reports this at a line in `<memory>`, with your call site appearing only in
+the instantiation trace — so it is easy to read as a standard-library problem.
+GCC and Clang do not warn at all, because they still see the constant. Name the
+type at the call site.

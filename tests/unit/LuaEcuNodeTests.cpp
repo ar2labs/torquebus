@@ -202,8 +202,16 @@ TEST_CASE("emit marks frames as transmitted on the node's channel", "[lua][ecu]"
 
     const auto source =
         graph.addNode(std::make_unique<FixedSource>(std::vector<CanFrame>{frame(0x001, {0})}));
+    // std::uint8_t{3} and not a bare 3: make_unique forwards the argument as
+    // int&&, so the narrowing to the channel's uint8_t happens inside <memory>
+    // where the compiler can no longer see that the value fits. MSVC reports
+    // C4242 at a line in <memory>, with this call site only in the
+    // instantiation trace - noise in a warnings-as-errors CI run, and pointing
+    // at the wrong file. Naming the type at the call site is also just honest
+    // about what the parameter is.
     const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(
-        R"(function on_message() emit(0x7FF, "\1\2") end)", "tx.lua", /*channel=*/3));
+        R"(function on_message() emit(0x7FF, "\1\2") end)", "tx.lua",
+        /*channel=*/std::uint8_t{3}));
     const auto sink = graph.addNode(std::make_unique<Collector>());
 
     REQUIRE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
