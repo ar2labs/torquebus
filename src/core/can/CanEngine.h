@@ -1,0 +1,273 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// TorqueBus Studio
+// Copyright (C) TorqueBus contributors
+//
+// The heart of the measurement.
+//
+// One thread owns the whole consumer side: it drains every channel's queue on
+// a fixed cadence and then runs the compiled pipeline graph, which is where
+// filtering, decoding, logging and display all live as nodes.
+//
+// Since v0.4 the graph is the data path rather than a picture of it (rule #11).
+// A channel is a source node, a panel is a sink node, and anything in between -
+// DBC decoder, J1939 transport, Lua ECU - is a transform. addFrameSink() is
+// kept as sugar for the common "give me the raw frames" case.
+//
+// Why a single dispatch thread rather than one per channel:
+//
+//   - Frames from different channels must reach the trace in a consistent
+//     order relative to each other. Independent threads would interleave
+//     non-deterministically and make a recording unreproducible.
+//   - Sinks then need no locking of their own. A logger writing a file and a
+//     trace store appending to a buffer are both called from the same thread,
+//     always.
+//   - One thread is enough: the per-frame work is a filter test and two
+//     increments. The queues absorb the burstiness.
+//
+// The engine is Qt-free (rule #3). The UI adapter that marshals batches onto
+// the GUI thread lives in the ui layer, not here.
+
+#pragma once
+
+#include "core/Result.h"
+#include "core/can/CanChannel.h"
+#include "core/can/CanFrame.h"
+#include "core/can/CanStatistics.h"
+#include "core/can/CanTypes.h"
+#include "core/pipeline/PipelineGraph.h"
+#include "core/trace/TraceStore.h"
+
+#include <atomic>
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <span>
+#include <string>
+#include <utility>
+#include <thread>
+#include <vector>
+
+namespace torquebus {
+
+/// Receives batches of filtered frames on the engine thread.
+///
+/// Contract for every sink: do not block, do not throw, and do not call back
+/// into the engine. A sink that needs to reach another thread (the UI, for
+/// instance) posts to it and returns.
+using FrameSink = std::function<void(std::span<const CanFrame>)>;
+
+/// Called after each statistics window closes, with one snapshot per channel.
+using StatisticsSink = std::function<void(std::span<const CanStatisticsSnapshot>)>;
+
+/// Opaque handle used to remove a sink again.
+using SinkId = std::uint64_t;
+
+class CanEngine final {
+public:
+    struct Configuration final {
+        /// How often the engine drains the queues. 200 Hz keeps latency to the
+        /// trace imperceptible while batching enough to stay cheap.
+        std::chrono::microseconds dispatchInterval{5000};
+
+        /// Upper bound on frames drained from one channel in one pass, so a
+        /// single saturated channel cannot starve the others.
+        std::size_t maximumBatchSize{4096};
+
+        /// How often statistics windows close and statistics sinks are called.
+        std::chrono::milliseconds statisticsInterval{100};
+    };
+
+    CanEngine();
+    explicit CanEngine(Configuration configuration);
+    ~CanEngine();
+
+    CanEngine(const CanEngine&) = delete;
+    CanEngine& operator=(const CanEngine&) = delete;
+    CanEngine(CanEngine&&) = delete;
+    CanEngine& operator=(CanEngine&&) = delete;
+
+    // --- Channel configuration (only while stopped) -----------------------
+
+    /// Binds a backend to the next free application channel and returns its
+    /// index. Fails while a measurement is running: rebinding hardware
+    /// underneath a live trace is never what anyone means.
+    [[nodiscard]] Result addChannel(std::unique_ptr<ICanBackend> backend,
+                                    CanChannelConfig config,
+                                    std::uint8_t* assignedIndex = nullptr);
+
+    /// Removes every channel. Only valid while stopped.
+    void clearChannels();
+
+    [[nodiscard]] std::size_t channelCount() const;
+
+    /// Nullptr when `index` is not bound.
+    [[nodiscard]] CanChannel* channel(std::uint8_t index);
+    [[nodiscard]] const CanChannel* channel(std::uint8_t index) const;
+
+    // --- Measurement ------------------------------------------------------
+
+    /// Opens and starts every channel, then starts the dispatch thread.
+    ///
+    /// All-or-nothing: if any channel fails to start, the ones already started
+    /// are stopped again and the error is returned. A half-started measurement
+    /// silently missing one bus is the worst possible outcome.
+    [[nodiscard]] Result start();
+
+    /// Stops the dispatch thread, then every channel. Performs one final drain
+    /// so that frames already in the queues still reach the sinks.
+    void stop();
+
+    [[nodiscard]] bool isRunning() const noexcept
+    {
+        return m_running.load(std::memory_order_acquire);
+    }
+
+    // --- Transmission -----------------------------------------------------
+
+    /// Sends on the given application channel.
+    [[nodiscard]] Result transmit(std::uint8_t applicationChannel, const CanFrame& frame);
+
+    // --- Sinks ------------------------------------------------------------
+
+    /// Registers a frame sink. Safe to call while running.
+    SinkId addFrameSink(FrameSink sink);
+    void removeFrameSink(SinkId id);
+
+    SinkId addStatisticsSink(StatisticsSink sink);
+    void removeStatisticsSink(SinkId id);
+
+    // --- Observation ------------------------------------------------------
+
+    /// One snapshot per channel, in channel order.
+    [[nodiscard]] std::vector<CanStatisticsSnapshot> statistics() const;
+
+    /// Total frames delivered to sinks since the measurement started.
+    [[nodiscard]] std::uint64_t deliveredFrames() const noexcept
+    {
+        return m_deliveredFrames.load(std::memory_order_relaxed);
+    }
+
+    /// Runs one dispatch pass synchronously, on the calling thread.
+    ///
+    /// Exists for tests: it makes the pipeline deterministic without sleeping
+    /// on a background thread. Never call it while the engine is running.
+    std::size_t pumpOnce();
+
+    // --- The pipeline graph -----------------------------------------------
+    //
+    // The graph is the data path (rule #11), not a view of it. addFrameSink()
+    // above is sugar: it adds a FrameSinkNode and wires it to every channel
+    // source, which is the shape almost every consumer wants and saves the
+    // caller from touching the graph at all.
+    //
+    // Reach for the graph directly when a consumer needs to sit behind a
+    // transform rather than on the raw frames.
+
+    /// The graph this engine executes. Editing it while running does nothing:
+    /// stop the measurement first (see the note on PipelineGraph).
+    [[nodiscard]] PipelineGraph& graph() noexcept { return m_graph; }
+    [[nodiscard]] const PipelineGraph& graph() const noexcept { return m_graph; }
+
+    /// The source node standing for one application channel, so a caller can
+    /// wire a transform to it. Invalid before start() builds the sources.
+    [[nodiscard]] NodeId sourceNode(std::uint8_t applicationChannel) const;
+
+    /// Adds the project's own nodes to the graph the engine has just built.
+    ///
+    /// A callback and not a list of nodes, because start() rebuilds the graph
+    /// from scratch every time - a node handed over once would be destroyed on
+    /// the second start, and the user would find their ECUs gone after the
+    /// first stop. Re-running the builder means the graph is reconstructed the
+    /// same way every time, from the project, which is the only version that
+    /// stays correct when a channel is added or removed between runs.
+    ///
+    /// The consequence is worth stating: every start recreates the nodes, so a
+    /// Lua ECU reloads its script and resets its state on Start. That is what
+    /// pressing Start should mean, and it is why script edits take effect
+    /// without restarting TorqueBus.
+    ///
+    /// `sources` are the channel source nodes in channel order, so the builder
+    /// can wire to `[CAN 1]` without looking anything up. Returning a failed
+    /// Result fails the start, with the message the user sees.
+    using GraphBuilder =
+        std::function<Result(PipelineGraph& graph, std::span<const NodeId> sources)>;
+
+    /// Replaces the current builder. Takes effect at the next start().
+    void setGraphBuilder(GraphBuilder builder);
+
+    /// The trace store the default graph fills.
+    ///
+    /// This is the implicit default graph from ARCHITECTURE.md section 3b made
+    /// concrete: detecting channels is enough to get `[CAN 1] -> [Trace]`
+    /// running, with no canvas visit required. The panel reads this store; it
+    /// does not create one.
+    [[nodiscard]] TraceStore& traceStore() noexcept { return m_traceStore; }
+    [[nodiscard]] const TraceStore& traceStore() const noexcept { return m_traceStore; }
+
+    /// A registered sink and the handle that removes it again. Public only so
+    /// that the dispatch helpers in the .cpp can name it.
+    template <typename SinkType>
+    struct Registration final {
+        SinkId id{};
+        SinkType sink;
+    };
+
+private:
+    void dispatchLoop();
+    std::size_t dispatchPass();
+    void publishStatistics(std::uint64_t elapsedNs);
+
+    /// Builds and compiles the graph for the current channels and sinks.
+    [[nodiscard]] Result buildGraph();
+
+    /// Frames the sink nodes have delivered so far, summed. Called before and
+    /// after a pass to work out what that pass produced.
+    [[nodiscard]] std::uint64_t totalSourceFrames() const;
+
+    Configuration m_configuration;
+
+    mutable std::mutex m_channelsMutex;
+    std::vector<std::unique_ptr<CanChannel>> m_channels;
+
+    /// The compiled data path. Rebuilt by start(), which creates one source
+    /// node per channel and wires the registered sinks to them.
+    PipelineGraph m_graph;
+
+    /// Re-run on every start; see setGraphBuilder().
+    GraphBuilder m_graphBuilder;
+
+    /// Source node per application channel, indexed by channel.
+    std::vector<NodeId> m_sourceNodes;
+
+    /// Sink id -> the node standing for it, so removeFrameSink() can take it
+    /// back out of the graph.
+    std::vector<std::pair<SinkId, NodeId>> m_sinkNodes;
+
+    /// The trace, owned by the engine rather than by the panel or the graph.
+    ///
+    /// It has to outlive both: closing the Trace panel must not discard the
+    /// measurement (the same reason closing it must not stop the logger, rule
+    /// #7), and the graph is rebuilt on every start. The nodes that write into
+    /// it are created per channel and hold a reference.
+    TraceStore m_traceStore;
+
+    mutable std::mutex m_sinksMutex;
+    std::vector<Registration<FrameSink>> m_frameSinks;
+    std::vector<Registration<StatisticsSink>> m_statisticsSinks;
+    SinkId m_nextSinkId{1};
+
+    std::thread m_thread;
+    std::atomic<bool> m_running{false};
+    std::atomic<std::uint64_t> m_deliveredFrames{0};
+
+    /// Reused across passes so a steady-state dispatch allocates nothing.
+    /// Frame buffers now live in the nodes themselves; only the statistics
+    /// snapshot is still gathered here.
+    std::vector<CanStatisticsSnapshot> m_statisticsScratch;
+};
+
+} // namespace torquebus
