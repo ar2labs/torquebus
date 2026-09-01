@@ -1406,6 +1406,25 @@ Divisão das etapas de desenvolvimento:
 > custa ~260 ns por frame, ou seja, dá para ter dezenas delas com o orçamento
 > praticamente intacto.
 >
+> **Em andamento no v0.6:** antes do canvas vem a peça que faltava para ele
+> existir — o `NodeCatalog` (nome de tipo + parâmetros → nó, com portas e
+> parâmetros declarados sem instanciar nada) e a `GraphDescription` (o grafo do
+> usuário como dado: ids, tipos, ajustes, fios e posições). Até agora um nó só
+> podia ser criado por código C++ que citava a classe dele; canvas, arquivo de
+> projeto e script de automação precisam todos da mesma coisa — dado.
+>
+> Isso também adianta boa parte do v0.13: o `.tbsproj` passa a ser a serialização
+> de uma `GraphDescription`, e não um formato novo.
+>
+> Um defeito real apareceu aí, achado por teste e não por leitura: `drain()`
+> consome, então dois nós `can.source` no mesmo canal roubavam frames um do
+> outro — inclusive o caminho padrão de trace do próprio engine. Quem rodasse
+> primeiro ganhava, em silêncio, dependendo da ordem em que o usuário tivesse
+> adicionado os blocos. Agora o engine drena cada canal uma vez por passada e
+> todo `can.source` publica a mesma visão. Medido depois da mudança: 600.000
+> frames em 3,106 s — **193.205 frames/s, zero perda**, contra uma meta de
+> 100.000.
+>
 > O detalhe de cada marco original continua abaixo e ainda vale como
 > especificação de conteúdo — o que mudou foi a ordem e o fato de cada painel
 > passar a ser um nó em vez de um consumidor fixo.
