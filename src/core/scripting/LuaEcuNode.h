@@ -37,6 +37,7 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <span>
 #include <string>
@@ -82,6 +83,20 @@ public:
 
     void setLogHandler(LogHandler handler) { m_log = std::move(handler); }
 
+    /// Settings the script reads from its `parameters` global.
+    ///
+    /// What makes a script reusable rather than a one-off. Without it, every
+    /// number a script needs - its identifier, its cycle time, its starting
+    /// value - is a constant in the file, and running the same behaviour twice
+    /// with different numbers means copying the file. One temperature sensor
+    /// script becomes four sensors on four identifiers instead.
+    ///
+    /// Taken from cansim, where twenty scripts already read exactly this.
+    void setScriptParameters(std::map<std::string, LuaValue> parameters)
+    {
+        m_scriptParameters = std::move(parameters);
+    }
+
     /// Stops after this many consecutive errors.
     ///
     /// A script that throws on every frame would otherwise write 150,000 log
@@ -124,6 +139,7 @@ private:
 
     std::unique_ptr<LuaRuntime> m_lua;
     LogHandler m_log;
+    std::map<std::string, LuaValue> m_scriptParameters;
 
     /// Frames the script emitted during the current pass. A member, reused, so
     /// a pass allocates nothing (rule #12).

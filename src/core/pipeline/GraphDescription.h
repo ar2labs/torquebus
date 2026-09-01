@@ -50,6 +50,18 @@ struct NodeDescription final {
     double x{0.0};
     double y{0.0};
 
+    /// A node the user has switched off.
+    ///
+    /// Kept in the project, skipped when building - along with every wire that
+    /// touches it. Deleting a node to try the measurement without it, then
+    /// drawing it again afterwards, loses its settings and its position; this
+    /// is the same experiment without the loss.
+    ///
+    /// Anything downstream of a disabled node simply receives nothing. That is
+    /// the honest reading of "off" and it is what cansim's `enabled` flag
+    /// means, so the two behave alike.
+    bool enabled{true};
+
     [[nodiscard]] friend bool operator==(const NodeDescription&, const NodeDescription&) = default;
 };
 

@@ -95,6 +95,29 @@ timestamps are on, which is what makes comparing them meaningful.
 |---|---|
 | `node_name` | The node's name, as it appears in the UI |
 | `channel` | The application channel `emit` stamps onto frames |
+| `parameters` | The node's settings, as a table |
+
+### `parameters` — what makes a script reusable
+
+Every setting a script needs should come from `parameters`, not from a constant
+at the top of the file. Otherwise one temperature sensor is one sensor, and four
+of them are four copies of the same file that have to be edited together.
+
+```lua
+local can_id   = parameters.can_id or 0x100
+local interval = parameters.update_interval or 1000
+```
+
+`parameters` is always defined, even when empty, so the `or` form works without
+first testing that the table exists — which also means the script runs
+unconfigured while you are writing it.
+
+Anything set on the node lands here, except the three names the node itself
+consumes: `script`, `scriptPath` and `channel`. Booleans, integers, reals and
+strings all survive the crossing with their types intact.
+
+This is cansim's convention, unchanged, so scripts move across without editing
+that part.
 
 ## The sandbox
 
@@ -161,6 +184,16 @@ not accept:
 The forty lines of hand-rolled IEEE 754 that open several cansim scripts
 collapse to one `string.pack` call, which is also correct for denormals and
 infinities and faster than the arithmetic version.
+
+## Switching a node off
+
+A node can be disabled rather than deleted. It stays in the project with its
+settings and its position; it is skipped when the graph is built, along with
+every wire that touches it, and anything downstream of it simply receives
+nothing.
+
+Use it to try a measurement without one ECU. Deleting the node and drawing it
+again is the same experiment, minus its configuration.
 
 ## Examples
 

@@ -29,6 +29,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -48,6 +49,14 @@ struct LuaValue final {
     double number{};
     std::int64_t integer{};
     std::string text;
+
+    static LuaValue fromBoolean(bool value)
+    {
+        LuaValue result;
+        result.type = Type::Boolean;
+        result.boolean = value;
+        return result;
+    }
 
     static LuaValue fromInteger(std::int64_t value)
     {
@@ -115,6 +124,17 @@ public:
 
     /// Sets a global to a value.
     void setGlobal(std::string_view name, const LuaValue& value);
+
+    /// Sets a global table of named values.
+    ///
+    /// This is how a script becomes reusable. Without it every setting a
+    /// script needs - which identifier, which cycle time, which starting
+    /// temperature - has to be a constant in the file, and running the same
+    /// behaviour twice with different numbers means copying the file. cansim
+    /// established the shape and twenty scripts read it:
+    ///
+    ///     local can_id = parameters.can_id
+    void setGlobalTable(std::string_view name, const std::map<std::string, LuaValue>& values);
 
     /// The state, for bindings that need it. Callers outside the scripting
     /// layer have no business with this.

@@ -17,8 +17,10 @@
 -- a byte string. string.byte(data, n) replaces msg.data[n], with the same
 -- 1-based indexing, and string.unpack replaces the hand-written byte shuffling.
 
-local kModuleId = 0x01
-local kBroadcastId = 0xFF
+-- A planter has several of these, each with its own module id, so the id is a
+-- parameter and not a constant - the same script is every motor on the bus.
+local kModuleId = parameters.module_id or 0x01
+local kBroadcastId = parameters.broadcast_id or 0xFF
 
 -- Commands
 local kCmdSeedSpeed = 0x01
@@ -40,8 +42,8 @@ local module_status = 1       -- 1 = running normally
 
 local firmware_version = {1, 0, 0}
 
-local kTickMs = 20
-local kStatusIntervalUs = 500 * 1000
+local kTickMs = parameters.tick_ms or 20
+local kStatusIntervalUs = (parameters.status_interval_ms or 500) * 1000
 
 -- Against the clock, not a tick counter: on_timer runs at most once per
 -- dispatch pass, so counting ticks drifts slow whenever a tick is late. See

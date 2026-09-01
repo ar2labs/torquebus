@@ -215,6 +215,36 @@ void LuaRuntime::setGlobal(std::string_view name, const LuaValue& value)
     lua_setglobal(m_state, zeroTerminated.c_str());
 }
 
+void LuaRuntime::setGlobalTable(std::string_view name,
+                                const std::map<std::string, LuaValue>& values)
+{
+    if (m_state == nullptr) {
+        return;
+    }
+
+    // createtable with the final size rather than newtable: the table is built
+    // once, its size is known, and pre-sizing avoids the rehash-on-growth that
+    // a table of a dozen settings would otherwise do three times.
+    lua_createtable(m_state, 0, static_cast<int>(values.size()));
+
+    for (const auto& [key, value] : values) {
+        switch (value.type) {
+        case LuaValue::Type::Nil:     lua_pushnil(m_state); break;
+        case LuaValue::Type::Boolean: lua_pushboolean(m_state, value.boolean ? 1 : 0); break;
+        case LuaValue::Type::Number:  lua_pushnumber(m_state, value.number); break;
+        case LuaValue::Type::Integer: lua_pushinteger(m_state, value.integer); break;
+        case LuaValue::Type::String:
+            lua_pushlstring(m_state, value.text.data(), value.text.size());
+            break;
+        }
+
+        lua_setfield(m_state, -2, key.c_str());
+    }
+
+    const std::string zeroTerminated{name};
+    lua_setglobal(m_state, zeroTerminated.c_str());
+}
+
 std::size_t LuaRuntime::memoryBytes() const
 {
     if (m_state == nullptr) {

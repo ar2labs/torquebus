@@ -67,6 +67,10 @@ Result LuaEcuNode::prepare(std::size_t maximumBatchSize)
     m_lua->setGlobal("node_name", LuaValue::fromString(m_name));
     m_lua->setGlobal("channel", LuaValue::fromInteger(m_transmitChannel));
 
+    // Always defined, even when empty, so a script can write
+    // `parameters.can_id or 0x100` without first testing that the table exists.
+    m_lua->setGlobalTable("parameters", m_scriptParameters);
+
     if (Result result = m_lua->load(m_source, m_name); result.failed()) {
         // A script that will not compile stops the measurement from starting,
         // rather than surfacing on the first frame. The Lua message already

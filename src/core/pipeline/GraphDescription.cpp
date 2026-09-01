@@ -128,6 +128,13 @@ Result GraphDescription::validate(const NodeCatalog& catalog) const
                             toString(producing), to->id, toString(consuming)));
         }
 
+        if (!from->enabled || !to->enabled) {
+            // Not counted towards the one-wire-per-input rule: the wire will
+            // not exist at build time, so refusing the graph over it would
+            // refuse a graph that runs perfectly well.
+            continue;
+        }
+
         if (++arrivals[{to->id, edge.toPort}] > 1) {
             return Result::error(
                 ErrorCode::InvalidArgument,
@@ -155,6 +162,10 @@ Result GraphDescription::build(const NodeCatalog& catalog,
     std::map<std::string, NodeId> built;
 
     for (const NodeDescription& node : m_nodes) {
+        if (!node.enabled) {
+            continue;
+        }
+
         std::unique_ptr<IPipelineNode> instance;
 
         if (Result result =
@@ -173,11 +184,17 @@ Result GraphDescription::build(const NodeCatalog& catalog,
     }
 
     for (const EdgeDescription& edge : m_edges) {
-        const NodeId from = built.at(edge.fromNode);
-        const NodeId to = built.at(edge.toNode);
+        // A wire touching a disabled node is skipped rather than being an
+        // error: switching a node off must not require rewiring around it.
+        const auto from = built.find(edge.fromNode);
+        const auto to = built.find(edge.toNode);
 
-        if (Result result = graph.connect(PortRef{from, edge.fromPort},
-                                          PortRef{to, edge.toPort});
+        if (from == built.end() || to == built.end()) {
+            continue;
+        }
+
+        if (Result result = graph.connect(PortRef{from->second, edge.fromPort},
+                                          PortRef{to->second, edge.toPort});
             result.failed()) {
             return result;
         }

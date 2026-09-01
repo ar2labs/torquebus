@@ -29,21 +29,27 @@
 --     silently, and further the busier the machine. Reading the clock instead
 --     costs one call and cannot drift.
 
-local vehicle_speed = 0.0  -- km/h
-local engine_temp = 70.0   -- degrees C
+-- Settings come from the node, not from constants here, so one script can be
+-- two vehicles on two identifiers. `or` gives each a default, which means the
+-- script also runs unconfigured - useful while you are writing it.
+local kVehicleSpeedId = parameters.speed_id or 0x101
+local kEngineTempId = parameters.temp_id or 0x102
 
-local kVehicleSpeedId = 0x101
-local kEngineTempId = 0x102
+local kTickMs = parameters.tick_ms or 100
+local kSpeedIntervalUs = (parameters.speed_interval_ms or 100) * 1000
+local kTempIntervalUs = (parameters.temp_interval_ms or 1000) * 1000
 
-local kTickMs = 100
-local kSpeedIntervalUs = 100 * 1000
-local kTempIntervalUs = 1000 * 1000
+local kAcceleration = parameters.acceleration or 1.5   -- km/h per tick
+local kTopSpeed = parameters.top_speed or 90.0
+
+local vehicle_speed = parameters.initial_speed or 0.0  -- km/h
+local engine_temp = parameters.initial_temp or 70.0    -- degrees C
 
 local next_speed_us = 0
 local next_temp_us = 0
 
 function on_enable()
-    log_message("vehicle ECU ready")
+    log_message(string.format("vehicle ECU ready, speed on 0x%03X", kVehicleSpeedId))
     set_timer(kTickMs)
 end
 
@@ -56,8 +62,8 @@ function on_timer()
 
     -- A gentle drive cycle, so the plot has something to show: accelerate to
     -- 90 km/h, then coast back down.
-    vehicle_speed = vehicle_speed + 1.5
-    if vehicle_speed > 90.0 then
+    vehicle_speed = vehicle_speed + kAcceleration
+    if vehicle_speed > kTopSpeed then
         vehicle_speed = 0.0
     end
 
