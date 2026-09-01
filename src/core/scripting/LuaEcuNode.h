@@ -1,0 +1,144 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// TorqueBus Studio
+// Copyright (C) TorqueBus contributors
+//
+// A simulated ECU: one Lua script, one node on the canvas.
+//
+// The lifecycle is taken verbatim from cansim, which has twenty working ECUs
+// behind it. That is not laziness - it is the difference between a contract
+// someone has lived with and one invented at a keyboard:
+//
+//     function on_enable()          -- set up
+//     function on_disable()         -- tear down
+//     function on_timer()           -- periodic behaviour
+//     function on_message(frame)    -- react to the bus
+//
+// and the calls a script can make back:
+//
+//     emit(id, data, options)       -- put a frame on this node's output
+//     set_timer(milliseconds)       -- how often on_timer runs
+//     log_message(text)             -- a line in the Output panel
+//     get_time_us()                 -- microseconds since the measurement began
+//
+// What changed from cansim, and why: `emit` does not reach the bus. It puts a
+// frame on this node's *output port*, and where that goes is the graph's
+// business. An ECU wired to nothing is a valid, testable thing; an ECU wired to
+// a filter, a trace and a channel is three different experiments with no change
+// to the script.
+
+#pragma once
+
+#include "core/can/CanFrame.h"
+#include "core/pipeline/PipelineNode.h"
+#include "core/scripting/LuaRuntime.h"
+
+#include <array>
+#include <chrono>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <span>
+#include <string>
+#include <vector>
+
+namespace torquebus {
+
+class LuaEcuNode final : public IPipelineNode {
+public:
+    /// Where a script's log_message() and any script error go. Called on the
+    /// executor thread, so it obeys the same rules as any sink: do not block.
+    using LogHandler = std::function<void(const std::string& text, bool isError)>;
+
+    /// `source` is the script itself, not a path - the project file carries
+    /// scripts inline or by reference, and this node should not care which.
+    LuaEcuNode(std::string source, std::string name, std::uint8_t transmitChannel = 0);
+    ~LuaEcuNode() override;
+
+    [[nodiscard]] std::string_view typeName() const noexcept override { return "lua.ecu"; }
+    [[nodiscard]] std::string displayName() const override { return m_name; }
+
+    [[nodiscard]] std::span<const PortDescriptor> inputs() const noexcept override
+    {
+        return kInputs;
+    }
+
+    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override
+    {
+        return kOutputs;
+    }
+
+    /// Compiles the script, opens the sandbox and runs on_enable().
+    ///
+    /// A script that fails to compile fails the graph compile, with the Lua
+    /// error and its line number - so a typo stops a measurement from starting
+    /// rather than surfacing on the first frame.
+    [[nodiscard]] Result prepare(std::size_t maximumBatchSize) override;
+
+    void process(NodeContext& context) override;
+
+    /// Runs on_disable().
+    void finish() override;
+
+    void setLogHandler(LogHandler handler) { m_log = std::move(handler); }
+
+    /// Stops after this many consecutive errors.
+    ///
+    /// A script that throws on every frame would otherwise write 150,000 log
+    /// lines a second and drown everything useful. After the limit the node
+    /// says so once and goes quiet; the measurement continues without it,
+    /// because one broken simulated ECU should not end a recording.
+    static constexpr int kErrorLimit = 5;
+
+    [[nodiscard]] bool isFaulted() const noexcept { return m_faulted; }
+
+    /// Frames the script has produced since the measurement started.
+    [[nodiscard]] std::uint64_t emittedFrames() const noexcept { return m_emitted; }
+
+    /// Memory the script's interpreter is holding. A number worth watching per
+    /// ECU: a script that leaks a table every cycle is invisible until it isn't.
+    [[nodiscard]] std::size_t memoryBytes() const;
+
+private:
+    // --- Bindings, called from Lua ---------------------------------------
+    static int luaEmit(lua_State* state);
+    static int luaSetTimer(lua_State* state);
+    static int luaLogMessage(lua_State* state);
+    static int luaGetTimeMicroseconds(lua_State* state);
+
+    [[nodiscard]] static LuaEcuNode* self(lua_State* state);
+
+    void report(const std::string& text, bool isError);
+    void handleScriptFailure(const Result& result, std::string_view during);
+
+    static constexpr std::array<PortDescriptor, 1> kInputs{
+        PortDescriptor{"frames", PortType::Frames},
+    };
+    static constexpr std::array<PortDescriptor, 1> kOutputs{
+        PortDescriptor{"frames", PortType::Frames},
+    };
+
+    std::string m_source;
+    std::string m_name;
+    std::uint8_t m_transmitChannel;
+
+    std::unique_ptr<LuaRuntime> m_lua;
+    LogHandler m_log;
+
+    /// Frames the script emitted during the current pass. A member, reused, so
+    /// a pass allocates nothing (rule #12).
+    std::vector<CanFrame> m_outgoing;
+
+    bool m_hasOnMessage{false};
+    bool m_hasOnTimer{false};
+
+    std::chrono::steady_clock::time_point m_started;
+    std::chrono::steady_clock::time_point m_lastTimer;
+    std::chrono::milliseconds m_timerInterval{0};
+
+    std::uint64_t m_emitted{0};
+    int m_consecutiveErrors{0};
+    bool m_faulted{false};
+};
+
+} // namespace torquebus
