@@ -1,0 +1,73 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# tag v0.x.y -> build Windows x64 -> package -> GitHub Release
+# (PLAN.md section 33).
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Windows x64 release
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.11.2
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtserialbus
+          cache: true
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - uses: lukka/get-cmake@latest
+
+      - name: Configure and build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DTORQUEBUS_BUILD_TESTS=ON
+          cmake --build build --parallel
+
+      - name: Test
+        working-directory: build
+        run: ctest --output-on-failure --label-exclude hardware
+
+      - name: Package
+        run: |
+          cmake --install build --prefix dist
+          windeployqt --release --no-translations dist/TorqueBusStudio.exe
+          Copy-Item LICENSE dist/LICENSE.txt
+          Copy-Item README.md dist/README.md
+          Compress-Archive -Path dist/* -DestinationPath "TorqueBus-Studio-${{ github.ref_name }}-win64.zip"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: TorqueBus-Studio-${{ github.ref_name }}-win64.zip
+          generate_release_notes: true
+          body: |
+            TorqueBus Studio ${{ github.ref_name }}
+
+            Windows 11 x64 build. Requires the vendor drivers for the interfaces
+            you intend to use:
+
+            - Kvaser: Kvaser drivers + CANlib
+            - PEAK-System: PCAN-Basic (PCANBasic.dll) + device driver
+
+            The virtual backend works with no driver installed at all.
+
+            Licensed under the GNU General Public License v3.0 or later.

@@ -1,0 +1,61 @@
+name: Bug report
+description: Something in TorqueBus Studio does not work as expected
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Configure CAN 1 as ...
+        3. Start the measurement
+        4. ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: TorqueBus Studio version
+      placeholder: "v0.1.0, or a commit hash"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: hardware
+    attributes:
+      label: CAN interface
+      options:
+        - Virtual bus (no hardware)
+        - Kvaser (virtual channel)
+        - Kvaser (physical)
+        - PCAN-USB
+        - PCAN-USB FD
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        Windows version:
+        Qt version:
+        Driver / SDK version:
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output panel contents
+      description: Paste the relevant lines from the Output panel.
+      render: text

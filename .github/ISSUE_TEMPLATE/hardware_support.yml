@@ -1,0 +1,40 @@
+name: Hardware support request
+description: Ask for a CAN interface to be supported
+labels: ["enhancement", "driver"]
+body:
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      placeholder: "Vector VN1610, IXXAT USB-to-CAN V2, ..."
+    validations:
+      required: true
+
+  - type: input
+    id: sdk
+    attributes:
+      label: Vendor SDK / API
+      placeholder: "XL Driver Library, VCI V4, SocketCAN, J2534, ..."
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: capabilities
+    attributes:
+      label: Capabilities
+      options:
+        - label: Classic CAN
+        - label: CAN FD
+        - label: Bit rate switch
+        - label: Listen-only mode
+        - label: Hardware timestamps
+        - label: Error frames
+        - label: Hardware filters
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I have this hardware and can test a backend
+        - label: I am willing to implement the backend
