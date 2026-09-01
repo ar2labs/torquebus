@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// TorqueBus Studio
+// Copyright (C) TorqueBus contributors
+//
+// This program is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. See the LICENSE file at the root of this repository.
+
+#include "app/ApplicationContext.h"
+#include "services/SettingsStore.h"
+#include "ui/mainwindow/Docking.h"
+#include "ui/mainwindow/MainWindow.h"
+
+#include <QApplication>
+#include <QCommandLineParser>
+#include <QIcon>
+
+namespace {
+
+constexpr auto kOrganizationName = "TorqueBus";
+constexpr auto kOrganizationDomain = "torquebus.org";
+constexpr auto kApplicationName = "TorqueBus Studio";
+
+} // namespace
+
+int main(int argc, char* argv[])
+{
+    QApplication application{argc, argv};
+
+    QCoreApplication::setOrganizationName(QString::fromLatin1(kOrganizationName));
+    QCoreApplication::setOrganizationDomain(QString::fromLatin1(kOrganizationDomain));
+    QCoreApplication::setApplicationName(QString::fromLatin1(kApplicationName));
+    QCoreApplication::setApplicationVersion(QString::fromLatin1(TORQUEBUS_VERSION));
+
+    QGuiApplication::setWindowIcon(QIcon{QStringLiteral(":/icons/torquebus.svg")});
+
+    QCommandLineParser parser;
+    parser.setApplicationDescription(
+        QCoreApplication::translate("main", "Open Automotive Network & Diagnostics Workbench"));
+    parser.addHelpOption();
+    parser.addVersionOption();
+
+    const QCommandLineOption resetLayoutOption{
+        QStringList{QStringLiteral("reset-layout")},
+        QCoreApplication::translate("main",
+                                    "Start with the default window layout, ignoring the "
+                                    "one saved by the previous session.")};
+    parser.addOption(resetLayoutOption);
+
+    parser.addPositionalArgument(
+        QCoreApplication::translate("main", "project"),
+        QCoreApplication::translate("main", "A .tbsproj project file to open on startup."));
+
+    parser.process(application);
+
+    torquebus::app::ApplicationContext context;
+    context.initialize();
+
+    if (parser.isSet(resetLayoutOption)) {
+        context.settings().remove(
+            QString::fromLatin1(torquebus::services::keys::kDockLayout));
+    }
+
+    // The docking framework must be configured after QApplication and before
+    // the first dock widget is created.
+    torquebus::ui::configureDockingSystem();
+
+    torquebus::ui::MainWindow window{context.settings(), context.themes()};
+    window.show();
+
+    return QApplication::exec();
+}
