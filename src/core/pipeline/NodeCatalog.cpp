@@ -283,6 +283,42 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                 std::move(source), std::move(name),
                 static_cast<std::uint8_t>(parameters.integer("channel", 0)));
 
+            // Everything the node itself did not consume becomes the script's
+            // `parameters` table. That is what makes one script reusable: a
+            // temperature sensor with can_id and update_interval as parameters
+            // is four sensors on four identifiers, not four copies of a file.
+            //
+            // The three reserved names are excluded because they configure the
+            // node rather than the behaviour, and a script reading
+            // parameters.script would be reading its own source back.
+            static constexpr std::string_view kReserved[] = {"script", "scriptPath", "channel"};
+
+            std::map<std::string, LuaValue> scriptParameters;
+
+            for (const auto& [key, value] : parameters.values()) {
+                if (std::find(std::begin(kReserved), std::end(kReserved), key)
+                    != std::end(kReserved)) {
+                    continue;
+                }
+
+                switch (value.type()) {
+                case ParameterValue::Type::Boolean:
+                    scriptParameters.emplace(key, LuaValue::fromBoolean(value.asBoolean()));
+                    break;
+                case ParameterValue::Type::Integer:
+                    scriptParameters.emplace(key, LuaValue::fromInteger(value.asInteger()));
+                    break;
+                case ParameterValue::Type::Real:
+                    scriptParameters.emplace(key, LuaValue::fromNumber(value.asReal()));
+                    break;
+                case ParameterValue::Type::Text:
+                    scriptParameters.emplace(key, LuaValue::fromString(value.asText()));
+                    break;
+                }
+            }
+
+            node->setScriptParameters(std::move(scriptParameters));
+
             if (context.log) {
                 node->setLogHandler(context.log);
             }

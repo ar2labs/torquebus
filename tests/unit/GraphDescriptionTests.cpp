@@ -348,6 +348,146 @@ TEST_CASE("Two source nodes on one channel both see every frame", "[graph][build
     CHECK(engine.traceStore().size() >= 1);
 }
 
+TEST_CASE("One script becomes two ECUs through its parameters", "[graph][build][lua]")
+{
+    // The point of the parameters table, borrowed from cansim: without it every
+    // number a script needs is a constant in the file, and running the same
+    // behaviour twice with different numbers means copying the file.
+    //
+    // Here one script, two nodes, two identifiers.
+    TraceStore store{1024};
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    const std::string script = R"(
+        function on_message()
+            emit(parameters.answer_id, string.pack("<I1", parameters.payload))
+        end
+    )";
+
+    GraphDescription description;
+    description.addNode(node("ecu_a", "lua.ecu",
+                             NodeParameters{
+                                 {"script", ParameterValue::fromText(script)},
+                                 {"answer_id", ParameterValue::fromInteger(0x201)},
+                                 {"payload", ParameterValue::fromInteger(0xAA)},
+                             }));
+    description.addNode(node("ecu_b", "lua.ecu",
+                             NodeParameters{
+                                 {"script", ParameterValue::fromText(script)},
+                                 {"answer_id", ParameterValue::fromInteger(0x202)},
+                                 {"payload", ParameterValue::fromInteger(0xBB)},
+                             }));
+
+    PipelineGraph graph;
+    REQUIRE(description.build(catalog, contextWith(store), graph).succeeded());
+    REQUIRE(graph.compile().succeeded());
+
+    graph.execute();
+
+    const auto ids = graph.nodeIds();
+    REQUIRE(ids.size() == 2);
+}
+
+TEST_CASE("A script reads its settings from the parameters table", "[graph][build][lua]")
+{
+    TraceStore store{1024};
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    GraphDescription description;
+    description.addNode(node("src", "can.filter")); // Stand-in producer of nothing.
+    description.addNode(
+        node("ecu", "lua.ecu",
+             NodeParameters{
+                 // Every type the parameter bag carries, so the conversion into
+                 // Lua is checked rather than assumed for three of four.
+                 {"script", ParameterValue::fromText(R"(
+                     function on_enable()
+                         if parameters.count ~= 7 then error("integer lost") end
+                         if math.abs(parameters.factor - 0.125) > 1e-9 then
+                             error("real lost")
+                         end
+                         if parameters.label ~= "engine" then error("text lost") end
+                         if parameters.active ~= true then error("boolean lost") end
+                         if parameters.script ~= nil then
+                             error("the node's own settings leaked into the script")
+                         end
+                     end
+                 )")},
+                 {"count", ParameterValue::fromInteger(7)},
+                 {"factor", ParameterValue::fromReal(0.125)},
+                 {"label", ParameterValue::fromText("engine")},
+                 {"active", ParameterValue::fromBoolean(true)},
+             }));
+
+    PipelineGraph graph;
+    REQUIRE(description.build(catalog, contextWith(store), graph).succeeded());
+
+    // on_enable runs during compile, and it raises if anything above is wrong.
+    const Result result = graph.compile();
+    INFO(std::string{result.message()});
+    REQUIRE(result.succeeded());
+}
+
+TEST_CASE("A script with no parameters still gets an empty table", "[graph][build][lua]")
+{
+    // So that `parameters.can_id or 0x100` works without first testing that the
+    // table exists. A nil global here would make every example script two lines
+    // longer for no reason.
+    LuaEcuNode node{R"(
+        function on_enable()
+            if parameters == nil then error("no parameters table") end
+            if next(parameters) ~= nil then error("table should be empty") end
+        end
+    )",
+                    "bare.lua"};
+
+    REQUIRE(node.prepare(64).succeeded());
+}
+
+TEST_CASE("A disabled node is skipped, and so are its wires", "[graph][build]")
+{
+    // Switching a node off must not require rewiring around it: deleting it to
+    // try the measurement without it, then drawing it again, loses its settings
+    // and its position. This is the same experiment without the loss.
+    TraceStore store{1024};
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    GraphDescription description;
+    description.addNode(node("filter", "can.filter"));
+    description.addNode(node("trace_1", "trace.sink"));
+    description.addEdge(EdgeDescription{"filter", 0, "trace_1", 0});
+
+    description.nodes()[1].enabled = false;
+
+    PipelineGraph graph;
+    REQUIRE(description.build(catalog, contextWith(store), graph).succeeded());
+    REQUIRE(graph.compile().succeeded());
+
+    // The filter is there; the trace is not, and the wire between them was not
+    // an error on the way out.
+    CHECK(graph.nodeIds().size() == 1);
+}
+
+TEST_CASE("Two wires into one input are allowed when one source is disabled",
+          "[graph][validation]")
+{
+    // Otherwise switching a node off would leave the project refusing to build
+    // over a wire that will not exist.
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    GraphDescription description;
+    description.addNode(node("can_1", "can.source"));
+    description.addNode(node("can_2", "can.source"));
+    description.addNode(node("trace_1", "trace.sink"));
+    description.addEdge(EdgeDescription{"can_1", 0, "trace_1", 0});
+    description.addEdge(EdgeDescription{"can_2", 0, "trace_1", 0});
+
+    CHECK(description.validate(catalog).failed());
+
+    description.nodes()[1].enabled = false;
+    CHECK(description.validate(catalog).succeeded());
+}
+
 TEST_CASE("A node naming a channel that is not configured says so in the user's numbering",
           "[graph][build]")
 {
