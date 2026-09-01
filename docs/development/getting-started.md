@@ -192,6 +192,47 @@ culprit). Use `cmake --preset windows-msvc-vs`. Delete the stale `build/`
 directory first — CMake caches the compiler it picked and will not change its
 mind otherwise.
 
+**`ld.exe: cannot find /nologo`, `ld.exe: cannot find kernel32.lib`** — the
+compiler is fine and the linker is not. `cl.exe` compiled CMake's test file,
+then the link step ran **GNU ld** with MSVC flags, so every `/switch` looked
+like a missing input file to it. It reads like a broken Windows SDK and is
+nothing of the sort. The tell is the linker path in the failing command line —
+`ld.exe` rather than `link.exe`:
+
+```
+-- Check for working CXX compiler: .../cl.exe - broken
+    ... -- C:\Tools\gcc-v14.2.0\bin\ld.exe /nologo ...
+                                   ^^^^^^
+```
+
+Two ways to get here, in the order worth checking:
+
+1. **A stale build directory.** `CMAKE_LINKER` is cached separately from the
+   compiler, so a directory configured once with a GNU toolchain on `PATH` keeps
+   the GNU linker even when the compiler is re-detected as MSVC — which is why
+   the log can say "compiler identification is MSVC" and still link with `ld`.
+   Delete it and configure again:
+
+   ```bat
+   rmdir /s /q build\windows-msvc-debug
+   cmake --preset windows-msvc-debug
+   ```
+
+2. **A GNU toolchain ahead of Visual Studio on `PATH`.** An embedded toolchain
+   will do it — STM32CubeCLT ships its own CMake, Ninja and GCC. Check with
+   `where link` and `where ld`. Either fix the `PATH`, or sidestep it entirely:
+
+   ```bat
+   cmake --preset windows-msvc-vs
+   ```
+
+   The Visual Studio generator brings its own toolchain and ignores `PATH`,
+   which is why it is the recommended preset.
+
+The Ninja presets now pin `CMAKE_LINKER` to `link` for the same reason they pin
+`cl` — but a pin only applies to a directory being configured for the first
+time, so it does not rescue a cache that already holds the wrong value.
+
 **`Target "kddockwidgets" links to Qt6::WidgetsPrivate but the target was not
 found`** — you are on a build tree configured before this was fixed. KDDockWidgets
 links Qt's private targets without requesting them, so TorqueBus requests them

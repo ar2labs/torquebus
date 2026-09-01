@@ -78,6 +78,13 @@ if(WIN32 AND NOT MSVC AND NOT TORQUEBUS_ALLOW_ANY_COMPILER)
     )
 endif()
 
+# Note on the linker, since this is where you would look for it: there is no
+# equivalent guard below for "CMake picked GNU ld instead of link.exe". That
+# failure happens inside project() above, during CMake's own compiler test, so
+# nothing written here would ever run. It is handled where it can be - by
+# pinning CMAKE_LINKER in CMakePresets.json - and diagnosed in
+# docs/development/getting-started.md under Troubleshooting.
+
 # --------------------------------------------------------------------------
 # Dependencies
 # --------------------------------------------------------------------------

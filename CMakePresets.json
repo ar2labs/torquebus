@@ -39,7 +39,10 @@
 
         "//": "Pinned deliberately. Without this, CMake picks whatever C++ compiler comes first on PATH - an installed LLVM silently wins over cl.exe, and you end up building against MSVC-compiled Qt with a GNU-like driver while CI builds with MSVC. PLAN.md section 1 froze MSVC x64.",
         "CMAKE_C_COMPILER": "cl",
-        "CMAKE_CXX_COMPILER": "cl"
+        "CMAKE_CXX_COMPILER": "cl",
+
+        "//linker": "The linker needs pinning for the same reason and is easier to miss, because it fails later and looks unrelated: cl.exe compiles the test file, then the link step runs GNU ld with MSVC flags and reports 'cannot find /nologo'. CMAKE_LINKER is a separate cache entry from the compiler, so it also survives the compiler being re-detected in a build directory that was configured once with a GNU toolchain on PATH.",
+        "CMAKE_LINKER": "link"
       }
     },
     {
