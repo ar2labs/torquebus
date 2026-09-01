@@ -238,9 +238,68 @@ recreates the nodes, so **a Lua ECU reloads its script and resets its state on
 Start**. That is what pressing Start should mean, and it is why script edits
 take effect without restarting TorqueBus.
 
-What is still missing is durability and a way to compose the topology by
-pointing at things: the builder is written in C++ today. It becomes editable
-with the canvas (v0.6) and durable with the project file (v0.13).
+### Two graphs, on purpose
+
+`PipelineGraph` is the *running* graph: compiled, with node objects and an
+execution plan, alive only between start and stop. `GraphDescription` is the
+*user's* graph: ids, types, settings, wires and canvas positions, which outlive
+any measurement and survive a round trip through a file.
+
+```
+GraphDescription  ──build()──►  PipelineGraph  ──compile()──►  execution plan
+   (the project)                 (this run)                     (this pass)
+```
+
+The description is the source of truth and the running graph is derived from
+it, every time. That is what lets the engine rebuild from scratch on every
+start - the correct thing to do - without the user losing anything.
+
+`NodeCatalog` is what turns a type name plus settings into a node. It exists
+because until it did, a node could only be created by C++ that named its class,
+which works exactly as long as the person choosing the nodes is the person
+compiling. A canvas, a project file and a script that assembles a measurement
+all need the same thing instead: data.
+
+Each registered type declares its ports and parameters *without instantiating
+anything*, so a node palette can show "CAN Channel: one output, Frames" before
+the user has dropped one, and a properties panel can build its fields from the
+parameter list rather than from a switch on the type name. Adding a node type
+should not require touching the UI.
+
+Nodes are addressed by string id rather than index: a project file that
+renumbers when a node is deleted has unreadable diffs and edges that quietly
+point somewhere else.
+
+`validate()` is deliberately separate from `build()`. The canvas needs to refuse
+a wire while the user is drawing it - no engine, no instantiated nodes - and
+every message names the node, and both ends where there are two, because the
+user is looking at blocks with labels on them rather than at C++ types.
+
+Canvas positions live in the description and are ignored by the runtime.
+Reopening a project to find the blocks rearranged into a default layout would be
+its own small betrayal, and carrying two doubles costs the executor nothing
+because building never reads them.
+
+What is still missing is durability and the canvas itself: a description is
+assembled in C++ today. Drawing it is v0.6; writing it to a `.tbsproj` is v0.13,
+and is now close to free.
+
+### One reader, one drain
+
+`ChannelSourceNode` publishes a view of what the engine already drained this
+pass; it does not drain the channel itself. The difference matters because
+draining consumes, and a graph must let two blocks reading CAN 1 both see CAN 1
+- where the engine's own default trace path is already one of those readers.
+
+Before the graph runs, the engine drains each channel once into that channel's
+pass buffer. Filtering and statistics therefore happen exactly once, which is
+what keeps the status bar showing what entered the graph rather than what the
+driver handed over.
+
+This was a real defect, found by a test: a described graph carrying its own
+`can.source` for CAN 1 answered nothing, because the engine's source had taken
+the batch first. Whichever node ran first won - silently, and depending on the
+order the user happened to add blocks in.
 
 ### The default graph is implicit
 
