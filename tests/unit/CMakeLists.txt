@@ -5,6 +5,7 @@ add_executable(torquebus_unit_tests
     CanFilterTests.cpp
     CanStatisticsTests.cpp
     FrameQueueTests.cpp
+    GraphDescriptionTests.cpp
     LuaEcuNodeTests.cpp
     PipelineGraphTests.cpp
     QtMacroGuardTests.cpp
@@ -13,8 +14,11 @@ add_executable(torquebus_unit_tests
     SettingsStoreTests.cpp
 )
 
+# GraphDescriptionTests builds a graph over the virtual bus, so this binary
+# needs the drivers too. Everything it uses is still headless.
 target_link_libraries(torquebus_unit_tests
     PRIVATE torquebus::core
+            torquebus::drivers
             torquebus::services
             torquebus::warnings
             Catch2::Catch2WithMain
@@ -24,5 +28,10 @@ find_package(Threads REQUIRED)
 target_link_libraries(torquebus_unit_tests PRIVATE Threads::Threads)
 
 set_target_properties(torquebus_unit_tests PROPERTIES FOLDER "Tests")
+
+# One test loads a real example script, so it needs to know where they live.
+target_compile_definitions(torquebus_unit_tests
+    PRIVATE TORQUEBUS_EXAMPLE_SCRIPT_DIR="${CMAKE_SOURCE_DIR}/examples/scripts"
+)
 
 catch_discover_tests(torquebus_unit_tests)
