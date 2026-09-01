@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest a capability for TorqueBus Studio
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What engineering task is hard or impossible today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+    validations:
+      required: true
+
+  - type: input
+    id: milestone
+    attributes:
+      label: Related roadmap milestone
+      description: See PLAN.md. Leave blank if unsure.
+      placeholder: "v0.7 - DBC"
+
+  - type: textarea
+    id: prior-art
+    attributes:
+      label: How other tools handle this
+      description: >
+        Describing the workflow is useful. Please do not paste proprietary
+        source code, screenshots of another tool's UI, or its icons.
