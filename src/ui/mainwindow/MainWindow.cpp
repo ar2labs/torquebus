@@ -11,6 +11,7 @@
 #include "ui/mainwindow/PlaceholderPanel.h"
 #include "ui/output/OutputPanel.h"
 #include "ui/project/ProjectExplorerPanel.h"
+#include "ui/properties/NodePropertiesEditor.h"
 #include "ui/properties/PropertiesPanel.h"
 #include "ui/theme/ThemeManager.h"
 #include "ui/trace/TracePanel.h"
@@ -44,6 +45,7 @@ namespace {
 // here and never inlined at the call site.
 constexpr auto kDockProject     = "torquebus.dock.project";
 constexpr auto kDockProperties  = "torquebus.dock.properties";
+constexpr auto kDockBlock       = "torquebus.dock.block";
 constexpr auto kDockTrace       = "torquebus.dock.trace";
 constexpr auto kDockPipeline    = "torquebus.dock.pipeline";
 constexpr auto kDockTransmit    = "torquebus.dock.transmit";
@@ -71,7 +73,7 @@ constexpr auto kBullet = "●";
 ///
 ///   1  v0.1  first arrangement (centre panel added last - wrong)
 ///   2  v0.2  centre panel added first, sized side panels, full-width console
-constexpr int kDockLayoutVersion = 3;
+constexpr int kDockLayoutVersion = 4;
 
 /// Converts one of the frozen dock names above into a QString.
 ///
@@ -311,6 +313,18 @@ void MainWindow::createPanels()
     m_pipelineDock = createDockWidget(dockName(kDockPipeline), tr("Pipeline"),
                                       m_canvas, icon("graph"));
 
+    // A second properties panel, tabbed with the first rather than replacing
+    // it: the read-only one describes a hardware channel picked in the Project
+    // Explorer, this one edits a block picked on the canvas. They answer
+    // different questions and one would have to guess which was meant.
+    m_nodeProperties = new NodePropertiesEditor(m_pipeline, m_catalog);
+
+    connect(m_nodeProperties, &NodePropertiesEditor::nodeEdited,
+            this, [this](const QString&) { onGraphEdited(); });
+
+    m_nodePropertiesDock = createDockWidget(dockName(kDockBlock), tr("Block"),
+                                            m_nodeProperties, icon("properties"));
+
     m_transmitDock = createDockWidget(
         dockName(kDockTransmit), tr("Transmit"),
         new PlaceholderPanel(tr("CAN Transmit"),
@@ -343,9 +357,10 @@ void MainWindow::createPanels()
                              QStringLiteral("diagnostics"), QStringLiteral("v0.12")),
         icon("diagnostics"));
 
-    m_allDocks = {m_projectDock,    m_propertiesDock,  m_traceDock,   m_pipelineDock,
-                  m_transmitDock,   m_graphDock,       m_statisticsDock,
-                  m_diagnosticsDock, m_outputDock};
+    m_allDocks = {m_projectDock,     m_propertiesDock,  m_nodePropertiesDock,
+                  m_traceDock,       m_pipelineDock,    m_transmitDock,
+                  m_graphDock,       m_statisticsDock,  m_diagnosticsDock,
+                  m_outputDock};
 }
 
 void MainWindow::createActions()
@@ -589,6 +604,8 @@ void MainWindow::applyDefaultLayout()
     //    centre keeps the space - the trace is what the user actually reads.
     addDockTo(this, m_projectDock, DockLocation::Left, QSize{kSidePanelWidth, 0});
     addDockTo(this, m_propertiesDock, DockLocation::Right, QSize{kSidePanelWidth, 0});
+    m_propertiesDock->addDockWidgetAsTab(m_nodePropertiesDock);
+    m_propertiesDock->setAsCurrentTab();
 
     // 3. The console spans the full width underneath everything, the way every
     //    engineering tool of this family arranges it.
@@ -801,59 +818,25 @@ void MainWindow::onAbout()
 
 void MainWindow::onCanvasNodeSelected(const QString& descriptionId)
 {
-    const NodeDescription* node = m_pipeline.find(descriptionId.toStdString());
-    if (node == nullptr) {
-        m_properties->clearProperties();
+    // Only the Block editor. An earlier version also filled the read-only
+    // Properties panel with the same values, which meant the same node
+    // described in two places - and the read-only copy went stale the moment
+    // anything was edited in the other one.
+    //
+    // The Properties panel keeps its own job: describing a hardware channel
+    // chosen in the Project Explorer. Two panels answering different questions
+    // is fine; two answering the same one is a bug waiting to be reported.
+    if (m_nodeProperties == nullptr) {
         return;
     }
 
-    const NodeTypeInfo* info = m_catalog.find(node->typeName);
+    m_nodeProperties->showNode(descriptionId);
 
-    QVector<PropertiesPanel::Row> rows;
-    rows.append({tr("Type"),
-                 info != nullptr ? QString::fromStdString(info->displayName)
-                                 : QString::fromStdString(node->typeName),
-                 false});
-    rows.append({tr("Type name"), QString::fromStdString(node->typeName), false});
-    rows.append({tr("Enabled"), node->enabled ? tr("Yes") : tr("No"), !node->enabled});
-
-    // Every parameter the type declares, whether or not the node sets one -
-    // so the panel shows what *can* be configured, not only what happens to be
-    // configured already. A required parameter with no value is the one thing
-    // here worth highlighting, because it is what fails the next Start.
-    if (info != nullptr) {
-        for (const ParameterDescriptor& parameter : info->parameters) {
-            const std::string name{parameter.name};
-            const bool present = node->parameters.contains(name);
-
-            QString value;
-            if (present) {
-                switch (parameter.type) {
-                case ParameterValue::Type::Boolean:
-                    value = node->parameters.boolean(name) ? tr("Yes") : tr("No");
-                    break;
-                case ParameterValue::Type::Integer:
-                    value = QString::number(node->parameters.integer(name));
-                    break;
-                case ParameterValue::Type::Real:
-                    value = QString::number(node->parameters.real(name));
-                    break;
-                case ParameterValue::Type::Text:
-                    value = QString::fromStdString(node->parameters.text(name));
-                    break;
-                }
-            } else {
-                value = parameter.required ? tr("not set - required") : tr("not set");
-            }
-
-            rows.append({QString::fromLatin1(parameter.displayName.data(),
-                                             static_cast<int>(parameter.displayName.size())),
-                         value,
-                         !present && parameter.required});
-        }
+    // Brought forward: an editor behind another tab is an editor the user does
+    // not know they have.
+    if (m_nodePropertiesDock != nullptr) {
+        m_nodePropertiesDock->setAsCurrentTab();
     }
-
-    m_properties->setProperties(descriptionId, rows);
 }
 
 void MainWindow::onGraphEdited()

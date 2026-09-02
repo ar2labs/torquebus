@@ -35,6 +35,7 @@ namespace torquebus::ui {
 class CanvasPanel;
 class OutputPanel;
 class ProjectExplorerPanel;
+class NodePropertiesEditor;
 class PropertiesPanel;
 class ThemeManager;
 class TracePanel;
@@ -107,6 +108,7 @@ private:
     // --- Panels -----------------------------------------------------------
     ProjectExplorerPanel* m_projectExplorer{nullptr};
     PropertiesPanel* m_properties{nullptr};
+    NodePropertiesEditor* m_nodeProperties{nullptr};
     OutputPanel* m_output{nullptr};
     TracePanel* m_tracePanel{nullptr};
     CanvasPanel* m_canvas{nullptr};
@@ -122,6 +124,7 @@ private:
     // --- Docks, in creation order -----------------------------------------
     DockWidget* m_projectDock{nullptr};
     DockWidget* m_propertiesDock{nullptr};
+    DockWidget* m_nodePropertiesDock{nullptr};
     DockWidget* m_traceDock{nullptr};
     DockWidget* m_pipelineDock{nullptr};
     DockWidget* m_transmitDock{nullptr};

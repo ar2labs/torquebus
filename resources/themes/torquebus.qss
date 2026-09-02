@@ -620,6 +620,29 @@ QLabel[torquebusState="online"]  { color: @success; }
 QLabel[torquebusState="warning"] { color: @warning; }
 QLabel[torquebusState="error"]   { color: @error; }
 
+/* A Lua script inside the Block editor. Monospaced, because a script is code:
+ * indentation has to line up and a proportional font makes string.pack("<I2")
+ * unreadable. Same surface as any other input; the size comes from the widget. */
+QPlainTextEdit[torquebusRole="code"] {
+    font-family: "Cascadia Mono", "Consolas", "DejaVu Sans Mono", monospace;
+    background-color: @panel;
+    color: @text;
+    border: 1px solid @border;
+    border-radius: 2px;
+    selection-background-color: @selection;
+}
+
+QPlainTextEdit[torquebusRole="code"]:focus {
+    border-color: @accent;
+}
+
+/* "Nothing selected" and its relatives: present, but not competing with the
+ * content that will replace them. */
+QLabel[torquebusRole="placeholder"] {
+    color: @textMuted;
+    padding: 16px;
+}
+
 /* Numeric status fields are monospaced so a changing count does not reflow the
  * bar underneath the reader's eye. */
 QLabel[torquebusRole="metric"] {

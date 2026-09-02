@@ -219,22 +219,24 @@ void configureDockingSystem()
     // show neither tab nor title bar and lose its name entirely.
     flags |= KDDockWidgets::Config::Flag_HideTitleBarWhenTabsVisible;
 
-    config.setFlags(flags);
+    // Hiding the title bar takes the close and float buttons with it, and
+    // without this flag there is no way to close a panel except the View menu.
+    // That is a control the user had before and would quietly have lost.
+    //
+    // These buttons were switched off for three rounds because they drew as
+    // blank squares with a broken edge beside the second one. Both causes have
+    // since been found and fixed, and neither was the flag:
+    //
+    //   * the icon resource a static build never registered, so real buttons
+    //     drew an icon that did not exist (initializeDockingResources), and
+    //   * Group::paintEvent's hardcoded light rectangle, painted over
+    //     everything the style sheet had drawn (StyledGroup above).
+    //
+    // Turned on now, in a change separate from the one that fixed them, so that
+    // if the squares come back it is clear which change to look at.
+    flags |= KDDockWidgets::Config::Flag_ShowButtonsOnTabBarIfTitleBarHidden;
 
-    // Flag_ShowButtonsOnTabBarIfTitleBarHidden is still NOT set, but the reason
-    // has changed and is worth restating.
-    //
-    // It puts float and close buttons at the right of the tab strip. Those
-    // buttons appeared blank and with a broken edge beside them, and two causes
-    // have since been found and fixed: the icon resource that a static build
-    // never registered (initializeDockingResources) and the hardcoded frame
-    // Group painted over everything (StyledGroup above). Either could have
-    // produced what was seen.
-    //
-    // So this is now a candidate to turn back on rather than a known defect -
-    // but it is turned on *after* someone confirms the border is gone, not in
-    // the same change that claims to fix it. Until then panels close from the
-    // View menu, and float by dragging their tab or the empty space beside it.
+    config.setFlags(flags);
 
     // The separator is the drag handle between panels, so its thickness is a
     // hit target before it is a visual choice. This was briefly set to 1px to

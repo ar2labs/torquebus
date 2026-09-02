@@ -155,6 +155,8 @@ qt_add_library(torquebus_ui STATIC
     ui/mainwindow/PlaceholderPanel.cpp
     ui/project/ProjectExplorerPanel.h
     ui/project/ProjectExplorerPanel.cpp
+    ui/properties/NodePropertiesEditor.h
+    ui/properties/NodePropertiesEditor.cpp
     ui/properties/PropertiesPanel.h
     ui/properties/PropertiesPanel.cpp
     ui/output/OutputPanel.h
