@@ -13,6 +13,8 @@
 #pragma once
 
 #include "core/can/CanTypes.h"
+#include "core/pipeline/GraphDescription.h"
+#include "core/pipeline/NodeCatalog.h"
 #include "ui/engine/CanEngineController.h"
 #include "ui/mainwindow/Docking.h"
 #include "ui/theme/Theme.h"
@@ -30,6 +32,7 @@ class SettingsStore;
 
 namespace torquebus::ui {
 
+class CanvasPanel;
 class OutputPanel;
 class ProjectExplorerPanel;
 class PropertiesPanel;
@@ -60,6 +63,14 @@ private Q_SLOTS:
     void onAbout();
     void onNotImplemented();
     void onInspectChrome();
+
+    /// A node was selected on the canvas; show its settings.
+    void onCanvasNodeSelected(const QString& descriptionId);
+
+    /// The pipeline was edited. Says in the Output panel whether it still
+    /// builds, so a wire that cannot work is reported while the user is looking
+    /// at it rather than at the next Start.
+    void onGraphEdited();
 
     void onStartMeasurement();
     void onStopMeasurement();
@@ -98,11 +109,21 @@ private:
     PropertiesPanel* m_properties{nullptr};
     OutputPanel* m_output{nullptr};
     TracePanel* m_tracePanel{nullptr};
+    CanvasPanel* m_canvas{nullptr};
+
+    // --- The pipeline the canvas edits ------------------------------------
+    //
+    // Owned by the window because it is the project's, not the canvas's: the
+    // description outlives the panel, so closing the canvas does not discard
+    // the pipeline, and the engine keeps building from it.
+    NodeCatalog m_catalog{NodeCatalog::withBuiltinTypes()};
+    GraphDescription m_pipeline;
 
     // --- Docks, in creation order -----------------------------------------
     DockWidget* m_projectDock{nullptr};
     DockWidget* m_propertiesDock{nullptr};
     DockWidget* m_traceDock{nullptr};
+    DockWidget* m_pipelineDock{nullptr};
     DockWidget* m_transmitDock{nullptr};
     DockWidget* m_graphDock{nullptr};
     DockWidget* m_statisticsDock{nullptr};

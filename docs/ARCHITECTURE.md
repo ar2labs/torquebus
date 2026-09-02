@@ -568,3 +568,43 @@ Docking.cpp`). The supported extension point, and it leaves the frame to
 The general lesson is the one this project keeps relearning: when a UI defect
 survives two fixes aimed at plausible causes, stop proposing a third and read
 the code that draws the pixels. The dependency's source is in the build tree.
+
+### Where the canvas sits
+
+```
+GraphDescription        the project's pipeline, owned by MainWindow
+       ^
+       | reads and writes in place - no copy, no apply step
+       |
+PipelineGraphModel      src/ui/canvas, implements QtNodes::AbstractGraphModel
+       ^
+       |
+BasicGraphicsScene / GraphicsView        QtNodes' own widgets
+```
+
+`PipelineGraphModel` derives from `AbstractGraphModel` rather than using
+QtNodes' `DataFlowGraphModel`. `DataFlowGraphModel` keeps the graph in its own
+structures, which would mean holding the user's pipeline twice and syncing the
+copies — and two copies of a thing editable from both ends diverge. Dragging a
+block writes its position into the description; there is no apply step because
+there is nothing to apply.
+
+The engine takes its copy at **Start**, not at construction. That is what makes
+"what runs is what was on the canvas when you pressed Start" literally true, and
+it is what lets the canvas stay editable during a recording. Getting this wrong
+once — copying an empty description at startup, so nothing the user drew ever
+reached the engine — is the reason it is written down here.
+
+The canvas is a view and nothing more: close it and the pipeline still runs, the
+same way closing the Trace panel does not stop a recording (rule #7 generalised).
+A headless run needs no canvas at all, which is what v0.16's script runner
+depends on.
+
+Three places where QtNodes' documented API and its actual behaviour differ, all
+found by reading the library rather than by trying it:
+
+| Documented | Actual |
+|---|---|
+| `PortRole::DataType` is "a QString describing the port data type" | Every painter unwraps it with `.value<NodeDataType>()`; a QString gives a default-constructed type — unnamed ports, every wire the same colour |
+| `AbstractGraphModel` is a `QObject` | It declares no constructor, so there is nothing to pass a parent to; use `setParent()` |
+| `NodeRole::Widget` returns an optional `QWidget*` | Read as `nodeData<QWidget*>()`, so an empty `QVariant` already means "none" |

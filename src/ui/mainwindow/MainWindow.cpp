@@ -7,6 +7,7 @@
 
 #include "drivers/api/CanBackendRegistry.h"
 #include "services/SettingsStore.h"
+#include "ui/canvas/CanvasPanel.h"
 #include "ui/mainwindow/PlaceholderPanel.h"
 #include "ui/output/OutputPanel.h"
 #include "ui/project/ProjectExplorerPanel.h"
@@ -44,6 +45,7 @@ namespace {
 constexpr auto kDockProject     = "torquebus.dock.project";
 constexpr auto kDockProperties  = "torquebus.dock.properties";
 constexpr auto kDockTrace       = "torquebus.dock.trace";
+constexpr auto kDockPipeline    = "torquebus.dock.pipeline";
 constexpr auto kDockTransmit    = "torquebus.dock.transmit";
 constexpr auto kDockGraph       = "torquebus.dock.graph";
 constexpr auto kDockStatistics  = "torquebus.dock.statistics";
@@ -69,7 +71,7 @@ constexpr auto kBullet = "●";
 ///
 ///   1  v0.1  first arrangement (centre panel added last - wrong)
 ///   2  v0.2  centre panel added first, sized side panels, full-width console
-constexpr int kDockLayoutVersion = 2;
+constexpr int kDockLayoutVersion = 3;
 
 /// Converts one of the frozen dock names above into a QString.
 ///
@@ -226,6 +228,29 @@ void MainWindow::createEngine()
 {
     m_controller = new CanEngineController(this);
 
+    // A script's log_message(), and any script error, reach the Output panel.
+    m_controller->engine().addLogSink(
+        [this](const std::string& text, bool isError) {
+            // Called on the engine thread. Queued, because a panel must only be
+            // touched from the GUI thread (rule #6 in spirit: the UI never
+            // blocks the measurement, and the measurement never reaches into
+            // the UI).
+            QMetaObject::invokeMethod(
+                this,
+                [this, message = QString::fromStdString(text), isError] {
+                    if (m_output == nullptr) {
+                        return;
+                    }
+
+                    if (isError) {
+                        m_output->appendError(message);
+                    } else {
+                        m_output->appendInfo(message);
+                    }
+                },
+                Qt::QueuedConnection);
+        });
+
     connect(m_controller, &CanEngineController::started,
             this, &MainWindow::onMeasurementStarted);
     connect(m_controller, &CanEngineController::stopped,
@@ -273,6 +298,19 @@ void MainWindow::createPanels()
     m_traceDock = createDockWidget(dockName(kDockTrace), tr("CAN Trace"),
                                    m_tracePanel, icon("trace"));
 
+    // The canvas edits m_pipeline in place - there is no apply step, and no
+    // copy. Closing this panel leaves the pipeline exactly as it was; the
+    // engine builds from the same description either way.
+    m_canvas = new CanvasPanel(m_pipeline, m_catalog);
+
+    connect(m_canvas, &CanvasPanel::nodeSelected,
+            this, &MainWindow::onCanvasNodeSelected);
+    connect(m_canvas, &CanvasPanel::graphEdited,
+            this, &MainWindow::onGraphEdited);
+
+    m_pipelineDock = createDockWidget(dockName(kDockPipeline), tr("Pipeline"),
+                                      m_canvas, icon("graph"));
+
     m_transmitDock = createDockWidget(
         dockName(kDockTransmit), tr("Transmit"),
         new PlaceholderPanel(tr("CAN Transmit"),
@@ -305,8 +343,9 @@ void MainWindow::createPanels()
                              QStringLiteral("diagnostics"), QStringLiteral("v0.12")),
         icon("diagnostics"));
 
-    m_allDocks = {m_projectDock,    m_propertiesDock, m_traceDock,       m_transmitDock,
-                  m_graphDock,      m_statisticsDock, m_diagnosticsDock, m_outputDock};
+    m_allDocks = {m_projectDock,    m_propertiesDock,  m_traceDock,   m_pipelineDock,
+                  m_transmitDock,   m_graphDock,       m_statisticsDock,
+                  m_diagnosticsDock, m_outputDock};
 }
 
 void MainWindow::createActions()
@@ -539,6 +578,7 @@ void MainWindow::applyDefaultLayout()
     // 1. The analysis stack becomes the whole layout, and therefore the centre.
     addDockTo(this, m_traceDock, DockLocation::Top);
 
+    m_traceDock->addDockWidgetAsTab(m_pipelineDock);
     m_traceDock->addDockWidgetAsTab(m_transmitDock);
     m_traceDock->addDockWidgetAsTab(m_graphDock);
     m_traceDock->addDockWidgetAsTab(m_statisticsDock);
@@ -759,8 +799,101 @@ void MainWindow::onAbout()
 // Measurement
 // ---------------------------------------------------------------------------
 
+void MainWindow::onCanvasNodeSelected(const QString& descriptionId)
+{
+    const NodeDescription* node = m_pipeline.find(descriptionId.toStdString());
+    if (node == nullptr) {
+        m_properties->clearProperties();
+        return;
+    }
+
+    const NodeTypeInfo* info = m_catalog.find(node->typeName);
+
+    QVector<PropertiesPanel::Row> rows;
+    rows.append({tr("Type"),
+                 info != nullptr ? QString::fromStdString(info->displayName)
+                                 : QString::fromStdString(node->typeName),
+                 false});
+    rows.append({tr("Type name"), QString::fromStdString(node->typeName), false});
+    rows.append({tr("Enabled"), node->enabled ? tr("Yes") : tr("No"), !node->enabled});
+
+    // Every parameter the type declares, whether or not the node sets one -
+    // so the panel shows what *can* be configured, not only what happens to be
+    // configured already. A required parameter with no value is the one thing
+    // here worth highlighting, because it is what fails the next Start.
+    if (info != nullptr) {
+        for (const ParameterDescriptor& parameter : info->parameters) {
+            const std::string name{parameter.name};
+            const bool present = node->parameters.contains(name);
+
+            QString value;
+            if (present) {
+                switch (parameter.type) {
+                case ParameterValue::Type::Boolean:
+                    value = node->parameters.boolean(name) ? tr("Yes") : tr("No");
+                    break;
+                case ParameterValue::Type::Integer:
+                    value = QString::number(node->parameters.integer(name));
+                    break;
+                case ParameterValue::Type::Real:
+                    value = QString::number(node->parameters.real(name));
+                    break;
+                case ParameterValue::Type::Text:
+                    value = QString::fromStdString(node->parameters.text(name));
+                    break;
+                }
+            } else {
+                value = parameter.required ? tr("not set - required") : tr("not set");
+            }
+
+            rows.append({QString::fromLatin1(parameter.displayName.data(),
+                                             static_cast<int>(parameter.displayName.size())),
+                         value,
+                         !present && parameter.required});
+        }
+    }
+
+    m_properties->setProperties(descriptionId, rows);
+}
+
+void MainWindow::onGraphEdited()
+{
+    // Reported while the user is looking at the wire they just drew, rather
+    // than at the next Start. validate() needs no engine and no nodes, which is
+    // exactly why it is a separate function from build().
+    const Result result = m_pipeline.validate(m_catalog);
+
+    if (result.failed()) {
+        m_output->appendWarning(tr("Pipeline: %1")
+                                    .arg(QString::fromStdString(std::string{result.message()})));
+        return;
+    }
+
+    m_output->appendInfo(tr("Pipeline: %1 node(s), %2 connection(s).")
+                             .arg(static_cast<qulonglong>(m_pipeline.nodes().size()))
+                             .arg(static_cast<qulonglong>(m_pipeline.edges().size())));
+}
+
 void MainWindow::onStartMeasurement()
 {
+    // The snapshot is taken HERE, and not once at construction.
+    //
+    // setGraphDescription copies, which is what lets the canvas stay editable
+    // during a measurement without changing what is currently running. The
+    // corollary is easy to get wrong in practice: called once at startup it
+    // copies an empty pipeline, and nothing the user later draws ever reaches
+    // the engine. Taking the copy at Start is what makes "what runs is what was
+    // on the canvas when you pressed Start" literally true.
+    m_controller->engine().setGraphDescription(m_pipeline, m_catalog);
+
+    // Refused before the channels are opened, with the node named, rather than
+    // after - a half-started measurement is the thing start() exists to avoid.
+    if (const Result result = m_pipeline.validate(m_catalog); result.failed()) {
+        m_output->appendError(tr("Cannot start: %1")
+                                  .arg(QString::fromStdString(std::string{result.message()})));
+        return;
+    }
+
     m_output->appendInfo(tr("Starting measurement..."));
     m_controller->start();
 }

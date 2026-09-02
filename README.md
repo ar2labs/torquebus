@@ -6,11 +6,12 @@ An open source platform for analysing, simulating, diagnosing and automating
 automotive networks — a community alternative to TSMaster, CANalyzer/CANoe and
 PCAN-Explorer.
 
-> **Status: v0.7 — Lua ECUs.** Connect an interface, press Start, read the bus:
-> the trace holds **1,000,000 frames** and fills itself, with no wiring to do
-> first. Simulated ECUs are Lua scripts that live on the pipeline as nodes, at
-> ~260 ns per frame — dozens of them fit on a bus that carries 4,000 frames/s.
-> The visual canvas (v0.6) is next.
+> **Status: v0.6 — the visual canvas.** Connect an interface, press Start, read
+> the bus: the trace holds **1,000,000 frames** and fills itself, with no wiring
+> to do first. Beyond that, the Pipeline panel is where you draw one — blocks
+> and wires, edited straight into the project. Simulated ECUs are Lua scripts
+> that live on that pipeline as nodes, at ~260 ns per frame, so dozens fit on a
+> bus that carries 4,000 frames/s.
 
 ---
 
@@ -20,11 +21,11 @@ The ergonomics of professional automotive tooling — the panel layout, the
 information density, the workflow an engineer already knows — with its own
 visual identity, an open architecture and a GPLv3 licence.
 
-- **A pipeline, not a fixed set of panels.** Sources, decoders, filters and
-  sinks are nodes you wire together:
+- **A pipeline you draw, not a fixed set of panels.** Sources, decoders,
+  filters and sinks are blocks you wire together on the Pipeline canvas:
   `[Kvaser CAN 1] → [DBC Decoder] → [J1939 Decoder] → [PGN Filter] → [Signal Plot]`.
-  The graph *is* the data path, and it builds itself for the simple case — so
-  reading a bus never costs a canvas visit.
+  The graph *is* the data path, not a picture of it — and it builds itself for
+  the simple case, so reading a bus never costs a canvas visit.
 - **Simulated ECUs in Lua.** A script, a lifecycle, and frames on the wire.
   Editing a script and pressing Start is the whole edit-run loop.
 - **Vendor-neutral core.** One frame type, one driver interface. Kvaser, PEAK
@@ -156,8 +157,8 @@ incompatible API generation — but the debt is real and worth naming.
 | v0.4 | Pipeline graph: executor, typed ports, compiled topology | done |
 | v0.5 | CAN Trace, the first real consumer node | done |
 | v0.7 | Lua ECU blocks | done |
-| **v0.6** | QtNodes canvas — the graph becomes visible and editable | **current** |
-| v0.8 | DBC decoder node, `Signals` port | |
+| v0.6 | QtNodes canvas — the graph becomes visible and editable | done |
+| **v0.8** | DBC decoder node, `Signals` port | **next** |
 | v0.9 | PEAK-System and SocketCAN backends | |
 | v0.10 | Transmit and Graph nodes | |
 | v0.11 | J1939 and **ISOBUS** (ISO 11783) | |
