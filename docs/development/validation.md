@@ -80,6 +80,10 @@ one is a new mistake.
 
 ## 3. Tests
 
+Step 2 has to have run. `ctest` on an unbuilt tree reports three failures named
+`<target>_NOT_BUILT-<hash>` - that is Catch2's placeholder for "this executable
+does not exist yet", not a broken test.
+
 ```bat
 ctest --preset windows-msvc-debug
 ```
