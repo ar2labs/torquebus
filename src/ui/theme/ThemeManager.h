@@ -71,6 +71,12 @@ private:
     void applyStyleSheet() const;
     [[nodiscard]] QString buildStyleSheet() const;
 
+    /// Warns about any '@token' the substitution list missed.
+    ///
+    /// Qt discards a declaration it cannot parse without saying so, so an
+    /// unregistered token is a rule that silently does nothing.
+    static void reportUnsubstitutedTokens(const QString& sheet);
+
     Theme m_theme;
     mutable QHash<QString, QIcon> m_iconCache;
     mutable int m_styleSheetBytes{-1};
