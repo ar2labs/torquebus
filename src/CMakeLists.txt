@@ -159,6 +159,10 @@ qt_add_library(torquebus_ui STATIC
     ui/properties/PropertiesPanel.cpp
     ui/output/OutputPanel.h
     ui/output/OutputPanel.cpp
+    ui/canvas/PipelineGraphModel.h
+    ui/canvas/PipelineGraphModel.cpp
+    ui/canvas/CanvasPanel.h
+    ui/canvas/CanvasPanel.cpp
     ui/trace/TraceModel.h
     ui/trace/TraceModel.cpp
     ui/trace/TracePanel.h
@@ -194,6 +198,7 @@ target_link_libraries(torquebus_ui
             Qt6::Svg
             Qt6::SvgWidgets
             KDAB::kddockwidgets
+            QtNodes::QtNodes
     PRIVATE torquebus::warnings
 )
 
