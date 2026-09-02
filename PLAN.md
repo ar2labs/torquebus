@@ -1406,6 +1406,20 @@ Divisão das etapas de desenvolvimento:
 > custa ~260 ns por frame, ou seja, dá para ter dezenas delas com o orçamento
 > praticamente intacto.
 >
+> **Concluído no v0.6:** o canvas existe. `NodeCatalog` e `GraphDescription`
+> (nós e arestas como dado, com posições e o flag `enabled`), o
+> `PipelineGraphModel` sobre o `QtNodes::AbstractGraphModel` — não sobre o
+> `DataFlowGraphModel`, para não haver duas cópias do pipeline — o painel
+> Pipeline com paleta de blocos, e o engine construindo a partir da descrição a
+> cada Start.
+>
+> O QtNodes está fixado na tag **3.0.16**, não no master: o master já andou
+> (grupos de nós, labels editáveis, `NodeRole` novos) e o adaptador é escrito
+> contra o que a 3.0.16 declara.
+>
+> Isso também deixa o v0.13 quase pronto: o `.tbsproj` vira a serialização de
+> uma `GraphDescription`, não um formato novo.
+>
 > **Em andamento no v0.6:** antes do canvas vem a peça que faltava para ele
 > existir — o `NodeCatalog` (nome de tipo + parâmetros → nó, com portas e
 > parâmetros declarados sem instanciar nada) e a `GraphDescription` (o grafo do
