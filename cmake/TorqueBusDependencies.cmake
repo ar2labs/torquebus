@@ -4,6 +4,7 @@
 #
 #   Qt              - required, must be provided by the environment
 #   KDDockWidgets   - fetched and built from source (FetchContent)
+#   QtNodes         - fetched and built from source (FetchContent), the canvas
 #   Catch2          - fetched and built from source (FetchContent), tests only
 #   Kvaser CANlib   - optional, detected on the system
 #   PCAN-Basic      - optional, reached through the Qt SerialBus peakcan plugin
@@ -83,6 +84,12 @@ find_package(Qt6 6.11 REQUIRED COMPONENTS
     SvgWidgets
     SerialBus
 
+    # Requested on QtNodes' behalf: it links Qt6::OpenGL publicly (its
+    # CMakeLists names Core, Widgets, Gui and OpenGL), and a component that is
+    # not in this find_package is a target that does not exist when
+    # FetchContent brings the library in.
+    OpenGL
+
     # --- Requested on KDDockWidgets' behalf, not ours --------------------
     #
     # KDDockWidgets links Qt6::WidgetsPrivate and Qt6::GuiPrivate (its
@@ -128,6 +135,54 @@ FetchContent_Declare(KDDockWidgets
 )
 
 FetchContent_MakeAvailable(KDDockWidgets)
+
+# --------------------------------------------------------------------------
+# QtNodes - the canvas
+# --------------------------------------------------------------------------
+#
+# Pinned to a tag rather than a branch, like every other dependency here. 3.0.16
+# is the newest tag; master has already moved past it (node groups, editable
+# labels, more NodeRoles) and the adapter in src/ui/canvas is written against
+# what 3.0.16 declares, not against whatever master declares today.
+#
+# Four options have to be forced, and each of them fails differently if it is
+# not:
+#
+#   BUILD_SHARED_LIBS  Their default is ON. We link everything statically, and a
+#                      DLL here would have to be deployed beside the executable
+#                      for no benefit.
+#   BUILD_TESTING      Their external/CMakeLists.txt does add_subdirectory(Catch2)
+#                      when this is on - and Catch2 is a git submodule that
+#                      FetchContent does not initialise, so it fails at
+#                      configure time with a bare "does not contain a
+#                      CMakeLists.txt".
+#   BUILD_EXAMPLES     Builds a dozen sample applications we would then have to
+#                      look at in the Visual Studio solution.
+#   BUILD_DOCS         Wants Doxygen.
+#
+# They default to QT_NODES_DEVELOPER_DEFAULTS, which is already OFF under
+# FetchContent because the project detects a parent directory - but relying on
+# that is relying on an implementation detail of theirs. Stating it costs four
+# lines.
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(QT_NODES_DEVELOPER_DEFAULTS OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(QtNodes
+    GIT_REPOSITORY https://github.com/paceholder/nodeeditor.git
+    GIT_TAG        3.0.16
+    GIT_SHALLOW    TRUE
+    SYSTEM
+)
+
+FetchContent_MakeAvailable(QtNodes)
+
+# QtNodes compiles with QT_NO_KEYWORDS privately, so `emit` and `signals` still
+# work in our own code. Recorded because it is the kind of setting that, if it
+# were PUBLIC, would break every Qt file in the project and take an afternoon
+# to trace back to a dependency.
 
 # --------------------------------------------------------------------------
 # Catch2 (tests only)
