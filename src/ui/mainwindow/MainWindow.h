@@ -47,6 +47,12 @@ public:
     MainWindow(services::SettingsStore& settings, ThemeManager& themes);
     ~MainWindow() override;
 
+    /// Opens a project, reporting failure in the Output panel.
+    ///
+    /// Public because the command line accepts a .tbsproj, and honouring an
+    /// argument the help text advertises is not optional.
+    void openProject(const QString& path);
+
     /// Rescans every registered backend and refreshes the Hardware section.
     void refreshHardware();
 
@@ -73,6 +79,11 @@ private Q_SLOTS:
     /// at it rather than at the next Start.
     void onGraphEdited();
 
+    void onNewProject();
+    void onOpenProject();
+    void onSaveProject();
+    void onSaveProjectAs();
+
     void onStartMeasurement();
     void onStopMeasurement();
     void onMeasurementStarted();
@@ -92,6 +103,13 @@ private:
     /// Reports, to the Output panel, which theme and which resources the
     /// running binary actually loaded. See the definition for why.
     void reportThemeDiagnostics();
+
+    /// Saves to `path`, reporting either way. Used by Save and Save As.
+    bool writeProject(const QString& path);
+
+    /// Puts the project's name in the title bar, so two windows on two
+    /// projects are telling apart at a glance.
+    void updateWindowTitle();
 
     void saveWindowState() const;
     void restoreWindowState();
@@ -121,6 +139,9 @@ private:
     NodeCatalog m_catalog{NodeCatalog::withBuiltinTypes()};
     GraphDescription m_pipeline;
 
+    /// Where the open project lives, or empty for one never saved.
+    QString m_projectPath;
+
     // --- Docks, in creation order -----------------------------------------
     DockWidget* m_projectDock{nullptr};
     DockWidget* m_propertiesDock{nullptr};
@@ -139,6 +160,7 @@ private:
     QAction* m_actionNewProject{nullptr};
     QAction* m_actionOpenProject{nullptr};
     QAction* m_actionSaveProject{nullptr};
+    QAction* m_actionSaveProjectAs{nullptr};
     QAction* m_actionExit{nullptr};
 
     QAction* m_actionStart{nullptr};

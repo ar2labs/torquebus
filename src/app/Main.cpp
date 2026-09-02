@@ -70,5 +70,13 @@ int main(int argc, char* argv[])
     torquebus::ui::MainWindow window{context.settings(), context.themes()};
     window.show();
 
+    // The positional argument has been advertised in --help since v0.1 and
+    // ignored for just as long. Opened after show() so that a failure reports
+    // itself in the Output panel of a window the user can actually see.
+    const QStringList positional = parser.positionalArguments();
+    if (!positional.isEmpty()) {
+        window.openProject(positional.first());
+    }
+
     return QApplication::exec();
 }
