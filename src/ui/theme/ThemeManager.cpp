@@ -10,10 +10,11 @@
 #include <QFile>
 #include <QFont>
 #include <QFontDatabase>
-#include <QStringList>
 #include <QPainter>
 #include <QPalette>
 #include <QPixmap>
+#include <QRegularExpression>
+#include <QStringList>
 #include <QStyleFactory>
 
 namespace torquebus::ui {
@@ -251,7 +252,45 @@ QString ThemeManager::buildStyleSheet() const
     sheet.replace(QLatin1String("@arrowRight"), arrow("right"));
     sheet.replace(QLatin1String("@arrowDown"), arrow("down"));
 
+    reportUnsubstitutedTokens(sheet);
+
     return sheet;
+}
+
+void ThemeManager::reportUnsubstitutedTokens(const QString& sheet)
+{
+    // A token nobody registered is the quietest failure this file can produce.
+    // Qt does not report an unknown value in a style sheet - it discards the
+    // whole declaration and carries on - so `background-color: @tabStrip;` with
+    // no substitution behind it means the widget silently keeps whatever colour
+    // it had, and the only symptom is a panel that looks slightly wrong.
+    //
+    // Adding @tabStrip and @separator to the sheet and forgetting one line in
+    // the list above is exactly how that happens, and it would have taken a
+    // screenshot and a round trip to notice.
+    //
+    // So: after every substitution, anything still starting with '@' is a
+    // mistake, and it says which one.
+    static const QRegularExpression pattern{QStringLiteral("@[A-Za-z][A-Za-z0-9]*")};
+
+    QStringList missing;
+    auto matches = pattern.globalMatch(sheet);
+
+    while (matches.hasNext()) {
+        const QString token = matches.next().captured();
+        if (!missing.contains(token)) {
+            missing.append(token);
+        }
+    }
+
+    if (missing.isEmpty()) {
+        return;
+    }
+
+    qWarning("Style sheet tokens with no value: %s. Every rule using one has "
+             "been discarded by Qt, silently. Register them in "
+             "ThemeManager::buildStyleSheet().",
+             qUtf8Printable(missing.join(QStringLiteral(", "))));
 }
 
 bool ThemeManager::hasIconResource(const QString& name)
