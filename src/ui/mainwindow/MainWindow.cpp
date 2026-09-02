@@ -6,6 +6,7 @@
 #include "ui/mainwindow/MainWindow.h"
 
 #include "drivers/api/CanBackendRegistry.h"
+#include "services/ProjectFile.h"
 #include "services/SettingsStore.h"
 #include "ui/canvas/CanvasPanel.h"
 #include "ui/mainwindow/PlaceholderPanel.h"
@@ -19,6 +20,8 @@
 #include <QAction>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QColor>
 #include <QFontMetrics>
 #include <QFrame>
@@ -138,7 +141,6 @@ MainWindow::MainWindow(services::SettingsStore& settings, ThemeManager& themes)
     , m_settings{settings}
     , m_themes{themes}
 {
-    setWindowTitle(tr("TorqueBus Studio"));
     setWindowIcon(QIcon{QStringLiteral(":/icons/torquebus.svg")});
     resize(1440, 900);
 
@@ -150,6 +152,10 @@ MainWindow::MainWindow(services::SettingsStore& settings, ThemeManager& themes)
     createStatusBar();
 
     connect(&m_themes, &ThemeManager::themeChanged, this, &MainWindow::onThemeChanged);
+
+    // After the panels exist, because it is the project's name that goes in the
+    // title and an unsaved one still has to say so.
+    updateWindowTitle();
 
     restoreWindowState();
     refreshHardware();
@@ -379,6 +385,9 @@ void MainWindow::createActions()
     m_actionSaveProject = new QAction(icon("save"), tr("&Save Project"), this);
     m_actionSaveProject->setShortcut(QKeySequence::Save);
 
+    m_actionSaveProjectAs = new QAction(icon("save"), tr("Save Project &As..."), this);
+    m_actionSaveProjectAs->setShortcut(QKeySequence::SaveAs);
+
     m_actionExit = new QAction(tr("E&xit"), this);
     m_actionExit->setShortcut(QKeySequence::Quit);
     connect(m_actionExit, &QAction::triggered, this, &MainWindow::close);
@@ -434,10 +443,14 @@ void MainWindow::createActions()
     m_actionAboutQt = new QAction(tr("About &Qt"), this);
     connect(m_actionAboutQt, &QAction::triggered, qApp, &QApplication::aboutQt);
 
+    connect(m_actionNewProject, &QAction::triggered, this, &MainWindow::onNewProject);
+    connect(m_actionOpenProject, &QAction::triggered, this, &MainWindow::onOpenProject);
+    connect(m_actionSaveProject, &QAction::triggered, this, &MainWindow::onSaveProject);
+    connect(m_actionSaveProjectAs, &QAction::triggered, this, &MainWindow::onSaveProjectAs);
+
     // Everything whose module has not landed yet reports honestly instead of
     // doing nothing when clicked.
-    for (QAction* action : {m_actionNewProject, m_actionOpenProject, m_actionSaveProject,
-                            m_actionRecord, m_actionReplay,
+    for (QAction* action : {m_actionRecord, m_actionReplay,
                             m_actionHardwareConfiguration}) {
         connect(action, &QAction::triggered, this, &MainWindow::onNotImplemented);
     }
@@ -451,6 +464,7 @@ void MainWindow::createMenus()
     fileMenu->addAction(m_actionNewProject);
     fileMenu->addAction(m_actionOpenProject);
     fileMenu->addAction(m_actionSaveProject);
+    fileMenu->addAction(m_actionSaveProjectAs);
     fileMenu->addSeparator();
     fileMenu->addAction(m_actionExit);
 
@@ -776,6 +790,7 @@ void MainWindow::onThemeChanged(const Theme& theme)
     m_actionNewProject->setIcon(m_themes.icon(QStringLiteral("new")));
     m_actionOpenProject->setIcon(m_themes.icon(QStringLiteral("open")));
     m_actionSaveProject->setIcon(m_themes.icon(QStringLiteral("save")));
+    m_actionSaveProjectAs->setIcon(m_themes.icon(QStringLiteral("save")));
     m_actionStart->setIcon(m_themes.icon(QStringLiteral("start"), theme.success));
     m_actionStop->setIcon(m_themes.icon(QStringLiteral("stop")));
     m_actionRecord->setIcon(m_themes.icon(QStringLiteral("record"), theme.error));
@@ -855,6 +870,119 @@ void MainWindow::onGraphEdited()
     m_output->appendInfo(tr("Pipeline: %1 node(s), %2 connection(s).")
                              .arg(static_cast<qulonglong>(m_pipeline.nodes().size()))
                              .arg(static_cast<qulonglong>(m_pipeline.edges().size())));
+}
+
+void MainWindow::updateWindowTitle()
+{
+    const QString name = m_projectPath.isEmpty()
+        ? tr("Untitled project")
+        : QFileInfo{m_projectPath}.completeBaseName();
+
+    setWindowTitle(tr("%1 - TorqueBus Studio").arg(name));
+}
+
+void MainWindow::onNewProject()
+{
+    // Deliberately no "save your changes?" prompt yet: there is no dirty flag
+    // to base one on, and a prompt that appears when nothing changed is worse
+    // than none. It arrives with the flag, not before it.
+    m_pipeline.clear();
+    m_projectPath.clear();
+
+    if (m_canvas != nullptr) {
+        m_canvas->reload();
+    }
+    if (m_nodeProperties != nullptr) {
+        m_nodeProperties->clear();
+    }
+
+    updateWindowTitle();
+    m_output->appendInfo(tr("New project."));
+}
+
+void MainWindow::onOpenProject()
+{
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Open project"), QString{}, services::ProjectFile::fileFilter());
+
+    if (!path.isEmpty()) {
+        openProject(path);
+    }
+}
+
+void MainWindow::openProject(const QString& path)
+{
+    // Loaded into the live description. ProjectFile leaves it untouched when
+    // the read fails, so a broken file cannot leave the canvas showing half a
+    // pipeline that was never saved.
+    if (const Result result = services::ProjectFile::load(path, m_pipeline);
+        result.failed()) {
+        m_output->appendError(tr("Could not open the project: %1")
+                                  .arg(QString::fromStdString(std::string{result.message()})));
+        return;
+    }
+
+    m_projectPath = path;
+
+    // The canvas holds its own id mapping, so it has to be told the graph was
+    // replaced wholesale rather than edited.
+    if (m_canvas != nullptr) {
+        m_canvas->reload();
+    }
+    if (m_nodeProperties != nullptr) {
+        m_nodeProperties->clear();
+    }
+
+    updateWindowTitle();
+    m_output->appendInfo(tr("Opened %1.").arg(QFileInfo{path}.fileName()));
+
+    onGraphEdited();
+}
+
+bool MainWindow::writeProject(const QString& path)
+{
+    if (const Result result = services::ProjectFile::save(path, m_pipeline);
+        result.failed()) {
+        m_output->appendError(tr("Could not save the project: %1")
+                                  .arg(QString::fromStdString(std::string{result.message()})));
+        return false;
+    }
+
+    m_projectPath = path;
+    updateWindowTitle();
+    m_output->appendInfo(tr("Saved %1.").arg(QFileInfo{path}.fileName()));
+
+    return true;
+}
+
+void MainWindow::onSaveProject()
+{
+    if (m_projectPath.isEmpty()) {
+        onSaveProjectAs();
+        return;
+    }
+
+    writeProject(m_projectPath);
+}
+
+void MainWindow::onSaveProjectAs()
+{
+    QString path = QFileDialog::getSaveFileName(
+        this, tr("Save project"), m_projectPath, services::ProjectFile::fileFilter());
+
+    if (path.isEmpty()) {
+        return;
+    }
+
+    // The dialog does not always append the extension - it depends on the
+    // platform and on whether the user typed one - and a project saved as
+    // "EngineTest" with no suffix will not be offered by the Open dialog's
+    // filter next time.
+    if (QFileInfo{path}.suffix().isEmpty()) {
+        path += QLatin1Char('.') + services::ProjectFile::extension();
+    }
+
+    writeProject(path);
 }
 
 void MainWindow::onStartMeasurement()

@@ -608,3 +608,35 @@ found by reading the library rather than by trying it:
 | `PortRole::DataType` is "a QString describing the port data type" | Every painter unwraps it with `.value<NodeDataType>()`; a QString gives a default-constructed type — unnamed ports, every wire the same colour |
 | `AbstractGraphModel` is a `QObject` | It declares no constructor, so there is nothing to pass a parent to; use `setParent()` |
 | `NodeRole::Widget` returns an optional `QWidget*` | Read as `nodeData<QWidget*>()`, so an empty `QVariant` already means "none" |
+
+### The project file is the description, written down
+
+`.tbsproj` is JSON, and deliberately readable JSON: a project file is diffed in
+reviews, copied between machines and hand-edited in labs. That is why it is
+indented, why the keys are in a stable order, and why `NodeParameters` is an
+ordered map rather than a hash — opening a project and saving it again with
+nothing touched must not produce a diff.
+
+The format follows cansim's `nodes.json` closely, and not by accident: that file
+arrived at the same shape from the same problem, with twenty working scripts
+configured through it. Where the two differ this one is the superset — ports on
+the wires, and canvas positions.
+
+Two decisions worth naming:
+
+**A parameter's type is carried by the JSON value, not by a type field beside
+it.** A number stays a number and a string stays a string, which is what keeps
+the file readable. The cost is one ambiguity on the way back: JSON has a single
+number type, so an integer and a real are told apart by whether the value is
+integral. Without that, a CAN identifier would come back as `402653440.0` and be
+written out next time with a `.0` that was never there.
+
+**A file that cannot be read fully is not read at all.** Loading builds into a
+local `GraphDescription` and assigns it only on success, so a broken file leaves
+the canvas showing what was already there rather than half a pipeline nobody
+saved. A file from a newer format version is refused outright for the same
+reason: opening it would silently drop whatever the newer version added, and a
+project that loads with its wires missing is worse than one that will not load.
+
+Saving is atomic (`QSaveFile`: temporary plus rename), because losing yesterday's
+work to a crash during today's save is not a trade anyone agreed to.

@@ -8,6 +8,7 @@ add_executable(torquebus_unit_tests
     GraphDescriptionTests.cpp
     LuaEcuNodeTests.cpp
     PipelineGraphTests.cpp
+    ProjectFileTests.cpp
     QtMacroGuardTests.cpp
     TraceStoreTests.cpp
     ResultTests.cpp

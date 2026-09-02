@@ -163,7 +163,7 @@ incompatible API generation — but the debt is real and worth naming.
 | v0.10 | Transmit and Graph nodes | |
 | v0.11 | J1939 and **ISOBUS** (ISO 11783) | |
 | v0.12 | Logger and Playback (`.tblog`, ASC, CSV) | |
-| v0.13 | Projects and Workspaces (`.tbsproj`), graph included | |
+| v0.13 | Workspaces; the `.tbsproj` already carries the pipeline | |
 | v0.14 | ISO-TP and UDS, `Events` port | |
 | v0.15 | Dashboard Designer (QML) | |
 | v0.16 | Lua automation: headless runner, test scripting, reports | |
