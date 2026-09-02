@@ -1,0 +1,283 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// TorqueBus Studio
+// Copyright (C) TorqueBus contributors
+
+#include "ui/properties/NodePropertiesEditor.h"
+
+#include <QCheckBox>
+#include <QDoubleSpinBox>
+#include <QEvent>
+#include <QFileDialog>
+#include <QFormLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QPlainTextEdit>
+#include <QPushButton>
+#include <QScrollArea>
+#include <QSpinBox>
+#include <QFrame>
+#include <QLayoutItem>
+#include <QVBoxLayout>
+
+#include <limits>
+
+namespace torquebus::ui {
+namespace {
+
+/// Parameters whose value is a whole Lua script rather than a line of text.
+///
+/// Named here rather than guessed from the length of the string: "script" is a
+/// contract with NodeCatalog, and a text box the size of a paragraph is the
+/// difference between a usable ECU editor and a QLineEdit holding 60 lines of
+/// Lua on one line.
+[[nodiscard]] bool isSourceCode(std::string_view name)
+{
+    return name == "script";
+}
+
+/// Property holding the parameter name a script editor writes back into.
+constexpr auto kParameterProperty = "torquebusParameter";
+
+/// Parameters that name a file, and so deserve a Browse button.
+[[nodiscard]] bool isFilePath(std::string_view name)
+{
+    return name == "scriptPath";
+}
+
+[[nodiscard]] QString toQt(std::string_view text)
+{
+    return QString::fromUtf8(text.data(), static_cast<int>(text.size()));
+}
+
+} // namespace
+
+NodePropertiesEditor::NodePropertiesEditor(GraphDescription& description,
+                                           const NodeCatalog& catalog,
+                                           QWidget* parent)
+    : QWidget{parent}
+    , m_description{description}
+    , m_catalog{catalog}
+{
+    m_placeholder = new QLabel(tr("Select a block on the Pipeline canvas."), this);
+    m_placeholder->setAlignment(Qt::AlignCenter);
+    m_placeholder->setWordWrap(true);
+    m_placeholder->setProperty("torquebusRole", QStringLiteral("placeholder"));
+
+    m_formHost = new QWidget;
+    m_form = new QFormLayout(m_formHost);
+    m_form->setContentsMargins(8, 8, 8, 8);
+    m_form->setHorizontalSpacing(10);
+    m_form->setVerticalSpacing(6);
+    m_form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+
+    // Scrolled: a Lua script field is tall, and a node with eight parameters
+    // must not push the last of them off the bottom of a narrow dock.
+    auto* scroll = new QScrollArea(this);
+    scroll->setWidget(m_formHost);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+
+    auto* layout = new QVBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    layout->addWidget(m_placeholder);
+    layout->addWidget(scroll);
+
+    clear();
+}
+
+void NodePropertiesEditor::clear()
+{
+    m_nodeId.clear();
+    rebuild();
+}
+
+void NodePropertiesEditor::showNode(const QString& descriptionId)
+{
+    m_nodeId = descriptionId;
+    rebuild();
+}
+
+void NodePropertiesEditor::store(const std::string& name, ParameterValue value)
+{
+    NodeDescription* node = const_cast<NodeDescription*>(
+        m_description.find(m_nodeId.toStdString()));
+
+    if (node == nullptr) {
+        return;
+    }
+
+    node->parameters.set(name, std::move(value));
+    Q_EMIT nodeEdited(m_nodeId);
+}
+
+void NodePropertiesEditor::rebuild()
+{
+    // Rebuilt rather than repopulated. The widget for a parameter depends on
+    // its declared type, so a different node needs different widgets, and
+    // reusing them would mean tracking which is which.
+    while (QLayoutItem* item = m_form->takeAt(0)) {
+        delete item->widget();
+        delete item;
+    }
+
+    const NodeDescription* node = m_nodeId.isEmpty()
+        ? nullptr
+        : m_description.find(m_nodeId.toStdString());
+
+    const NodeTypeInfo* info = node == nullptr ? nullptr : m_catalog.find(node->typeName);
+
+    m_placeholder->setVisible(node == nullptr);
+    m_formHost->setVisible(node != nullptr);
+
+    if (node == nullptr || info == nullptr) {
+        return;
+    }
+
+    // Identity first, read-only: the id is set by renaming the block on the
+    // canvas, where it is also what the wires refer to.
+    m_form->addRow(tr("Block"), new QLabel(m_nodeId));
+    m_form->addRow(tr("Type"), new QLabel(QString::fromStdString(info->displayName)));
+
+    auto* enabled = new QCheckBox(tr("Enabled"));
+    enabled->setChecked(node->enabled);
+    enabled->setToolTip(tr("A disabled block stays in the project with its settings "
+                           "and position, and is skipped when the pipeline is built."));
+    connect(enabled, &QCheckBox::toggled, this, [this](bool on) {
+        if (NodeDescription* target =
+                const_cast<NodeDescription*>(m_description.find(m_nodeId.toStdString()))) {
+            target->enabled = on;
+            Q_EMIT nodeEdited(m_nodeId);
+        }
+    });
+    m_form->addRow(QString{}, enabled);
+
+    for (const ParameterDescriptor& parameter : info->parameters) {
+        const std::string name{parameter.name};
+        const QString label = parameter.required
+            ? tr("%1 *").arg(toQt(parameter.displayName))
+            : toQt(parameter.displayName);
+
+        const NodeParameters& values = node->parameters;
+
+        switch (parameter.type) {
+        case ParameterValue::Type::Boolean: {
+            auto* box = new QCheckBox;
+            box->setChecked(values.boolean(name));
+            box->setToolTip(toQt(parameter.description));
+            connect(box, &QCheckBox::toggled, this, [this, name](bool on) {
+                store(name, ParameterValue::fromBoolean(on));
+            });
+            m_form->addRow(label, box);
+            break;
+        }
+
+        case ParameterValue::Type::Integer: {
+            auto* spin = new QSpinBox;
+            // A CAN identifier does not fit in a default 0-99 range, and a
+            // spin box that silently clamps 0x18FEE500 to 99 is worse than no
+            // editor at all.
+            spin->setRange(std::numeric_limits<int>::min(),
+                           std::numeric_limits<int>::max());
+            spin->setValue(static_cast<int>(values.integer(name)));
+            spin->setToolTip(toQt(parameter.description));
+            connect(spin, &QSpinBox::valueChanged, this, [this, name](int value) {
+                store(name, ParameterValue::fromInteger(value));
+            });
+            m_form->addRow(label, spin);
+            break;
+        }
+
+        case ParameterValue::Type::Real: {
+            auto* spin = new QDoubleSpinBox;
+            spin->setRange(-1e9, 1e9);
+            spin->setDecimals(4);
+            spin->setValue(values.real(name));
+            spin->setToolTip(toQt(parameter.description));
+            connect(spin, &QDoubleSpinBox::valueChanged, this, [this, name](double value) {
+                store(name, ParameterValue::fromReal(value));
+            });
+            m_form->addRow(label, spin);
+            break;
+        }
+
+        case ParameterValue::Type::Text: {
+            if (isSourceCode(parameter.name)) {
+                auto* editor = new QPlainTextEdit;
+                editor->setPlainText(QString::fromStdString(values.text(name)));
+                editor->setToolTip(toQt(parameter.description));
+                editor->setMinimumHeight(140);
+                editor->setLineWrapMode(QPlainTextEdit::NoWrap);
+                editor->setProperty("torquebusRole", QStringLiteral("code"));
+
+                // Committed on focus loss - see eventFilter below. The
+                // parameter name rides on the widget so the filter can find it
+                // without a second map to keep in step.
+                editor->setProperty(kParameterProperty, QString::fromStdString(name));
+                editor->installEventFilter(this);
+
+                m_form->addRow(label, editor);
+                break;
+            }
+
+            auto* edit = new QLineEdit(QString::fromStdString(values.text(name)));
+            edit->setToolTip(toQt(parameter.description));
+            edit->setPlaceholderText(parameter.required ? tr("required") : tr("optional"));
+
+            connect(edit, &QLineEdit::editingFinished, this, [this, name, edit] {
+                store(name, ParameterValue::fromText(edit->text().toStdString()));
+            });
+
+            if (isFilePath(parameter.name)) {
+                auto* row = new QWidget;
+                auto* rowLayout = new QHBoxLayout(row);
+                rowLayout->setContentsMargins(0, 0, 0, 0);
+                rowLayout->setSpacing(4);
+                rowLayout->addWidget(edit, 1);
+
+                auto* browse = new QPushButton(tr("..."));
+                browse->setFixedWidth(28);
+                browse->setToolTip(tr("Choose a Lua script"));
+                connect(browse, &QPushButton::clicked, this, [this, name, edit] {
+                    const QString chosen = QFileDialog::getOpenFileName(
+                        this, tr("Choose a script"), edit->text(),
+                        tr("Lua scripts (*.lua);;All files (*)"));
+
+                    if (!chosen.isEmpty()) {
+                        edit->setText(chosen);
+                        store(name, ParameterValue::fromText(chosen.toStdString()));
+                    }
+                });
+                rowLayout->addWidget(browse);
+
+                m_form->addRow(label, row);
+                break;
+            }
+
+            m_form->addRow(label, edit);
+            break;
+        }
+        }
+    }
+}
+
+bool NodePropertiesEditor::eventFilter(QObject* watched, QEvent* event)
+{
+    if (event->type() == QEvent::FocusOut) {
+        if (auto* editor = qobject_cast<QPlainTextEdit*>(watched)) {
+            const QString parameter = editor->property(kParameterProperty).toString();
+
+            if (!parameter.isEmpty()) {
+                store(parameter.toStdString(),
+                      ParameterValue::fromText(editor->toPlainText().toStdString()));
+            }
+        }
+    }
+
+    return QWidget::eventFilter(watched, event);
+}
+
+} // namespace torquebus::ui
