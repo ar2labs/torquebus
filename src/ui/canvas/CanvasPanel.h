@@ -52,6 +52,13 @@ public:
     /// Rebuilds the canvas from the description, after a project is opened.
     void reload();
 
+    /// Tears down the scene and the model while the description is still alive.
+    ///
+    /// Must be called by whoever owns the GraphDescription, from its own
+    /// destructor, before that description dies. See the definition for why the
+    /// panel cannot simply do this in its own destructor.
+    void releaseGraph();
+
 Q_SIGNALS:
     /// The user selected a node. The Properties panel shows its settings.
     void nodeSelected(const QString& descriptionId);
