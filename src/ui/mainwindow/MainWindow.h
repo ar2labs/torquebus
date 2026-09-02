@@ -107,6 +107,16 @@ private:
     /// Saves to `path`, reporting either way. Used by Save and Save As.
     bool writeProject(const QString& path);
 
+    /// Marks the pipeline changed and refreshes the title bar.
+    void markDirty();
+
+    /// Asks about unsaved work before something discards it.
+    ///
+    /// Returns false when the user cancels, in which case the caller must not
+    /// proceed. Returns true when there was nothing to lose, when the work was
+    /// saved, or when the user chose to discard it.
+    [[nodiscard]] bool confirmDiscardChanges();
+
     /// Puts the project's name in the title bar, so two windows on two
     /// projects are telling apart at a glance.
     void updateWindowTitle();
@@ -141,6 +151,14 @@ private:
 
     /// Where the open project lives, or empty for one never saved.
     QString m_projectPath;
+
+    /// The pipeline has changed since it was last saved or opened.
+    ///
+    /// Adding project files created a way to lose work that did not exist
+    /// before: File > New on an unsaved pipeline used to discard it silently.
+    /// This is the flag that a prompt can honestly be based on - one that only
+    /// appears when something would actually be lost.
+    bool m_dirty{false};
 
     // --- Docks, in creation order -----------------------------------------
     DockWidget* m_projectDock{nullptr};

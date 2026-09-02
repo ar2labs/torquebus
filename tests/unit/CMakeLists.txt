@@ -33,6 +33,7 @@ set_target_properties(torquebus_unit_tests PROPERTIES FOLDER "Tests")
 # One test loads a real example script, so it needs to know where they live.
 target_compile_definitions(torquebus_unit_tests
     PRIVATE TORQUEBUS_EXAMPLE_SCRIPT_DIR="${CMAKE_SOURCE_DIR}/examples/scripts"
+            TORQUEBUS_EXAMPLE_PROJECT_DIR="${CMAKE_SOURCE_DIR}/examples/projects"
 )
 
 catch_discover_tests(torquebus_unit_tests)

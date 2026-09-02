@@ -22,6 +22,8 @@
 #include <QVBoxLayout>
 
 #include <limits>
+#include <set>
+#include <string>
 
 namespace torquebus::ui {
 namespace {
@@ -49,6 +51,66 @@ constexpr auto kParameterProperty = "torquebusParameter";
 [[nodiscard]] QString toQt(std::string_view text)
 {
     return QString::fromUtf8(text.data(), static_cast<int>(text.size()));
+}
+
+/// An undeclared parameter's value, as text for a single-line field.
+[[nodiscard]] QString scriptValueText(const ParameterValue& value)
+{
+    switch (value.type()) {
+    case ParameterValue::Type::Boolean:
+        return value.asBoolean() ? QStringLiteral("true") : QStringLiteral("false");
+    case ParameterValue::Type::Integer:
+        return QString::number(value.asInteger());
+    case ParameterValue::Type::Real:
+        return QString::number(value.asReal());
+    case ParameterValue::Type::Text:
+        return QString::fromStdString(value.asText());
+    }
+
+    return {};
+}
+
+/// The type of an undeclared parameter, inferred from what was typed.
+///
+/// Inference rather than a type picker beside every field: these are script
+/// settings, the script reads them as Lua values, and "0x101" or "12.5" or
+/// "true" already says which is meant. A picker would put a control next to
+/// every row to state something the value states already.
+///
+/// Hex is accepted because CAN identifiers are written that way everywhere else
+/// in this application, and a field that rejects 0x18FEE500 would be the only
+/// one that does.
+[[nodiscard]] ParameterValue parseScriptValue(const QString& text)
+{
+    const QString trimmed = text.trimmed();
+
+    if (trimmed.compare(QLatin1String("true"), Qt::CaseInsensitive) == 0) {
+        return ParameterValue::fromBoolean(true);
+    }
+    if (trimmed.compare(QLatin1String("false"), Qt::CaseInsensitive) == 0) {
+        return ParameterValue::fromBoolean(false);
+    }
+
+    bool ok = false;
+
+    if (trimmed.startsWith(QLatin1String("0x"), Qt::CaseInsensitive)) {
+        const qlonglong hex = trimmed.mid(2).toLongLong(&ok, 16);
+        if (ok) {
+            return ParameterValue::fromInteger(hex);
+        }
+    }
+
+    const qlonglong integer = trimmed.toLongLong(&ok);
+    if (ok) {
+        return ParameterValue::fromInteger(integer);
+    }
+
+    const double real = trimmed.toDouble(&ok);
+    if (ok) {
+        return ParameterValue::fromReal(real);
+    }
+
+    return ParameterValue::fromText(trimmed.toStdString());
 }
 
 } // namespace
@@ -156,112 +218,197 @@ void NodePropertiesEditor::rebuild()
     m_form->addRow(QString{}, enabled);
 
     for (const ParameterDescriptor& parameter : info->parameters) {
-        const std::string name{parameter.name};
-        const QString label = parameter.required
-            ? tr("%1 *").arg(toQt(parameter.displayName))
-            : toQt(parameter.displayName);
-
-        const NodeParameters& values = node->parameters;
-
-        switch (parameter.type) {
-        case ParameterValue::Type::Boolean: {
-            auto* box = new QCheckBox;
-            box->setChecked(values.boolean(name));
-            box->setToolTip(toQt(parameter.description));
-            connect(box, &QCheckBox::toggled, this, [this, name](bool on) {
-                store(name, ParameterValue::fromBoolean(on));
-            });
-            m_form->addRow(label, box);
-            break;
-        }
-
-        case ParameterValue::Type::Integer: {
-            auto* spin = new QSpinBox;
-            // A CAN identifier does not fit in a default 0-99 range, and a
-            // spin box that silently clamps 0x18FEE500 to 99 is worse than no
-            // editor at all.
-            spin->setRange(std::numeric_limits<int>::min(),
-                           std::numeric_limits<int>::max());
-            spin->setValue(static_cast<int>(values.integer(name)));
-            spin->setToolTip(toQt(parameter.description));
-            connect(spin, &QSpinBox::valueChanged, this, [this, name](int value) {
-                store(name, ParameterValue::fromInteger(value));
-            });
-            m_form->addRow(label, spin);
-            break;
-        }
-
-        case ParameterValue::Type::Real: {
-            auto* spin = new QDoubleSpinBox;
-            spin->setRange(-1e9, 1e9);
-            spin->setDecimals(4);
-            spin->setValue(values.real(name));
-            spin->setToolTip(toQt(parameter.description));
-            connect(spin, &QDoubleSpinBox::valueChanged, this, [this, name](double value) {
-                store(name, ParameterValue::fromReal(value));
-            });
-            m_form->addRow(label, spin);
-            break;
-        }
-
-        case ParameterValue::Type::Text: {
-            if (isSourceCode(parameter.name)) {
-                auto* editor = new QPlainTextEdit;
-                editor->setPlainText(QString::fromStdString(values.text(name)));
-                editor->setToolTip(toQt(parameter.description));
-                editor->setMinimumHeight(140);
-                editor->setLineWrapMode(QPlainTextEdit::NoWrap);
-                editor->setProperty("torquebusRole", QStringLiteral("code"));
-
-                // Committed on focus loss - see eventFilter below. The
-                // parameter name rides on the widget so the filter can find it
-                // without a second map to keep in step.
-                editor->setProperty(kParameterProperty, QString::fromStdString(name));
-                editor->installEventFilter(this);
-
-                m_form->addRow(label, editor);
-                break;
-            }
-
-            auto* edit = new QLineEdit(QString::fromStdString(values.text(name)));
-            edit->setToolTip(toQt(parameter.description));
-            edit->setPlaceholderText(parameter.required ? tr("required") : tr("optional"));
-
-            connect(edit, &QLineEdit::editingFinished, this, [this, name, edit] {
-                store(name, ParameterValue::fromText(edit->text().toStdString()));
-            });
-
-            if (isFilePath(parameter.name)) {
-                auto* row = new QWidget;
-                auto* rowLayout = new QHBoxLayout(row);
-                rowLayout->setContentsMargins(0, 0, 0, 0);
-                rowLayout->setSpacing(4);
-                rowLayout->addWidget(edit, 1);
-
-                auto* browse = new QPushButton(tr("..."));
-                browse->setFixedWidth(28);
-                browse->setToolTip(tr("Choose a Lua script"));
-                connect(browse, &QPushButton::clicked, this, [this, name, edit] {
-                    const QString chosen = QFileDialog::getOpenFileName(
-                        this, tr("Choose a script"), edit->text(),
-                        tr("Lua scripts (*.lua);;All files (*)"));
-
-                    if (!chosen.isEmpty()) {
-                        edit->setText(chosen);
-                        store(name, ParameterValue::fromText(chosen.toStdString()));
-                    }
-                });
-                rowLayout->addWidget(browse);
-
-                m_form->addRow(label, row);
-                break;
-            }
-
-            m_form->addRow(label, edit);
-            break;
-        }
-        }
+        addDeclaredRow(*node, parameter);
     }
+
+    addScriptParameterRows(*node, *info);
+}
+
+void NodePropertiesEditor::addDeclaredRow(const NodeDescription& node,
+                                          const ParameterDescriptor& parameter)
+{
+    const std::string name{parameter.name};
+    const QString label = parameter.required
+        ? tr("%1 *").arg(toQt(parameter.displayName))
+        : toQt(parameter.displayName);
+
+    const NodeParameters& values = node.parameters;
+
+    switch (parameter.type) {
+    case ParameterValue::Type::Boolean: {
+        auto* box = new QCheckBox;
+        box->setChecked(values.boolean(name));
+        box->setToolTip(toQt(parameter.description));
+        connect(box, &QCheckBox::toggled, this, [this, name](bool on) {
+            store(name, ParameterValue::fromBoolean(on));
+        });
+        m_form->addRow(label, box);
+        break;
+    }
+
+    case ParameterValue::Type::Integer: {
+        auto* spin = new QSpinBox;
+        // A CAN identifier does not fit in a default 0-99 range, and a
+        // spin box that silently clamps 0x18FEE500 to 99 is worse than no
+        // editor at all.
+        spin->setRange(std::numeric_limits<int>::min(),
+                       std::numeric_limits<int>::max());
+        spin->setValue(static_cast<int>(values.integer(name)));
+        spin->setToolTip(toQt(parameter.description));
+        connect(spin, &QSpinBox::valueChanged, this, [this, name](int value) {
+            store(name, ParameterValue::fromInteger(value));
+        });
+        m_form->addRow(label, spin);
+        break;
+    }
+
+    case ParameterValue::Type::Real: {
+        auto* spin = new QDoubleSpinBox;
+        spin->setRange(-1e9, 1e9);
+        spin->setDecimals(4);
+        spin->setValue(values.real(name));
+        spin->setToolTip(toQt(parameter.description));
+        connect(spin, &QDoubleSpinBox::valueChanged, this, [this, name](double value) {
+            store(name, ParameterValue::fromReal(value));
+        });
+        m_form->addRow(label, spin);
+        break;
+    }
+
+    case ParameterValue::Type::Text: {
+        if (isSourceCode(parameter.name)) {
+            auto* editor = new QPlainTextEdit;
+            editor->setPlainText(QString::fromStdString(values.text(name)));
+            editor->setToolTip(toQt(parameter.description));
+            editor->setMinimumHeight(140);
+            editor->setLineWrapMode(QPlainTextEdit::NoWrap);
+            editor->setProperty("torquebusRole", QStringLiteral("code"));
+
+            // Committed on focus loss - see eventFilter below. The
+            // parameter name rides on the widget so the filter can find it
+            // without a second map to keep in step.
+            editor->setProperty(kParameterProperty, QString::fromStdString(name));
+            editor->installEventFilter(this);
+
+            m_form->addRow(label, editor);
+            break;
+        }
+
+        auto* edit = new QLineEdit(QString::fromStdString(values.text(name)));
+        edit->setToolTip(toQt(parameter.description));
+        edit->setPlaceholderText(parameter.required ? tr("required") : tr("optional"));
+
+        connect(edit, &QLineEdit::editingFinished, this, [this, name, edit] {
+            store(name, ParameterValue::fromText(edit->text().toStdString()));
+        });
+
+        if (isFilePath(parameter.name)) {
+            auto* row = new QWidget;
+            auto* rowLayout = new QHBoxLayout(row);
+            rowLayout->setContentsMargins(0, 0, 0, 0);
+            rowLayout->setSpacing(4);
+            rowLayout->addWidget(edit, 1);
+
+            auto* browse = new QPushButton(tr("..."));
+            browse->setFixedWidth(28);
+            browse->setToolTip(tr("Choose a Lua script"));
+            connect(browse, &QPushButton::clicked, this, [this, name, edit] {
+                const QString chosen = QFileDialog::getOpenFileName(
+                    this, tr("Choose a script"), edit->text(),
+                    tr("Lua scripts (*.lua);;All files (*)"));
+
+                if (!chosen.isEmpty()) {
+                    edit->setText(chosen);
+                    store(name, ParameterValue::fromText(chosen.toStdString()));
+                }
+            });
+            rowLayout->addWidget(browse);
+
+            m_form->addRow(label, row);
+            break;
+        }
+
+        m_form->addRow(label, edit);
+        break;
+    }
+    }
+}
+
+void NodePropertiesEditor::addScriptParameterRows(const NodeDescription& node,
+                                                  const NodeTypeInfo& info)
+{
+    if (!info.acceptsExtraParameters) {
+        return;
+    }
+
+    // Which names the type already claimed, so they are not offered twice.
+    std::set<std::string> declared;
+    for (const ParameterDescriptor& parameter : info.parameters) {
+        declared.emplace(parameter.name);
+    }
+
+    auto* heading = new QLabel(tr("Script parameters"));
+    heading->setProperty("torquebusRole", QStringLiteral("panelHeading"));
+    heading->setToolTip(tr("Read by the script through its `parameters` table. "
+                           "The names are the script's own."));
+    m_form->addRow(heading);
+
+    for (const auto& [name, value] : node.parameters.values()) {
+        if (declared.contains(name)) {
+            continue;
+        }
+
+        // Typed by what the value already is. There is no descriptor to consult
+        // - that is the whole point of these - so the value carries its own
+        // type, and the project file preserved it precisely so this works.
+        auto* edit = new QLineEdit(scriptValueText(value));
+        edit->setToolTip(tr("Read by the script as parameters.%1")
+                             .arg(QString::fromStdString(name)));
+
+        const std::string key = name;
+        connect(edit, &QLineEdit::editingFinished, this, [this, key, edit] {
+            store(key, parseScriptValue(edit->text()));
+        });
+
+        m_form->addRow(QString::fromStdString(name), edit);
+    }
+
+    // Adding one. Without this a freshly dropped ECU could never be given the
+    // settings its script reads, and the only way to configure it would be to
+    // hand-edit the .tbsproj.
+    auto* row = new QWidget;
+    auto* rowLayout = new QHBoxLayout(row);
+    rowLayout->setContentsMargins(0, 0, 0, 0);
+    rowLayout->setSpacing(4);
+
+    auto* name = new QLineEdit;
+    name->setPlaceholderText(tr("name"));
+
+    auto* add = new QPushButton(tr("Add"));
+    add->setEnabled(false);
+
+    connect(name, &QLineEdit::textChanged, add, [add](const QString& text) {
+        add->setEnabled(!text.trimmed().isEmpty());
+    });
+
+    connect(add, &QPushButton::clicked, this, [this, name] {
+        const QString key = name->text().trimmed();
+        if (key.isEmpty()) {
+            return;
+        }
+
+        // Created empty and typed on first edit. Guessing a type from a name
+        // would be guessing.
+        store(key.toStdString(), ParameterValue::fromText(std::string{}));
+
+        // Rebuilt so the new row appears where the others are, in order.
+        rebuild();
+    });
+
+    rowLayout->addWidget(name, 1);
+    rowLayout->addWidget(add);
+
+    m_form->addRow(QString{}, row);
 }
 
 bool NodePropertiesEditor::eventFilter(QObject* watched, QEvent* event)

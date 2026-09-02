@@ -1,0 +1,88 @@
+{
+    "application": "TorqueBus Studio",
+    "pipeline": {
+        "edges": [
+            {
+                "from": "can_1",
+                "fromPort": 0,
+                "to": "ecu_vehicle",
+                "toPort": 0
+            },
+            {
+                "from": "ecu_vehicle",
+                "fromPort": 0,
+                "to": "tx_1",
+                "toPort": 0
+            },
+            {
+                "from": "can_2",
+                "fromPort": 0,
+                "to": "speed_only",
+                "toPort": 0
+            }
+        ],
+        "nodes": [
+            {
+                "id": "can_1",
+                "parameters": {
+                    "channel": 0
+                },
+                "position": {
+                    "x": -260,
+                    "y": 0
+                },
+                "type": "can.source"
+            },
+            {
+                "id": "ecu_vehicle",
+                "parameters": {
+                    "channel": 0,
+                    "script": "-- A cyclic ECU, inline in the project rather than in a file, so this\n-- example opens on any machine with nothing else to install.\n--\n-- Everything it needs comes from `parameters`, which is what lets one\n-- script be several ECUs. See docs/development/scripting.md.\n\nlocal kSpeedId = parameters.speed_id or 0x101\nlocal kTempId = parameters.temp_id or 0x102\n\nlocal kTickMs = parameters.tick_ms or 100\nlocal kSpeedIntervalUs = (parameters.speed_interval_ms or 100) * 1000\nlocal kTempIntervalUs = (parameters.temp_interval_ms or 1000) * 1000\n\nlocal speed = 0.0\nlocal temperature = 70.0\n\nlocal next_speed_us = 0\nlocal next_temp_us = 0\n\nfunction on_enable()\n    log_message(string.format(\"vehicle ECU ready, speed on 0x%03X\", kSpeedId))\n    set_timer(kTickMs)\nend\n\nfunction on_timer()\n    -- Against the clock, not a tick counter: on_timer runs at most once per\n    -- dispatch pass, so counting ticks drifts slow whenever one is late.\n    local now = get_time_us()\n\n    speed = speed + 1.5\n    if speed > 90.0 then\n        speed = 0.0\n    end\n\n    temperature = temperature + (speed > 45.0 and 0.05 or -0.02)\n    if temperature < 70.0 then\n        temperature = 70.0\n    end\n\n    if now >= next_speed_us then\n        next_speed_us = now + kSpeedIntervalUs\n        emit(kSpeedId, string.pack(\"<I2\", math.floor(speed / 0.1 + 0.5) & 0xFFFF))\n    end\n\n    if now >= next_temp_us then\n        next_temp_us = now + kTempIntervalUs\n        emit(kTempId, string.pack(\"<I1\", math.floor(temperature + 40.5) & 0xFF))\n    end\nend\n",
+                    "speed_id": 257,
+                    "temp_id": 258,
+                    "tick_ms": 100
+                },
+                "position": {
+                    "x": 0,
+                    "y": 0
+                },
+                "type": "lua.ecu"
+            },
+            {
+                "id": "tx_1",
+                "parameters": {
+                    "channel": 0
+                },
+                "position": {
+                    "x": 260,
+                    "y": 0
+                },
+                "type": "can.transmit"
+            },
+            {
+                "id": "can_2",
+                "parameters": {
+                    "channel": 1
+                },
+                "position": {
+                    "x": -260,
+                    "y": 200
+                },
+                "type": "can.source"
+            },
+            {
+                "id": "speed_only",
+                "parameters": {
+                    "from": 257,
+                    "to": 257
+                },
+                "position": {
+                    "x": 0,
+                    "y": 200
+                },
+                "type": "can.filter"
+            }
+        ]
+    },
+    "version": 1
+}

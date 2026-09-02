@@ -197,6 +197,11 @@ again is the same experiment, minus its configuration.
 
 ## Examples
 
+`examples/projects/virtual-vehicle.tbsproj` is a whole pipeline, ready to open:
+a CAN channel, a simulated vehicle ECU with its script inline, and a transmit
+block, plus a filtered second channel. Nothing to install — open it and press
+Start.
+
 `examples/scripts/` holds two ported ECUs, commented with what changed:
 
 - **`ecu_vehicle.lua`** — cyclic: sends speed and engine temperature on a
