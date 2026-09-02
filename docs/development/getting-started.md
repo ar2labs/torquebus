@@ -169,6 +169,12 @@ project is about layering, not style.
 
 ---
 
+## Checking it works
+
+Building is not the same as working. The acceptance pass - what each panel
+should look like, what the example pipeline should do, and what to send when it
+does not - is in [`validation.md`](validation.md).
+
 ## Troubleshooting
 
 **`Could NOT find Qt6`** — `CMAKE_PREFIX_PATH` does not point at your Qt

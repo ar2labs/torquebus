@@ -88,6 +88,9 @@ panel ends up somewhere unreachable.
 
 Build options, CANlib in a custom location, and what to do when something goes
 wrong: [`docs/development/getting-started.md`](docs/development/getting-started.md).
+To check a build actually works, follow
+[`docs/development/validation.md`](docs/development/validation.md) — it is the
+acceptance pass, ordered so the cheapest failures surface first.
 
 ---
 
