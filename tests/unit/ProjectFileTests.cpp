@@ -16,6 +16,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "core/pipeline/GraphDescription.h"
+#include "core/pipeline/NodeCatalog.h"
 #include "services/ProjectFile.h"
 
 #include <QDir>
@@ -279,4 +280,32 @@ TEST_CASE("The saved file is readable JSON", "[project]")
     CHECK(contents.count('\n') > 20);
     CHECK(contents.contains("\"ecu_motor\""));
     CHECK(contents.contains("\"lua.ecu\""));
+}
+
+TEST_CASE("The shipped example project opens and validates", "[project][examples]")
+{
+    // An example that does not open is worse than no example: it is the first
+    // thing a new user tries, and it is the one file in the repository whose
+    // correctness nothing else checks. This is the check.
+    const QString path =
+        QStringLiteral(TORQUEBUS_EXAMPLE_PROJECT_DIR "/virtual-vehicle.tbsproj");
+
+    GraphDescription pipeline;
+    const Result opened = ProjectFile::load(path, pipeline);
+
+    INFO(std::string{opened.message()});
+    REQUIRE(opened.succeeded());
+
+    // Not just parseable - buildable. Every type known, every port real, every
+    // wire type-compatible, one edge per input.
+    const Result valid = pipeline.validate(NodeCatalog::withBuiltinTypes());
+
+    INFO(std::string{valid.message()});
+    CHECK(valid.succeeded());
+
+    // And it demonstrates what it claims to: a simulated ECU that transmits.
+    const NodeDescription* ecu = pipeline.find("ecu_vehicle");
+    REQUIRE(ecu != nullptr);
+    CHECK(ecu->typeName == "lua.ecu");
+    CHECK_FALSE(ecu->parameters.text("script").empty());
 }

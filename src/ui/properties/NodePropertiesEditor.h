@@ -63,6 +63,18 @@ Q_SIGNALS:
 private:
     void rebuild();
 
+    /// Adds a row for a parameter the type declares.
+    void addDeclaredRow(const NodeDescription& node, const ParameterDescriptor& parameter);
+
+    /// Adds rows for settings present on the node that its type does not
+    /// declare, and a way to add another.
+    ///
+    /// A Lua script's settings are the script's own - `speed_id` matters to one
+    /// ECU and `threshold_high` to another - so the catalog cannot declare them.
+    /// Without this the editor would hide settings a project already contains
+    /// and that its script is reading, which is worse than showing nothing.
+    void addScriptParameterRows(const NodeDescription& node, const NodeTypeInfo& info);
+
     /// Writes one value back, creating the parameter if it was unset.
     void store(const std::string& name, ParameterValue value);
 

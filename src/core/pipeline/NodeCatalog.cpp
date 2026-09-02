@@ -238,6 +238,7 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .description =
                                             "Channel stamped onto the frames it emits."},
                 },
+            .acceptsExtraParameters = true,
         },
         [](const NodeParameters& parameters, const NodeBuildContext& context,
            std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {

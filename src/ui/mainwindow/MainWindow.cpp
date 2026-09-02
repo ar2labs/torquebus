@@ -22,6 +22,7 @@
 #include <QCloseEvent>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QMessageBox>
 #include <QColor>
 #include <QFontMetrics>
 #include <QFrame>
@@ -696,6 +697,13 @@ void MainWindow::saveWindowState() const
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
+    // Asked before anything is torn down, so cancelling leaves the window
+    // exactly as it was rather than half closed.
+    if (!confirmDiscardChanges()) {
+        event->ignore();
+        return;
+    }
+
     // Stop before saving: the engine owns a thread and a set of open hardware
     // channels, and neither should outlive the window that started them.
     if (m_controller->isRunning()) {
@@ -856,6 +864,8 @@ void MainWindow::onCanvasNodeSelected(const QString& descriptionId)
 
 void MainWindow::onGraphEdited()
 {
+    markDirty();
+
     // Reported while the user is looking at the wire they just drew, rather
     // than at the next Start. validate() needs no engine and no nodes, which is
     // exactly why it is a separate function from build().
@@ -878,16 +888,66 @@ void MainWindow::updateWindowTitle()
         ? tr("Untitled project")
         : QFileInfo{m_projectPath}.completeBaseName();
 
-    setWindowTitle(tr("%1 - TorqueBus Studio").arg(name));
+    // The asterisk is the convention every editor uses, and it is the only
+    // continuous signal that there is something to lose - the prompt only
+    // appears at the moment it would be lost, which is too late to be a warning.
+    setWindowTitle(tr("%1%2 - TorqueBus Studio")
+                       .arg(name, m_dirty ? QStringLiteral("*") : QString{}));
+}
+
+void MainWindow::markDirty()
+{
+    if (m_dirty) {
+        return;
+    }
+
+    m_dirty = true;
+    updateWindowTitle();
+}
+
+bool MainWindow::confirmDiscardChanges()
+{
+    if (!m_dirty) {
+        return true;
+    }
+
+    const QString name = m_projectPath.isEmpty()
+        ? tr("this project")
+        : QFileInfo{m_projectPath}.fileName();
+
+    // Save is the default and Discard is not, because the cost of the two
+    // mistakes is not symmetric: an unwanted save is undone by not saving
+    // again, and a discarded pipeline is gone.
+    const QMessageBox::StandardButton answer = QMessageBox::warning(
+        this, tr("Unsaved changes"),
+        tr("The pipeline in %1 has changed.\n\nSave it before continuing?").arg(name),
+        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
+        QMessageBox::Save);
+
+    switch (answer) {
+    case QMessageBox::Save:
+        onSaveProject();
+        // Still dirty means the save failed or its dialog was cancelled, and
+        // continuing would discard the work the user just asked to keep.
+        return !m_dirty;
+
+    case QMessageBox::Discard:
+        return true;
+
+    default:
+        return false;
+    }
 }
 
 void MainWindow::onNewProject()
 {
-    // Deliberately no "save your changes?" prompt yet: there is no dirty flag
-    // to base one on, and a prompt that appears when nothing changed is worse
-    // than none. It arrives with the flag, not before it.
+    if (!confirmDiscardChanges()) {
+        return;
+    }
+
     m_pipeline.clear();
     m_projectPath.clear();
+    m_dirty = false;
 
     if (m_canvas != nullptr) {
         m_canvas->reload();
@@ -902,6 +962,10 @@ void MainWindow::onNewProject()
 
 void MainWindow::onOpenProject()
 {
+    if (!confirmDiscardChanges()) {
+        return;
+    }
+
     const QString path = QFileDialog::getOpenFileName(
         this, tr("Open project"), QString{}, services::ProjectFile::fileFilter());
 
@@ -923,6 +987,7 @@ void MainWindow::openProject(const QString& path)
     }
 
     m_projectPath = path;
+    m_dirty = false;
 
     // The canvas holds its own id mapping, so it has to be told the graph was
     // replaced wholesale rather than edited.
@@ -949,6 +1014,7 @@ bool MainWindow::writeProject(const QString& path)
     }
 
     m_projectPath = path;
+    m_dirty = false;
     updateWindowTitle();
     m_output->appendInfo(tr("Saved %1.").arg(QFileInfo{path}.fileName()));
 

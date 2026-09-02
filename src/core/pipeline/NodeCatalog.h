@@ -70,6 +70,20 @@ struct NodeTypeInfo final {
     std::vector<PortDescriptor> inputs;
     std::vector<PortDescriptor> outputs;
     std::vector<ParameterDescriptor> parameters;
+
+    /// The type accepts settings beyond the ones it declares.
+    ///
+    /// True for lua.ecu, and for the same reason its parameters exist at all:
+    /// a script's settings are the script's, invented by whoever wrote it, and
+    /// the catalog cannot know that `speed_id` matters to one ECU and
+    /// `threshold_high` to another. Everything undeclared is handed to the
+    /// script's `parameters` table.
+    ///
+    /// The properties editor reads this to decide whether to offer a way to add
+    /// one. Without the flag it would have to guess, and guessing wrong in
+    /// either direction is bad: an editor that hides a setting the project
+    /// already contains, or one that invites a setting nothing will ever read.
+    bool acceptsExtraParameters{false};
 };
 
 /// Builds one node. Returns a failed Result rather than throwing, and names the
