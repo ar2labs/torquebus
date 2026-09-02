@@ -177,6 +177,20 @@ does not - is in [`validation.md`](validation.md).
 
 ## Troubleshooting
 
+**`Could not find executable torquebus_unit_tests_NOT_BUILT-<hash>`** — the
+tests have not been built yet. Nothing is wrong with the code.
+
+`catch_discover_tests` asks the test executable for its list of cases *after*
+that executable is linked. Until then it registers one placeholder test per
+target, named `<target>_NOT_BUILT-<hash>`, whose only job is to fail so that a
+`ctest` run on an unbuilt tree does not report success. The name is Catch2's, and
+it is a poor one - it reads like a missing file rather than a missing build.
+
+```bat
+cmake --build --preset windows-msvc-debug
+ctest  --preset windows-msvc-debug
+```
+
 **`Could NOT find Qt6`** — `CMAKE_PREFIX_PATH` does not point at your Qt
 installation, or you installed the MinGW build instead of MSVC 2022 64-bit.
 
