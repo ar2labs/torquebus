@@ -640,3 +640,34 @@ project that loads with its wires missing is worse than one that will not load.
 
 Saving is atomic (`QSaveFile`: temporary plus rename), because losing yesterday's
 work to a crash during today's save is not a trade anyone agreed to.
+
+### Qt teardown order, and the one rule it breaks
+
+A Qt widget's members are destroyed **before** `~QWidget` deletes its children.
+That is unremarkable until a child holds a reference to a member, which is
+exactly the shape of the canvas:
+
+```
+MainWindow
+  member: GraphDescription m_pipeline      <- destroyed first
+  child:  Pipeline dock
+            child: CanvasPanel
+                     member: PipelineGraphModel  -> references m_pipeline
+                     child:  BasicGraphicsScene  -> references the model
+```
+
+Both arrows point from something destroyed *later* to something destroyed
+*earlier*. Nothing in the type system says so, no test catches it, and it does
+not fail on every run — a crash on exit that appears one time in five is the
+worst kind to chase months later.
+
+`CanvasPanel::releaseGraph()` is the answer: the owner of the description calls
+it from its own destructor, tearing down the scene and the model while
+everything they point at is still alive. The panel is **not** deleted there,
+because it is a guest widget inside a KDDockWidgets dock and deleting it early
+would leave the dock holding a view onto a destroyed widget — the same bug
+moved rather than fixed.
+
+The general rule for this codebase: **a child widget must not outlive a
+reference it holds into its parent's members.** When it must hold one, the owner
+gets an explicit release call, and both ends say why.

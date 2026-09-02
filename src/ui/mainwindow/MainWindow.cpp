@@ -173,7 +173,24 @@ MainWindow::MainWindow(services::SettingsStore& settings, ThemeManager& themes)
     m_output->appendInfo(tr("Press Start (F5) to go bus-on."));
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow()
+{
+    // m_pipeline and m_catalog are members of this window, and the canvas holds
+    // a QtNodes scene built on top of them. Members are destroyed before
+    // ~QWidget deletes the child widgets, so by the time the canvas goes the
+    // description it is built on has already gone.
+    //
+    // The canvas is told to let go here, while everything it points at is
+    // still alive. It is not deleted: it is a guest widget inside a
+    // KDDockWidgets dock, and deleting it early would leave the dock holding a
+    // view onto a destroyed widget - the same bug moved rather than fixed.
+    //
+    // The block editor needs nothing: its destructor touches only its own
+    // widgets.
+    if (m_canvas != nullptr) {
+        m_canvas->releaseGraph();
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Construction

@@ -162,7 +162,45 @@ CanvasPanel::CanvasPanel(GraphDescription& description,
     }
 }
 
-CanvasPanel::~CanvasPanel() = default;
+CanvasPanel::~CanvasPanel()
+{
+    releaseGraph();
+}
+
+void CanvasPanel::releaseGraph()
+{
+    // Two lifetime problems, one function.
+    //
+    // First, inside this panel: BasicGraphicsScene holds
+    // `AbstractGraphModel&` - our m_model - and the NodeGraphicsObjects it owns
+    // reach into that model in twenty-odd places. Left to the default
+    // destructor the order would be
+    //
+    //   1. ~CanvasPanel body       (nothing)
+    //   2. members, reverse order  -> m_model DESTROYED here
+    //   3. ~QWidget                -> deletes children, including the scene,
+    //                                 which still references it
+    //
+    // Second, one level up: this panel is a child widget of a dock owned by the
+    // main window, so it is destroyed inside ~QWidget of that window - which
+    // runs *after* the window's own members, and m_description is one of them.
+    // So even a correct destructor here would run too late.
+    //
+    // Hence a function the owner calls. Deleting the panel from the window's
+    // destructor instead would work for the description but leave
+    // KDDockWidgets holding a guest view onto a destroyed widget, trading one
+    // dangling reference for another.
+    //
+    // Neither compiler nor test can see any of this, and a crash on exit that
+    // happens on some runs is the worst kind to chase later.
+    delete m_view;
+    m_view = nullptr;
+
+    delete m_scene;
+    m_scene = nullptr;
+
+    m_model.reset();
+}
 
 void CanvasPanel::buildPalette()
 {
@@ -197,6 +235,10 @@ void CanvasPanel::addNodeFromPalette(QTreeWidgetItem* item)
         return;
     }
 
+    if (!m_model || m_view == nullptr) {
+        return;
+    }
+
     const QString typeName = item->data(0, kTypeNameRole).toString();
     if (typeName.isEmpty()) {
         return; // A category heading.
@@ -216,7 +258,12 @@ void CanvasPanel::addNodeFromPalette(QTreeWidgetItem* item)
 
 void CanvasPanel::reload()
 {
-    m_model->reload();
+    // Guarded because releaseGraph() may already have run: a queued signal
+    // arriving during teardown is exactly the kind of thing that turns a clean
+    // exit into an intermittent crash.
+    if (m_model) {
+        m_model->reload();
+    }
 }
 
 void CanvasPanel::applyTheme(const Theme& theme)
