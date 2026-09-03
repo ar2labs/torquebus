@@ -1,0 +1,54 @@
+VERSION ""
+
+NS_ :
+    NS_DESC_
+    CM_
+    BA_DEF_
+    BA_
+    VAL_
+    CAT_DEF_
+    CAT_
+    FILTER
+    BA_DEF_DEF_
+    EV_DATA_
+    ENVVAR_DATA_
+    SGTYPE_
+    SGTYPE_VAL_
+    BA_DEF_SGTYPE_
+    BA_SGTYPE_
+    SIGTYPE_VAL_
+    BA_DEF_REL_
+    BA_REL_
+    BA_DEF_DEF_REL_
+    BU_SG_REL_
+    BU_EV_REL_
+    BU_BO_REL_
+    SG_MUL_VAL_
+
+BS_:
+
+BU_: ECM ECU
+
+/* ------------------------------------------------------------------
+   Mensagem 1: EngineSpeed
+   - ID = 1 (0x1)
+   - DLC = 8
+   - Emitter: ECU
+   - Sinal: RPM (16 bits, fator = 0.125, offset = 0)
+     start_bit = 0 (padrão bit LSB = 0), endianness = little (@1),
+     sem sinal (unsigned, simbolizado pelo '+').
+   ------------------------------------------------------------------ */
+BO_ 1 EngineSpeed: 8 ECU
+ SG_ RPM : 0|16@1+ (0.125,0) [0|8191.875] "rpm"  ECM
+
+/* ------------------------------------------------------------------
+   Mensagem 2: Temperature
+   - ID = 255 (0xFF)
+   - DLC = 8
+   - Emitter: ECU
+   - Sinal: CoolantTemp (8 bits, fator = 1, offset = -40)
+     start_bit = 0, endianness = little (@1),
+     sem sinal (unsigned, '+').
+   ------------------------------------------------------------------ */
+BO_ 255 Temperature: 8 ECU
+ SG_ CoolantTemp : 0|8@1+ (1,-40) [ -40 | 215 ] "degC" ECM
