@@ -57,6 +57,17 @@ std::vector<const CanSignal*> CanMessage::signalsIn(const std::uint8_t* payload,
     return present;
 }
 
+CanFrame CanMessage::makeFrame() const noexcept
+{
+    CanFrame frame;
+    frame.identifier = identifier;
+    frame.format = format;
+    frame.length = length;
+    frame.dlc = dlcFromPayloadLength(length, false);
+    frame.direction = CanDirection::Tx;
+    return frame;
+}
+
 const CanSignal* CanMessage::findSignal(std::string_view signalName) const noexcept
 {
     const auto match = std::find_if(signals.begin(), signals.end(),
