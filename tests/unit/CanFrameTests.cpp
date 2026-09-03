@@ -137,10 +137,15 @@ TEST_CASE("Bus load accounting counts overhead, payload and stuffing",
     const std::uint32_t standardBits = approximateFrameBitCount(standard);
     const std::uint32_t extendedBits = approximateFrameBitCount(extended);
 
-    // An 8-byte standard frame is ~111 bits at worst-case stuffing, and an
-    // extended one is always longer than its standard equivalent.
+    // An 8-byte standard frame is 111 bits *without* stuffing and up to 135
+    // with it, so the worst case this function reports has to sit between the
+    // two. It reports 130.
+    //
+    // The bound here used to be `< 130`, which excluded the value the function
+    // actually produces - the comment had confused 111 bits (unstuffed) with
+    // the worst case, and the number was picked to match the confusion.
     CHECK(standardBits > 47 + 64);
-    CHECK(standardBits < 130);
+    CHECK(standardBits <= 135);
     CHECK(extendedBits > standardBits);
 
     // An empty frame still costs its overhead: a bus flooded with zero-length

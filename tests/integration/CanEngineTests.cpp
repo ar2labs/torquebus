@@ -515,8 +515,14 @@ TEST_CASE("The engine runs its work through the graph, not around it",
     REQUIRE(engine.start().succeeded());
 
     CHECK(engine.graph().isCompiled());
-    CHECK(engine.graph().nodeCount() == 2);       // one source, one sink
-    CHECK(engine.graph().edges().size() == 1);
+
+    // Three nodes and two edges, not two and one: the engine also builds the
+    // implicit trace path, so every channel feeds the trace store whether or
+    // not anyone registered a sink (ARCHITECTURE.md, "The default graph is
+    // implicit"). This test predates that and was counting the graph the
+    // engine used to build.
+    CHECK(engine.graph().nodeCount() == 3);       // source, frame sink, trace sink
+    CHECK(engine.graph().edges().size() == 2);
     CHECK(engine.sourceNode(0) != NodeId::Invalid);
     CHECK(engine.sourceNode(9) == NodeId::Invalid);
 
