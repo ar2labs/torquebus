@@ -82,6 +82,11 @@ struct CanSignal final {
 
     std::string unit;
 
+    /// From a `CM_ SG_` line. What the database author wanted the engineer
+    /// reading this signal to know, which is often the only documentation a
+    /// bus has.
+    std::string comment;
+
     /// Nodes that receive this signal. Informational.
     std::vector<std::string> receivers;
 
