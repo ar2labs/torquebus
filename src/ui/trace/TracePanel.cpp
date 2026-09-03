@@ -36,6 +36,7 @@ constexpr int kColumnWidths[TraceModel::ColumnCount] = {
     64,  // Type
     40,  // DLC
     260, // Data
+    280, // Signals - the widest column, because a decoded row is the point
     72,  // Cycle
     72,  // Count
     64,  // Flags
@@ -163,6 +164,11 @@ void TracePanel::applyColumnWidths()
     for (int column = 0; column < TraceModel::ColumnCount; ++column) {
         m_view->setColumnWidth(column, kColumnWidths[column]);
     }
+}
+
+void TracePanel::setDatabases(std::vector<std::shared_ptr<const CanDatabase>> databases)
+{
+    m_model->setDatabases(std::move(databases));
 }
 
 void TracePanel::setStore(const TraceStore* store)

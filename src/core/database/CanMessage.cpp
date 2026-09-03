@@ -12,19 +12,19 @@ namespace torquebus {
 
 const CanSignal* CanMessage::multiplexerSwitch() const noexcept
 {
-    const auto match = std::find_if(signals.begin(), signals.end(),
+    const auto match = std::find_if(signalList.begin(), signalList.end(),
                                     [](const CanSignal& signal) {
                                         return signal.isMultiplexer;
                                     });
 
-    return match == signals.end() ? nullptr : &*match;
+    return match == signalList.end() ? nullptr : &*match;
 }
 
 std::vector<const CanSignal*> CanMessage::signalsIn(const std::uint8_t* payload,
                                                     std::size_t payloadLength) const
 {
     std::vector<const CanSignal*> present;
-    present.reserve(signals.size());
+    present.reserve(signalList.size());
 
     const CanSignal* switchSignal = multiplexerSwitch();
 
@@ -36,7 +36,7 @@ std::vector<const CanSignal*> CanMessage::signalsIn(const std::uint8_t* payload,
         selector = switchSignal->rawValue(payload, payloadLength);
     }
 
-    for (const CanSignal& signal : signals) {
+    for (const CanSignal& signal : signalList) {
         if (!signal.multiplexerValue.has_value()) {
             present.push_back(&signal);
             continue;
@@ -70,12 +70,12 @@ CanFrame CanMessage::makeFrame() const noexcept
 
 const CanSignal* CanMessage::findSignal(std::string_view signalName) const noexcept
 {
-    const auto match = std::find_if(signals.begin(), signals.end(),
+    const auto match = std::find_if(signalList.begin(), signalList.end(),
                                     [signalName](const CanSignal& signal) {
                                         return signal.name == signalName;
                                     });
 
-    return match == signals.end() ? nullptr : &*match;
+    return match == signalList.end() ? nullptr : &*match;
 }
 
 CanSignal* CanMessage::findSignal(std::string_view signalName) noexcept
@@ -117,7 +117,7 @@ std::size_t CanDatabase::signalCount() const noexcept
 {
     std::size_t total = 0;
     for (const CanMessage& message : m_messages) {
-        total += message.signals.size();
+        total += message.signalList.size();
     }
     return total;
 }

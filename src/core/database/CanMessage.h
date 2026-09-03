@@ -43,7 +43,12 @@ struct CanMessage final {
     /// The node that sends it, `Vector__XXX` when the database does not say.
     std::string transmitter;
 
-    std::vector<CanSignal> signals;
+    /// Named signalList and not signals, which is the word this wants to be.
+    /// `signals` is a Qt macro expanding to `public:`, and every ui file
+    /// includes this header - so the obvious name compiles in the core and
+    /// breaks the moment a panel includes it. QtMacroGuardTests catches this
+    /// class of mistake, and this header is now in its list.
+    std::vector<CanSignal> signalList;
 
     /// From a `CM_ BO_` line.
     std::string comment;
@@ -64,7 +69,7 @@ struct CanMessage final {
     /// Signals carried by this frame: every plain signal, plus the multiplexed
     /// ones whose selector value matches what the switch currently reads.
     ///
-    /// Returned by pointer into `signals`, so the message must outlive the
+    /// Returned by pointer into `signalList`, so the message must outlive the
     /// result. It is a view, not a copy, because this runs per frame.
     [[nodiscard]] std::vector<const CanSignal*> signalsIn(const std::uint8_t* payload,
                                                           std::size_t payloadLength) const;

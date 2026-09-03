@@ -203,8 +203,8 @@ TEST_CASE("A message hands out a frame shaped like itself", "[dbc][signal][encod
     message.identifier = 0x18FEDF00;
     message.format = CanFrameFormat::Extended;
     message.length = 8;
-    message.signals.push_back(intel(0, 16, false, 0.125, 0.0));
-    message.signals.back().name = "EngineSpeed";
+    message.signalList.push_back(intel(0, 16, false, 0.125, 0.0));
+    message.signalList.back().name = "EngineSpeed";
 
     CanFrame frame = message.makeFrame();
 

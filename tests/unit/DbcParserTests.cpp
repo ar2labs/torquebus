@@ -95,7 +95,7 @@ TEST_CASE("A message and its signals come back as the file describes them",
     CHECK(message->name == "ExampleMessage");
     CHECK(message->length == 8);
     CHECK(message->transmitter == "PCM1");
-    CHECK(message->signals.size() == 3);
+    CHECK(message->signalList.size() == 3);
     CHECK(message->comment == "Example message used as template in MotoHawk models.");
 
     const CanSignal* temperature = message->findSignal("Temperature");
@@ -320,7 +320,7 @@ BO_ 256 New: 8 ECU
 
     REQUIRE(database.messageCount() == 1);
     CHECK(database.find(0x100, CanFrameFormat::Standard)->name == "New");
-    CHECK(database.find(0x100, CanFrameFormat::Standard)->signals[0].bitLength == 16);
+    CHECK(database.find(0x100, CanFrameFormat::Standard)->signalList[0].bitLength == 16);
 }
 
 TEST_CASE("A missing file is reported as missing, not as a parse error",
