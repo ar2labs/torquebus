@@ -28,6 +28,9 @@ add_library(torquebus_core STATIC
     core/can/CanEngine.h
     core/can/CanEngine.cpp
 
+    core/database/CanSignal.h
+    core/database/CanSignal.cpp
+
     core/pipeline/PortType.h
     core/pipeline/PipelineNode.h
     core/pipeline/PipelineGraph.h
