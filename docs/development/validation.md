@@ -72,6 +72,11 @@ cmake --build --preset windows-msvc-debug
 **Worked:** `TorqueBusStudio.exe` appears in
 `build\windows-msvc-debug\bin\`.
 
+**If every file fails on `C1083: cannot open include file: 'string'`** — the
+prompt has no MSVC environment. Step 0 was skipped, or this is a different
+window. Configure still passes in that state, because its compiler check is
+cached; see [`getting-started.md`](getting-started.md#troubleshooting).
+
 Warnings from `_deps\` are KDDockWidgets' and QtNodes', not ours. Warnings from
 `src\` are ours and are worth reading — the project builds clean today, so a new
 one is a new mistake.
