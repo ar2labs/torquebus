@@ -221,6 +221,33 @@ culprit). Use `cmake --preset windows-msvc-vs`. Delete the stale `build/`
 directory first — CMake caches the compiler it picked and will not change its
 mind otherwise.
 
+**`fatal error C1083: cannot open include file: 'string'`** (or `'array'`, or
+any other standard header) — the same missing-vcvars problem as the `ld.exe`
+entry below, one step further along.
+
+The tell is the compile command line: the only `/I` flags are the project's own
+directories. There is no path to the CRT or the Windows SDK, because those never
+appear as flags - they come from the `INCLUDE` environment variable, which
+`vcvars64.bat` sets and a plain prompt does not.
+
+**Configure succeeds anyway**, which is what makes this confusing. CMake's
+compiler check is cached from the last successful configure, so a stale build
+tree reports `Compiler .............. MSVC 19.x` and a full, healthy summary
+block, and then every translation unit fails on the first `#include`. The
+summary is describing what was true when the cache was written.
+
+The other tell is *which* files fail: all of them, including ones nobody has
+edited. A change you just made cannot break `#include <string>` in a file you
+did not touch.
+
+```bat
+tools\torquebus-prompt.bat
+cmake --build --preset windows-msvc-debug
+```
+
+No need to delete `build/` - nothing wrong was written to the cache, there
+simply are no object files yet.
+
 **`ld.exe: cannot find /nologo`, `ld.exe: cannot find kernel32.lib`** — nine
 times out of ten this is a prompt started from `qtenv2.bat` alone.
 
