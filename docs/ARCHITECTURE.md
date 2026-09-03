@@ -332,6 +332,31 @@ Note that CANdevStudio is on QtNodes **2.x** (`FlowScene`, `NodeDataModel`),
 Qt5 and C++17, last touched in May 2024. The API generations are not
 compatible, so nothing is ported; the debt is intellectual, and acknowledged.
 
+### Databases: the one component that fails by lying
+
+`docs/development/databases.md` is the contract. Two decisions belong here
+because they are about the graph, not about DBC.
+
+**A decoder's output port is `Signals`, not `Frames`.** The port types in
+`PortType.h` carried that value from v0.5 with nothing producing it, and v0.8
+is what filled it in. A decoder that emitted frames "with signals attached"
+would have been the easy shape and the wrong one: what comes out of a DBC
+decoder is not CAN traffic, and a plot must not be connectable to a channel
+transmit. The graph refuses that wire at connection time, which is rule #11
+earning its keep.
+
+**A `DecodedSignal` points at its definition rather than carrying its name.**
+Batches are contiguous non-owning spans, so the payload must be trivially
+copyable; a `std::string` in it would mean an allocation per signal per frame.
+The consequence is that the database's lifetime is part of the payload type's
+contract, which is why decoder nodes hold theirs by `shared_ptr` - reloading a
+`.dbc` mid-measurement must not pull the definitions out from under a batch
+already in flight.
+
+Measured at 23 ns per signal, 5.4M frames/s through a graph, against an engine
+that sustains 193k - so decoding sits on the hot path rather than behind a
+switch.
+
 ### Scripting: one VM per ECU
 
 A Lua ECU is a node whose behaviour is a script (`docs/development/scripting.md`

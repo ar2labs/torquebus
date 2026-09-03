@@ -123,6 +123,33 @@ scripts from `cansim` — is in
 
 ---
 
+## Databases
+
+**File → Import Database…** reads a `.dbc`, and from that moment the trace stops
+being hex. The **Name** column carries the message name and the **Signals**
+column the decoded values — including for frames already captured, because a
+database imported halfway through a measurement should explain what has already
+been seen.
+
+```text
+0x101   VehicleSpeed   52 03   SpeedKmh = 85 km/h
+0x102   EngineTemp     6E      EngTemp = 70 degC
+```
+
+Multiplexing, value tables, extended identifiers, signed and unsigned, Motorola
+and Intel. A **DBC Decoder** block puts the same thing in a pipeline, on a
+`Signals` edge that the graph will not let you wire to a channel transmit.
+
+This is the part of the project where being wrong is silent — a decoder off by
+one bit shows a plausible number and nothing complains — so the implementation
+is written against the specification and the tests are anchored to vectors
+published by someone else. [`docs/development/databases.md`](docs/development/databases.md)
+has the bit numbering, what the parser reads, and the three cases where the
+honest answer is not the obvious one. Two example databases are in
+[`examples/databases/`](examples/databases).
+
+---
+
 ## Architecture
 
 Nothing in the UI talks to hardware; nothing in a driver knows the UI exists.

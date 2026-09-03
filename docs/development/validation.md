@@ -165,6 +165,38 @@ edited in the window is running on a bus and reaching a panel.
 
 ---
 
+## 5b. The database, on top of a running measurement
+
+The acceptance test for v0.8. Do this with the example project from step 5
+**still running** — the point is that a database explains traffic that is
+already there.
+
+1. **File → Import Database…** →
+   `examples\databases\vehicle.dbc`.
+   The Output panel says `Database: vehicle.dbc - 2 message(s), 2 signal(s).`
+   and the **DBC Explorer** comes forward.
+2. The tree shows `vehicle.dbc` → `VehicleSpeed` and `EngineTemp`, each opening
+   onto its signal. `SpeedKmh` reads `0|16 Intel unsigned`, range
+   `0 .. 6553.5  (x0.1)`, unit `km/h`.
+3. Type `speed` in the filter box. `EngineTemp` disappears, `VehicleSpeed`
+   stays — because its *child* matches. Clear the box; the tree comes back
+   without collapsing what you had opened.
+4. **CAN Trace** tab. The **Name** column now reads `VehicleSpeed` and
+   `EngineTemp` instead of being blank, and the **Signals** column reads
+   `SpeedKmh = 42.3 km/h` and `EngTemp = 70 degC`.
+5. Rows captured *before* the import are decoded too. Scroll up and check.
+6. Import `examples\databases\ecu.dbc` as well. The explorer holds both; the
+   trace is unaffected, because that database describes different identifiers.
+7. Import something that is not a database — any `.txt` will do. The Output
+   panel shows one warning naming a line number, no dialog appears, and the
+   explorer still holds what it had.
+
+**Worked:** all seven. Step 4 is the one that proves the milestone, and step 7
+is the one that proves the failure path, which is the half that normally goes
+untested until a user finds it.
+
+---
+
 ## 6. Real hardware (optional)
 
 Only with a Kvaser adapter and CANlib installed.

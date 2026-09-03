@@ -1,0 +1,56 @@
+VERSION "1.0"
+
+NS_ :
+    NS_DESC_
+    CM_
+    BA_DEF_
+    BA_
+    VAL_
+    CAT_DEF_
+    CAT_
+    FILTER
+    BA_DEF_DEF_
+    EV_DATA_
+    ENVVAR_DATA_
+    SGTYPE_
+    SGTYPE_VAL_
+    BA_DEF_SGTYPE_
+    BA_SGTYPE_
+    SIGTYPE_VAL_
+    BA_DEF_REL_
+    BA_REL_
+    BA_DEF_DEF_REL_
+    BU_SG_REL_
+    BU_EV_REL_
+    BU_BO_REL_
+    SG_MUL_VAL_
+
+BS_:
+
+BU_: ECM ECU
+
+/* -----------------------------------------------------------
+   1) Mensagem: VehicleSpeed
+   - ID = 0x101 (257 decimal)
+   - DLC = 8  (usamos 8 bytes no DBC mesmo que só use 2)
+   - Emissor: ECU
+   Sinal: SpeedKmh (16 bits, factor=0.1, offset=0)
+      - start_bit=0 (LSB é o bit 0)
+      - little-endian => @1
+      - '+'
+   ----------------------------------------------------------- */
+BO_ 257 VehicleSpeed: 8 ECU
+ SG_ SpeedKmh : 0|16@1+ (0.1,0) [0|6553.5] "km/h" ECM
+
+/* -----------------------------------------------------------
+   2) Mensagem: EngineTemp
+   - ID = 0x102 (258 decimal)
+   - DLC = 8
+   - Emissor: ECU
+   Sinal: EngTemp (8 bits, factor=1, offset=-40)
+      - start_bit=0
+      - little-endian => @1
+      - '+'
+   ----------------------------------------------------------- */
+BO_ 258 EngineTemp: 8 ECU
+ SG_ EngTemp : 0|8@1+ (1,-40) [-40|215] "degC" ECM
