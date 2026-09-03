@@ -9,6 +9,7 @@
 #include "services/ProjectFile.h"
 #include "services/SettingsStore.h"
 #include "ui/canvas/CanvasPanel.h"
+#include "ui/database/DatabasePanel.h"
 #include "ui/mainwindow/PlaceholderPanel.h"
 #include "ui/output/OutputPanel.h"
 #include "ui/project/ProjectExplorerPanel.h"
@@ -51,6 +52,7 @@ constexpr auto kDockProject     = "torquebus.dock.project";
 constexpr auto kDockProperties  = "torquebus.dock.properties";
 constexpr auto kDockBlock       = "torquebus.dock.block";
 constexpr auto kDockTrace       = "torquebus.dock.trace";
+constexpr auto kDockDatabase    = "torquebus.dock.database";
 constexpr auto kDockPipeline    = "torquebus.dock.pipeline";
 constexpr auto kDockTransmit    = "torquebus.dock.transmit";
 constexpr auto kDockGraph       = "torquebus.dock.graph";
@@ -77,7 +79,8 @@ constexpr auto kBullet = "●";
 ///
 ///   1  v0.1  first arrangement (centre panel added last - wrong)
 ///   2  v0.2  centre panel added first, sized side panels, full-width console
-constexpr int kDockLayoutVersion = 4;
+///   5  v0.8  DBC Explorer joins the analysis stack
+constexpr int kDockLayoutVersion = 5;
 
 /// Converts one of the frozen dock names above into a QString.
 ///
@@ -324,6 +327,38 @@ void MainWindow::createPanels()
     m_traceDock = createDockWidget(dockName(kDockTrace), tr("CAN Trace"),
                                    m_tracePanel, icon("trace"));
 
+    // Tabbed with the trace rather than given its own place. Both answer the
+    // question "what is on this bus" - one from the traffic, one from the
+    // database - and an engineer reading a trace is exactly who wants to look
+    // up a message they do not recognise.
+    m_databasePanel = new DatabasePanel;
+
+    connect(m_databasePanel, &DatabasePanel::databaseLoaded, this,
+            [this](const QString& path, int messages, int signalTotal) {
+                m_output->appendInfo(tr("Database: %1 - %2 message(s), %3 signal(s).")
+                                         .arg(QFileInfo{path}.fileName())
+                                         .arg(messages)
+                                         .arg(signalTotal));
+
+                // The trace starts naming messages and decoding signals the
+                // moment a database arrives, including for frames already
+                // captured - a database imported halfway through a measurement
+                // should explain what has already been seen, not only what
+                // comes next.
+                m_tracePanel->setDatabases(m_databasePanel->databases());
+            });
+
+    // Reported in the Output panel and not in a message box, because the
+    // message names a line number and a line number is something you want to
+    // keep looking at while you open the file in an editor.
+    connect(m_databasePanel, &DatabasePanel::databaseFailed, this,
+            [this](const QString&, const QString& reason) {
+                m_output->appendWarning(tr("Database: %1").arg(reason));
+            });
+
+    m_databaseDock = createDockWidget(dockName(kDockDatabase), tr("DBC Explorer"),
+                                      m_databasePanel, icon("database"));
+
     // The canvas edits m_pipeline in place - there is no apply step, and no
     // copy. Closing this panel leaves the pipeline exactly as it was; the
     // engine builds from the same description either way.
@@ -382,9 +417,9 @@ void MainWindow::createPanels()
         icon("diagnostics"));
 
     m_allDocks = {m_projectDock,     m_propertiesDock,  m_nodePropertiesDock,
-                  m_traceDock,       m_pipelineDock,    m_transmitDock,
-                  m_graphDock,       m_statisticsDock,  m_diagnosticsDock,
-                  m_outputDock};
+                  m_traceDock,       m_databaseDock,    m_pipelineDock,
+                  m_transmitDock,    m_graphDock,       m_statisticsDock,
+                  m_diagnosticsDock, m_outputDock};
 }
 
 void MainWindow::createActions()
@@ -402,6 +437,9 @@ void MainWindow::createActions()
 
     m_actionSaveProject = new QAction(icon("save"), tr("&Save Project"), this);
     m_actionSaveProject->setShortcut(QKeySequence::Save);
+
+    m_actionImportDatabase = new QAction(icon("database"), tr("&Import Database..."), this);
+    m_actionImportDatabase->setStatusTip(tr("Load a .dbc file into the DBC Explorer."));
 
     m_actionSaveProjectAs = new QAction(icon("save"), tr("Save Project &As..."), this);
     m_actionSaveProjectAs->setShortcut(QKeySequence::SaveAs);
@@ -463,6 +501,7 @@ void MainWindow::createActions()
 
     connect(m_actionNewProject, &QAction::triggered, this, &MainWindow::onNewProject);
     connect(m_actionOpenProject, &QAction::triggered, this, &MainWindow::onOpenProject);
+    connect(m_actionImportDatabase, &QAction::triggered, this, &MainWindow::onImportDatabase);
     connect(m_actionSaveProject, &QAction::triggered, this, &MainWindow::onSaveProject);
     connect(m_actionSaveProjectAs, &QAction::triggered, this, &MainWindow::onSaveProjectAs);
 
@@ -483,6 +522,8 @@ void MainWindow::createMenus()
     fileMenu->addAction(m_actionOpenProject);
     fileMenu->addAction(m_actionSaveProject);
     fileMenu->addAction(m_actionSaveProjectAs);
+    fileMenu->addSeparator();
+    fileMenu->addAction(m_actionImportDatabase);
     fileMenu->addSeparator();
     fileMenu->addAction(m_actionExit);
 
@@ -513,6 +554,7 @@ void MainWindow::createMenus()
     viewMenu->addAction(m_actionResetLayout);
 
     analysisMenu->addAction(m_traceDock->toggleAction());
+    analysisMenu->addAction(m_databaseDock->toggleAction());
     analysisMenu->addAction(m_graphDock->toggleAction());
     analysisMenu->addAction(m_statisticsDock->toggleAction());
 
@@ -625,6 +667,7 @@ void MainWindow::applyDefaultLayout()
     // 1. The analysis stack becomes the whole layout, and therefore the centre.
     addDockTo(this, m_traceDock, DockLocation::Top);
 
+    m_traceDock->addDockWidgetAsTab(m_databaseDock);
     m_traceDock->addDockWidgetAsTab(m_pipelineDock);
     m_traceDock->addDockWidgetAsTab(m_transmitDock);
     m_traceDock->addDockWidgetAsTab(m_graphDock);
@@ -807,6 +850,7 @@ void MainWindow::onThemeChanged(const Theme& theme)
         {m_outputDock, "console"},         {m_traceDock, "trace"},
         {m_transmitDock, "transmit"},      {m_graphDock, "graph"},
         {m_statisticsDock, "statistics"},  {m_diagnosticsDock, "diagnostics"},
+        {m_databaseDock, "database"},      {m_pipelineDock, "graph"},
     };
 
     for (const auto& [dock, name] : dockIcons) {
@@ -988,6 +1032,27 @@ void MainWindow::onOpenProject()
 
     if (!path.isEmpty()) {
         openProject(path);
+    }
+}
+
+void MainWindow::onImportDatabase()
+{
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Import database"), QString{},
+        tr("CAN databases (*.dbc);;All files (*)"));
+
+    if (path.isEmpty()) {
+        return;
+    }
+
+    // No confirmDiscardChanges here: importing adds a database to the explorer
+    // and does not touch the pipeline, so there is nothing to lose.
+    if (m_databasePanel->loadDatabase(path)) {
+        // Bring the explorer forward. Loading a file and being shown nothing is
+        // the kind of silence that reads as a failure.
+        if (m_databaseDock != nullptr) {
+            m_databaseDock->setAsCurrentTab();
+        }
     }
 }
 

@@ -630,7 +630,7 @@ Result DbcParser::parse(std::string_view text, CanDatabase& database)
                 return Result::error(ErrorCode::ParseError, error);
             }
 
-            current->signals.push_back(std::move(signal));
+            current->signalList.push_back(std::move(signal));
             continue;
         }
 

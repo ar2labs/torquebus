@@ -178,6 +178,8 @@ qt_add_library(torquebus_ui STATIC
     ui/canvas/PipelineGraphModel.cpp
     ui/canvas/CanvasPanel.h
     ui/canvas/CanvasPanel.cpp
+    ui/database/DatabasePanel.h
+    ui/database/DatabasePanel.cpp
     ui/trace/TraceModel.h
     ui/trace/TraceModel.cpp
     ui/trace/TracePanel.h

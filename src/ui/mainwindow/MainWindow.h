@@ -33,6 +33,7 @@ class SettingsStore;
 namespace torquebus::ui {
 
 class CanvasPanel;
+class DatabasePanel;
 class OutputPanel;
 class ProjectExplorerPanel;
 class NodePropertiesEditor;
@@ -81,6 +82,10 @@ private Q_SLOTS:
 
     void onNewProject();
     void onOpenProject();
+
+    /// File > Import Database. Loads a .dbc into the DBC Explorer.
+    void onImportDatabase();
+
     void onSaveProject();
     void onSaveProjectAs();
 
@@ -140,6 +145,7 @@ private:
     OutputPanel* m_output{nullptr};
     TracePanel* m_tracePanel{nullptr};
     CanvasPanel* m_canvas{nullptr};
+    DatabasePanel* m_databasePanel{nullptr};
 
     // --- The pipeline the canvas edits ------------------------------------
     //
@@ -165,6 +171,7 @@ private:
     DockWidget* m_propertiesDock{nullptr};
     DockWidget* m_nodePropertiesDock{nullptr};
     DockWidget* m_traceDock{nullptr};
+    DockWidget* m_databaseDock{nullptr};
     DockWidget* m_pipelineDock{nullptr};
     DockWidget* m_transmitDock{nullptr};
     DockWidget* m_graphDock{nullptr};
@@ -179,6 +186,7 @@ private:
     QAction* m_actionOpenProject{nullptr};
     QAction* m_actionSaveProject{nullptr};
     QAction* m_actionSaveProjectAs{nullptr};
+    QAction* m_actionImportDatabase{nullptr};
     QAction* m_actionExit{nullptr};
 
     QAction* m_actionStart{nullptr};

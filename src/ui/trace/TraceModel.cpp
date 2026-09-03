@@ -10,7 +10,11 @@
 #include <QColor>
 #include <QFont>
 #include <QFontDatabase>
+#include <QStringList>
 #include <QTimer>
+
+#include <cstdint>
+#include <string_view>
 
 namespace torquebus::ui {
 namespace {
@@ -247,11 +251,13 @@ QString TraceModel::textFor(const TraceRow& row, int column) const
     case Identifier:
         return QString::fromStdString(toIdentifierString(frame));
 
-    case Name:
-        // Filled by the DBC decoder from v0.8. Blank rather than a placeholder:
+    case Name: {
+        // Blank rather than a placeholder when nothing knows this identifier:
         // an empty cell reads as "no database loaded", "-" reads as "no name",
         // and those are different.
-        return {};
+        const CanMessage* definition = definitionFor(frame);
+        return definition == nullptr ? QString{} : QString::fromStdString(definition->name);
+    }
 
     case Type: {
         QString type = frame.isExtended() ? QStringLiteral("EXT") : QStringLiteral("STD");
@@ -266,6 +272,9 @@ QString TraceModel::textFor(const TraceRow& row, int column) const
 
     case Data:
         return formatPayload(frame);
+
+    case Signals:
+        return decodedText(frame);
 
     case Cycle:
         return formatInterval(row.cycleUs);
@@ -313,6 +322,77 @@ QVariant TraceModel::colourFor(const TraceRow& row, int column) const
     }
 }
 
+void TraceModel::setDatabases(std::vector<std::shared_ptr<const CanDatabase>> databases)
+{
+    m_databases = std::move(databases);
+
+    // Every visible cell in the Name and Signals columns just changed meaning.
+    // Emitting for the whole model rather than tracking which rows a new
+    // database affects: it happens when somebody imports a file, not on the
+    // frame path, and working out the answer would cost more than repainting.
+    if (rowCount() > 0) {
+        Q_EMIT dataChanged(index(0, Name), index(rowCount() - 1, Signals));
+    }
+}
+
+const CanMessage* TraceModel::definitionFor(const CanFrame& frame) const
+{
+    for (const std::shared_ptr<const CanDatabase>& database : m_databases) {
+        if (const CanMessage* message = database->find(frame)) {
+            return message;
+        }
+    }
+    return nullptr;
+}
+
+QString TraceModel::decodedText(const CanFrame& frame) const
+{
+    const CanMessage* message = definitionFor(frame);
+    if (message == nullptr) {
+        return {};
+    }
+
+    // A remote frame has a length and no payload, and an error frame's bytes
+    // are not a message. Decoding either produces plausible-looking numbers,
+    // which is worse than an empty cell.
+    if (frame.rtr || frame.error) {
+        return {};
+    }
+
+    QStringList parts;
+    for (const CanSignal* signal : message->signalsIn(frame.data.data(), frame.length)) {
+        if (!signal->fitsIn(frame.length)) {
+            // The frame is shorter than the database says. Say so rather than
+            // printing the zero the decoder would return.
+            parts << QStringLiteral("%1 = ?").arg(QString::fromStdString(signal->name));
+            continue;
+        }
+
+        const std::int64_t raw = signal->rawValue(frame.data.data(), frame.length);
+
+        // A value table entry replaces the number. "Reverse" is what the
+        // engineer is looking for; the 2 behind it is in the Data column.
+        if (const std::string_view named = signal->nameForValue(raw); !named.empty()) {
+            parts << QStringLiteral("%1 = %2")
+                         .arg(QString::fromStdString(signal->name),
+                              QString::fromUtf8(named.data(), static_cast<int>(named.size())));
+            continue;
+        }
+
+        QString text = QStringLiteral("%1 = %2")
+                           .arg(QString::fromStdString(signal->name))
+                           .arg(static_cast<double>(raw) * signal->factor + signal->offset,
+                                0, 'g', 8);
+
+        if (!signal->unit.empty()) {
+            text += QLatin1Char(' ') + QString::fromStdString(signal->unit);
+        }
+        parts << text;
+    }
+
+    return parts.join(QStringLiteral(", "));
+}
+
 QVariant TraceModel::headerData(int section, Qt::Orientation orientation, int role) const
 {
     if (orientation != Qt::Horizontal || role != Qt::DisplayRole) {
@@ -329,6 +409,7 @@ QVariant TraceModel::headerData(int section, Qt::Orientation orientation, int ro
     case Type:       return tr("Type");
     case Dlc:        return tr("DLC");
     case Data:       return tr("Data");
+    case Signals:    return tr("Signals");
     case Cycle:      return tr("Cycle");
     case Count:      return tr("Count");
     case Flags:      return tr("Flags");

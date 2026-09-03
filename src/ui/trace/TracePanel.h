@@ -12,10 +12,17 @@
 
 #include <QWidget>
 
+#include <memory>
+#include <vector>
+
 class QAction;
 class QLabel;
 class QTableView;
 class QToolBar;
+
+namespace torquebus {
+class CanDatabase;
+}
 
 namespace torquebus::ui {
 
@@ -29,6 +36,9 @@ public:
 
     /// Attaches the store this panel displays. Not owned.
     void setStore(const TraceStore* store);
+
+    /// Databases used to name messages and fill the Signals column.
+    void setDatabases(std::vector<std::shared_ptr<const CanDatabase>> databases);
 
     /// True while the view is following new rows.
     [[nodiscard]] bool isFollowing() const noexcept { return m_following; }

@@ -19,7 +19,7 @@ namespace {
 {
     std::size_t widest = 0;
     for (const CanMessage& message : database.messages()) {
-        widest = std::max(widest, message.signals.size());
+        widest = std::max(widest, message.signalList.size());
     }
     return widest;
 }
