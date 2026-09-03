@@ -34,12 +34,16 @@ add_library(torquebus_core STATIC
     core/database/CanMessage.cpp
     core/database/DbcParser.h
     core/database/DbcParser.cpp
+    core/database/DecodedSignal.h
 
     core/pipeline/PortType.h
     core/pipeline/PipelineNode.h
     core/pipeline/PipelineGraph.h
     core/pipeline/PipelineGraph.cpp
     core/pipeline/nodes/FrameNodes.h
+    core/pipeline/nodes/SignalNodes.h
+    core/pipeline/nodes/DbcDecoderNode.h
+    core/pipeline/nodes/DbcDecoderNode.cpp
     core/pipeline/NodeParameters.h
     core/pipeline/NodeCatalog.h
     core/pipeline/NodeCatalog.cpp
