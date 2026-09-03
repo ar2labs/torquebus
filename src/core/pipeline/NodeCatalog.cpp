@@ -6,6 +6,8 @@
 #include "core/pipeline/NodeCatalog.h"
 
 #include "core/can/CanChannel.h"
+#include "core/database/DbcParser.h"
+#include "core/pipeline/nodes/DbcDecoderNode.h"
 #include "core/pipeline/nodes/FrameNodes.h"
 #include "core/scripting/LuaEcuNode.h"
 #include "core/trace/TraceSinkNode.h"
@@ -325,6 +327,53 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             }
 
             out = std::move(node);
+            return Result::ok();
+        });
+
+    catalog.registerType(
+        NodeTypeInfo{
+            .typeName = "dbc.decoder",
+            .displayName = "DBC Decoder",
+            .category = "Transforms",
+            .description = "Turns frames into named signal values using a .dbc database.",
+            .inputs = {PortDescriptor{"frames", PortType::Frames}},
+            .outputs = {PortDescriptor{"signals", PortType::Signals}},
+            .parameters = {ParameterDescriptor{.name = "database",
+                                               .displayName = "Database",
+                                               .type = ParameterValue::Type::Text,
+                                               .required = true,
+                                               .description = "Path to a .dbc file."}},
+        },
+        [](const NodeParameters& parameters, const NodeBuildContext&, std::string_view nodeId,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
+            const std::string path{parameters.text("database", "")};
+
+            // An empty path builds a decoder with no database rather than
+            // failing. A block dropped on the canvas has no path yet, and a
+            // graph that will not compile until every block is configured
+            // cannot be built up in any order but one.
+            if (path.empty()) {
+                out = std::make_unique<DbcDecoderNode>(nullptr, "DBC decoder");
+                return Result::ok();
+            }
+
+            auto database = std::make_shared<CanDatabase>();
+            if (Result result = DbcParser::parseFile(path, *database); result.failed()) {
+                return Result::error(result.code(),
+                                     std::format("Node '{}': {}", nodeId, result.message()));
+            }
+
+            // One database per node. Two decoders pointing at the same file
+            // parse it twice and hold two copies - correct, and wasteful in a
+            // way worth fixing when a project appears that does it. Caching in
+            // the build context is the fix; guessing at it now would be a cache
+            // with no measurement behind it.
+            const std::string label =
+                std::format("{} ({} messages)",
+                            path.substr(path.find_last_of("/\\") + 1),
+                            database->messageCount());
+
+            out = std::make_unique<DbcDecoderNode>(std::move(database), label);
             return Result::ok();
         });
 

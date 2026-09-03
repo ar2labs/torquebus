@@ -17,6 +17,7 @@
 #pragma once
 
 #include "core/can/CanFrame.h"
+#include "core/database/DecodedSignal.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -60,10 +61,15 @@ struct PortTraits<CanFrame> {
     static constexpr PortType kType = PortType::Frames;
 };
 
-// Signals, Pgns and Events get their specialisations as those payload types
-// land (v0.8, v0.11, v0.14). Declaring the enum values now, rather than
-// growing the enum later, keeps the graph's type checking stable while the
-// payloads are still being designed.
+template <>
+struct PortTraits<DecodedSignal> {
+    static constexpr PortType kType = PortType::Signals;
+};
+
+// Pgns and Events get their specialisations as those payload types land
+// (v0.11, v0.14). Declaring the enum values now, rather than growing the enum
+// later, keeps the graph's type checking stable while the payloads are still
+// being designed.
 
 /// One batch travelling along one edge.
 ///
