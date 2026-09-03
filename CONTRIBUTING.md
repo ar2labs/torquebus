@@ -160,3 +160,22 @@ MSVC reports this at a line in `<memory>`, with your call site appearing only in
 the instantiation trace — so it is easy to read as a standard-library problem.
 GCC and Clang do not warn at all, because they still see the constant. Name the
 type at the call site.
+
+### `SECTION` re-runs the whole test body
+
+Catch2 runs a test case once per `SECTION`, from the top each time. A later
+section does not inherit anything a previous one did - not a wait, not a
+counter, not a side effect.
+
+That is easy to forget in a test for asynchronous delivery:
+
+```cpp
+REQUIRE(node.transmit(frame).succeeded());
+
+SECTION("the receiver gets it")  { REQUIRE(receiver.waitFor(1)); ... }
+SECTION("the sender sees the echo") { REQUIRE(sender.count() == 1); }  // races
+```
+
+The second section transmits again, on its own pass, and checks a count that
+nothing has waited for. Every section that observes an asynchronous result needs
+its own wait.

@@ -192,6 +192,12 @@ TEST_CASE("Virtual channel 0 reaches virtual channel 1", "[virtual][loopback]")
         // Rule: the trace shows what actually reached the bus, not what was
         // requested - so a successful transmission comes back through the same
         // receive path as everything else.
+        //
+        // The echo travels the same asynchronous path as any other frame, so
+        // it needs the same wait. Catch2 runs each SECTION as a separate pass
+        // through the whole test body, which means nothing in this one has
+        // waited for anything.
+        REQUIRE(sender.waitFor(1));
         REQUIRE(sender.count() == 1);
 
         const CanFrame& echoed = sender.frames().front();
