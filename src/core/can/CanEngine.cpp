@@ -454,6 +454,27 @@ SinkId CanEngine::addFrameSink(FrameSink sink)
 void CanEngine::removeFrameSink(SinkId id)
 {
     eraseSink(m_sinksMutex, m_frameSinks, id);
+
+    // Removing it from the list is not enough while a measurement is running.
+    // The graph was compiled at start(), so this sink already has a node in the
+    // execution plan holding its own copy of the callback - and that node keeps
+    // calling it. addFrameSink's header says removal is safe while running, and
+    // until now that was not true.
+    //
+    // The node is deactivated rather than removed: the dispatch thread is
+    // walking the plan, and recompiling underneath it would mean locking the
+    // hot path to serve an operation that happens once.
+    const std::lock_guard lock{m_channelsMutex};
+
+    for (const auto& [sinkId, nodeId] : m_sinkNodes) {
+        if (sinkId != id) {
+            continue;
+        }
+
+        if (auto* sink = dynamic_cast<FrameSinkNode*>(m_graph.node(nodeId))) {
+            sink->deactivate();
+        }
+    }
 }
 
 SinkId CanEngine::addStatisticsSink(StatisticsSink sink)

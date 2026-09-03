@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <functional>
 #include <span>
@@ -254,6 +255,10 @@ public:
 
     void process(NodeContext& context) override
     {
+        if (!m_active.load(std::memory_order_relaxed)) {
+            return;
+        }
+
         const std::span<const CanFrame> incoming = context.in<CanFrame>(0);
         if (incoming.empty() || !m_callback) {
             return;
@@ -261,6 +266,28 @@ public:
 
         m_delivered += incoming.size();
         m_callback(incoming);
+    }
+
+    /// Stops delivery without touching the compiled graph.
+    ///
+    /// CanEngine::removeFrameSink promises removal works while a measurement is
+    /// running, and the graph is compiled once at start() - so the sink's node
+    /// is already in the execution plan and holds a copy of the callback.
+    /// Removing it from the engine's list therefore did nothing, and the caller
+    /// kept receiving frames it had asked to stop receiving.
+    ///
+    /// Rebuilding the graph mid-measurement would be the other answer, and a
+    /// far worse one: the dispatch thread is walking the execution plan, and
+    /// recompiling underneath it means locking the hot path.
+    ///
+    /// One relaxed atomic load per pass - not per frame - is the whole cost.
+    /// Relaxed is enough because nothing is published alongside it; the caller
+    /// only needs the sink to stop soon, not at an exact frame boundary.
+    void deactivate() noexcept { m_active.store(false, std::memory_order_relaxed); }
+
+    [[nodiscard]] bool isActive() const noexcept
+    {
+        return m_active.load(std::memory_order_relaxed);
     }
 
     [[nodiscard]] std::uint64_t deliveredFrames() const noexcept { return m_delivered; }
@@ -273,6 +300,7 @@ private:
     Callback m_callback;
     std::string m_label;
     std::uint64_t m_delivered{0};
+    std::atomic<bool> m_active{true};
 };
 
 } // namespace torquebus

@@ -7,11 +7,11 @@ not mistaken for a pass.
 Run it after any change that touches the build, the docking, the canvas or the
 project file — and in full before tagging a release.
 
-> **Right now this matters more than usual.** Everything from the canvas onwards
-> was written without a compiler on hand: the core was compiled and measured,
-> the Qt half was not. Expect step 2 to fail the first time. That is the
-> expected outcome of an unbuilt branch, not a sign the design is wrong — see
-> [What is likely to break first](#what-is-likely-to-break-first).
+> The first full run of this pass found seven failures, none of them in the
+> newly written Qt code — which built clean — and none of them Windows-specific.
+> Four were stale tests, one was an off-by-one in a test's own bound, and one
+> was a real defect in `removeFrameSink`. All are fixed. The lesson is recorded
+> under [What is likely to break first](#what-is-likely-to-break-first).
 
 ---
 

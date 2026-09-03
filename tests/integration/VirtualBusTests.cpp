@@ -17,6 +17,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <chrono>
+#include <thread>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -39,6 +41,28 @@ public:
 
     [[nodiscard]] const std::vector<CanFrame>& frames() const noexcept { return m_frames; }
     [[nodiscard]] std::size_t count() const noexcept { return m_frames.size(); }
+
+    /// Waits until at least `expected` frames have arrived, or gives up.
+    ///
+    /// The virtual bus posts into an inbox and a receive thread delivers from
+    /// it, so a frame is not there the instant transmit() returns. Every count
+    /// check in this file used to run immediately after a transmit and lose
+    /// that race. Polling rather than sleeping a fixed time keeps a passing
+    /// test fast and an honest failure bounded.
+    [[nodiscard]] bool waitFor(std::size_t expected,
+                               std::chrono::milliseconds timeout = std::chrono::seconds{2}) const
+    {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (count() >= expected) {
+                return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds{1});
+        }
+
+        return count() >= expected;
+    }
 
     [[nodiscard]] std::size_t countByDirection(CanDirection direction) const
     {
@@ -68,6 +92,14 @@ CanFrame makeFrame(std::uint32_t identifier, std::uint8_t length)
 {
     CanFrame frame;
     frame.identifier = identifier;
+
+    // The format follows the identifier. Leaving it at the default meant a
+    // 29-bit identifier was declared as a standard frame, and the backend
+    // rejected the transmit outright - correctly, and the test read as though
+    // the bus had failed. The same defect was fixed once in CanEngineTests'
+    // helper and missed here.
+    frame.format = identifier > kMaxStandardIdentifier ? CanFrameFormat::Extended
+                                                       : CanFrameFormat::Standard;
     frame.dlc = length;
     frame.length = length;
     for (std::uint8_t index = 0; index < length; ++index) {
@@ -143,6 +175,7 @@ TEST_CASE("Virtual channel 0 reaches virtual channel 1", "[virtual][loopback]")
 
     SECTION("the receiver sees it as an Rx frame on its own application channel")
     {
+        REQUIRE(receiver.waitFor(1));
         REQUIRE(receiver.count() == 1);
 
         const CanFrame& received = receiver.frames().front();
@@ -186,8 +219,13 @@ TEST_CASE("Separate virtual channels are separate buses", "[virtual][loopback]")
 
     REQUIRE(nodeA.transmit(makeFrame(0x200, 4)).succeeded());
 
+    REQUIRE(onChannel0.waitFor(1));
     CHECK(onChannel0.count() == 1); // its own echo
-    CHECK(onChannel1.count() == 0); // nothing crossed over
+
+    // The echo has landed, so anything that was going to cross buses has had
+    // at least as long to do it. Checking a zero straight after a transmit
+    // would pass on a bus that leaks, just slowly.
+    CHECK(onChannel1.count() == 0);
 }
 
 TEST_CASE("Stopping detaches the node from the bus", "[virtual][lifecycle]")
@@ -205,14 +243,21 @@ TEST_CASE("Stopping detaches the node from the bus", "[virtual][lifecycle]")
     REQUIRE(receiver.start().succeeded());
 
     REQUIRE(sender.transmit(makeFrame(0x300, 2)).succeeded());
-    REQUIRE(listener.count() == 1);
+    REQUIRE(listener.waitFor(1));
 
     receiver.stop();
     REQUIRE(sender.transmit(makeFrame(0x301, 2)).succeeded());
-    CHECK(listener.count() == 1); // unchanged
+
+    // Proving an absence, so waiting for an arrival is the wrong tool: the
+    // grace period is what makes the check mean anything. Without it the frame
+    // simply would not have arrived yet either way, and the test would pass
+    // whether or not stop() worked.
+    REQUIRE_FALSE(listener.waitFor(2, std::chrono::milliseconds{150}));
+    CHECK(listener.count() == 1);
 
     REQUIRE(receiver.start().succeeded());
     REQUIRE(sender.transmit(makeFrame(0x302, 2)).succeeded());
+    REQUIRE(listener.waitFor(2));
     CHECK(listener.count() == 2);
 }
 
@@ -270,7 +315,7 @@ TEST_CASE("CAN FD frames need a channel opened in FD mode", "[virtual][canfd]")
         REQUIRE(backend.start().succeeded());
 
         REQUIRE(backend.transmit(frame).succeeded());
-        REQUIRE(collector.count() == 1);
+        REQUIRE(collector.waitFor(1));
         CHECK(collector.frames().front().length == 64);
     }
 }
