@@ -124,6 +124,39 @@ struct CanSignal final {
     /// Whether every bit this signal needs is inside a payload of that length.
     [[nodiscard]] bool fitsIn(std::size_t payloadLength) const noexcept;
 
+    /// Writes `raw` into the payload, leaving every other bit alone.
+    ///
+    /// Signals share bytes, so this ORs its bits in after clearing only its
+    /// own. Writing whole bytes would be simpler and would erase the
+    /// neighbours - which on a message where a 4-bit gear code sits next to a
+    /// 4-bit mode code means setting one always zeroes the other.
+    ///
+    /// Returns false and writes nothing when the signal does not fit the
+    /// payload.
+    [[nodiscard]] bool encodeRaw(std::int64_t raw,
+                                 std::uint8_t* payload,
+                                 std::size_t payloadLength) const noexcept;
+
+    /// Writes a physical value: `raw = round((physical - offset) / factor)`.
+    ///
+    /// Saturates at the widest value the signal's bits can hold, and says so by
+    /// returning false. Saturating rather than wrapping because a torque
+    /// request of 300% arriving as -56% is the kind of failure that moves an
+    /// actuator; and reporting it because a value that did not fit is a mistake
+    /// in the caller, not a property of the bus.
+    ///
+    /// The declared minimum and maximum are NOT enforced here, for the same
+    /// reason they are not enforced in decode: silently clamping a wrong value
+    /// hides the fault that produced it. Only the physical width of the field
+    /// is a hard limit.
+    [[nodiscard]] bool encode(double physical,
+                              std::uint8_t* payload,
+                              std::size_t payloadLength) const noexcept;
+
+    /// The range the signal's bits can actually hold, before factor and offset.
+    [[nodiscard]] std::int64_t minimumRaw() const noexcept;
+    [[nodiscard]] std::int64_t maximumRaw() const noexcept;
+
     [[nodiscard]] friend bool operator==(const CanSignal&, const CanSignal&) = default;
 };
 

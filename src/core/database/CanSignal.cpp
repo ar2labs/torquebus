@@ -6,6 +6,8 @@
 #include "core/database/CanSignal.h"
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 namespace torquebus {
 namespace {
@@ -128,6 +130,99 @@ std::int64_t CanSignal::rawValue(const std::uint8_t* payload,
     }
 
     return static_cast<std::int64_t>(raw);
+}
+
+std::int64_t CanSignal::minimumRaw() const noexcept
+{
+    if (bitLength == 0 || bitLength > 64) {
+        return 0;
+    }
+    if (!isSigned) {
+        return 0;
+    }
+    if (bitLength == 64) {
+        return std::numeric_limits<std::int64_t>::min();
+    }
+    return -(std::int64_t{1} << (bitLength - 1U));
+}
+
+std::int64_t CanSignal::maximumRaw() const noexcept
+{
+    if (bitLength == 0 || bitLength > 64) {
+        return 0;
+    }
+    if (bitLength == 64) {
+        return std::numeric_limits<std::int64_t>::max();
+    }
+
+    const std::uint16_t valueBits = isSigned ? static_cast<std::uint16_t>(bitLength - 1U)
+                                             : bitLength;
+    return static_cast<std::int64_t>((std::uint64_t{1} << valueBits) - 1U);
+}
+
+bool CanSignal::encodeRaw(std::int64_t raw,
+                          std::uint8_t* payload,
+                          std::size_t payloadLength) const noexcept
+{
+    if (payload == nullptr || bitLength == 0 || bitLength > 64 || !fitsIn(payloadLength)) {
+        return false;
+    }
+
+    const auto bits = static_cast<std::uint64_t>(raw);
+
+    for (std::uint16_t index = 0; index < bitLength; ++index) {
+        const std::uint16_t bit = bitNumberFor(startBit, bitLength, byteOrder, index);
+        const BitPosition position = locate(bit);
+
+        // Clear this signal's bit, then set it. Never touches a bit that
+        // belongs to a neighbouring signal.
+        const auto mask = static_cast<std::uint8_t>(1U << position.bitInByte);
+        payload[position.byteIndex] = static_cast<std::uint8_t>(payload[position.byteIndex] & ~mask);
+
+        if (((bits >> index) & 1U) != 0U) {
+            payload[position.byteIndex] =
+                static_cast<std::uint8_t>(payload[position.byteIndex] | mask);
+        }
+    }
+
+    return true;
+}
+
+bool CanSignal::encode(double physical,
+                       std::uint8_t* payload,
+                       std::size_t payloadLength) const noexcept
+{
+    if (factor == 0.0) {
+        return false;
+    }
+
+    const double scaled = (physical - offset) / factor;
+
+    // Round before the range test, not after. A value of 255.4 on an 8-bit
+    // unsigned signal rounds to 255 and fits; testing first would reject it.
+    const double rounded = std::round(scaled);
+
+    const std::int64_t lowest = minimumRaw();
+    const std::int64_t highest = maximumRaw();
+
+    // Compared as doubles. Converting an out-of-range double to int64 is
+    // undefined behaviour, and "the value did not fit" is exactly the case
+    // where it would happen.
+    //
+    // The first test is written as a negated >= rather than a < so that NaN
+    // takes this branch: NaN fails every comparison, and left to the cast it
+    // would produce an arbitrary number.
+    if (!(rounded >= static_cast<double>(lowest))) {
+        (void)encodeRaw(lowest, payload, payloadLength);
+        return false;
+    }
+
+    if (rounded > static_cast<double>(highest)) {
+        (void)encodeRaw(highest, payload, payloadLength);
+        return false;
+    }
+
+    return encodeRaw(static_cast<std::int64_t>(rounded), payload, payloadLength);
 }
 
 double CanSignal::decode(const std::uint8_t* payload, std::size_t payloadLength) const noexcept

@@ -69,6 +69,15 @@ struct CanMessage final {
     [[nodiscard]] std::vector<const CanSignal*> signalsIn(const std::uint8_t* payload,
                                                           std::size_t payloadLength) const;
 
+    /// An empty frame shaped like this message: identifier, format and declared
+    /// length set, payload all zero.
+    ///
+    /// The starting point for building a frame by signal name, which is what a
+    /// transmit panel and a Lua script both need. Zero-filled rather than left
+    /// uninitialised because a signal the caller does not set has to be
+    /// something definite, and zero is the one value the caller can predict.
+    [[nodiscard]] CanFrame makeFrame() const noexcept;
+
     [[nodiscard]] const CanSignal* findSignal(std::string_view signalName) const noexcept;
 
     /// The same lookup, for the parser filling in `VAL_` and `CM_` entries
