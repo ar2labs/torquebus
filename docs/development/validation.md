@@ -156,10 +156,11 @@ copied at construction and never revisited:
 **View → Inspect Panel Chrome** dumps what Qt actually holds for every widget
 under the docking area. Two columns matter beyond the palette:
 
-- `brush=` appears on scroll areas and is the colour their viewport is painted
-  with. It is a *separate value* from the palette, and it is what the pipeline
-  canvas got wrong for a whole release while showing a perfectly healthy
-  palette beside it.
+- `brush=` appears on a `QGraphicsView` and is the colour its scene ground is
+  painted with. It is a *separate value* from the palette, and it is what the
+  pipeline canvas got wrong for a whole release while showing a perfectly
+  healthy palette beside it. Only the graphics view has one — an ordinary
+  scroll area's viewport takes `QPalette::Base`, which is already printed.
 - `hidden` marks a widget that has never been shown. Its palette is unpolished,
   usually `#000000` at a default 100x30 - not a defect, just meaningless.
 
