@@ -680,6 +680,14 @@ QLabel#torquebusPlaceholder {
     color: @textMuted;
 }
 
+/* The summary line at the foot of a panel: "2 databases, 4 messages...".
+ * Secondary by definition - it describes what the panel above it is showing,
+ * and must not compete with it for attention. */
+QLabel#panelStatus {
+    color: @textMuted;
+    padding: 1px 2px;
+}
+
 /* Panel headers inside a dock: a small caps-ish strip naming the section. */
 QLabel[torquebusRole="panelHeading"] {
     color: @textMuted;
