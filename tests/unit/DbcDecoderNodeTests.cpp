@@ -101,49 +101,73 @@ struct Captured final {
     return (actual - expected) < 1e-9 && (expected - actual) < 1e-9;
 }
 
-/// Runs one pass of `frames` through a decoder and returns what came out.
-[[nodiscard]] std::vector<Captured> decodeOnePass(std::shared_ptr<CanDatabase> database,
-                                                  std::vector<CanFrame> frames,
-                                                  DbcDecoderNode** decoderOut = nullptr)
-{
-    std::vector<Captured> captured;
+/// One pass through a decoder, with the graph kept alive around it.
+///
+/// The graph owns the decoder node. Anything that reads the decoder's counters
+/// therefore has to outlive the graph - and the first version of this helper
+/// built the graph as a local, returned the captured rows, and handed out a
+/// bare pointer to the node. That pointer dangles the moment the helper
+/// returns.
+///
+/// It passed on GCC, which happened to leave the freed memory intact, and
+/// failed on MSVC's debug runtime, which fills it with 0xDD. AddressSanitizer
+/// names it exactly: heap-use-after-free, freed by ~NodeEntry. A test harness
+/// that reads freed memory is not a harness, whatever colour it prints.
+class DecodedPass final {
+public:
+    DecodedPass(std::shared_ptr<CanDatabase> database, std::vector<CanFrame> frames)
+    {
+        const NodeId source =
+            m_graph.addNode(std::make_unique<StaticFrameSource>(std::move(frames)));
 
-    PipelineGraph graph;
-    const NodeId source = graph.addNode(std::make_unique<StaticFrameSource>(std::move(frames)));
+        auto decoderNode = std::make_unique<DbcDecoderNode>(std::move(database), "test decoder");
+        m_decoder = decoderNode.get();
+        const NodeId decoderId = m_graph.addNode(std::move(decoderNode));
 
-    auto decoderNode = std::make_unique<DbcDecoderNode>(std::move(database), "test decoder");
-    DbcDecoderNode* decoder = decoderNode.get();
-    const NodeId decoderId = graph.addNode(std::move(decoderNode));
+        // The values are copied out inside the callback rather than the
+        // DecodedSignals kept: a batch is only valid for the duration of the
+        // call, which is a contract worth exercising as well as stating.
+        const NodeId sink = m_graph.addNode(std::make_unique<SignalSinkNode>(
+            [this](std::span<const DecodedSignal> batch) {
+                for (const DecodedSignal& signal : batch) {
+                    m_captured.push_back(Captured{std::string{signal.messageName()},
+                                                  std::string{signal.name()}, signal.value,
+                                                  signal.raw, signal.truncated});
+                }
+            }));
 
-    const NodeId sink = graph.addNode(std::make_unique<SignalSinkNode>(
-        [&captured](std::span<const DecodedSignal> signals) {
-            for (const DecodedSignal& signal : signals) {
-                captured.push_back(Captured{std::string{signal.messageName()},
-                                            std::string{signal.name()}, signal.value, signal.raw,
-                                            signal.truncated});
-            }
-        }));
+        REQUIRE(m_graph.connect(PortRef{source, 0}, PortRef{decoderId, 0}).succeeded());
+        REQUIRE(m_graph.connect(PortRef{decoderId, 0}, PortRef{sink, 0}).succeeded());
+        REQUIRE(m_graph.compile().succeeded());
 
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{decoderId, 0}).succeeded());
-    REQUIRE(graph.connect(PortRef{decoderId, 0}, PortRef{sink, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
-
-    graph.execute();
-
-    if (decoderOut != nullptr) {
-        *decoderOut = decoder;
+        m_graph.execute();
     }
 
-    return captured;
-}
+    // The sink's callback captures `this`, so this object must not move.
+    DecodedPass(const DecodedPass&) = delete;
+    DecodedPass& operator=(const DecodedPass&) = delete;
+
+    [[nodiscard]] const std::vector<Captured>& captured() const noexcept { return m_captured; }
+
+    [[nodiscard]] const DbcDecoderNode& decoder() const noexcept { return *m_decoder; }
+
+private:
+    // Declared last so it is destroyed first: nothing in the graph's teardown
+    // reaches the callback today, and this keeps that true if something ever
+    // does.
+    std::vector<Captured> m_captured;
+    DbcDecoderNode* m_decoder{nullptr};
+    PipelineGraph m_graph;
+};
 
 } // namespace
 
 TEST_CASE("Frames go in and named signal values come out", "[dbc][pipeline]")
 {
     // 850 raw at 0.1 is 85.0 km/h; 0x6E unsigned with offset -40 is 70 degC.
-    const std::vector<Captured> captured =
-        decodeOnePass(vehicleDatabase(), {frame(0x101, {0x52, 0x03}), frame(0x102, {0x6E, 0x02})});
+    const DecodedPass pass{vehicleDatabase(),
+                           {frame(0x101, {0x52, 0x03}), frame(0x102, {0x6E, 0x02})}};
+    const std::vector<Captured>& captured = pass.captured();
 
     REQUIRE(captured.size() == 3);
 
@@ -165,17 +189,14 @@ TEST_CASE("A frame the database does not describe is counted, not decoded",
     // Most traffic on a real bus is outside any one database. Logging each one
     // would bury the line that mattered; a count that reaches 100% of the
     // traffic is the tell that the wrong database is loaded.
-    DbcDecoderNode* decoder = nullptr;
-    const std::vector<Captured> captured =
-        decodeOnePass(vehicleDatabase(),
-                      {frame(0x101, {0x52, 0x03}), frame(0x7FF, {0xFF}), frame(0x300, {0x01})},
-                      &decoder);
+    const DecodedPass pass{
+        vehicleDatabase(),
+        {frame(0x101, {0x52, 0x03}), frame(0x7FF, {0xFF}), frame(0x300, {0x01})}};
 
-    CHECK(captured.size() == 1);
-    REQUIRE(decoder != nullptr);
-    CHECK(decoder->decodedFrames() == 1);
-    CHECK(decoder->unknownFrames() == 2);
-    CHECK(decoder->emittedSignals() == 1);
+    CHECK(pass.captured().size() == 1);
+    CHECK(pass.decoder().decodedFrames() == 1);
+    CHECK(pass.decoder().unknownFrames() == 2);
+    CHECK(pass.decoder().emittedSignals() == 1);
 }
 
 TEST_CASE("A frame shorter than the database says is flagged, not silently zero",
@@ -185,17 +206,14 @@ TEST_CASE("A frame shorter than the database says is flagged, not silently zero"
     // sensor reads zero" and "we could not read the sensor" have to look
     // different, because one of them is a fault in the vehicle and the other is
     // a fault in the setup.
-    DbcDecoderNode* decoder = nullptr;
-    const std::vector<Captured> captured =
-        decodeOnePass(vehicleDatabase(), {frame(0x101, {0x52})}, &decoder);
+    const DecodedPass pass{vehicleDatabase(), {frame(0x101, {0x52})}};
 
-    REQUIRE(captured.size() == 1);
-    CHECK(captured[0].name == "SpeedKmh");
-    CHECK(captured[0].truncated);
-    CHECK(captured[0].raw == 0);
+    REQUIRE(pass.captured().size() == 1);
+    CHECK(pass.captured()[0].name == "SpeedKmh");
+    CHECK(pass.captured()[0].truncated);
+    CHECK(pass.captured()[0].raw == 0);
 
-    REQUIRE(decoder != nullptr);
-    CHECK(decoder->truncatedSignals() == 1);
+    CHECK(pass.decoder().truncatedSignals() == 1);
 }
 
 TEST_CASE("Remote and error frames carry nothing to decode", "[dbc][pipeline]")
@@ -209,17 +227,14 @@ TEST_CASE("Remote and error frames carry nothing to decode", "[dbc][pipeline]")
     CanFrame errored = frame(0x102, {0x6E, 0x02});
     errored.error = true;
 
-    DbcDecoderNode* decoder = nullptr;
-    const std::vector<Captured> captured =
-        decodeOnePass(vehicleDatabase(), {remote, errored}, &decoder);
+    const DecodedPass pass{vehicleDatabase(), {remote, errored}};
 
-    CHECK(captured.empty());
+    CHECK(pass.captured().empty());
 
     // And they are not counted as unknown either - the database knows them
     // perfectly well.
-    REQUIRE(decoder != nullptr);
-    CHECK(decoder->unknownFrames() == 0);
-    CHECK(decoder->decodedFrames() == 0);
+    CHECK(pass.decoder().unknownFrames() == 0);
+    CHECK(pass.decoder().decodedFrames() == 0);
 }
 
 TEST_CASE("A Signals output cannot be wired to a Frames input", "[dbc][pipeline][types]")
@@ -255,9 +270,9 @@ TEST_CASE("A decoder with no database compiles and decodes nothing",
     // What a block just dropped on the canvas is. Refusing to compile would
     // mean a project can only be built up in one order, which is not how
     // anybody uses a diagram.
-    const std::vector<Captured> captured = decodeOnePass(nullptr, {frame(0x101, {0x52, 0x03})});
+    const DecodedPass pass{nullptr, {frame(0x101, {0x52, 0x03})}};
 
-    CHECK(captured.empty());
+    CHECK(pass.captured().empty());
 }
 
 TEST_CASE("A multiplexed message emits only the signals the frame carries",
@@ -275,9 +290,9 @@ BO_ 300 Muxed: 8 ECU
 
     // Page 0 then page 1, in one batch, from the same bytes. The switch has to
     // be read per frame, not once per pass.
-    const std::vector<Captured> captured =
-        decodeOnePass(database, {frame(0x12C, {0x00, 0xE8, 0x03}),
-                                 frame(0x12C, {0x01, 0xE8, 0x03})});
+    const DecodedPass pass{database,
+                           {frame(0x12C, {0x00, 0xE8, 0x03}), frame(0x12C, {0x01, 0xE8, 0x03})}};
+    const std::vector<Captured>& captured = pass.captured();
 
     REQUIRE(captured.size() == 4);
     CHECK(captured[1].name == "Voltage");
@@ -303,11 +318,9 @@ TEST_CASE("The buffer is sized for the worst case, so a full batch is not clippe
         frames.push_back(frame(0x102, {0x6E, 0x02}));
     }
 
-    DbcDecoderNode* decoder = nullptr;
-    const std::vector<Captured> captured = decodeOnePass(database, std::move(frames), &decoder);
+    const DecodedPass pass{database, std::move(frames)};
 
     // EngineTemp carries two signals.
-    CHECK(captured.size() == kFrames * 2);
-    REQUIRE(decoder != nullptr);
-    CHECK(decoder->emittedSignals() == kFrames * 2);
+    CHECK(pass.captured().size() == kFrames * 2);
+    CHECK(pass.decoder().emittedSignals() == kFrames * 2);
 }
