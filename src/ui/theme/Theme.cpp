@@ -58,6 +58,22 @@ Theme Theme::dark()
     theme.hover          = QColor(0x2F, 0x33, 0x36);
     theme.selection      = QColor(0x1B, 0x42, 0x56);
 
+    // Above the panels rather than below them. A divider tinted like
+    // `separator` reads as a groove between two panels and vanishes the moment
+    // it borders the canvas, which is darker still.
+    theme.divider        = QColor(0x36, 0x3C, 0x40);
+
+    // The canvas is the deepest surface in the window - deeper than the groove
+    // between panels - so the blocks, which are painted in `panel`, float the
+    // furthest above anything.
+    //
+    // The grid is two steps up from it: +5 for the 15 px filler, which should
+    // be felt rather than seen, and +14 for the 150 px guide, which is what the
+    // eye actually aligns to.
+    theme.canvas           = QColor(0x0C, 0x0E, 0x0F);
+    theme.canvasGridFine   = QColor(0x11, 0x13, 0x14);
+    theme.canvasGridCoarse = QColor(0x1A, 0x1D, 0x1F);
+
     theme.text           = QColor(0xD4, 0xD7, 0xDA);
     theme.textMuted      = QColor(0x8A, 0x8F, 0x94);
     theme.textInverted   = QColor(0x0F, 0x11, 0x12);
@@ -107,6 +123,19 @@ Theme Theme::light()
     theme.border         = QColor(0xBF, 0xC5, 0xCE);
     theme.hover          = QColor(0xD2, 0xD8, 0xE0);
     theme.selection      = QColor(0xC4, 0xE3, 0xF5);
+
+    // Below the panels here, as it is above them in the dark theme: the
+    // divider has to be visible against the white content on one side and the
+    // recessed canvas on the other.
+    theme.divider        = QColor(0xB8, 0xBF, 0xCA);
+
+    // Recessed from the white panels, but nothing like as deep as the dark
+    // theme's canvas - a light window with a near-black rectangle in the middle
+    // of it is not a light window. The grid steps *down* from the ground here,
+    // by the same two magnitudes.
+    theme.canvas           = QColor(0xDE, 0xE2, 0xE8);
+    theme.canvasGridFine   = QColor(0xD7, 0xDC, 0xE3);
+    theme.canvasGridCoarse = QColor(0xC5, 0xCC, 0xD6);
 
     theme.text           = QColor(0x17, 0x19, 0x1D);
     theme.textMuted      = QColor(0x62, 0x6A, 0x75);

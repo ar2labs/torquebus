@@ -46,6 +46,20 @@ public Q_SLOTS:
 
     void clear();
 
+private Q_SLOTS:
+    /// Recolours every line already in the view.
+    ///
+    /// The level's colour is baked into a QTextCharFormat when the line is
+    /// inserted, and a theme change does not revisit it - so after a switch the
+    /// whole scrollback was still painted in the colours of the theme it was
+    /// written under. On a dark window that is dark text on a dark background,
+    /// which is what the log looked like in every screenshot taken after
+    /// toggling the theme.
+    ///
+    /// Each block carries its level in QTextBlock::userState, so nothing has to
+    /// be stored twice and the text itself is never rebuilt.
+    void onThemeChanged();
+
 private:
     QPlainTextEdit* m_view{nullptr};
 };

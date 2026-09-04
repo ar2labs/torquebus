@@ -76,6 +76,13 @@ public Q_SLOTS:
     void applyTheme(const Theme& theme);
 
 private:
+    /// Loads the theme into QtNodes' three style singletons.
+    ///
+    /// Static and separate from applyTheme because it has to run *before* the
+    /// GraphicsView is constructed: the view copies BackgroundColor out of the
+    /// singleton in its constructor and never looks at it again.
+    static void applyStyles(const Theme& theme);
+
     void buildPalette();
     void addNodeFromPalette(QTreeWidgetItem* item);
 

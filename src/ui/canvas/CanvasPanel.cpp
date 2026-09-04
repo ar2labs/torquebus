@@ -21,6 +21,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMap>
+#include <QPalette>
 #include <QSplitter>
 #include <QString>
 #include <QTreeWidget>
@@ -44,14 +45,18 @@ constexpr int kTypeNameRole = Qt::UserRole + 1;
         return QJsonArray{colour.red(), colour.green(), colour.blue()};
     };
 
-    // The canvas sits at the bottom of the surface ladder - it is the deepest
-    // thing in the window, and the blocks float above it. Using `separator`
-    // rather than `background` keeps that reading: the void behind the blocks
-    // is the same colour as the groove between panels.
+    // Dedicated theme roles, not surface roles borrowed from the panel ladder.
+    //
+    // The first version used `separator`, `background` and `tabStrip`. Those
+    // are chosen to sit 6-10 points apart so a panel reads as a different
+    // surface from the window behind it - which is exactly the wrong magnitude
+    // for a line drawn every 15 pixels, and it came out as a hard mesh. Worse,
+    // in the dark theme `tabStrip` is *darker* than `background`, so the 150 px
+    // guide was fainter than the 15 px filler it exists to organise.
     QJsonObject view;
-    view["BackgroundColor"] = rgb(theme.separator);
-    view["FineGridColor"] = rgb(theme.background);
-    view["CoarseGridColor"] = rgb(theme.tabStrip);
+    view["BackgroundColor"] = rgb(theme.canvas);
+    view["FineGridColor"] = rgb(theme.canvasGridFine);
+    view["CoarseGridColor"] = rgb(theme.canvasGridCoarse);
 
     // A node is a panel: same surface, same border, same accent when selected.
     // The gradient is flat on purpose - four stops of the same colour - because
@@ -106,6 +111,22 @@ CanvasPanel::CanvasPanel(GraphDescription& description,
     , m_catalog{catalog}
 {
     m_model = std::make_unique<PipelineGraphModel>(m_description, m_catalog);
+
+    // Before the view exists, and that ordering is load-bearing.
+    //
+    // QtNodes::GraphicsView reads BackgroundColor exactly once, in its
+    // constructor, and calls setBackgroundBrush with it (GraphicsView.cpp:44).
+    // Everything else about the style is read at paint time. So a view built
+    // before the style is set keeps QtNodes' default #353535 for the rest of
+    // its life while its grid lines follow the theme - a dark grey canvas with
+    // light-theme grid lines on it, which is what shipped.
+    //
+    // applyTheme() below sets the brush again for the same reason. Both are
+    // needed: this one so the first paint is right, that one so a theme switch
+    // is.
+    if (ThemeManager* themes = ThemeManager::instance()) {
+        applyStyles(themes->theme());
+    }
 
     m_scene = new QtNodes::BasicGraphicsScene{*m_model, this};
     m_view = new QtNodes::GraphicsView{m_scene};
@@ -266,16 +287,40 @@ void CanvasPanel::reload()
     }
 }
 
-void CanvasPanel::applyTheme(const Theme& theme)
+void CanvasPanel::applyStyles(const Theme& theme)
 {
     const QString json = styleJson(theme);
 
+    // Process-wide singletons, not per-view - which is why this is static, and
+    // why a second canvas would share these colours.
     QtNodes::GraphicsViewStyle::setStyle(json);
     QtNodes::NodeStyle::setNodeStyle(json);
     QtNodes::ConnectionStyle::setConnectionStyle(json);
+}
 
-    // The styles are read when items paint, and existing items do not know
-    // they changed - so the scene has to be told to redraw everything.
+void CanvasPanel::applyTheme(const Theme& theme)
+{
+    applyStyles(theme);
+
+    // The one part of the style the view does not re-read. Setting the
+    // singleton is not enough: the brush was copied out of it in the
+    // constructor and nothing looks at it again.
+    if (m_view != nullptr) {
+        m_view->setBackgroundBrush(theme.canvas);
+    }
+
+    // The palette is a panel, so it is painted like one. Without this it takes
+    // the view's colour from the enclosing dock and reads as part of the
+    // canvas rather than as a list beside it.
+    if (m_palette != nullptr) {
+        QPalette palette = m_palette->palette();
+        palette.setColor(QPalette::Base, theme.panel);
+        palette.setColor(QPalette::Window, theme.panel);
+        m_palette->setPalette(palette);
+    }
+
+    // The rest of the styles are read when items paint, and existing items do
+    // not know they changed - so the scene has to be told to redraw.
     if (m_scene != nullptr) {
         m_scene->update();
     }

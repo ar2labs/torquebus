@@ -130,14 +130,28 @@ panels.
 - Each panel shows its name **once**, in a tab. No title bar above the tab.
 - The tab strip is *darker* than the panel body; the active tab is the same
   colour as the panel and carries an accent line on top.
-- The gaps between panels are visible grooves, and light up when hovered.
+- The gaps between panels are visible bars, about 5 px, and turn accent when
+  hovered. So does the divider inside the **Pipeline** tab, between the block
+  list and the canvas — that one borders the darkest surface in the window and
+  is the one that was invisible.
 - No pale or white line anywhere along a panel edge.
+- **Pipeline** tab: the canvas is the deepest surface in the theme, the 150 px
+  grid reads as a faint guide, and the 15 px grid is felt rather than seen. The
+  canvas and its grid are unmistakably from the *same* theme.
 - The Output panel lists the style sheet size, the bound channels, and
   `Press Start (F5) to go bus-on.`
 
-**Then toggle the theme** (Home → Theme) and check the same six points in the
-light theme. The two themes share one style sheet, so a defect in one is usually
-a defect in both.
+**Then toggle the theme** (Home → Theme) and check the same points in the light
+theme. The two themes share one style sheet, so a defect in one is usually a
+defect in both.
+
+Three things specifically survive the toggle, because each was once a colour
+copied at construction and never revisited:
+
+- the canvas ground changes with the theme — it does not stay dark grey;
+- the Output panel's **existing** scrollback recolours, rather than the lines
+  written before the switch staying in the old theme's colours;
+- the block list beside the canvas is painted like a panel, not like the canvas.
 
 ---
 

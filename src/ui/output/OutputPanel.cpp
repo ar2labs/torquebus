@@ -10,7 +10,9 @@
 #include <QDateTime>
 #include <QPlainTextEdit>
 #include <QScrollBar>
+#include <QTextBlock>
 #include <QTextCharFormat>
+#include <QTextDocument>
 #include <QTextCursor>
 #include <QVBoxLayout>
 
@@ -61,6 +63,10 @@ OutputPanel::OutputPanel(QWidget* parent)
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(m_view);
+
+    if (ThemeManager* themes = ThemeManager::instance()) {
+        connect(themes, &ThemeManager::themeChanged, this, [this] { onThemeChanged(); });
+    }
 }
 
 void OutputPanel::setMaximumLines(int lines)
@@ -91,9 +97,45 @@ void OutputPanel::append(Level level, const QString& message)
                                message),
                       format);
 
+    // The level, kept with the line so a theme change can recolour it without
+    // a parallel list of entries to fall out of step with the document.
+    cursor.block().setUserState(static_cast<int>(level));
+
     if (wasAtBottom) {
         scrollBar->setValue(scrollBar->maximum());
     }
+}
+
+void OutputPanel::onThemeChanged()
+{
+    QTextDocument* document = m_view->document();
+
+    // One undo-less edit rather than one per line: without this the view
+    // repaints and rescrolls for every block it touches.
+    QTextCursor cursor{document};
+    cursor.beginEditBlock();
+
+    for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
+        const int state = block.userState();
+        if (state < 0) {
+            // A block written before this was tracked, or one Qt created on its
+            // own. Leaving it alone is better than guessing a level for it.
+            continue;
+        }
+
+        QTextCharFormat format;
+        format.setForeground(levelColor(static_cast<OutputPanel::Level>(state)));
+
+        // Start to end explicitly, rather than BlockUnderCursor: that selection
+        // reaches back over the preceding paragraph separator, so every line
+        // would also restyle a character belonging to the line above it.
+        QTextCursor line{block};
+        line.movePosition(QTextCursor::StartOfBlock);
+        line.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+        line.mergeCharFormat(format);
+    }
+
+    cursor.endEditBlock();
 }
 
 void OutputPanel::appendInfo(const QString& message)    { append(Level::Info, message); }
