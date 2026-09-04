@@ -202,12 +202,28 @@ QGroupBox::title {
     color: @textMuted;
 }
 
+/* Wide enough to grab, and coloured so it is visible against both sides.
+ *
+ * It was 1px of @border, which is a hairline nobody can hit with a mouse, and
+ * inside the Pipeline panel it bordered the canvas - the darkest surface in the
+ * window - where it vanished entirely. @divider exists for this: it sits above
+ * the panels in the dark theme and below them in the light one, so it reads
+ * against every surface it can find itself between.
+ *
+ * The hover state is the affordance. Nothing else in the window turns accent
+ * under the cursor, so it is unambiguous that this edge does something. */
 QSplitter::handle {
-    background-color: @border;
+    background-color: @divider;
 }
 
-QSplitter::handle:horizontal { width: 1px; }
-QSplitter::handle:vertical   { height: 1px; }
+QSplitter::handle:horizontal { width: 5px; }
+QSplitter::handle:vertical   { height: 5px; }
+
+QSplitter::handle:hover   { background-color: @accent; }
+QSplitter::handle:pressed { background-color: @accentHover; }
+
+/* A collapsed pane leaves its handle as the only way back. Keep it findable. */
+QSplitter::handle:horizontal:disabled { background-color: @border; }
 
 /* -------------------------------------------------------------- tabs --- */
 
@@ -596,7 +612,7 @@ KDDockWidgets--QtWidgets--DockWidget {
  * If it looks wrong, it is the colour - as it was twice before.
  */
 KDDockWidgets--QtWidgets--Separator {
-    background-color: @separator;
+    background-color: @divider;
     border: none;
 }
 

@@ -52,6 +52,38 @@ struct Theme final {
     /// splitters vanish: the panels sit flush and nothing says the edge can be
     /// dragged. Its hover state is the accent, which is the actual affordance.
     QColor separator;
+
+    /// The bar a splitter or a dock separator is painted in.
+    ///
+    /// Its own role rather than `separator` or `border`, because it has to be
+    /// visible against *every* surface it can land between - a panel on one
+    /// side and the pipeline canvas on the other, which are the lightest and
+    /// darkest things in the window. A groove tinted like the darkest surface
+    /// disappears the moment it borders that surface, which is exactly what
+    /// happened: the divider inside the Pipeline panel could not be seen at
+    /// all.
+    ///
+    /// So this sits *between* the surfaces rather than below them: lighter
+    /// than the panels in the dark theme, darker in the light one.
+    QColor divider;
+
+    /// The pipeline canvas, behind the blocks.
+    ///
+    /// Recessed from the panels, because the blocks are the panels' equivalent
+    /// and they have to float above something.
+    QColor canvas;
+
+    /// Grid lines on the canvas, at 15 px and 150 px.
+    ///
+    /// Derived from `canvas` with small deltas, and **coarse is always the
+    /// stronger of the two**. Borrowing surface roles here was the original
+    /// mistake: `background` and `tabStrip` happen to differ from `separator`
+    /// by enough to draw a hard mesh every 15 px, and in the dark theme
+    /// `tabStrip` is darker than `background`, so the 150 px guide came out
+    /// fainter than the 15 px filler it is supposed to organise.
+    QColor canvasGridFine;
+    QColor canvasGridCoarse;
+
     QColor hover;
     QColor selection;
 

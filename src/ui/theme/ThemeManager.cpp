@@ -222,6 +222,7 @@ QString ThemeManager::buildStyleSheet() const
     substitute("@toolbar", m_theme.toolbar);
     substitute("@tabStrip", m_theme.tabStrip);
     substitute("@separator", m_theme.separator);
+    substitute("@divider", m_theme.divider);
     substitute("@border", m_theme.border);
     substitute("@hover", m_theme.hover);
     substitute("@selection", m_theme.selection);
