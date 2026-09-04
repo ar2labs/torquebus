@@ -9,7 +9,7 @@
 #include <kddockwidgets/qtwidgets/ViewFactory.h>
 #include <kddockwidgets/qtwidgets/views/Group.h>
 
-#include <QAbstractScrollArea>
+#include <QGraphicsView>
 #include <QIcon>
 #include <QPaintEvent>
 #include <QPalette>
@@ -310,19 +310,23 @@ QStringList describeDockChrome(DockWidget* dock)
 
         const QPalette& palette = widget->palette();
 
-        // A scroll area paints its viewport with backgroundBrush, which is a
-        // separate value from the palette and is the one this report used to be
-        // blind to.
+        // A QGraphicsView paints its scene's ground with backgroundBrush, which
+        // is a separate value from the palette and is the one this report used
+        // to be blind to.
         //
-        // That blindness cost a release. QtNodes::GraphicsView copies the brush
-        // out of its style in the constructor and never looks again, so the
-        // pipeline canvas stayed at QtNodes' default #353535 in both themes -
-        // and this report happily showed a healthy palette next to it, because
-        // the palette *was* healthy and had nothing to do with what was on
-        // screen.
+        // That blindness cost a release. QtNodes::GraphicsView derives from
+        // QGraphicsView and copies the brush out of its style once, in the
+        // constructor, so the pipeline canvas stayed at QtNodes' default
+        // #353535 in both themes - while this report showed a perfectly healthy
+        // palette on the same line, because the palette *was* healthy and had
+        // nothing to do with what was on screen.
+        //
+        // QGraphicsView and not QAbstractScrollArea: the brush lives on the
+        // derived class. An ordinary scroll area has no such thing - its
+        // viewport takes QPalette::Base, which this report already prints.
         QString brush;
-        if (const auto* scrollArea = qobject_cast<const QAbstractScrollArea*>(widget)) {
-            brush = QStringLiteral(" brush=%1").arg(scrollArea->backgroundBrush().color().name());
+        if (const auto* view = qobject_cast<const QGraphicsView*>(widget)) {
+            brush = QStringLiteral(" brush=%1").arg(view->backgroundBrush().color().name());
         }
 
         // A widget that has never been shown carries an unpolished palette -
