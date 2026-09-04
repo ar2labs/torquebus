@@ -153,6 +153,16 @@ copied at construction and never revisited:
   written before the switch staying in the old theme's colours;
 - the block list beside the canvas is painted like a panel, not like the canvas.
 
+**View → Inspect Panel Chrome** dumps what Qt actually holds for every widget
+under the docking area. Two columns matter beyond the palette:
+
+- `brush=` appears on scroll areas and is the colour their viewport is painted
+  with. It is a *separate value* from the palette, and it is what the pipeline
+  canvas got wrong for a whole release while showing a perfectly healthy
+  palette beside it.
+- `hidden` marks a widget that has never been shown. Its palette is unpolished,
+  usually `#000000` at a default 100x30 - not a defect, just meaningless.
+
 ---
 
 ## 5. The pipeline, end to end

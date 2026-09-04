@@ -9,6 +9,7 @@
 #include <kddockwidgets/qtwidgets/ViewFactory.h>
 #include <kddockwidgets/qtwidgets/views/Group.h>
 
+#include <QAbstractScrollArea>
 #include <QIcon>
 #include <QPaintEvent>
 #include <QPalette>
@@ -309,6 +310,29 @@ QStringList describeDockChrome(DockWidget* dock)
 
         const QPalette& palette = widget->palette();
 
+        // A scroll area paints its viewport with backgroundBrush, which is a
+        // separate value from the palette and is the one this report used to be
+        // blind to.
+        //
+        // That blindness cost a release. QtNodes::GraphicsView copies the brush
+        // out of its style in the constructor and never looks again, so the
+        // pipeline canvas stayed at QtNodes' default #353535 in both themes -
+        // and this report happily showed a healthy palette next to it, because
+        // the palette *was* healthy and had nothing to do with what was on
+        // screen.
+        QString brush;
+        if (const auto* scrollArea = qobject_cast<const QAbstractScrollArea*>(widget)) {
+            brush = QStringLiteral(" brush=%1").arg(scrollArea->backgroundBrush().color().name());
+        }
+
+        // A widget that has never been shown carries an unpolished palette -
+        // usually black - at its default 100x30 size. Saying so stops those
+        // lines from reading as defects.
+        const QString shown = widget->isVisible() ? QString{} : QStringLiteral(" hidden");
+
+        // The two optional parts are appended rather than given placeholders.
+        // `%10` beside a `%1` is ambiguous to read even where Qt resolves it,
+        // and this line is read by a human under time pressure.
         lines.append(QStringLiteral("  %1  name='%2'  %3x%4  win=%5 base=%6 light=%7  ss=%8")
                          .arg(className,
                               widget->objectName(),
@@ -318,7 +342,8 @@ QStringList describeDockChrome(DockWidget* dock)
                               palette.color(QPalette::Base).name(),
                               palette.color(QPalette::Light).name(),
                               widget->styleSheet().isEmpty() ? QStringLiteral("-")
-                                                             : QStringLiteral("own")));
+                                                             : QStringLiteral("own"))
+                     + brush + shown);
     }
 
     return lines;
