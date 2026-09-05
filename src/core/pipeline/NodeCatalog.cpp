@@ -256,6 +256,13 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .type = ParameterValue::Type::Text,
                                         .required = false,
                                         .description = "A .lua file to load instead."},
+                    ParameterDescriptor{.name = "database",
+                                        .displayName = "Database",
+                                        .type = ParameterValue::Type::Text,
+                                        .required = false,
+                                        .description =
+                                            "Optional .dbc, so the script can use "
+                                            "emit_signal() and decode()."},
                     ParameterDescriptor{.name = "channel",
                                         .displayName = "Transmit channel",
                                         .type = ParameterValue::Type::Integer,
@@ -317,7 +324,10 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             // The three reserved names are excluded because they configure the
             // node rather than the behaviour, and a script reading
             // parameters.script would be reading its own source back.
-            static constexpr std::string_view kReserved[] = {"script", "scriptPath", "channel"};
+            // Settings the *node* reads. Everything else in the parameter map
+            // is the script's, and reaches it through the `parameters` global.
+            static constexpr std::string_view kReserved[] = {"script", "scriptPath",
+                                                             "channel", "database"};
 
             std::map<std::string, LuaValue> scriptParameters;
 
@@ -341,6 +351,25 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                     scriptParameters.emplace(key, LuaValue::fromString(value.asText()));
                     break;
                 }
+            }
+
+            // Optional. A script that only calls emit() with packed bytes
+            // needs no database, and a block that has not been given one yet
+            // must still build - the alternative is a canvas that cannot be
+            // assembled in any order but one.
+            if (const std::string databasePath =
+                    resolvePath(context, parameters.text("database", ""));
+                !databasePath.empty()) {
+                auto database = std::make_shared<CanDatabase>();
+
+                if (Result result = DbcParser::parseFile(databasePath, *database);
+                    result.failed()) {
+                    return Result::error(result.code(),
+                                         std::format("Node '{}': {}", nodeId,
+                                                     std::string{result.message()}));
+                }
+
+                node->setDatabase(std::move(database));
             }
 
             node->setScriptParameters(std::move(scriptParameters));

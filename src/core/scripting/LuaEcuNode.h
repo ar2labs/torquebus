@@ -30,6 +30,7 @@
 #pragma once
 
 #include "core/can/CanFrame.h"
+#include "core/database/CanMessage.h"
 #include "core/pipeline/PipelineNode.h"
 #include "core/scripting/LuaRuntime.h"
 
@@ -83,6 +84,29 @@ public:
 
     void setLogHandler(LogHandler handler) { m_log = std::move(handler); }
 
+    /// The database `emit_signal` and `decode` work against.
+    ///
+    /// Optional: a script that only ever calls `emit` with packed bytes needs
+    /// none. With one, the script stops carrying the bit layout of its own
+    /// messages - which is the layout it is most likely to get wrong and least
+    /// likely to notice, because a mis-packed frame still transmits.
+    ///
+    /// Shared, not owned, and by shared_ptr for the reason given in
+    /// DecodedSignal.h: the definitions have to outlive anything that points at
+    /// them, and a reload mid-measurement must not pull them out from under a
+    /// script that is running.
+    void setDatabase(std::shared_ptr<const CanDatabase> database)
+    {
+        m_database = std::move(database);
+    }
+
+    /// Signal values a script asked for that its field could not hold.
+    ///
+    /// Saturated and counted rather than refused. A control loop that briefly
+    /// asks for 300% torque has a bug worth seeing, but killing the ECU over it
+    /// would take the rest of the simulation down with it.
+    [[nodiscard]] std::uint64_t saturatedSignals() const noexcept { return m_saturated; }
+
     /// Settings the script reads from its `parameters` global.
     ///
     /// What makes a script reusable rather than a one-off. Without it, every
@@ -117,6 +141,8 @@ public:
 private:
     // --- Bindings, called from Lua ---------------------------------------
     static int luaEmit(lua_State* state);
+    static int luaEmitSignal(lua_State* state);
+    static int luaDecode(lua_State* state);
     static int luaSetTimer(lua_State* state);
     static int luaLogMessage(lua_State* state);
     static int luaGetTimeMicroseconds(lua_State* state);
@@ -138,12 +164,18 @@ private:
     std::uint8_t m_transmitChannel;
 
     std::unique_ptr<LuaRuntime> m_lua;
+    std::shared_ptr<const CanDatabase> m_database;
     LogHandler m_log;
     std::map<std::string, LuaValue> m_scriptParameters;
 
     /// Frames the script emitted during the current pass. A member, reused, so
     /// a pass allocates nothing (rule #12).
     std::vector<CanFrame> m_outgoing;
+
+    std::uint64_t m_saturated{0};
+
+    /// The buffer holds frames from on_enable that no pass has published yet.
+    bool m_carryingStartupFrames{false};
 
     bool m_hasOnMessage{false};
     bool m_hasOnTimer{false};

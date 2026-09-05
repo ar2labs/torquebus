@@ -15,6 +15,46 @@ no external Lua to install and no version to keep in step.
 
 ---
 
+
+## Speaking in signals instead of bytes
+
+Give the block a **Database** and two more functions appear.
+
+```lua
+emit_signal("VehicleSpeed", { SpeedKmh = 85.0, Gear = 3 })
+
+local name, signals = decode(id, data)
+if name == "VehicleSpeed" then
+    log_message(string.format("%.1f km/h", signals.SpeedKmh))
+end
+```
+
+The alternative is `string.pack("<I2", math.floor(speed / 0.1 + 0.5) & 0xFFFF)`,
+which carries the identifier, the byte order and the scaling in the script - the
+three things the database already knows, in the one notation here that is wrong
+without ever looking wrong. A mis-packed frame transmits perfectly: right
+length, right identifier, plausible number.
+
+`examples/scripts/ecu_vehicle_dbc.lua` is the same ECU as `ecu_vehicle.lua`
+written this way; the two are worth reading side by side.
+
+**A wrong name stops the script. A wrong value does not.** A misspelled message
+or signal is an error that names what was misspelled, because a typo never
+becomes correct and the run should stop. A value the field cannot hold saturates
+and is counted instead - a control loop briefly asking for 300% torque has a bug
+worth seeing, but taking the ECU down over it would take the rest of the
+simulation with it.
+
+`decode` returns `nil` for an identifier the database does not describe, which
+on a shared bus is most of them - so a script can look at everything and act on
+the few messages it owns.
+
+Signals a frame does not carry are **absent from the table, not zero**. On a
+multiplexed message that is the difference between "this page has no voltage
+reading" and "the voltage is zero", and the same holds for a frame that arrived
+shorter than the database expects.
+
+
 ## Lifecycle
 
 Four functions, all optional. Define the ones you need.
