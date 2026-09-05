@@ -51,6 +51,23 @@ struct NodeBuildContext final {
 
     /// Where a script's log_message() and errors go.
     std::function<void(const std::string& text, bool isError)> log;
+
+    /// Directory that a relative path in a node's parameters is relative *to*.
+    ///
+    /// The project file's own directory, in practice. Without it a `.tbsproj`
+    /// naming `databases/vehicle.dbc` resolves against the process's working
+    /// directory - so the project opens from the repository root and from
+    /// nowhere else, which is not a property anyone would guess a project file
+    /// had.
+    ///
+    /// Resolved at build time rather than at load. Rewriting the paths when the
+    /// file is read would make them absolute, and saving would then write those
+    /// absolute paths back - turning a project that travels with its folder
+    /// into one pinned to the machine that last saved it.
+    ///
+    /// Empty means "resolve against the working directory", which is the right
+    /// answer for a graph built without a project behind it.
+    std::string basePath;
 };
 
 /// Everything a canvas needs to know about a type before instantiating it.

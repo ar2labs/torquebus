@@ -1161,7 +1161,16 @@ void MainWindow::onStartMeasurement()
     // copies an empty pipeline, and nothing the user later draws ever reaches
     // the engine. Taking the copy at Start is what makes "what runs is what was
     // on the canvas when you pressed Start" literally true.
-    m_controller->engine().setGraphDescription(m_pipeline, m_catalog);
+
+    // The project's own folder, so that a .tbsproj can name its database and
+    // its scripts relative to itself and still open from anywhere. Empty for an
+    // unsaved project, which falls back to the working directory - there is no
+    // folder to be relative to yet.
+    const QString base = m_projectPath.isEmpty()
+                             ? QString{}
+                             : QFileInfo{m_projectPath}.absolutePath();
+
+    m_controller->engine().setGraphDescription(m_pipeline, m_catalog, base.toStdString());
 
     // Refused before the channels are opened, with the node named, rather than
     // after - a half-started measurement is the thing start() exists to avoid.

@@ -218,7 +218,13 @@ public:
     /// through the same builder as above. A copy is taken, so the caller may go
     /// on editing its own description while a measurement runs - what runs is
     /// what was set, not whatever the canvas has become since.
-    void setGraphDescription(GraphDescription description, NodeCatalog catalog);
+    /// `basePath` is the directory a relative path in a node's parameters is
+    /// relative to - the project file's own folder. Empty resolves against the
+    /// working directory, which is what a graph with no project behind it
+    /// wants.
+    void setGraphDescription(GraphDescription description,
+                             NodeCatalog catalog,
+                             std::string basePath = {});
 
     /// The trace store the default graph fills.
     ///

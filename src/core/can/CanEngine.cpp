@@ -262,14 +262,18 @@ void CanEngine::setGraphBuilder(GraphBuilder builder)
     m_graphBuilder = std::move(builder);
 }
 
-void CanEngine::setGraphDescription(GraphDescription description, NodeCatalog catalog)
+void CanEngine::setGraphDescription(GraphDescription description,
+                                    NodeCatalog catalog,
+                                    std::string basePath)
 {
     // Captured by value into the builder, which is what makes the description
     // safe to edit while a measurement runs.
     setGraphBuilder([this, description = std::move(description),
-                     catalog = std::move(catalog)](PipelineGraph& graph,
-                                                   std::span<const NodeId>) -> Result {
+                     catalog = std::move(catalog),
+                     basePath = std::move(basePath)](PipelineGraph& graph,
+                                                     std::span<const NodeId>) -> Result {
         NodeBuildContext context;
+        context.basePath = basePath;
         context.traceStore = &m_traceStore;
         context.channel = [this](std::uint8_t index) { return channel(index); };
         context.log = [this](const std::string& text, bool isError) {
