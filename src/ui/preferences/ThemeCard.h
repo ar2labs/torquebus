@@ -42,6 +42,13 @@ public:
     void setSelected(bool selected);
     [[nodiscard]] bool isSelected() const noexcept { return m_selected; }
 
+    /// Public because QWidget::sizeHint() is: layouts call it through a base
+    /// pointer, and so does the dialog, to give the card's caption the same
+    /// width as the card. Narrowing an override to protected compiles until
+    /// somebody calls it on the derived type, which is the worst place for the
+    /// error to appear.
+    [[nodiscard]] QSize sizeHint() const override;
+
 Q_SIGNALS:
     void clicked(torquebus::ui::ThemeVariant variant);
 
@@ -54,8 +61,6 @@ protected:
     void leaveEvent(QEvent* event) override;
     void focusInEvent(QFocusEvent* event) override;
     void focusOutEvent(QFocusEvent* event) override;
-
-    [[nodiscard]] QSize sizeHint() const override;
 
 private:
     ThemeVariant m_variant;
