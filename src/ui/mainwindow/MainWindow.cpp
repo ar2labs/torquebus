@@ -771,6 +771,10 @@ void MainWindow::saveWindowState() const
                            kDockLayoutVersion);
     m_settings.setValue(QString::fromLatin1(services::keys::kTheme),
                         toString(m_themes.variant()));
+    m_settings.setValue(QString::fromLatin1(services::keys::kAccent),
+                        toString(m_themes.accent()));
+    m_settings.setBoolValue(QString::fromLatin1(services::keys::kFollowSystemTheme),
+                            m_themes.followsSystemTheme());
 
     if (!m_settings.save()) {
         qWarning("TorqueBus: failed to write settings to %s",

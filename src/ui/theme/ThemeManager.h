@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include "ui/theme/AccentColor.h"
 #include "ui/theme/Theme.h"
 
 #include <QHash>
@@ -32,11 +33,53 @@ public:
     [[nodiscard]] const Theme& theme() const noexcept { return m_theme; }
     [[nodiscard]] ThemeVariant variant() const noexcept { return m_theme.variant; }
 
-    /// Applies `variant` to QApplication. A no-op when it is already active.
+    /// Applies `variant` to QApplication, as an explicit choice by the user.
+    ///
+    /// Explicit is the operative word: this stops the application following the
+    /// desktop's light/dark setting. Somebody who picks Dark while their
+    /// desktop is Light has said something, and having the window flip back the
+    /// next time Windows changes its mind would be the application overruling
+    /// them. Use setFollowSystemTheme() to hand the decision back.
     void applyVariant(ThemeVariant variant);
 
-    /// Switches Dark <-> Light.
+    /// Switches Dark <-> Light. Also an explicit choice.
     void toggleVariant();
+
+    // --- Accent -----------------------------------------------------------
+
+    [[nodiscard]] AccentColor accent() const noexcept { return m_accent; }
+
+    /// Re-derives the palette around a different accent and repaints.
+    ///
+    /// The variant is untouched: an accent is a hue, and which theme it is
+    /// rendered against is a separate question (see AccentColor.h).
+    void setAccent(AccentColor accent);
+
+    // --- Following the desktop --------------------------------------------
+
+    [[nodiscard]] bool followsSystemTheme() const noexcept { return m_followSystemTheme; }
+
+    /// Hands the light/dark decision to the desktop, or takes it back.
+    ///
+    /// Turning it on applies the desktop's current setting immediately, so the
+    /// checkbox and the window agree without waiting for Windows to change.
+    void setFollowSystemTheme(bool follow);
+
+    /// Applies accent, follow-the-desktop and variant in one repaint.
+    ///
+    /// Startup's single entry point. Calling the three setters in a row would
+    /// work and would parse and apply the style sheet up to three times before
+    /// the first window is shown, for a result the user can only see once.
+    ///
+    /// `variant` is used only when `followSystem` is false.
+    void applyPreferences(AccentColor accent, bool followSystem, ThemeVariant variant);
+
+    /// What the desktop is asking for right now.
+    ///
+    /// A desktop that will not say - Qt reports Unknown on platforms with no
+    /// such setting - is read as Dark, which is the house default rather than a
+    /// guess about the user.
+    [[nodiscard]] static ThemeVariant systemVariant();
 
     /// Loads an SVG icon from the resource system and recolours it for the
     /// current theme, so a single monochrome icon set serves both themes.
@@ -66,6 +109,13 @@ Q_SIGNALS:
     void themeChanged(const torquebus::ui::Theme& theme);
 
 private:
+    /// Rebuilds the palette for `variant` with the current accent and repaints.
+    ///
+    /// Separate from applyVariant() because that one also means "the user has
+    /// chosen": this is the half that only changes colours, and it is what the
+    /// desktop's own notifications come through.
+    void rebuild(ThemeVariant variant);
+
     void applyFont() const;
     void applyPalette() const;
     void applyStyleSheet() const;
@@ -78,6 +128,9 @@ private:
     static void reportUnsubstitutedTokens(const QString& sheet);
 
     Theme m_theme;
+    AccentColor m_accent{AccentColor::TorqueBus};
+    bool m_followSystemTheme{false};
+
     mutable QHash<QString, QIcon> m_iconCache;
     mutable int m_styleSheetBytes{-1};
 };
