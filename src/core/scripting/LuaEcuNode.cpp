@@ -58,6 +58,8 @@ Result LuaEcuNode::prepare(std::size_t maximumBatchSize)
     }
 
     m_lua->registerFunction("emit", &LuaEcuNode::luaEmit, this);
+    m_lua->registerFunction("emit_signal", &LuaEcuNode::luaEmitSignal, this);
+    m_lua->registerFunction("decode", &LuaEcuNode::luaDecode, this);
     m_lua->registerFunction("set_timer", &LuaEcuNode::luaSetTimer, this);
     m_lua->registerFunction("log_message", &LuaEcuNode::luaLogMessage, this);
     m_lua->registerFunction("get_time_us", &LuaEcuNode::luaGetTimeMicroseconds, this);
@@ -90,6 +92,10 @@ Result LuaEcuNode::prepare(std::size_t maximumBatchSize)
     m_consecutiveErrors = 0;
     m_faulted = false;
 
+    // Cleared before on_enable, not after: a re-prepare must not carry frames
+    // from the previous measurement into this one.
+    m_outgoing.clear();
+
     if (m_lua->hasFunction("on_enable")) {
         if (Result result = m_lua->call("on_enable"); result.failed()) {
             return Result::error(result.code(),
@@ -97,6 +103,10 @@ Result LuaEcuNode::prepare(std::size_t maximumBatchSize)
                                              m_name, std::string{result.message()}));
         }
     }
+
+    // Anything on_enable emitted is real traffic waiting for the first pass -
+    // an ECU announcing itself at power-on - not a leftover to be cleared.
+    m_carryingStartupFrames = !m_outgoing.empty();
 
     return Result::ok();
 }
@@ -107,7 +117,18 @@ void LuaEcuNode::process(NodeContext& context)
         return;
     }
 
-    m_outgoing.clear();
+    // The buffer is cleared at the *start* of a pass rather than the end,
+    // because the span published last pass has to stay alive until now (see
+    // PortType.h). The one exception is the first pass after prepare: what is
+    // in the buffer then came from on_enable and has never been published.
+    //
+    // Clearing unconditionally dropped those frames silently, which is exactly
+    // the failure mode this project refuses everywhere else - the script ran,
+    // emit_signal succeeded, the counter went up, and nothing reached the bus.
+    if (!m_carryingStartupFrames) {
+        m_outgoing.clear();
+    }
+    m_carryingStartupFrames = false;
 
     // --- on_message, once per incoming frame -----------------------------
     if (m_hasOnMessage) {
@@ -292,6 +313,144 @@ int LuaEcuNode::luaEmit(lua_State* state)
     ++node->m_emitted;
 
     return 0;
+}
+
+/// emit_signal("VehicleSpeed", { SpeedKmh = 85.0 })
+///
+/// The point of the whole database layer, from a script's side: the script says
+/// what it means and the definition decides where the bits go. Without it every
+/// ECU carries its own copy of a bit layout, in a string.pack format string,
+/// which is the single easiest thing in this file to get wrong and the hardest
+/// to notice - a mis-packed frame transmits perfectly.
+///
+/// A name that is not in the database is an error, because a typo never becomes
+/// correct and the script should stop. A *value* out of range is not: it
+/// saturates and is counted. A control loop briefly asking for 300% torque has
+/// a bug worth seeing, but taking the ECU down over it would take the rest of
+/// the simulation with it.
+int LuaEcuNode::luaEmitSignal(lua_State* state)
+{
+    LuaEcuNode* node = self(state);
+    if (node == nullptr) {
+        return luaL_error(state, "emit_signal called outside an ECU node");
+    }
+
+    if (!node->m_database) {
+        return luaL_error(state,
+                          "emit_signal needs a database: set the block's "
+                          "'database' parameter to a .dbc file");
+    }
+
+    if (node->m_outgoing.size() >= kMaximumEmitsPerPass) {
+        return luaL_error(state,
+                          "emit_signal: more than %d frames in one pass - check "
+                          "for an unbounded loop",
+                          static_cast<int>(kMaximumEmitsPerPass));
+    }
+
+    const char* messageName = luaL_checkstring(state, 1);
+    luaL_checktype(state, 2, LUA_TTABLE);
+
+    const CanMessage* message = node->m_database->findByName(messageName);
+    if (message == nullptr) {
+        return luaL_error(state, "emit_signal: no message named '%s' in the database",
+                          messageName);
+    }
+
+    CanFrame frame = message->makeFrame();
+    frame.channel = node->m_transmitChannel;
+
+    // Walk the table the script passed rather than the message's signal list:
+    // a script setting three of eight signals leaves the other five at zero,
+    // which is what makeFrame already gave us and what the caller expects.
+    lua_pushnil(state);
+    while (lua_next(state, 2) != 0) {
+        // key at -2, value at -1. lua_tostring on a *key* would rewrite it in
+        // place and confuse lua_next, so the key is checked to be a string
+        // rather than converted.
+        if (lua_type(state, -2) != LUA_TSTRING) {
+            lua_pop(state, 2);
+            return luaL_error(state,
+                              "emit_signal: the table's keys have to be signal names");
+        }
+
+        const char* signalName = lua_tostring(state, -2);
+        const double value = luaL_checknumber(state, -1);
+
+        const CanSignal* signal = message->findSignal(signalName);
+        if (signal == nullptr) {
+            lua_pop(state, 2);
+            return luaL_error(state, "emit_signal: '%s' has no signal named '%s'",
+                              messageName, signalName);
+        }
+
+        if (!signal->encode(value, frame.data.data(), frame.length)) {
+            ++node->m_saturated;
+        }
+
+        lua_pop(state, 1);
+    }
+
+    node->m_outgoing.push_back(frame);
+    ++node->m_emitted;
+
+    return 0;
+}
+
+/// local name, signals = decode(id, data)
+///
+/// Returns nil when there is no database or the identifier is not in it, so a
+/// script can ask about every frame it receives and act only on the ones it
+/// understands - which is what an ECU on a shared bus actually does.
+int LuaEcuNode::luaDecode(lua_State* state)
+{
+    LuaEcuNode* node = self(state);
+    if (node == nullptr) {
+        return luaL_error(state, "decode called outside an ECU node");
+    }
+
+    const lua_Integer identifier = luaL_checkinteger(state, 1);
+
+    std::size_t length = 0;
+    const char* payload = luaL_checklstring(state, 2, &length);
+
+    if (!node->m_database) {
+        lua_pushnil(state);
+        return 1;
+    }
+
+    const auto raw = static_cast<std::uint32_t>(identifier);
+    const CanFrameFormat format = raw > kMaxStandardIdentifier ? CanFrameFormat::Extended
+                                                               : CanFrameFormat::Standard;
+
+    const CanMessage* message = node->m_database->find(raw, format);
+    if (message == nullptr) {
+        lua_pushnil(state);
+        return 1;
+    }
+
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload);
+
+    lua_pushstring(state, message->name.c_str());
+    lua_newtable(state);
+
+    // signalsIn, not the whole list: on a multiplexed message the signals that
+    // are not in this frame are not zero, they are absent, and a script reading
+    // signals.Voltage on a page that does not carry it should get nil rather
+    // than a plausible number.
+    for (const CanSignal* signal : message->signalsIn(bytes, length)) {
+        if (!signal->fitsIn(length)) {
+            // Left out rather than reported as zero. Same reason as the
+            // decoder's truncated flag: "we could not read it" and "it reads
+            // zero" must not look the same.
+            continue;
+        }
+
+        lua_pushnumber(state, signal->decode(bytes, length));
+        lua_setfield(state, -2, signal->name.c_str());
+    }
+
+    return 2;
 }
 
 int LuaEcuNode::luaSetTimer(lua_State* state)
