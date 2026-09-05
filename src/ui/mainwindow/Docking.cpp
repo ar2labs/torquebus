@@ -199,15 +199,22 @@ void configureDockingSystem()
     // Ownership is taken by Config.
     config.setViewFactory(new DockButtonIconFactory);
 
-    // By default KDDockWidgets' internal widgets reimplement paintEvent() and
-    // draw their own frames, which is why several borders survived every rule
-    // added to the style sheet: the style sheet was being painted over.
+    // **Only two of these six do anything.** Grepping 2.2.5 for
+    // disabledPaintEvents finds it in exactly two files: Separator.cpp and
+    // FloatingWindow.cpp. TitleBar, TabBar, Stack and DockWidget never consult
+    // it, and neither does Group - which is what sent three earlier attempts at
+    // the white border chasing a flag that could not have helped.
     //
-    // Turning those paint events off makes each widget fall back to
-    // QWidget::paintEvent, which honours the style sheet - the documented way
-    // to style KDDockWidgets with CSS. From here the panel chrome is ours, and
-    // a border that looks wrong is a rule in torquebus.qss rather than
-    // something happening inside the library.
+    // The four that do nothing are left set deliberately. They cost nothing,
+    // they say what we intend, and if a later version starts honouring one the
+    // intent is already recorded. But nothing here should be read as *making*
+    // those widgets defer to the style sheet - Group needed StyledGroup for
+    // that, and TabBar needs nothing because QTabBar was already honouring it.
+    //
+    // For Separator the flag is worse than inert, it is a trap: it makes the
+    // library call QWidget::paintEvent, which draws nothing at all. That is why
+    // the panel dividers are painted by StyledSeparator rather than by a rule
+    // in the style sheet.
     // Built as an initialiser list rather than with `|`.
     //
     // KDDockWidgets declares Q_DECLARE_OPERATORS_FOR_FLAGS for Config::Flags

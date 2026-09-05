@@ -114,6 +114,12 @@ private:
     QRect m_markerFrom;
     QRect m_markerTo;
 
+    /// The tab the marker points at, which is not always currentIndex().
+    ///
+    /// currentChanged arrives *after* the index has changed, so this is the
+    /// only record of where a slide should start from.
+    int m_markerIndex{-1};
+
     QPoint m_ripplePoint;
     QRect m_rippleTab;
 };
