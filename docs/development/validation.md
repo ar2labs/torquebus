@@ -286,7 +286,21 @@ started, and watch the **CAN Trace** while you do.
    and with the database's own cycle time already filled in - still manual,
    because a period is a suggestion and transmitting is a decision.
 
-**Worked:** all eight. Steps 2 and 7 are the ones worth being fussy about;
+9. With that `VehicleSpeed` row selected, press **Signals...**. A dialog lists
+   `SpeedKmh` with its unit and range, and the payload in hex at the foot.
+10. Type `85` into the value. The payload becomes `52 03 …` while you watch -
+    the encoding happening in front of you rather than being taken on trust.
+11. Type `85.03`. The cell settles on `85`, because a signal scaled by a tenth
+    cannot carry hundredths. That is the bus being honest: a field that showed
+    `85.03` while transmitting `85` would be lying about the one thing you came
+    here to set.
+12. Type `99999`. It saturates at the widest the field holds rather than
+    wrapping, and the payload shows it.
+13. On a multiplexed message, change the switch signal. The rows belonging to
+    other pages grey out and read *(not on this page)* — on that frame they are
+    not zero, they are absent, which is the same distinction the decoder makes.
+
+**Worked:** all thirteen. Steps 2 and 7 are the ones worth being fussy about;
 they are the difference between a tool that does what it is told and one that
 does things nobody asked for.
 
