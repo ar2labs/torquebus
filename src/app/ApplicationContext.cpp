@@ -7,6 +7,7 @@
 
 #include "drivers/api/CanBackendRegistry.h"
 #include "services/SettingsStore.h"
+#include "ui/theme/AccentColor.h"
 #include "ui/theme/ThemeManager.h"
 
 #include <QtGlobal>
@@ -36,7 +37,22 @@ void ApplicationContext::initialize()
         m_settings->value(QString::fromLatin1(services::keys::kTheme)),
         ui::ThemeVariant::Dark);
 
-    m_themes->applyVariant(variant);
+    const ui::AccentColor accent = ui::accentColorFromString(
+        m_settings->value(QString::fromLatin1(services::keys::kAccent)));
+
+    // A first run follows the desktop; an installation that already has a theme
+    // written down does not.
+    //
+    // The default is "nobody has ever chosen", not simply "true". Turning this
+    // on for everybody would repaint the window of every existing user who had
+    // deliberately picked the dark theme on a light desktop - which is the one
+    // group whose preference we can actually see, and the one we would be
+    // overruling.
+    const bool followSystem = m_settings->boolValue(
+        QString::fromLatin1(services::keys::kFollowSystemTheme),
+        !m_settings->contains(QString::fromLatin1(services::keys::kTheme)));
+
+    m_themes->applyPreferences(accent, followSystem, variant);
 
     // Backends announce themselves once, here, so that any window - including
     // a test harness window - sees the same set of interfaces.

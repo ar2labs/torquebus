@@ -67,6 +67,8 @@ private:
 namespace keys {
 
 inline constexpr auto kTheme            = "ui/theme";
+inline constexpr auto kAccent           = "ui/accent";
+inline constexpr auto kFollowSystemTheme = "ui/followSystemTheme";
 inline constexpr auto kWindowGeometry   = "ui/window/geometry";
 inline constexpr auto kWindowState      = "ui/window/state";
 inline constexpr auto kDockLayout       = "ui/window/dockLayout";

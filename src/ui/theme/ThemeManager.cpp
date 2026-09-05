@@ -10,12 +10,14 @@
 #include <QFile>
 #include <QFont>
 #include <QFontDatabase>
+#include <QGuiApplication>
 #include <QPainter>
 #include <QPalette>
 #include <QPixmap>
 #include <QRegularExpression>
 #include <QStringList>
 #include <QStyleFactory>
+#include <QStyleHints>
 
 namespace torquebus::ui {
 namespace {
@@ -65,6 +67,18 @@ ThemeManager::ThemeManager(QObject* parent)
     if (g_instance == nullptr) {
         g_instance = this;
     }
+
+    // Connected once and for the life of the manager, whether or not the
+    // preference is on: the flag is checked when the notification arrives.
+    // Connecting and disconnecting as the checkbox moves would be the same
+    // behaviour with one more thing able to be out of step.
+    if (QStyleHints* hints = QGuiApplication::styleHints()) {
+        connect(hints, &QStyleHints::colorSchemeChanged, this, [this](Qt::ColorScheme) {
+            if (m_followSystemTheme) {
+                rebuild(systemVariant());
+            }
+        });
+    }
 }
 
 ThemeManager::~ThemeManager()
@@ -79,9 +93,15 @@ ThemeManager* ThemeManager::instance()
     return g_instance;
 }
 
-void ThemeManager::applyVariant(ThemeVariant variant)
+void ThemeManager::rebuild(ThemeVariant variant)
 {
     m_theme = Theme::forVariant(variant);
+
+    // After the theme is built, never before: the accent is derived *from* the
+    // theme's own saturation and lightness, so it needs the finished palette to
+    // borrow them from.
+    applyAccent(m_theme, m_accent);
+
     m_iconCache.clear();
 
     applyFont();
@@ -91,10 +111,67 @@ void ThemeManager::applyVariant(ThemeVariant variant)
     Q_EMIT themeChanged(m_theme);
 }
 
+void ThemeManager::applyVariant(ThemeVariant variant)
+{
+    // The user has said which one they want, so stop asking the desktop.
+    m_followSystemTheme = false;
+    rebuild(variant);
+}
+
 void ThemeManager::toggleVariant()
 {
     applyVariant(m_theme.variant == ThemeVariant::Dark ? ThemeVariant::Light
                                                        : ThemeVariant::Dark);
+}
+
+void ThemeManager::setAccent(AccentColor accent)
+{
+    if (accent == m_accent) {
+        return;
+    }
+
+    m_accent = accent;
+    rebuild(m_theme.variant);
+}
+
+void ThemeManager::setFollowSystemTheme(bool follow)
+{
+    m_followSystemTheme = follow;
+
+    if (!follow) {
+        return;
+    }
+
+    // Applied now rather than at the next notification. A checkbox that agrees
+    // to follow the desktop and then leaves the window on the other theme until
+    // Windows happens to change looks like a checkbox that does nothing.
+    //
+    // Unconditional, even when the variant already matches: this is reached
+    // from a click, once, and a rebuild that turns out to change nothing costs
+    // less than the case where it should have changed something and did not.
+    rebuild(systemVariant());
+}
+
+void ThemeManager::applyPreferences(AccentColor accent, bool followSystem, ThemeVariant variant)
+{
+    m_accent = accent;
+    m_followSystemTheme = followSystem;
+
+    rebuild(followSystem ? systemVariant() : variant);
+}
+
+ThemeVariant ThemeManager::systemVariant()
+{
+    const QStyleHints* hints = QGuiApplication::styleHints();
+    if (hints == nullptr) {
+        return ThemeVariant::Dark;
+    }
+
+    // Only Light is treated as Light. Unknown - which is what a platform with
+    // no such setting reports - falls through to the house default rather than
+    // being guessed at.
+    return hints->colorScheme() == Qt::ColorScheme::Light ? ThemeVariant::Light
+                                                          : ThemeVariant::Dark;
 }
 
 void ThemeManager::applyFont() const
