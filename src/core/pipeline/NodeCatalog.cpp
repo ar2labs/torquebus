@@ -9,6 +9,7 @@
 #include "core/database/DbcParser.h"
 #include "core/pipeline/nodes/DbcDecoderNode.h"
 #include "core/pipeline/nodes/FrameNodes.h"
+#include "core/transmit/TransmitListNode.h"
 #include "core/scripting/LuaEcuNode.h"
 #include "core/trace/TraceSinkNode.h"
 #include "core/trace/TraceStore.h"
@@ -426,6 +427,30 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                             database->messageCount());
 
             out = std::make_unique<DbcDecoderNode>(std::move(database), label);
+            return Result::ok();
+        });
+
+    catalog.registerType(
+        NodeTypeInfo{
+            .typeName = "transmit.list",
+            .displayName = "Transmit List",
+            .category = "Sources",
+            .description = "Frames a person asked to send, on a schedule or on demand.",
+            .inputs = {},
+            .outputs = {PortDescriptor{"frames", PortType::Frames}},
+            .parameters = {},
+        },
+        [](const NodeParameters&, const NodeBuildContext& context, std::string_view nodeId,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
+            if (context.transmitList == nullptr) {
+                return Result::error(
+                    ErrorCode::InvalidState,
+                    std::format("Node '{}' is a transmit list, but this graph is being "
+                                "built without one",
+                                nodeId));
+            }
+
+            out = std::make_unique<TransmitListNode>(*context.transmitList);
             return Result::ok();
         });
 

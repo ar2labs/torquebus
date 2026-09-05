@@ -15,6 +15,7 @@
 #include "core/can/CanTypes.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
+#include "core/transmit/TransmitList.h"
 #include "ui/engine/CanEngineController.h"
 #include "ui/mainwindow/Docking.h"
 #include "ui/theme/Theme.h"
@@ -40,6 +41,7 @@ class NodePropertiesEditor;
 class PropertiesPanel;
 class ThemeManager;
 class TracePanel;
+class TransmitPanel;
 
 class MainWindow final : public DockMainWindowBase {
     Q_OBJECT
@@ -146,6 +148,7 @@ private:
     TracePanel* m_tracePanel{nullptr};
     CanvasPanel* m_canvas{nullptr};
     DatabasePanel* m_databasePanel{nullptr};
+    TransmitPanel* m_transmitPanel{nullptr};
 
     // --- The pipeline the canvas edits ------------------------------------
     //
@@ -153,6 +156,12 @@ private:
     // description outlives the panel, so closing the canvas does not discard
     // the pipeline, and the engine keeps building from it.
     NodeCatalog m_catalog{NodeCatalog::withBuiltinTypes()};
+
+    /// The transmit list, owned here for the same reason the pipeline is: it is
+    /// the project's, it outlives the panel that edits it, and the engine
+    /// borrows it rather than copying it - so a row changed mid-measurement
+    /// takes effect on the next pass.
+    TransmitList m_transmitList;
     GraphDescription m_pipeline;
 
     /// Where the open project lives, or empty for one never saved.

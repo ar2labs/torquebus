@@ -18,6 +18,7 @@
 #include "ui/properties/PropertiesPanel.h"
 #include "ui/theme/ThemeManager.h"
 #include "ui/trace/TracePanel.h"
+#include "ui/transmit/TransmitPanel.h"
 
 #include <QAction>
 #include <QApplication>
@@ -347,6 +348,7 @@ void MainWindow::createPanels()
                 // should explain what has already been seen, not only what
                 // comes next.
                 m_tracePanel->setDatabases(m_databasePanel->databases());
+                m_transmitPanel->setDatabases(m_databasePanel->databases());
             });
 
     // Reported in the Output panel and not in a message box, because the
@@ -385,13 +387,13 @@ void MainWindow::createPanels()
     m_nodePropertiesDock = createDockWidget(dockName(kDockBlock), tr("Block"),
                                             m_nodeProperties, icon("properties"));
 
-    m_transmitDock = createDockWidget(
-        dockName(kDockTransmit), tr("Transmit"),
-        new PlaceholderPanel(tr("CAN Transmit"),
-                             tr("Manual, periodic, one-shot, burst and sequence transmission "
-                                "with editable payloads and presets."),
-                             QStringLiteral("transmit"), QStringLiteral("v0.6")),
-        icon("transmit"));
+    m_transmitPanel = new TransmitPanel(m_transmitList);
+
+    connect(m_transmitPanel, &TransmitPanel::reported, this,
+            [this](const QString& text) { m_output->appendWarning(text); });
+
+    m_transmitDock = createDockWidget(dockName(kDockTransmit), tr("Transmit"),
+                                      m_transmitPanel, icon("transmit"));
 
     m_graphDock = createDockWidget(
         dockName(kDockGraph), tr("Graph"),
@@ -1170,6 +1172,7 @@ void MainWindow::onStartMeasurement()
                              ? QString{}
                              : QFileInfo{m_projectPath}.absolutePath();
 
+    m_controller->engine().setTransmitList(&m_transmitList);
     m_controller->engine().setGraphDescription(m_pipeline, m_catalog, base.toStdString());
 
     // Refused before the channels are opened, with the node named, rather than
