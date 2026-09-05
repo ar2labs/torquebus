@@ -1081,7 +1081,7 @@ void MainWindow::openProject(const QString& path)
     // Loaded into the live description. ProjectFile leaves it untouched when
     // the read fails, so a broken file cannot leave the canvas showing half a
     // pipeline that was never saved.
-    if (const Result result = services::ProjectFile::load(path, m_pipeline);
+    if (const Result result = services::ProjectFile::load(path, m_pipeline, m_transmitList);
         result.failed()) {
         m_output->appendError(tr("Could not open the project: %1")
                                   .arg(QString::fromStdString(std::string{result.message()})));
@@ -1108,7 +1108,7 @@ void MainWindow::openProject(const QString& path)
 
 bool MainWindow::writeProject(const QString& path)
 {
-    if (const Result result = services::ProjectFile::save(path, m_pipeline);
+    if (const Result result = services::ProjectFile::save(path, m_pipeline, m_transmitList);
         result.failed()) {
         m_output->appendError(tr("Could not save the project: %1")
                                   .arg(QString::fromStdString(std::string{result.message()})));

@@ -309,7 +309,17 @@ anything, the panel would look broken to everyone who tried it.
     other pages grey out and read *(not on this page)* — on that frame they are
     not zero, they are absent, which is the same distinction the decoder makes.
 
-**Worked:** all fourteen. Steps 2 and 7 are the ones worth being fussy about;
+15. **File → Save Project As...**, close the application, reopen it and open
+    that project. Every row comes back - channel, identifier, data, period and
+    the switched-off ones still switched off. The **Count** column reads zero:
+    a project records what to send, not what a previous run sent.
+16. Open `examples\projects\virtual-vehicle.tbsproj`, which was written before
+    the transmit list existed. It opens, with an empty list. A build that
+    refused older files would make the format's version check pointless - it is
+    there to stop a *newer* file being opened by an older reader, not the
+    reverse.
+
+**Worked:** all sixteen. Steps 2 and 7 are the ones worth being fussy about;
 they are the difference between a tool that does what it is told and one that
 does things nobody asked for.
 

@@ -17,6 +17,7 @@
 
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
+#include "core/transmit/TransmitList.h"
 #include "services/ProjectFile.h"
 
 #include <QDir>
@@ -81,6 +82,18 @@ namespace {
     return QDir{directory.path()}.filePath(name);
 }
 
+
+/// A transmit list for the cases that are only about the pipeline.
+///
+/// Function-local static rather than a fresh one per call: TransmitList is not
+/// copyable, and these cases neither read it nor care what is in it.
+[[nodiscard]] TransmitList& scratch()
+{
+    static TransmitList list;
+    list.clear();
+    return list;
+}
+
 } // namespace
 
 TEST_CASE("A pipeline survives a save and a load unchanged", "[project]")
@@ -91,10 +104,10 @@ TEST_CASE("A pipeline survives a save and a load unchanged", "[project]")
     const GraphDescription original = richPipeline();
     const QString path = pathIn(directory, QStringLiteral("round-trip.tbsproj"));
 
-    REQUIRE(ProjectFile::save(path, original).succeeded());
+    REQUIRE(ProjectFile::save(path, original, scratch()).succeeded());
 
     GraphDescription reopened;
-    const Result result = ProjectFile::load(path, reopened);
+    const Result result = ProjectFile::load(path, reopened, scratch());
 
     INFO(std::string{result.message()});
     REQUIRE(result.succeeded());
@@ -118,11 +131,11 @@ TEST_CASE("Saving twice produces byte-identical files", "[project]")
     const QString first = pathIn(directory, QStringLiteral("a.tbsproj"));
     const QString second = pathIn(directory, QStringLiteral("b.tbsproj"));
 
-    REQUIRE(ProjectFile::save(first, pipeline).succeeded());
+    REQUIRE(ProjectFile::save(first, pipeline, scratch()).succeeded());
 
     GraphDescription reopened;
-    REQUIRE(ProjectFile::load(first, reopened).succeeded());
-    REQUIRE(ProjectFile::save(second, reopened).succeeded());
+    REQUIRE(ProjectFile::load(first, reopened, scratch()).succeeded());
+    REQUIRE(ProjectFile::save(second, reopened, scratch()).succeeded());
 
     QFile fileA{first};
     QFile fileB{second};
@@ -152,10 +165,10 @@ TEST_CASE("Parameter types survive the crossing", "[project]")
     pipeline.addNode(node);
 
     const QString path = pathIn(directory, QStringLiteral("types.tbsproj"));
-    REQUIRE(ProjectFile::save(path, pipeline).succeeded());
+    REQUIRE(ProjectFile::save(path, pipeline, scratch()).succeeded());
 
     GraphDescription reopened;
-    REQUIRE(ProjectFile::load(path, reopened).succeeded());
+    REQUIRE(ProjectFile::load(path, reopened, scratch()).succeeded());
 
     const NodeDescription* back = reopened.find("n");
     REQUIRE(back != nullptr);
@@ -189,7 +202,7 @@ TEST_CASE("A file from a newer TorqueBus is refused, not half-read", "[project]"
     file.close();
 
     GraphDescription pipeline;
-    const Result result = ProjectFile::load(path, pipeline);
+    const Result result = ProjectFile::load(path, pipeline, scratch());
 
     REQUIRE(result.failed());
     CHECK(result.code() == ErrorCode::VersionMismatch);
@@ -228,7 +241,7 @@ TEST_CASE("A wire naming a missing block is refused", "[project]")
     file.close();
 
     GraphDescription pipeline;
-    const Result result = ProjectFile::load(path, pipeline);
+    const Result result = ProjectFile::load(path, pipeline, scratch());
 
     REQUIRE(result.failed());
     CHECK(std::string{result.message()}.find("gone") != std::string::npos);
@@ -249,7 +262,7 @@ TEST_CASE("A failed load leaves the previous pipeline untouched", "[project]")
     file.write("{ this is not json");
     file.close();
 
-    REQUIRE(ProjectFile::load(path, pipeline).failed());
+    REQUIRE(ProjectFile::load(path, pipeline, scratch()).failed());
     CHECK(pipeline == before);
 }
 
@@ -291,7 +304,7 @@ TEST_CASE("The shipped example project opens and validates", "[project][examples
         QStringLiteral(TORQUEBUS_EXAMPLE_PROJECT_DIR "/virtual-vehicle.tbsproj");
 
     GraphDescription pipeline;
-    const Result opened = ProjectFile::load(path, pipeline);
+    const Result opened = ProjectFile::load(path, pipeline, scratch());
 
     INFO(std::string{opened.message()});
     REQUIRE(opened.succeeded());
@@ -308,4 +321,174 @@ TEST_CASE("The shipped example project opens and validates", "[project][examples
     REQUIRE(ecu != nullptr);
     CHECK(ecu->typeName == "lua.ecu");
     CHECK_FALSE(ecu->parameters.text("script").empty());
+}
+
+// ---------------------------------------------------------------------------
+// The transmit list
+// ---------------------------------------------------------------------------
+
+namespace {
+
+[[nodiscard]] TransmitEntry sampleRow()
+{
+    TransmitEntry entry;
+    entry.name = "Speed, fast";
+    entry.channel = 1;
+    entry.frame.identifier = 0x18FEDF00;
+    entry.frame.format = CanFrameFormat::Extended;
+    entry.frame.length = 3;
+    entry.frame.data[0] = 0x52;
+    entry.frame.data[1] = 0x03;
+    entry.frame.data[2] = 0xFF;
+    entry.trigger = TransmitTrigger::Periodic;
+    entry.cycleMs = 250;
+    entry.enabled = false;
+    entry.messageName = "VehicleSpeed";
+    return entry;
+}
+
+} // namespace
+
+TEST_CASE("A transmit list survives a save and a load unchanged", "[project][transmit]")
+{
+    QTemporaryDir directory;
+    REQUIRE(directory.isValid());
+
+    TransmitList original;
+    (void)original.add(sampleRow());
+
+    GraphDescription pipeline;
+    const QString path = pathIn(directory, QStringLiteral("transmit.tbsproj"));
+
+    REQUIRE(ProjectFile::save(path, pipeline, original).succeeded());
+
+    GraphDescription reopenedPipeline;
+    TransmitList reopened;
+    const Result result = ProjectFile::load(path, reopenedPipeline, reopened);
+
+    INFO(std::string{result.message()});
+    REQUIRE(result.succeeded());
+    REQUIRE(reopened.size() == 1);
+
+    TransmitEntry row;
+    REQUIRE(reopened.entryAt(0, row));
+
+    const TransmitEntry expected = sampleRow();
+    CHECK(row.name == expected.name);
+    CHECK(row.channel == expected.channel);
+    CHECK(row.frame.identifier == expected.frame.identifier);
+    CHECK(row.frame.format == expected.frame.format);
+    CHECK(row.frame.length == expected.frame.length);
+    CHECK(row.frame.data[0] == 0x52);
+    CHECK(row.frame.data[2] == 0xFF);
+    CHECK(row.trigger == expected.trigger);
+    CHECK(row.cycleMs == expected.cycleMs);
+    CHECK(row.enabled == expected.enabled);
+    CHECK(row.messageName == expected.messageName);
+}
+
+TEST_CASE("A saved project does not claim a row has already been sent",
+          "[project][transmit]")
+{
+    // sentCount and lastSentUs belong to a run, not to a project. Saving them
+    // would mean opening a file that says a row has gone out forty times before
+    // the measurement has started.
+    QTemporaryDir directory;
+    REQUIRE(directory.isValid());
+
+    TransmitList original;
+    const std::size_t index = original.add(sampleRow());
+
+    // Give the row some history to lose.
+    TransmitEntry row;
+    REQUIRE(original.entryAt(index, row));
+    row.enabled = true;
+    row.trigger = TransmitTrigger::Periodic;
+    original.update(index, row);
+
+    std::vector<CanFrame> out;
+    original.collectDue(0, 1, out);
+    original.collectDue(1'000'000, 1, out);
+    REQUIRE(out.size() == 2);
+
+    GraphDescription pipeline;
+    const QString path = pathIn(directory, QStringLiteral("counters.tbsproj"));
+    REQUIRE(ProjectFile::save(path, pipeline, original).succeeded());
+
+    GraphDescription reopenedPipeline;
+    TransmitList reopened;
+    REQUIRE(ProjectFile::load(path, reopenedPipeline, reopened).succeeded());
+
+    TransmitEntry loaded;
+    REQUIRE(reopened.entryAt(0, loaded));
+    CHECK(loaded.sentCount == 0);
+    CHECK(loaded.lastSentUs == 0);
+}
+
+TEST_CASE("A project written before the transmit list still opens",
+          "[project][transmit]")
+{
+    // Every project saved in format 1 has no transmit section. A build that
+    // refused those would make the version check pointless - it only exists to
+    // stop a *newer* file being opened by an older reader.
+    QTemporaryDir directory;
+    REQUIRE(directory.isValid());
+
+    const QString path = pathIn(directory, QStringLiteral("old.tbsproj"));
+
+    QFile file{path};
+    REQUIRE(file.open(QIODevice::WriteOnly | QIODevice::Text));
+    file.write(R"({
+        "application": "TorqueBus Studio",
+        "version": 1,
+        "pipeline": { "nodes": [], "edges": [] }
+    })");
+    file.close();
+
+    GraphDescription pipeline;
+    TransmitList transmit;
+    (void)transmit.add(sampleRow());
+
+    REQUIRE(ProjectFile::load(path, pipeline, transmit).succeeded());
+
+    // And the list is replaced, not merged: opening a project means opening its
+    // transmit list, which in this case is an empty one.
+    CHECK(transmit.size() == 0);
+}
+
+TEST_CASE("An unknown trigger word does not start transmitting",
+          "[project][transmit]")
+{
+    // A file from a future version might name a trigger this build has never
+    // heard of. Defaulting it to periodic would put traffic on a bus because
+    // the reader did not understand a word.
+    QTemporaryDir directory;
+    REQUIRE(directory.isValid());
+
+    const QString path = pathIn(directory, QStringLiteral("future.tbsproj"));
+
+    QFile file{path};
+    REQUIRE(file.open(QIODevice::WriteOnly | QIODevice::Text));
+    file.write(R"({
+        "application": "TorqueBus Studio",
+        "version": 2,
+        "pipeline": { "nodes": [], "edges": [] },
+        "transmit": [
+            { "name": "odd", "id": 256, "trigger": "onEveryFullMoon", "cycleMs": 10 }
+        ]
+    })");
+    file.close();
+
+    GraphDescription pipeline;
+    TransmitList transmit;
+    REQUIRE(ProjectFile::load(path, pipeline, transmit).succeeded());
+
+    TransmitEntry row;
+    REQUIRE(transmit.entryAt(0, row));
+    CHECK_FALSE(row.isPeriodic());
+
+    std::vector<CanFrame> out;
+    transmit.collectDue(0, 0, out);
+    transmit.collectDue(1'000'000, 0, out);
+    CHECK(out.empty());
 }

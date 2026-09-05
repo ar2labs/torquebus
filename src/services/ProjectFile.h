@@ -23,6 +23,7 @@
 #pragma once
 
 #include "core/Result.h"
+#include "core/transmit/TransmitList.h"
 #include "core/pipeline/GraphDescription.h"
 
 #include <QString>
@@ -38,7 +39,14 @@ public:
     /// handle. A file from a newer version is refused with a message that says
     /// so, rather than being read half-correctly - a project that loads with
     /// its wires silently missing is worse than one that refuses to load.
-    static constexpr int kFormatVersion = 1;
+    /// Bumped to 2 when the transmit list joined the file.
+    ///
+    /// An addition an older reader could ignore would not need this. A transmit
+    /// list is not that: an older build would open the project, show no rows,
+    /// and drop them on the next save - which is exactly what the version check
+    /// below refuses to let happen. Older files still load; only *newer* ones
+    /// are refused, and with a message that says why.
+    static constexpr int kFormatVersion = 2;
 
     /// The extension, without the dot.
     [[nodiscard]] static QString extension() { return QStringLiteral("tbsproj"); }
@@ -51,13 +59,23 @@ public:
     /// Atomic: written to a temporary file and renamed, so an interrupted save
     /// cannot leave a truncated project behind. Losing yesterday's work to a
     /// crash during today's save is not a trade anyone agreed to.
-    [[nodiscard]] static Result save(const QString& path, const GraphDescription& pipeline);
+    /// Writes the project: the pipeline, and the transmit list beside it.
+    ///
+    /// Two out-parameters rather than a Project struct, for now. When databases
+    /// and workspaces join the file this wants to become one object; two is not
+    /// yet enough to justify the indirection.
+    [[nodiscard]] static Result save(const QString& path,
+                                     const GraphDescription& pipeline,
+                                     const TransmitList& transmit);
 
     /// Reads `path` into `pipeline`, replacing its contents.
     ///
     /// On failure `pipeline` is left untouched: a half-read project would leave
     /// the canvas showing something that was never saved.
-    [[nodiscard]] static Result load(const QString& path, GraphDescription& pipeline);
+    /// Reads a project. Both arguments are left untouched when it fails.
+    [[nodiscard]] static Result load(const QString& path,
+                                     GraphDescription& pipeline,
+                                     TransmitList& transmit);
 };
 
 } // namespace torquebus::services

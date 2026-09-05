@@ -9,6 +9,9 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QStringList>
+
+#include <algorithm>
 #include <QJsonParseError>
 #include <QJsonValue>
 #include <QObject>
@@ -35,6 +38,18 @@ constexpr auto kParameters = "parameters";
 constexpr auto kPosition = "position";
 constexpr auto kX = "x";
 constexpr auto kY = "y";
+
+constexpr auto kTransmit = "transmit";
+constexpr auto kName = "name";
+constexpr auto kChannel = "channel";
+constexpr auto kExtended = "extended";
+constexpr auto kData = "data";
+constexpr auto kTrigger = "trigger";
+constexpr auto kCycleMs = "cycleMs";
+constexpr auto kMessage = "message";
+
+constexpr auto kTriggerManual = "manual";
+constexpr auto kTriggerPeriodic = "periodic";
 
 constexpr auto kFrom = "from";
 constexpr auto kFromPort = "fromPort";
@@ -125,6 +140,89 @@ constexpr auto kToPort = "toPort";
     return json;
 }
 
+/// A payload as "52 03 00" - hex, because bytes have no readable decimal form.
+[[nodiscard]] QString payloadToJson(const CanFrame& frame)
+{
+    QStringList bytes;
+    for (std::size_t i = 0; i < frame.length; ++i) {
+        bytes << QStringLiteral("%1").arg(frame.data[i], 2, 16, QLatin1Char('0')).toUpper();
+    }
+    return bytes.join(QLatin1Char(' '));
+}
+
+/// Reads a payload written by payloadToJson. Whitespace is optional.
+void payloadFromJson(const QString& text, CanFrame& frame)
+{
+    QString packed = text;
+    packed.remove(QLatin1Char(' '));
+
+    const int count = std::min(packed.size() / 2, static_cast<int>(kMaxCanPayload));
+
+    frame.data = {};
+    for (int i = 0; i < count; ++i) {
+        frame.data[static_cast<std::size_t>(i)] =
+            static_cast<std::uint8_t>(packed.mid(i * 2, 2).toUInt(nullptr, 16));
+    }
+
+    frame.length = static_cast<std::uint8_t>(count);
+    frame.dlc = dlcFromPayloadLength(frame.length, frame.fd);
+}
+
+[[nodiscard]] QJsonObject toJson(const TransmitEntry& entry)
+{
+    QJsonObject json;
+    json[kName] = QString::fromStdString(entry.name);
+    json[kChannel] = static_cast<int>(entry.channel);
+
+    // A decimal number, matching how the filter node's parameters already store
+    // an identifier. One file, one convention - even though hex would read
+    // better here, a format that switches base depending on which section you
+    // are in is worse than one that is uniformly inconvenient in one place.
+    json[kId] = static_cast<qint64>(entry.frame.identifier);
+    json[kExtended] = entry.frame.isExtended();
+    json[kData] = payloadToJson(entry.frame);
+
+    // A word, not the enum's number. A reordered enum would silently change
+    // what every saved file means.
+    json[kTrigger] = entry.isPeriodic() ? QLatin1String(kTriggerPeriodic)
+                                        : QLatin1String(kTriggerManual);
+    json[kCycleMs] = static_cast<qint64>(entry.cycleMs);
+    json[kEnabled] = entry.enabled;
+
+    if (!entry.messageName.empty()) {
+        json[kMessage] = QString::fromStdString(entry.messageName);
+    }
+
+    // sentCount and lastSentUs are deliberately absent. They belong to a run,
+    // not to a project: saving them would mean a file that claims a row has
+    // already been sent forty times before the measurement starts.
+    return json;
+}
+
+[[nodiscard]] TransmitEntry transmitFromJson(const QJsonObject& json)
+{
+    TransmitEntry entry;
+    entry.name = json.value(kName).toString().toStdString();
+    entry.channel = static_cast<std::uint8_t>(json.value(kChannel).toInt(0));
+    entry.frame.identifier = static_cast<std::uint32_t>(json.value(kId).toInteger(0));
+    entry.frame.format = json.value(kExtended).toBool(false) ? CanFrameFormat::Extended
+                                                             : CanFrameFormat::Standard;
+    payloadFromJson(json.value(kData).toString(), entry.frame);
+
+    // Anything that is not the word "periodic" is manual - including a word
+    // from a future version this build has never heard of. Defaulting the other
+    // way would make an unknown trigger start transmitting.
+    entry.trigger = json.value(kTrigger).toString() == QLatin1String(kTriggerPeriodic)
+                        ? TransmitTrigger::Periodic
+                        : TransmitTrigger::Manual;
+
+    entry.cycleMs = static_cast<std::uint32_t>(json.value(kCycleMs).toInteger(100));
+    entry.enabled = json.value(kEnabled).toBool(true);
+    entry.messageName = json.value(kMessage).toString().toStdString();
+
+    return entry;
+}
+
 } // namespace
 
 QString ProjectFile::fileFilter()
@@ -132,7 +230,9 @@ QString ProjectFile::fileFilter()
     return QObject::tr("TorqueBus projects (*.%1);;All files (*)").arg(extension());
 }
 
-Result ProjectFile::save(const QString& path, const GraphDescription& pipeline)
+Result ProjectFile::save(const QString& path,
+                         const GraphDescription& pipeline,
+                         const TransmitList& transmit)
 {
     QJsonArray nodes;
     for (const NodeDescription& node : pipeline.nodes()) {
@@ -148,10 +248,16 @@ Result ProjectFile::save(const QString& path, const GraphDescription& pipeline)
     graph[kNodes] = nodes;
     graph[kEdges] = edges;
 
+    QJsonArray rows;
+    for (const TransmitEntry& entry : transmit.entries()) {
+        rows.append(toJson(entry));
+    }
+
     QJsonObject root;
     root[kVersion] = kFormatVersion;
     root[kApplication] = QStringLiteral("TorqueBus Studio");
     root[kPipeline] = graph;
+    root[kTransmit] = rows;
 
     // QSaveFile writes to a temporary beside the target and renames on commit,
     // so a crash or a full disk during the save leaves yesterday's project
@@ -177,7 +283,9 @@ Result ProjectFile::save(const QString& path, const GraphDescription& pipeline)
     return Result::ok();
 }
 
-Result ProjectFile::load(const QString& path, GraphDescription& pipeline)
+Result ProjectFile::load(const QString& path,
+                         GraphDescription& pipeline,
+                         TransmitList& transmit)
 {
     QFile file{path};
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -280,7 +388,36 @@ Result ProjectFile::load(const QString& path, GraphDescription& pipeline)
         loaded.addEdge(std::move(edge));
     }
 
+    // The transmit list, built into a local for the same reason the pipeline is.
+    //
+    // An absent section is not an error: every project written before format 2
+    // has none, and a build that refused those would make the version check
+    // pointless.
+    std::vector<TransmitEntry> rows;
+    for (const QJsonValue& entry : root.value(kTransmit).toArray()) {
+        TransmitEntry row = transmitFromJson(entry.toObject());
+
+        if (!isValidIdentifier(row.frame.identifier, row.frame.format)) {
+            return Result::error(
+                ErrorCode::ParseError,
+                std::format("'{}' has a transmit row whose identifier {} does not fit "
+                            "its frame format",
+                            path.toStdString(),
+                            static_cast<unsigned>(row.frame.identifier)));
+        }
+
+        rows.push_back(std::move(row));
+    }
+
     pipeline = std::move(loaded);
+
+    // Replaced wholesale, like the pipeline: opening a project means opening
+    // its transmit list, not merging it into whatever was on screen.
+    transmit.clear();
+    for (TransmitEntry& row : rows) {
+        (void)transmit.add(std::move(row));
+    }
+
     return Result::ok();
 }
 
