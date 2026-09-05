@@ -23,6 +23,16 @@ project file — and in full before tagging a release.
 > **A green ctest is not a green window.** None of the painting or animation
 > has test coverage; it compiles and the suite passes, which says nothing about
 > what the window looks like. Step 4 below is the part that does.
+>
+> A third practice joined the two above while the accent colour was being
+> written: **running the real Qt value types before writing C++ against them.**
+> The PySide6 wheel for the pinned version carries the actual Qt libraries, so
+> `QColor::fromHslF`, `toHsl` and `hslSaturationF` can be exercised in a
+> throwaway script and the derivation checked across all sixteen hue-and-theme
+> combinations *before* any of it exists as code. That is a measurement of Qt's
+> behaviour rather than a memory of it, and it is what the
+> [`backgroundBrush` mistake](#what-is-likely-to-break-first) cost an afternoon
+> for want of.
 
 ---
 
@@ -115,6 +125,8 @@ because each pins something that was got wrong once:
 | `[graph][build]` | A wire the canvas would draw that the engine could not build |
 | `[lua][ecu]` | A script that fails on every frame taking the measurement down with it |
 | `[pipeline]` | Fan-out reaching only the last consumer |
+| `[accent]` | A chosen accent that is invisible on its panel, unreadable under its own label, or that changed the house colour for everybody |
+| `[contrast]` | The WCAG maths itself — black against white must be 21:1, and green must outrank red must outrank blue |
 | Qt macro guard | A core header using `emit` or `signals` as an identifier |
 
 A failure here is a real defect: these all pass in CI on Linux, so a Windows-only
@@ -358,6 +370,89 @@ The panel that makes a whole class of silent mistake visible. Open the
 
 **Worked:** all seven. Step 5 is the one to be fussy about; the rest is
 plumbing, and that one is the reason for the plumbing.
+
+---
+
+## 5e. Preferences
+
+**Tools → Preferences**, or `Ctrl+,`. Five pages; three of them do something,
+and the other two say so.
+
+**Theme and accent.** These apply while you watch, not on OK.
+
+1. On the **Appearance** page, click the **Light** card. The whole window
+   changes as the card is clicked - and **Follow the system theme** clears
+   itself, because picking a theme is an explicit choice and the checkbox must
+   not go on claiming otherwise.
+2. Click a **purple** swatch. The window's focus rings, active tab marker and
+   selection turn purple, and *both* theme cards repaint - the point of the two
+   cards side by side is that one hue is two colours.
+3. Look at the purple on the Light card and on the Dark card. They are not the
+   same colour, and they should not be: a swatch stores a hue, and the tone is
+   worked out for whichever theme it lands on. A single stored RGB would put
+   this exact purple on a white panel.
+4. Try **yellow** on the Light theme. It comes out as a dark ochre rather than
+   the yellow of the swatch, because the derivation walked it down until it
+   cleared the contrast floor against a white panel. That is the loop in
+   `AccentColor.cpp` earning its place - and `AccentColorTests` asserts it for
+   all sixteen combinations.
+5. Press **Cancel**. Theme, accent and density all go back to what they were
+   when the dialog opened. This is what makes applying live safe rather than a
+   trap, so it is the step worth being fussy about.
+6. Reopen, change the accent, press **OK**, close TorqueBus and start it again.
+   The accent is still there.
+
+**Following the desktop.**
+
+7. Tick **Follow the system theme**. The window takes the desktop's setting
+   immediately - not at the next time Windows changes its mind. Neither card is
+   marked as chosen, because nothing has been chosen.
+8. With the dialog closed and the box still ticked, change Windows between Light
+   and Dark (Settings → Personalisation → Colours). TorqueBus follows within a
+   second, with no restart.
+9. Tick it, then pick a card. The box clears and stays clear through a restart:
+   an explicit choice keeps winning.
+
+**Density.**
+
+10. Set **Compact** and look at the Trace. The rows tighten and more frames fit
+    on screen. **Spacious** goes the other way. **Comfortable** is exactly what
+    the application looked like before this setting existed, which is why it is
+    the default - the default is not a new opinion about how TorqueBus looks.
+
+**Trace and Transmit.**
+
+11. Set the refresh to 500 ms with a measurement running. New rows arrive in
+    visible steps. The frame counter in the status bar keeps climbing smoothly:
+    the store is filled by the pipeline whatever this says, so a slow refresh
+    loses liveness and nothing else.
+12. Tick **Show identifiers in decimal**. The column changes under you without
+    the view scrolling or the selection moving - the rows did not change, only
+    how one column is spelled.
+
+**Reset, and the pages that admit they are empty.**
+
+13. **Reset preferences** puts theme, accent, density and the Trace settings
+    back. The panel layout is *not* touched; that is **View → Reset Window
+    Layout**, and the button's tooltip says so.
+14. **Shortcuts** and **Plugins** are pages with a description and "Planned for
+    v0.10". No controls. A checkbox that did nothing would be worse.
+
+**What is remembered.**
+
+15. Drag the divider between the block palette and the canvas in **Pipeline**,
+    and the one between the two tables in **Statistics**. Resize the window and
+    move a dock. Close and reopen: all four are as you left them. The window
+    geometry and the docks were already saved; the two dividers *inside* panels
+    are invisible to the dock layout saver and are stored by name.
+16. Turn **Restore the panel layout from the last session** off, rearrange the
+    docks, restart. The docks come back to the default - and the two dividers
+    still come back where you put them, because a divider inside a panel is the
+    panel's business, not the layout's.
+
+**Worked:** all sixteen. Steps 5 and 16 are the ones to be fussy about. Step 5
+is the promise that makes applying live acceptable at all, and step 16 is the
+distinction that most invites being got wrong.
 
 ---
 
