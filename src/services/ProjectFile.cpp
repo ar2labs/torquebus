@@ -156,10 +156,15 @@ void payloadFromJson(const QString& text, CanFrame& frame)
     QString packed = text;
     packed.remove(QLatin1Char(' '));
 
-    const int count = std::min(packed.size() / 2, static_cast<int>(kMaxCanPayload));
+    // Both arguments spelled as qsizetype, which is what QString::size returns.
+    // std::min deduces one type from two, so a qsizetype and an int leave it
+    // with nothing to deduce - and the error names the ambiguity rather than
+    // the missing cast.
+    const qsizetype count = std::min<qsizetype>(packed.size() / 2,
+                                                static_cast<qsizetype>(kMaxCanPayload));
 
     frame.data = {};
-    for (int i = 0; i < count; ++i) {
+    for (qsizetype i = 0; i < count; ++i) {
         frame.data[static_cast<std::size_t>(i)] =
             static_cast<std::uint8_t>(packed.mid(i * 2, 2).toUInt(nullptr, 16));
     }
