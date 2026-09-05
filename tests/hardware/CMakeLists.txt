@@ -6,6 +6,7 @@
 
 add_executable(torquebus_hardware_tests
     KvaserVirtualTests.cpp
+    PeakLoopbackTests.cpp
 )
 
 target_link_libraries(torquebus_hardware_tests
