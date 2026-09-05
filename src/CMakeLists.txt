@@ -52,6 +52,11 @@ add_library(torquebus_core STATIC
 
     core/trace/TraceStore.h
     core/trace/TraceStore.cpp
+    core/transmit/TransmitEntry.h
+    core/transmit/TransmitList.h
+    core/transmit/TransmitList.cpp
+    core/transmit/TransmitListNode.h
+    core/transmit/TransmitListNode.cpp
     core/trace/TraceSinkNode.h
 
     core/scripting/LuaRuntime.h
