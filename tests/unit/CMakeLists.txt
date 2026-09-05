@@ -17,6 +17,7 @@ add_executable(torquebus_unit_tests
     ProjectFileTests.cpp
     QtMacroGuardTests.cpp
     TraceStoreTests.cpp
+    TransmitListTests.cpp
     ResultTests.cpp
     SettingsStoreTests.cpp
 )
