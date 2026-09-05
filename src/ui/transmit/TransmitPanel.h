@@ -23,6 +23,7 @@
 #pragma once
 
 #include "core/database/CanMessage.h"
+#include "core/transmit/TransmitEntry.h"
 
 #include <QString>
 #include <QWidget>
@@ -64,6 +65,7 @@ private Q_SLOTS:
     void onAddFromMessage();
     void onRemove();
     void onSendSelected();
+    void onEditSignals();
     void onItemChanged(QTableWidgetItem* item);
 
     /// Repaints only the columns the executor owns.
@@ -85,8 +87,19 @@ private:
     /// transmitting on an address they are not.
     void commitRow(int row);
 
+    /// Enables the actions that only apply to a particular kind of row.
+    void updateActionState();
+
     /// The row currently selected, or -1.
     [[nodiscard]] int selectedRow() const;
+
+    /// The definition a row was built from, or nullptr.
+    ///
+    /// Searched by name across every loaded database, first match wins - the
+    /// same rule the trace uses to decode. Two databases defining the same
+    /// message name is a real situation and there is no better answer available
+    /// than "the one imported first"; the entry records a name, not a file.
+    [[nodiscard]] const CanMessage* messageFor(const TransmitEntry& entry) const;
 
     TransmitList& m_list;
     std::vector<std::shared_ptr<const CanDatabase>> m_databases;
@@ -100,6 +113,7 @@ private:
     QAction* m_actionAddFromMessage{nullptr};
     QAction* m_actionRemove{nullptr};
     QAction* m_actionSend{nullptr};
+    QAction* m_actionEditSignals{nullptr};
 
     /// True while the panel is writing into the table itself.
     ///

@@ -7,6 +7,7 @@
 
 #include "core/transmit/TransmitList.h"
 #include "ui/theme/ThemeManager.h"
+#include "ui/transmit/SignalValueDialog.h"
 
 #include <QAction>
 #include <QHeaderView>
@@ -152,6 +153,10 @@ void TransmitPanel::buildUi()
     m_actionSend = m_toolBar->addAction(tr("Send"));
     m_actionSend->setToolTip(tr("Send the selected row once, now."));
 
+    m_actionEditSignals = m_toolBar->addAction(tr("Signals..."));
+    m_actionEditSignals->setToolTip(
+        tr("Edit the row's payload by signal name, using its database."));
+
     m_table = new QTableWidget(this);
     m_table->setColumnCount(ColumnCountTotal);
     m_table->setHorizontalHeaderLabels({tr("On"), tr("Name"), tr("ID"), tr("Fmt"), tr("DLC"),
@@ -187,6 +192,13 @@ void TransmitPanel::buildUi()
             &TransmitPanel::onAddFromMessage);
     connect(m_actionRemove, &QAction::triggered, this, &TransmitPanel::onRemove);
     connect(m_actionSend, &QAction::triggered, this, &TransmitPanel::onSendSelected);
+    connect(m_actionEditSignals, &QAction::triggered, this, &TransmitPanel::onEditSignals);
+
+    // Editing by name is only meaningful for a row that came from a message,
+    // so the button follows the selection rather than being always live and
+    // sometimes complaining.
+    connect(m_table, &QTableWidget::itemSelectionChanged, this,
+            [this] { updateActionState(); });
     connect(m_table, &QTableWidget::itemChanged, this, &TransmitPanel::onItemChanged);
 }
 
@@ -197,6 +209,12 @@ void TransmitPanel::setDatabases(std::vector<std::shared_ptr<const CanDatabase>>
     // Nothing to add *from* until a database is loaded, and an enabled button
     // that can only ever say "no databases" is a button that wastes a click.
     m_actionAddFromMessage->setEnabled(!m_databases.empty());
+
+    // A row may have become editable by name because its database has just
+    // arrived, so the selection-driven state is re-evaluated. Called directly:
+    // a signal belongs to the object that declares it, and reaching in to emit
+    // another widget's is not something a caller may do.
+    updateActionState();
 }
 
 void TransmitPanel::reload()
@@ -251,6 +269,8 @@ void TransmitPanel::reload()
     }
 
     m_status->setText(tr("%n row(s)", nullptr, m_table->rowCount()));
+
+    updateActionState();
 }
 
 void TransmitPanel::refreshCounters()
@@ -377,6 +397,68 @@ void TransmitPanel::onSendSelected()
                            "send queue is full.")
                             .arg(row + 1));
     }
+}
+
+const CanMessage* TransmitPanel::messageFor(const TransmitEntry& entry) const
+{
+    if (entry.messageName.empty()) {
+        return nullptr;
+    }
+
+    for (const std::shared_ptr<const CanDatabase>& database : m_databases) {
+        if (const CanMessage* message = database->findByName(entry.messageName)) {
+            return message;
+        }
+    }
+
+    return nullptr;
+}
+
+void TransmitPanel::onEditSignals()
+{
+    const int row = selectedRow();
+    if (row < 0) {
+        return;
+    }
+
+    TransmitEntry entry;
+    if (!m_list.entryAt(static_cast<std::size_t>(row), entry)) {
+        return;
+    }
+
+    const CanMessage* message = messageFor(entry);
+    if (message == nullptr) {
+        // The row remembers a name, and no database currently loaded has it.
+        // Worth saying which, because the fix is to import a file rather than
+        // to change anything about the row.
+        Q_EMIT reported(tr("Row %1 was built from '%2', which no loaded database "
+                           "describes. Import it and try again.")
+                            .arg(row + 1)
+                            .arg(QString::fromStdString(entry.messageName)));
+        return;
+    }
+
+    SignalValueDialog dialog{*message, entry.frame, this};
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    entry.frame = dialog.frame();
+    m_list.update(static_cast<std::size_t>(row), entry);
+
+    reload();
+    m_table->selectRow(row);
+}
+
+void TransmitPanel::updateActionState()
+{
+    const int row = selectedRow();
+
+    TransmitEntry entry;
+    const bool known = row >= 0 && m_list.entryAt(static_cast<std::size_t>(row), entry)
+                       && messageFor(entry) != nullptr;
+
+    m_actionEditSignals->setEnabled(known);
 }
 
 int TransmitPanel::selectedRow() const
