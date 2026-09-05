@@ -155,7 +155,9 @@ private:
     double m_busLoadPercent{};
     double m_peakBusLoadPercent{};
 
-    std::uint32_t m_bitrate{500'000};
+    // The same default as CanBitTiming, so a channel whose bitrate was never
+    // pushed in reports the load it would have at the rate it would open at.
+    std::uint32_t m_bitrate{kDefaultBitrate};
     CanBusState m_state{CanBusState::Offline};
 };
 

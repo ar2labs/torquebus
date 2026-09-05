@@ -57,10 +57,26 @@ struct CanDeviceInfo final {
     CanCapabilities capabilities{};
 };
 
+/// The bitrate a channel is configured at when nobody says otherwise.
+///
+/// 250 kbit/s: the J1939 arbitration rate, and so the rate of every heavy
+/// vehicle, agricultural machine and marine engine bus - which is the traffic
+/// TorqueBus was started to read. Passenger cars are usually 500k and a
+/// powertrain bus is sometimes 1M, so this default is wrong somewhere no matter
+/// what it is; it is set to the family this tool is aimed at rather than to the
+/// one that is most common in the world.
+///
+/// Getting it wrong is loud rather than subtle. A controller at the wrong rate
+/// cannot acknowledge a frame, so it never reaches the bus at all: the error
+/// counter climbs, the state goes to warning and then bus-off, and the Trace
+/// stays empty. That is a mistake the Statistics panel makes visible in
+/// seconds, which is why a default is a convenience here and not a hazard.
+inline constexpr std::uint32_t kDefaultBitrate = 250'000;
+
 /// Nominal (arbitration) and data phase bit timing.
 struct CanBitTiming final {
-    /// Arbitration bitrate in bit/s. 500000 by default.
-    std::uint32_t bitrate{500'000};
+    /// Arbitration bitrate in bit/s. See kDefaultBitrate.
+    std::uint32_t bitrate{kDefaultBitrate};
 
     /// Data phase bitrate in bit/s, used only when CAN FD with BRS is enabled.
     std::uint32_t dataBitrate{2'000'000};
