@@ -162,6 +162,9 @@ qt_add_library(torquebus_ui STATIC
     ui/theme/ThemeManager.cpp
     ui/mainwindow/Docking.h
     ui/mainwindow/Docking.cpp
+    ui/mainwindow/DockChrome.h
+    ui/mainwindow/DockChrome.cpp
+    ui/common/Motion.h
     ui/mainwindow/MainWindow.h
     ui/mainwindow/MainWindow.cpp
     ui/mainwindow/PlaceholderPanel.h

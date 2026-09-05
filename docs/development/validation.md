@@ -130,10 +130,18 @@ panels.
 - Each panel shows its name **once**, in a tab. No title bar above the tab.
 - The tab strip is *darker* than the panel body; the active tab is the same
   colour as the panel and carries an accent line on top.
-- The gaps between panels are visible bars, about 5 px, and turn accent when
-  hovered. So does the divider inside the **Pipeline** tab, between the block
-  list and the canvas — that one borders the darkest surface in the window and
-  is the one that was invisible.
+- The gaps between panels are visible bars, about 5 px, in **both**
+  orientations — the vertical one beside the Project Explorer and the
+  horizontal one above the Output panel. Hovering one fades it to the accent
+  over about an eighth of a second rather than snapping.
+- The divider inside the **Pipeline** tab, between the block list and the
+  canvas, is visible too. That is a `QSplitter`, not a dock separator, and it
+  borders the darkest surface in the window — the case that hid the fault
+  twice.
+- Clicking between tabs slides the accent marker from one to the other instead
+  of moving it in one step, and leaves a brief ripple from the point of the
+  click. Dragging a tab to reorder it snaps the marker rather than animating:
+  nothing moved from anywhere, the strip was relaid out.
 - No pale or white line anywhere along a panel edge.
 - **Pipeline** tab: the canvas is the deepest surface in the theme, the 150 px
   grid reads as a faint guide, and the 15 px grid is felt rather than seen. The

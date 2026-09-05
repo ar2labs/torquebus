@@ -5,6 +5,8 @@
 
 #include "ui/mainwindow/Docking.h"
 
+#include "ui/mainwindow/DockChrome.h"
+
 #include <kddockwidgets/qtcommon/View.h>
 #include <kddockwidgets/qtwidgets/ViewFactory.h>
 #include <kddockwidgets/qtwidgets/views/Group.h>
@@ -116,6 +118,33 @@ public:
     {
         return new StyledGroup{controller,
                                KDDockWidgets::QtCommon::View_qt::asQWidget(parent)};
+    }
+
+    /// Substitutes a Separator that actually paints itself.
+    ///
+    /// See StyledSeparator: with CustomizableWidget_Separator in
+    /// setDisabledPaintEvents, the library's Separator::paintEvent calls
+    /// QWidget::paintEvent and returns - which draws nothing at all. The bar
+    /// was a transparent 5px gap, in both orientations, whatever colour the
+    /// style sheet named.
+    [[nodiscard]] KDDockWidgets::Core::View* createSeparator(
+        KDDockWidgets::Core::Separator* controller,
+        KDDockWidgets::Core::View* parent = nullptr) const override
+    {
+        return new StyledSeparator{controller, parent};
+    }
+
+    /// Substitutes a TabBar that animates its active-tab marker.
+    ///
+    /// It still calls QTabBar's painting first, so every QTabBar rule in
+    /// torquebus.qss keeps working; only the marker and the click ripple are
+    /// drawn by us.
+    [[nodiscard]] KDDockWidgets::Core::View* createTabBar(
+        KDDockWidgets::Core::TabBar* tabBar,
+        KDDockWidgets::Core::View* parent) const override
+    {
+        return new StyledTabBar{tabBar,
+                                KDDockWidgets::QtCommon::View_qt::asQWidget(parent)};
     }
 
     [[nodiscard]] QIcon iconForButtonType(KDDockWidgets::TitleBarButtonType type,
