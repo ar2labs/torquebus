@@ -39,6 +39,27 @@ TEST_CASE("A fresh accumulator is all zeroes and offline", "[statistics]")
     CHECK(snapshot.state == CanBusState::Offline);
 }
 
+TEST_CASE("A channel nobody configured opens at 250 kbit/s", "[statistics][bitrate]")
+{
+    // Pinned rather than left to drift. The default bitrate is the one number
+    // in this project that decides whether a first-time user sees traffic or an
+    // empty trace, and it is spelled in three places - the timing struct, the
+    // statistics accumulator's fallback, and the controller's bind. A test is
+    // the only thing that keeps the three agreeing.
+    CHECK(kDefaultBitrate == 250'000);
+
+    const CanBitTiming timing;
+    CHECK(timing.bitrate == kDefaultBitrate);
+
+    // The accumulator has its own copy, used until a channel pushes one in. A
+    // disagreement here would show as a bus load computed against the wrong
+    // denominator - a number that looks plausible and is simply wrong, which is
+    // the worst kind.
+    const CanStatistics statistics;
+    CHECK(statistics.bitrate() == kDefaultBitrate);
+    CHECK(statistics.snapshot().bitrate == kDefaultBitrate);
+}
+
 TEST_CASE("Rx and Tx are counted separately", "[statistics]")
 {
     CanStatistics statistics;

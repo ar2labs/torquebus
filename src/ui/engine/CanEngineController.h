@@ -106,7 +106,7 @@ public:
     /// Binds every available channel reported by the backend registry, in
     /// enumeration order, and returns how many were bound. Only valid while
     /// stopped; replaces any previous configuration.
-    std::size_t bindAvailableChannels(quint32 bitrate = 500'000);
+    std::size_t bindAvailableChannels(quint32 bitrate = kDefaultBitrate);
 
     [[nodiscard]] bool isRunning() const;
 
