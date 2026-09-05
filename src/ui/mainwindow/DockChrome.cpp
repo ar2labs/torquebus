@@ -115,15 +115,26 @@ void StyledTabBar::tabLayoutChange()
 
 void StyledTabBar::moveMarkerTo(int index, bool immediately)
 {
-    const QRect target = index >= 0 ? tabRect(index) : QRect{};
+    // Where the marker is *now*, worked out before any state is overwritten.
+    //
+    // Not markerRect() on its own: this runs from currentChanged, by which time
+    // currentIndex() is already the new tab - so the settled branch of
+    // markerRect() would answer with the destination and the slide would have
+    // nowhere to come from. m_markerIndex is the tab the marker was actually
+    // pointing at.
+    QRect from;
+    if (!immediately) {
+        from = m_marker.isRunning()
+                   ? markerRect()
+                   : (m_markerIndex >= 0 && m_markerIndex < count() ? tabRect(m_markerIndex)
+                                                                    : QRect{});
+    }
 
-    // Coming from wherever the marker is at this instant, not from the tab it
-    // was last told about. Clicking three tabs quickly should look like one
-    // continuous slide, not three interrupted ones.
-    m_markerFrom = immediately ? target : markerRect();
-    m_markerTo = target;
+    m_markerIndex = index;
+    m_markerTo = index >= 0 ? tabRect(index) : QRect{};
+    m_markerFrom = from;
 
-    if (immediately) {
+    if (from.isNull() || m_markerTo.isNull()) {
         m_marker.jumpTo(1.0);
     } else {
         m_marker.jumpTo(0.0);
@@ -135,11 +146,16 @@ void StyledTabBar::moveMarkerTo(int index, bool immediately)
 
 QRect StyledTabBar::markerRect() const
 {
-    if (m_markerTo.isNull()) {
-        return {};
-    }
-    if (m_markerFrom.isNull()) {
-        return m_markerTo;
+    // Settled: ask the tab bar where the current tab is, right now.
+    //
+    // Stored geometry is only trustworthy for the length of one slide. Tabs are
+    // relaid out by insertion, removal, dragging, eliding and by the strip
+    // being resized, and QTabBar announces only some of those. Reading live
+    // whenever nothing is moving makes every one of them correct without a
+    // notification for each.
+    if (!m_marker.isRunning() || m_markerFrom.isNull() || m_markerTo.isNull()) {
+        const int index = currentIndex();
+        return index >= 0 ? tabRect(index) : QRect{};
     }
 
     const double t = m_marker.value();
