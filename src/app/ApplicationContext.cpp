@@ -40,6 +40,9 @@ void ApplicationContext::initialize()
     const ui::AccentColor accent = ui::accentColorFromString(
         m_settings->value(QString::fromLatin1(services::keys::kAccent)));
 
+    const ui::Density density = ui::densityFromString(
+        m_settings->value(QString::fromLatin1(services::keys::kDensity)));
+
     // A first run follows the desktop; an installation that already has a theme
     // written down does not.
     //
@@ -52,7 +55,7 @@ void ApplicationContext::initialize()
         QString::fromLatin1(services::keys::kFollowSystemTheme),
         !m_settings->contains(QString::fromLatin1(services::keys::kTheme)));
 
-    m_themes->applyPreferences(accent, followSystem, variant);
+    m_themes->applyPreferences(accent, density, followSystem, variant);
 
     // Backends announce themselves once, here, so that any window - including
     // a test harness window - sees the same set of interfaces.

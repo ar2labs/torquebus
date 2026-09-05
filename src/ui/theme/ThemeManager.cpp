@@ -152,9 +152,23 @@ void ThemeManager::setFollowSystemTheme(bool follow)
     rebuild(systemVariant());
 }
 
-void ThemeManager::applyPreferences(AccentColor accent, bool followSystem, ThemeVariant variant)
+void ThemeManager::setDensity(Density density)
+{
+    if (density == m_density) {
+        return;
+    }
+
+    m_density = density;
+    rebuild(m_theme.variant);
+}
+
+void ThemeManager::applyPreferences(AccentColor accent,
+                                    Density density,
+                                    bool followSystem,
+                                    ThemeVariant variant)
 {
     m_accent = accent;
+    m_density = density;
     m_followSystemTheme = followSystem;
 
     rebuild(followSystem ? systemVariant() : variant);
@@ -292,6 +306,17 @@ QString ThemeManager::buildStyleSheet() const
     const auto substitute = [&sheet](const char* token, const QColor& color) {
         sheet.replace(QLatin1String(token), color.name(QColor::HexRgb));
     };
+
+    // The two measurements the sheet asks for. Substituted before the colours,
+    // because "@rowPadding" would otherwise still be sitting there when
+    // reportUnsubstitutedTokens goes looking - and the point of that check is
+    // that a token nobody filled in is a rule Qt silently discards.
+    const auto substituteLength = [&sheet](const char* token, int pixels) {
+        sheet.replace(QLatin1String(token), QStringLiteral("%1px").arg(pixels));
+    };
+
+    substituteLength("@rowMinimumHeight", rowMinimumHeightFor(m_density));
+    substituteLength("@rowPadding", rowPaddingFor(m_density));
 
     substitute("@background", m_theme.background);
     substitute("@panelAlternate", m_theme.panelAlternate);

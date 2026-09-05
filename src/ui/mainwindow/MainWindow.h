@@ -71,6 +71,7 @@ private Q_SLOTS:
     void onThemeChanged(const torquebus::ui::Theme& theme);
     void onDeviceSelected(const torquebus::CanDeviceInfo& device);
     void onToggleTheme();
+    void onPreferences();
     void onAbout();
     void onNotImplemented();
     void onInspectChrome();
@@ -209,6 +210,7 @@ private:
     QAction* m_actionRefreshHardware{nullptr};
 
     QAction* m_actionToggleTheme{nullptr};
+    QAction* m_actionPreferences{nullptr};
     QAction* m_actionResetLayout{nullptr};
     QAction* m_actionInspectChrome{nullptr};
     QAction* m_actionAbout{nullptr};

@@ -55,6 +55,13 @@ public:
     /// rendered against is a separate question (see AccentColor.h).
     void setAccent(AccentColor accent);
 
+    // --- Density ----------------------------------------------------------
+
+    [[nodiscard]] Density density() const noexcept { return m_density; }
+
+    /// How much air a table row gets. Reapplies the style sheet.
+    void setDensity(Density density);
+
     // --- Following the desktop --------------------------------------------
 
     [[nodiscard]] bool followsSystemTheme() const noexcept { return m_followSystemTheme; }
@@ -72,7 +79,10 @@ public:
     /// the first window is shown, for a result the user can only see once.
     ///
     /// `variant` is used only when `followSystem` is false.
-    void applyPreferences(AccentColor accent, bool followSystem, ThemeVariant variant);
+    void applyPreferences(AccentColor accent,
+                          Density density,
+                          bool followSystem,
+                          ThemeVariant variant);
 
     /// What the desktop is asking for right now.
     ///
@@ -129,6 +139,7 @@ private:
 
     Theme m_theme;
     AccentColor m_accent{AccentColor::TorqueBus};
+    Density m_density{Density::Comfortable};
     bool m_followSystemTheme{false};
 
     mutable QHash<QString, QIcon> m_iconCache;

@@ -182,4 +182,53 @@ ThemeVariant themeVariantFromString(const QString& value, ThemeVariant fallback)
     return fallback;
 }
 
+int rowPaddingFor(Density density)
+{
+    // One pixel of padding costs two pixels of row height, and two pixels of
+    // row height costs a frame you can see on a full trace. Comfortable is 1,
+    // which is what the sheet has always said - the default is not a new
+    // opinion about how the application should look.
+    switch (density) {
+    case Density::Compact:     return 0;
+    case Density::Comfortable: return 1;
+    case Density::Spacious:    return 3;
+    }
+    return 1;
+}
+
+int rowMinimumHeightFor(Density density)
+{
+    switch (density) {
+    case Density::Compact:     return 16;
+    case Density::Comfortable: return 18;
+    case Density::Spacious:    return 24;
+    }
+    return 18;
+}
+
+QString toString(Density density)
+{
+    switch (density) {
+    case Density::Compact:     return QStringLiteral("compact");
+    case Density::Comfortable: return QStringLiteral("comfortable");
+    case Density::Spacious:    return QStringLiteral("spacious");
+    }
+    return QStringLiteral("comfortable");
+}
+
+Density densityFromString(const QString& value, Density fallback)
+{
+    const QString normalized = value.trimmed().toLower();
+    if (normalized == QLatin1String("compact")) {
+        return Density::Compact;
+    }
+    if (normalized == QLatin1String("comfortable")) {
+        return Density::Comfortable;
+    }
+    if (normalized == QLatin1String("spacious")) {
+        return Density::Spacious;
+    }
+    return fallback;
+}
+
 } // namespace torquebus::ui

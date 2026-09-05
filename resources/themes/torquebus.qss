@@ -352,9 +352,11 @@ QComboBox::down-arrow {
 /* ------------------------------------------------------------- views --- */
 /*
  * The densest surfaces in the application. Row padding here is multiplied by
- * every visible row, so it stays at 1px vertical and the row height is left to
- * the font. Grid lines use the border colour rather than a mid grey: at this
- * density a strong grid is louder than the data in it.
+ * every visible row, which is why it is the one measurement in this sheet the
+ * user can change: @rowPadding and @rowMinimumHeight come from the Density
+ * setting, and Comfortable is the 1px/18px this sheet always had. Grid lines
+ * use the border colour rather than a mid grey: at this density a strong grid
+ * is louder than the data in it.
  */
 
 QTreeView,
@@ -372,9 +374,9 @@ QTextEdit {
 QTreeView::item,
 QTableView::item,
 QListView::item {
-    padding: 1px 3px;
+    padding: @rowPadding 3px;
     border: none;
-    min-height: 18px;
+    min-height: @rowMinimumHeight;
 }
 
 QTreeView::item:hover,
@@ -701,4 +703,48 @@ QLabel[torquebusRole="panelHeading"] {
     background-color: @toolbar;
     border-bottom: 1px solid @border;
     padding: 3px 6px;
+}
+
+/* ------------------------------------------------------- preferences --- */
+/*
+ * The one dialog in the application that is not dense. Everywhere else the
+ * budget is rows on screen; here it is a person reading a sentence and deciding
+ * something, once, and the spacing is set for that instead.
+ */
+
+QListWidget#preferencesPages {
+    background-color: @background;
+    border: none;
+    outline: none;
+}
+
+QListWidget#preferencesPages::item {
+    padding: 7px 10px;
+    border: none;
+    border-left: 2px solid transparent;
+    min-height: 22px;
+}
+
+QListWidget#preferencesPages::item:hover {
+    background-color: @hover;
+}
+
+/* The bar on the left rather than a filled row: it marks the page without
+ * painting a block of accent behind text that then has to be legible on it. */
+QListWidget#preferencesPages::item:selected {
+    background-color: @panel;
+    border-left: 2px solid @accent;
+    color: @text;
+}
+
+QLabel#preferencesSection {
+    color: @text;
+    padding: 2px 0px;
+}
+
+/* Explanatory text under a control. Muted and slightly indented, so a page
+ * reads as controls with notes rather than as a wall of equal sentences. */
+QLabel#preferencesHint {
+    color: @textMuted;
+    padding: 0px 0px 4px 1px;
 }

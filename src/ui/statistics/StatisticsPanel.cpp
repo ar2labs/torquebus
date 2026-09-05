@@ -26,6 +26,7 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
+#include <QtGlobal>
 
 #include <algorithm>
 #include <cmath>
@@ -247,16 +248,16 @@ void StatisticsPanel::buildUi()
     m_nodes->setColumnWidth(NodeColumnName, 320);
     m_nodes->header()->setStretchLastSection(true);
 
-    auto* splitter = new QSplitter(Qt::Vertical, this);
-    splitter->setObjectName(QStringLiteral("torquebus.splitter.statistics"));
-    splitter->setChildrenCollapsible(false);
-    splitter->addWidget(m_channels);
-    splitter->addWidget(m_nodes);
+    m_splitter = new QSplitter(Qt::Vertical, this);
+    m_splitter->setObjectName(QStringLiteral("torquebus.splitter.statistics"));
+    m_splitter->setChildrenCollapsible(false);
+    m_splitter->addWidget(m_channels);
+    m_splitter->addWidget(m_nodes);
 
     // The channels table has one row per interface and will not grow; the tree
     // grows with the project. So extra height goes to the tree.
-    splitter->setStretchFactor(0, 0);
-    splitter->setStretchFactor(1, 1);
+    m_splitter->setStretchFactor(0, 0);
+    m_splitter->setStretchFactor(1, 1);
 
     m_status = new QLabel(this);
     m_status->setObjectName(QStringLiteral("panelStatus"));
@@ -264,10 +265,26 @@ void StatisticsPanel::buildUi()
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 6, 4);
     layout->setSpacing(2);
-    layout->addWidget(splitter, 1);
+    layout->addWidget(m_splitter, 1);
     layout->addWidget(m_status);
 
     m_status->setText(tr("Not measuring."));
+}
+
+QByteArray StatisticsPanel::splitterState() const
+{
+    return m_splitter != nullptr ? m_splitter->saveState() : QByteArray{};
+}
+
+void StatisticsPanel::restoreSplitterState(const QByteArray& state)
+{
+    if (m_splitter == nullptr || state.isEmpty()) {
+        return;
+    }
+
+    if (!m_splitter->restoreState(state)) {
+        qWarning("TorqueBus: the saved Statistics divider position could not be restored.");
+    }
 }
 
 // ---------------------------------------------------------------------------

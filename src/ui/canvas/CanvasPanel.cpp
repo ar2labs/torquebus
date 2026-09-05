@@ -23,6 +23,7 @@
 #include <QMap>
 #include <QPalette>
 #include <QSplitter>
+#include <QtGlobal>
 #include <QString>
 #include <QTreeWidget>
 #include <QVBoxLayout>
@@ -140,18 +141,19 @@ CanvasPanel::CanvasPanel(GraphDescription& description,
 
     buildPalette();
 
-    auto* splitter = new QSplitter{Qt::Horizontal, this};
-    splitter->addWidget(m_palette);
-    splitter->addWidget(m_view);
-    splitter->setStretchFactor(0, 0);
-    splitter->setStretchFactor(1, 1);
-    splitter->setCollapsible(0, true);
-    splitter->setCollapsible(1, false);
+    m_splitter = new QSplitter{Qt::Horizontal, this};
+    m_splitter->setObjectName(QStringLiteral("torquebus.splitter.canvas"));
+    m_splitter->addWidget(m_palette);
+    m_splitter->addWidget(m_view);
+    m_splitter->setStretchFactor(0, 0);
+    m_splitter->setStretchFactor(1, 1);
+    m_splitter->setCollapsible(0, true);
+    m_splitter->setCollapsible(1, false);
 
     auto* layout = new QVBoxLayout{this};
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
-    layout->addWidget(splitter);
+    layout->addWidget(m_splitter);
 
     // Double-click rather than drag and drop, for now. Dropping onto a
     // QGraphicsView means mapping the drop point into scene coordinates and
@@ -186,6 +188,26 @@ CanvasPanel::CanvasPanel(GraphDescription& description,
 CanvasPanel::~CanvasPanel()
 {
     releaseGraph();
+}
+
+QByteArray CanvasPanel::splitterState() const
+{
+    return m_splitter != nullptr ? m_splitter->saveState() : QByteArray{};
+}
+
+void CanvasPanel::restoreSplitterState(const QByteArray& state)
+{
+    if (m_splitter == nullptr || state.isEmpty()) {
+        return;
+    }
+
+    // A state that no longer fits - saved when the panel had a different number
+    // of children - is refused by Qt. Said out loud rather than ignored: the
+    // panel silently coming up in the default proportions after the user set
+    // them looks like the setting was never saved.
+    if (!m_splitter->restoreState(state)) {
+        qWarning("TorqueBus: the saved Pipeline divider position could not be restored.");
+    }
 }
 
 void CanvasPanel::releaseGraph()
