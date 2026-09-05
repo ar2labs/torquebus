@@ -12,6 +12,17 @@ project file — and in full before tagging a release.
 > Four were stale tests, one was an off-by-one in a test's own bound, and one
 > was a real defect in `removeFrameSink`. All are fixed. The lesson is recorded
 > under [What is likely to break first](#what-is-likely-to-break-first).
+>
+> The v0.8 run — sixteen commits, including every hand-painted widget and the
+> whole database layer, none of it ever compiled — was green on the first
+> attempt: **222 tests, 0 failed**. Worth stating plainly, because the two
+> practices that got it there are cheap and easy to skip: checking each Qt call
+> against the type stubs for the pinned Qt version instead of recalling it, and
+> running the core under `-fsanitize=address,undefined`.
+>
+> **A green ctest is not a green window.** None of the painting or animation
+> has test coverage; it compiles and the suite passes, which says nothing about
+> what the window looks like. Step 4 below is the part that does.
 
 ---
 
