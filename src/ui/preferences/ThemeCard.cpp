@@ -7,7 +7,9 @@
 
 #include "ui/theme/ThemeManager.h"
 
+#include <QEnterEvent>
 #include <QEvent>
+#include <QFocusEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>

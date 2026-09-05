@@ -8,6 +8,7 @@
 #include "ui/theme/ThemeManager.h"
 
 #include <QEvent>
+#include <QFocusEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
