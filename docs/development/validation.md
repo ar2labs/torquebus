@@ -264,8 +264,13 @@ untested until a user finds it.
 The acceptance test for the Transmit panel. Run it with the virtual bus
 started, and watch the **CAN Trace** while you do.
 
-1. **Transmit** tab → **Add**. A row appears: `New frame`, ID `100`, eight
-   zero bytes, **On** ticked and **Cyc** *not* ticked.
+**Nothing has to be wired first.** A list with rows in it reaches the bus on
+its own, the same way every channel reaches the trace without a visit to the
+canvas. If this needed a block dragged onto the Pipeline canvas before Send did
+anything, the panel would look broken to everyone who tried it.
+
+1. **Transmit** tab → **Add**. A row appears: `New frame`, **Ch** `1`, ID `100`,
+   eight zero bytes, **On** ticked and **Cyc** *not* ticked.
 2. **Nothing is on the bus.** A new row is manual, and manual means it goes out
    when you say so. This is the point of the panel most worth checking: a list
    is filled in with the cable already connected to something real.
@@ -281,26 +286,30 @@ started, and watch the **CAN Trace** while you do.
    identifier you are not is the failure this prevents.
 7. Untick **On** and press **Send**. Nothing goes out, and the Output panel
    says why rather than leaving a button that silently does nothing.
-8. With `vehicle.dbc` imported (step 5b), **Add from message...** → pick
+8. Set **Ch** to `2` and press **Send**. The frame appears on CAN 2 and not on
+   CAN 1 - one list serves every bus, and a row goes out once, where it was
+   addressed. Setting it to `9` on a four-channel setup is refused rather than
+   making a row that can never send and never says why.
+9. With `vehicle.dbc` imported (step 5b), **Add from message...** → pick
    `VehicleSpeed`. The row arrives named, with the right identifier and length,
    and with the database's own cycle time already filled in - still manual,
    because a period is a suggestion and transmitting is a decision.
 
-9. With that `VehicleSpeed` row selected, press **Signals...**. A dialog lists
+10. With that `VehicleSpeed` row selected, press **Signals...**. A dialog lists
    `SpeedKmh` with its unit and range, and the payload in hex at the foot.
-10. Type `85` into the value. The payload becomes `52 03 …` while you watch -
+11. Type `85` into the value. The payload becomes `52 03 …` while you watch -
     the encoding happening in front of you rather than being taken on trust.
-11. Type `85.03`. The cell settles on `85`, because a signal scaled by a tenth
+12. Type `85.03`. The cell settles on `85`, because a signal scaled by a tenth
     cannot carry hundredths. That is the bus being honest: a field that showed
     `85.03` while transmitting `85` would be lying about the one thing you came
     here to set.
-12. Type `99999`. It saturates at the widest the field holds rather than
+13. Type `99999`. It saturates at the widest the field holds rather than
     wrapping, and the payload shows it.
-13. On a multiplexed message, change the switch signal. The rows belonging to
+14. On a multiplexed message, change the switch signal. The rows belonging to
     other pages grey out and read *(not on this page)* — on that frame they are
     not zero, they are absent, which is the same distinction the decoder makes.
 
-**Worked:** all thirteen. Steps 2 and 7 are the ones worth being fussy about;
+**Worked:** all fourteen. Steps 2 and 7 are the ones worth being fussy about;
 they are the difference between a tool that does what it is told and one that
 does things nobody asked for.
 

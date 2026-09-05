@@ -112,11 +112,19 @@ bool TransmitList::entryAt(std::size_t index, TransmitEntry& out) const
     return true;
 }
 
-bool TransmitList::sendOnce(const CanFrame& frame)
+bool TransmitList::sendOnce(const CanFrame& frame, std::uint8_t channel)
 {
-    // No mutex: this is the path a button press takes, and it must not be able
-    // to block the executor behind a lock the UI thread happens to hold.
-    return m_oneShots.push(frame);
+    const std::lock_guard guard{m_mutex};
+
+    // Bounded: somebody leaning on the send button while the engine is stopped
+    // would otherwise grow this without limit, and every one of those frames
+    // would go out in a burst the moment a measurement started.
+    if (m_oneShots.size() >= kOneShotCapacity) {
+        return false;
+    }
+
+    m_oneShots.push_back(OneShot{frame, channel});
+    return true;
 }
 
 bool TransmitList::sendOnce(std::size_t index)
@@ -126,24 +134,38 @@ bool TransmitList::sendOnce(std::size_t index)
         return false;
     }
 
-    return sendOnce(entry.frame);
+    return sendOnce(entry.frame, entry.channel);
 }
 
-void TransmitList::collectDue(std::uint64_t nowUs, std::vector<CanFrame>& out)
+void TransmitList::collectDue(std::uint64_t nowUs, std::uint8_t channel,
+                              std::vector<CanFrame>& out)
 {
-    // One-shots first, and outside the lock. They were asked for explicitly, so
-    // they go out ahead of anything the schedule happens to owe.
-    CanFrame queued;
-    while (m_oneShots.drain(std::span<CanFrame>{&queued, 1}) == 1) {
-        out.push_back(queued);
-    }
-
     const std::lock_guard guard{m_mutex};
+
+    // One-shots first: they were asked for explicitly, so they go out ahead of
+    // anything the schedule happens to owe.
+    //
+    // Only the ones for this channel are taken, and the rest are left for the
+    // node that serves theirs. Erasing while iterating is why this walks a
+    // separate vector rather than draining in place.
+    std::vector<OneShot> remaining;
+    remaining.reserve(m_oneShots.size());
+
+    for (const OneShot& shot : m_oneShots) {
+        if (shot.channel == channel) {
+            CanFrame frame = shot.frame;
+            frame.channel = channel;
+            out.push_back(frame);
+        } else {
+            remaining.push_back(shot);
+        }
+    }
+    m_oneShots.swap(remaining);
 
     for (std::size_t index = 0; index < m_entries.size(); ++index) {
         TransmitEntry& entry = m_entries[index];
 
-        if (!entry.enabled || !entry.isPeriodic()) {
+        if (!entry.enabled || !entry.isPeriodic() || entry.channel != channel) {
             continue;
         }
 
@@ -151,7 +173,9 @@ void TransmitList::collectDue(std::uint64_t nowUs, std::vector<CanFrame>& out)
             continue;
         }
 
-        out.push_back(entry.frame);
+        CanFrame frame = entry.frame;
+        frame.channel = entry.channel;
+        out.push_back(frame);
 
         entry.lastSentUs = nowUs;
         ++entry.sentCount;
@@ -172,6 +196,11 @@ void TransmitList::collectDue(std::uint64_t nowUs, std::vector<CanFrame>& out)
 void TransmitList::restartSchedule()
 {
     const std::lock_guard guard{m_mutex};
+
+    // Anything queued while the engine was stopped is dropped rather than fired
+    // at the start of the next run. A press from ten minutes ago is not a
+    // request to transmit now.
+    m_oneShots.clear();
 
     std::fill(m_nextDueUs.begin(), m_nextDueUs.end(), 0);
 

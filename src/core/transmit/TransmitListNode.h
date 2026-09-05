@@ -30,13 +30,24 @@ namespace torquebus {
 
 class TransmitListNode final : public IPipelineNode {
 public:
+    /// Serves one application channel.
+    ///
     /// The list must outlive the node, which the engine guarantees by
     /// recompiling the graph whenever the project changes.
-    explicit TransmitListNode(TransmitList& list, std::string label = "Transmit list")
+    ///
+    /// One node per channel, each collecting only the rows that name its own -
+    /// which is what lets a single list feed every bus at once without a row
+    /// going out twice or on the wrong one.
+    explicit TransmitListNode(TransmitList& list,
+                              std::uint8_t channel = 0,
+                              std::string label = "Transmit list")
         : m_list{list}
+        , m_channel{channel}
         , m_label{std::move(label)}
     {
     }
+
+    [[nodiscard]] std::uint8_t channel() const noexcept { return m_channel; }
 
     [[nodiscard]] std::string_view typeName() const noexcept override
     {
@@ -68,6 +79,7 @@ private:
     };
 
     TransmitList& m_list;
+    std::uint8_t m_channel;
     std::string m_label;
 
     /// Reused every pass, so a pass allocates nothing (rule #12). The published

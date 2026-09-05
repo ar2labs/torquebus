@@ -27,6 +27,7 @@ namespace {
 
 enum Column : int {
     ColumnEnabled = 0,
+    ColumnChannel,
     ColumnName,
     ColumnIdentifier,
     ColumnFormat,
@@ -159,8 +160,9 @@ void TransmitPanel::buildUi()
 
     m_table = new QTableWidget(this);
     m_table->setColumnCount(ColumnCountTotal);
-    m_table->setHorizontalHeaderLabels({tr("On"), tr("Name"), tr("ID"), tr("Fmt"), tr("DLC"),
-                                        tr("Data"), tr("Cyc"), tr("ms"), tr("Count")});
+    m_table->setHorizontalHeaderLabels({tr("On"), tr("Ch"), tr("Name"), tr("ID"), tr("Fmt"),
+                                        tr("DLC"), tr("Data"), tr("Cyc"), tr("ms"),
+                                        tr("Count")});
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
     m_table->setAlternatingRowColors(true);
@@ -168,6 +170,7 @@ void TransmitPanel::buildUi()
     m_table->verticalHeader()->setVisible(false);
     m_table->horizontalHeader()->setStretchLastSection(false);
     m_table->setColumnWidth(ColumnEnabled, 34);
+    m_table->setColumnWidth(ColumnChannel, 38);
     m_table->setColumnWidth(ColumnName, 150);
     m_table->setColumnWidth(ColumnIdentifier, 80);
     m_table->setColumnWidth(ColumnFormat, 46);
@@ -231,6 +234,12 @@ void TransmitPanel::reload()
         enabled->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable | Qt::ItemIsSelectable);
         enabled->setCheckState(entry.enabled ? Qt::Checked : Qt::Unchecked);
         m_table->setItem(row, ColumnEnabled, enabled);
+
+        // 1-based, because the Project Explorer and the status bar both say
+        // "CAN 1" for channel 0 and a panel that said 0 would be the only place
+        // in the window counting differently.
+        m_table->setItem(row, ColumnChannel,
+                         new QTableWidgetItem{QString::number(entry.channel + 1)});
 
         m_table->setItem(row, ColumnName,
                          new QTableWidgetItem{QString::fromStdString(entry.name)});
@@ -489,6 +498,20 @@ void TransmitPanel::commitRow(int row)
 
     if (const QTableWidgetItem* item = m_table->item(row, ColumnEnabled)) {
         entry.enabled = item->checkState() == Qt::Checked;
+    }
+
+    if (const QTableWidgetItem* item = m_table->item(row, ColumnChannel)) {
+        bool ok = false;
+        const uint shown = item->text().toUInt(&ok);
+
+        // Back to 0-based, and only for a channel that exists. Accepting CAN 9
+        // on a two-channel setup would make a row that can never send and never
+        // says why.
+        if (ok && shown >= 1 && shown <= 255) {
+            entry.channel = static_cast<std::uint8_t>(shown - 1);
+        } else {
+            rejected = true;
+        }
     }
 
     if (const QTableWidgetItem* item = m_table->item(row, ColumnName)) {

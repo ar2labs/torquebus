@@ -31,6 +31,11 @@ Result TransmitListNode::prepare(std::size_t)
     // Every periodic row starts its period now. Without this a list that ran in
     // an earlier measurement would consider all of its rows overdue and fire
     // them together in the first pass.
+    //
+    // Called by every channel's node, which is harmless: the schedule is reset
+    // to "due now" and the counters to zero, and doing that twice before any
+    // pass has run leaves exactly the same state. Guarding it with a flag would
+    // be more code to say the same thing.
     m_list.restartSchedule();
 
     return Result::ok();
@@ -45,20 +50,16 @@ void TransmitListNode::process(NodeContext& context)
     const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - m_started);
 
-    m_list.collectDue(static_cast<std::uint64_t>(elapsed.count()), m_outgoing);
+    m_list.collectDue(static_cast<std::uint64_t>(elapsed.count()), m_channel, m_outgoing);
 
     if (m_outgoing.empty()) {
         return;
     }
 
-    // The channel and direction are stamped here rather than stored on the
-    // entry: which channel a list transmits on is a property of how the block
-    // is wired, not of the frame somebody typed. The same list dropped onto a
-    // second channel should work without editing every row.
-    //
-    // The timestamp is deliberately left alone. Whatever transmits it gives it
-    // a bus time; inventing one here would put a number in the trace that never
-    // happened.
+    // The channel is already stamped by the list, from the row's own setting.
+    // Only the direction is added here, and the timestamp is deliberately left
+    // alone: whatever transmits the frame gives it a bus time, and inventing
+    // one here would put a number in the trace that never happened.
     for (CanFrame& frame : m_outgoing) {
         frame.direction = CanDirection::Tx;
     }
