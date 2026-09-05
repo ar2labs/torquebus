@@ -6,6 +6,7 @@
 #include "drivers/api/CanBackendRegistry.h"
 
 #include "drivers/kvaser/KvaserCanBackend.h"
+#include "drivers/peak/PeakCanBackend.h"
 #include "drivers/virtual/VirtualCanBackend.h"
 
 #include <algorithm>
@@ -63,7 +64,11 @@ void CanBackendRegistry::registerBuiltins()
     registerBackend("kvaser", "Kvaser CANlib",
                     [] { return std::make_unique<KvaserCanBackend>(); });
 
-    // PEAK follows in v0.5, in one more line just like this.
+    // And PEAK, in one more line just like it - which is the claim the Kvaser
+    // comment above made, now kept. Nothing between the two lines changed, and
+    // nothing above the driver layer did either.
+    registerBackend("peak", "PEAK-System PCAN-Basic",
+                    [] { return std::make_unique<PeakCanBackend>(); });
 }
 
 std::unique_ptr<ICanBackend> CanBackendRegistry::create(std::string_view name) const

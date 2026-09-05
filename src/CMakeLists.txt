@@ -104,6 +104,11 @@ set(TORQUEBUS_DRIVER_SOURCES
     # Manager and the tests are identical in both builds.
     drivers/kvaser/KvaserCanBackend.h
     drivers/kvaser/KvaserCanBackend.cpp
+
+    # Same arrangement, different route to it: without Qt SerialBus the .cpp
+    # builds the stub instead of the peakcan-backed implementation.
+    drivers/peak/PeakCanBackend.h
+    drivers/peak/PeakCanBackend.cpp
 )
 
 add_library(torquebus_drivers STATIC ${TORQUEBUS_DRIVER_SOURCES})
