@@ -45,6 +45,15 @@ Q_SIGNALS:
     /// Emitted only for a change the user made.
     void accentChanged(torquebus::ui::AccentColor accent);
 
+public:
+    /// Public because QWidget's are: a layout asks for these through a base
+    /// pointer, and so does the dialog when it wants a caption the same width
+    /// as the row. Narrowing an override compiles right up until somebody
+    /// calls it on the derived type - the worst place for the error to show up,
+    /// because the declaration that caused it is nowhere near the call.
+    [[nodiscard]] QSize sizeHint() const override;
+    [[nodiscard]] QSize minimumSizeHint() const override;
+
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
@@ -53,9 +62,6 @@ protected:
     void leaveEvent(QEvent* event) override;
     void focusInEvent(QFocusEvent* event) override;
     void focusOutEvent(QFocusEvent* event) override;
-
-    [[nodiscard]] QSize sizeHint() const override;
-    [[nodiscard]] QSize minimumSizeHint() const override;
 
 private:
     /// Centre of swatch `index`.

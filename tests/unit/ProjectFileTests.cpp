@@ -270,7 +270,7 @@ TEST_CASE("Opening a file that is not there says so", "[project]")
 {
     GraphDescription pipeline;
     const Result result =
-        ProjectFile::load(QStringLiteral("no/such/project.tbsproj"), pipeline);
+        ProjectFile::load(QStringLiteral("no/such/project.tbsproj"), pipeline, scratch());
 
     REQUIRE(result.failed());
     CHECK(result.code() == ErrorCode::FileNotFound);
@@ -284,7 +284,7 @@ TEST_CASE("The saved file is readable JSON", "[project]")
     REQUIRE(directory.isValid());
 
     const QString path = pathIn(directory, QStringLiteral("readable.tbsproj"));
-    REQUIRE(ProjectFile::save(path, richPipeline()).succeeded());
+    REQUIRE(ProjectFile::save(path, richPipeline(), scratch()).succeeded());
 
     QFile file{path};
     REQUIRE(file.open(QIODevice::ReadOnly | QIODevice::Text));
