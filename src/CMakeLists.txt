@@ -190,6 +190,8 @@ qt_add_library(torquebus_ui STATIC
     ui/canvas/CanvasPanel.cpp
     ui/database/DatabasePanel.h
     ui/database/DatabasePanel.cpp
+    ui/statistics/StatisticsPanel.h
+    ui/statistics/StatisticsPanel.cpp
     ui/trace/TraceModel.h
     ui/trace/TraceModel.cpp
     ui/trace/TracePanel.h

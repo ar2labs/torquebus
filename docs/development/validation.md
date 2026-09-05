@@ -325,6 +325,42 @@ does things nobody asked for.
 
 ---
 
+## 5d. Statistics: the bus and the pipeline
+
+The panel that makes a whole class of silent mistake visible. Open the
+**Statistics** tab (it shares a group with Trace).
+
+1. Before pressing Start, with interfaces detected: the top table already lists
+   the bound channels, state **Ready**, every counter zero. It is filled in when
+   the channels are bound, not when the measurement starts - a table that stayed
+   blank until Start would look broken rather than idle.
+2. Press **Start**. Rx climbs, **Frames/s** settles, and the **Load** cell grows
+   a bar behind its figure. The bar is green; drive the bitrate down (or the
+   traffic up) far enough and it turns amber at 80% - the same threshold, for
+   the same reason, that the status bar already colours the load at.
+3. Switch to the **Trace** tab and back. The numbers are current, not stale and
+   not blank: the panel keeps the last figures while hidden and writes them in
+   on the way back, rather than paying to update a table nobody is looking at.
+4. The lower tree lists every block of the running pipeline, each with the
+   counters it chose to report. A **DBC Decoder** shows *Frames decoded* and
+   *Frames not in the database*; a **Lua ECU** shows what it emitted and how many
+   frames it dropped when saturated.
+5. **The step this panel exists for.** Import a database that does not describe
+   the traffic on the bus - any `.dbc` for a different vehicle. *Frames not in
+   the database* climbs to match the whole of the traffic while *Frames decoded*
+   stays at zero. Before this panel that mistake looked exactly like a quiet bus,
+   and the Signals column simply stayed empty.
+6. Expand a block, then let several seconds pass. The branch stays open: the
+   values are written into the existing rows and the tree is rebuilt only when
+   the shape of the pipeline actually changes.
+7. Press **Stop**. The final counts stay on screen - the ticks stop, the numbers
+   do not disappear.
+
+**Worked:** all seven. Step 5 is the one to be fussy about; the rest is
+plumbing, and that one is the reason for the plumbing.
+
+---
+
 ## 6. Real hardware (optional)
 
 Only with a Kvaser adapter and CANlib installed.

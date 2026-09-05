@@ -54,6 +54,8 @@ CanEngineController::CanEngineController(QObject* parent)
 {
     qRegisterMetaType<torquebus::ui::ChannelStatus>();
     qRegisterMetaType<QList<torquebus::ui::ChannelStatus>>("QList<torquebus::ui::ChannelStatus>");
+    qRegisterMetaType<torquebus::ui::NodeStatus>();
+    qRegisterMetaType<QList<torquebus::ui::NodeStatus>>("QList<torquebus::ui::NodeStatus>");
 
     m_refreshTimer = new QTimer(this);
     m_refreshTimer->setInterval(kRefreshIntervalMs);
@@ -110,6 +112,11 @@ std::size_t CanEngineController::bindAvailableChannels(quint32 bitrate)
             m_deviceNames.append(QString::fromStdString(device.name));
         }
     }
+
+    // The refresh timer only runs while measuring, so without this the channels
+    // that were just bound would not appear anywhere until Start was pressed -
+    // and the Statistics panel would say there were none.
+    publishToUi();
 
     return m_engine->channelCount();
 }
@@ -233,6 +240,7 @@ void CanEngineController::publishToUi()
         status.rxFrames = source.rxFrames;
         status.txFrames = source.txFrames;
         status.errorFrames = source.errorFrames;
+        status.filteredFrames = source.filteredFrames;
         status.droppedFrames = source.droppedFrames;
         status.framesPerSecond = source.framesPerSecond;
         status.busLoadPercent = source.busLoadPercent;
@@ -243,12 +251,34 @@ void CanEngineController::publishToUi()
     }
 
     Q_EMIT statusUpdated(channels);
+    publishNodeStatistics();
 
     const quint64 total = m_engine->deliveredFrames();
     if (total != m_lastPublishedFrameCount) {
         m_lastPublishedFrameCount = total;
         Q_EMIT frameCountChanged(total);
     }
+}
+
+void CanEngineController::publishNodeStatistics()
+{
+    QList<NodeStatus> nodes;
+
+    for (const CanEngine::NodeReport& report : m_engine->nodeStatistics()) {
+        NodeStatus status;
+        status.name = QString::fromStdString(report.name);
+        status.typeName = QString::fromStdString(report.typeName);
+
+        status.counters.reserve(static_cast<qsizetype>(report.statistics.size()));
+        for (const NodeStatistic& statistic : report.statistics) {
+            status.counters.append(
+                NodeCounter{QString::fromStdString(statistic.label), statistic.value});
+        }
+
+        nodes.append(std::move(status));
+    }
+
+    Q_EMIT nodeStatisticsUpdated(nodes);
 }
 
 } // namespace torquebus::ui

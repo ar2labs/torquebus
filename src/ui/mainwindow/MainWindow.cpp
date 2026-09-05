@@ -18,6 +18,7 @@
 #include "ui/properties/PropertiesPanel.h"
 #include "ui/theme/ThemeManager.h"
 #include "ui/trace/TracePanel.h"
+#include "ui/statistics/StatisticsPanel.h"
 #include "ui/transmit/TransmitPanel.h"
 
 #include <QAction>
@@ -403,13 +404,15 @@ void MainWindow::createPanels()
                              QStringLiteral("graph"), QStringLiteral("v0.8")),
         icon("graph"));
 
-    m_statisticsDock = createDockWidget(
-        dockName(kDockStatistics), tr("Statistics"),
-        new PlaceholderPanel(tr("Bus Statistics"),
-                             tr("Bus load, peak load, frame rates, error counters and "
-                                "controller state per channel."),
-                             QStringLiteral("statistics"), QStringLiteral("v0.8")),
-        icon("statistics"));
+    m_statisticsPanel = new StatisticsPanel;
+
+    connect(m_controller, &CanEngineController::statusUpdated,
+            m_statisticsPanel, &StatisticsPanel::setChannels);
+    connect(m_controller, &CanEngineController::nodeStatisticsUpdated,
+            m_statisticsPanel, &StatisticsPanel::setNodes);
+
+    m_statisticsDock = createDockWidget(dockName(kDockStatistics), tr("Statistics"),
+                                        m_statisticsPanel, icon("statistics"));
 
     m_diagnosticsDock = createDockWidget(
         dockName(kDockDiagnostics), tr("Diagnostics"),

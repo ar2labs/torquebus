@@ -39,6 +39,7 @@ class OutputPanel;
 class ProjectExplorerPanel;
 class NodePropertiesEditor;
 class PropertiesPanel;
+class StatisticsPanel;
 class ThemeManager;
 class TracePanel;
 class TransmitPanel;
@@ -149,6 +150,7 @@ private:
     CanvasPanel* m_canvas{nullptr};
     DatabasePanel* m_databasePanel{nullptr};
     TransmitPanel* m_transmitPanel{nullptr};
+    StatisticsPanel* m_statisticsPanel{nullptr};
 
     // --- The pipeline the canvas edits ------------------------------------
     //

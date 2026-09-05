@@ -60,6 +60,10 @@ struct ChannelStatus final {
     quint64 rxFrames{};
     quint64 txFrames{};
     quint64 errorFrames{};
+
+    /// Frames the channel's filter refused before the pipeline saw them.
+    quint64 filteredFrames{};
+
     quint64 droppedFrames{};
 
     double framesPerSecond{};
@@ -69,6 +73,24 @@ struct ChannelStatus final {
     quint32 bitrate{};
 
     [[nodiscard]] quint64 totalFrames() const { return rxFrames + txFrames; }
+};
+
+/// One counter a pipeline node reports, with the label the node chose.
+///
+/// The label travels with the value rather than being a column the UI knows
+/// about. A node type the UI has never heard of still displays correctly, which
+/// is the property that lets a script or a plugin add a counter without a
+/// matching edit here.
+struct NodeCounter final {
+    QString label;
+    quint64 value{};
+};
+
+/// One node of the running pipeline, ready to display.
+struct NodeStatus final {
+    QString name;
+    QString typeName;
+    QList<NodeCounter> counters;
 };
 
 class CanEngineController final : public QObject {
@@ -109,6 +131,14 @@ Q_SIGNALS:
     /// Emitted on the GUI thread at the refresh rate, never per frame.
     void statusUpdated(const QList<torquebus::ui::ChannelStatus>& channels);
 
+    /// The pipeline's own counters, on the same tick as statusUpdated().
+    ///
+    /// Emitted even when nothing is listening. The engine hands out a copy of a
+    /// snapshot it already took, so the cost is a few dozen small string copies
+    /// ten times a second - far below the price of the machinery that would be
+    /// needed to decide whether to skip it.
+    void nodeStatisticsUpdated(const QList<torquebus::ui::NodeStatus>& nodes);
+
     /// Total frames delivered since the measurement started.
     void frameCountChanged(quint64 total);
 
@@ -116,6 +146,9 @@ private Q_SLOTS:
     void publishToUi();
 
 private:
+    /// Converts the engine's node reports and emits nodeStatisticsUpdated().
+    void publishNodeStatistics();
+
     std::unique_ptr<CanEngine> m_engine;
 
     /// Written by the engine thread, read by the GUI thread.
@@ -134,3 +167,5 @@ private:
 } // namespace torquebus::ui
 
 Q_DECLARE_METATYPE(torquebus::ui::ChannelStatus)
+Q_DECLARE_METATYPE(torquebus::ui::NodeCounter)
+Q_DECLARE_METATYPE(torquebus::ui::NodeStatus)
