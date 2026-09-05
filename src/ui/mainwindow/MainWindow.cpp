@@ -9,6 +9,7 @@
 #include "services/ProjectFile.h"
 #include "services/SettingsStore.h"
 #include "ui/canvas/CanvasPanel.h"
+#include "ui/common/AnimatedToolButton.h"
 #include "ui/database/DatabasePanel.h"
 #include "ui/mainwindow/PlaceholderPanel.h"
 #include "ui/output/OutputPanel.h"
@@ -592,15 +593,32 @@ void MainWindow::createToolBar()
     m_actionToggleTheme->setIconText(tr("Theme"));
     m_actionReplay->setIconText(tr("Replay"));
 
-    toolBar->addAction(m_actionStart);
-    toolBar->addAction(m_actionStop);
+    // addWidget with our own button, not addAction. QToolBar builds an
+    // ordinary QToolButton for an action, and there is no hook to substitute
+    // the class - so the button is constructed here and bound to the action
+    // with setDefaultAction, which carries the icon, label, shortcut, tooltip
+    // and enabled state across exactly as addAction would have.
+    const auto addButton = [this, toolBar](QAction* action) {
+        auto* button = new AnimatedToolButton{action, toolBar};
+
+        // Without this the button ignores the toolbar's own setting and shows
+        // the icon alone, because it was never adopted by the toolbar's action
+        // machinery.
+        button->setToolButtonStyle(toolBar->toolButtonStyle());
+        button->setIconSize(toolBar->iconSize());
+
+        toolBar->addWidget(button);
+    };
+
+    addButton(m_actionStart);
+    addButton(m_actionStop);
     toolBar->addSeparator();
-    toolBar->addAction(m_actionRecord);
-    toolBar->addAction(m_actionReplay);
+    addButton(m_actionRecord);
+    addButton(m_actionReplay);
     toolBar->addSeparator();
-    toolBar->addAction(m_actionHardwareConfiguration);
+    addButton(m_actionHardwareConfiguration);
     toolBar->addSeparator();
-    toolBar->addAction(m_actionToggleTheme);
+    addButton(m_actionToggleTheme);
 
     addToolBar(Qt::TopToolBarArea, toolBar);
 }
