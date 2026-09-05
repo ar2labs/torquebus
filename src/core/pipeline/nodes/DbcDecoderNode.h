@@ -81,6 +81,19 @@ public:
     /// contract exists for.
     [[nodiscard]] Result prepare(std::size_t maximumBatchSize) override;
 
+    [[nodiscard]] std::vector<NodeStatistic> statistics() const override
+    {
+        return {
+            {"Frames decoded", m_decoded},
+            // The one worth reading first. A count that reaches 100% of the
+            // traffic is the tell that the wrong database is loaded, and until
+            // now there was nowhere it could be seen.
+            {"Frames not in the database", m_unknown},
+            {"Signals emitted", m_emitted},
+            {"Signals in frames too short", m_truncated},
+        };
+    }
+
     void process(NodeContext& context) override;
 
     [[nodiscard]] const std::shared_ptr<const CanDatabase>& database() const noexcept

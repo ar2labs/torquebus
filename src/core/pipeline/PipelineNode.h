@@ -97,6 +97,22 @@ private:
     std::span<PortBatch> m_outputs;
 };
 
+/// One number a node is willing to show a person, and what it means.
+///
+/// A node reports its own counters with its own words rather than a panel
+/// reaching in with a dynamic_cast for each concrete type it has heard of.
+/// That is the difference between a Statistics panel that has to be edited
+/// every time a node type is added and one that simply shows what is there -
+/// including from a node that arrives in a plugin.
+struct NodeStatistic final {
+    /// Shown as-is. "Frames the database does not describe", not "unknown".
+    /// Ten node types each abbreviating differently is how a table of numbers
+    /// becomes a table nobody can read.
+    std::string label;
+
+    std::uint64_t value{};
+};
+
 class IPipelineNode {
 public:
     IPipelineNode() = default;
@@ -114,6 +130,18 @@ public:
 
     /// Name shown on the block. Editable by the user; not an identity.
     [[nodiscard]] virtual std::string displayName() const { return std::string{typeName()}; }
+
+    /// Counters worth showing, or nothing.
+    ///
+    /// Called from the dispatch thread while statistics windows close, which is
+    /// the thread that owns every one of these numbers. That is why they can
+    /// stay plain integers incremented on the hot path rather than atomics: the
+    /// only reader runs on the same thread as the writer, and what reaches the
+    /// UI is a copy taken there.
+    ///
+    /// Allocating a vector here is fine at ten times a second. It would not be
+    /// fine per frame, which is why nothing calls it per frame.
+    [[nodiscard]] virtual std::vector<NodeStatistic> statistics() const { return {}; }
 
     [[nodiscard]] virtual std::span<const PortDescriptor> inputs() const noexcept = 0;
     [[nodiscard]] virtual std::span<const PortDescriptor> outputs() const noexcept = 0;

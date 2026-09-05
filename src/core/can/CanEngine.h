@@ -159,6 +159,26 @@ public:
     /// One snapshot per channel, in channel order.
     [[nodiscard]] std::vector<CanStatisticsSnapshot> statistics() const;
 
+    /// One node of the running pipeline, and what it has counted.
+    struct NodeReport final {
+        std::string name;
+        std::string typeName;
+        std::vector<NodeStatistic> statistics;
+    };
+
+    /// The pipeline's own counters, as of the last statistics window.
+    ///
+    /// A copy of a snapshot the dispatch thread took, not a live read. The
+    /// counters are plain integers incremented on the hot path, and the only
+    /// thread that touches them is the one running the graph - so the snapshot
+    /// is taken there and this hands out a copy under a lock.
+    ///
+    /// Reading them directly from here would be a data race with a pleasant
+    /// interface on it, and making every counter atomic would put a locked
+    /// instruction on the frame path to serve a panel that repaints ten times a
+    /// second.
+    [[nodiscard]] std::vector<NodeReport> nodeStatistics() const;
+
     /// Total frames delivered to sinks since the measurement started.
     [[nodiscard]] std::uint64_t deliveredFrames() const noexcept
     {
@@ -308,6 +328,10 @@ private:
     /// Frame buffers now live in the nodes themselves; only the statistics
     /// snapshot is still gathered here.
     std::vector<CanStatisticsSnapshot> m_statisticsScratch;
+
+    /// Written by the dispatch thread in publishStatistics, read by the UI.
+    mutable std::mutex m_nodeStatisticsMutex;
+    std::vector<NodeReport> m_nodeStatistics;
 };
 
 } // namespace torquebus

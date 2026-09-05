@@ -82,6 +82,18 @@ public:
     /// Runs on_disable().
     void finish() override;
 
+    [[nodiscard]] std::vector<NodeStatistic> statistics() const override
+    {
+        return {
+            {"Frames emitted", m_emitted},
+            {"Signal values saturated", m_saturated},
+            // A faulted script has gone quiet after its error limit, and the
+            // measurement carried on without it. That is the right behaviour
+            // and an easy thing not to notice, so it gets a number.
+            {"Stopped after repeated errors", m_faulted ? 1U : 0U},
+        };
+    }
+
     void setLogHandler(LogHandler handler) { m_log = std::move(handler); }
 
     /// The database `emit_signal` and `decode` work against.
