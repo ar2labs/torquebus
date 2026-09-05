@@ -127,8 +127,11 @@ QToolButton {
     padding: 3px 7px;
 }
 
+/* The hover *fill* is not here: AnimatedToolButton paints it, so that it fades
+ * in rather than snapping, and a style sheet rule would draw a second one
+ * underneath. The border stays - it is the edge of the state, and an edge that
+ * faded in with the fill would read as blurry rather than smooth. */
 QToolButton:hover {
-    background-color: @hover;
     border-color: @border;
 }
 

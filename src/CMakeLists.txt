@@ -165,6 +165,8 @@ qt_add_library(torquebus_ui STATIC
     ui/mainwindow/DockChrome.h
     ui/mainwindow/DockChrome.cpp
     ui/common/Motion.h
+    ui/common/AnimatedToolButton.h
+    ui/common/AnimatedToolButton.cpp
     ui/mainwindow/MainWindow.h
     ui/mainwindow/MainWindow.cpp
     ui/mainwindow/PlaceholderPanel.h

@@ -142,6 +142,10 @@ panels.
   of moving it in one step, and leaves a brief ripple from the point of the
   click. Dragging a tab to reorder it snaps the marker rather than animating:
   nothing moved from anywhere, the strip was relaid out.
+- Toolbar buttons fade in their hover fill and ripple from the point of a
+  click, with the icon and label at full strength on top - never tinted.
+  **Press Start**: the moment it disables itself the wash goes with it, rather
+  than staying lit under a cursor that is no longer over anything clickable.
 - No pale or white line anywhere along a panel edge.
 - **Pipeline** tab: the canvas is the deepest surface in the theme, the 150 px
   grid reads as a faint guide, and the 15 px grid is felt rather than seen. The
