@@ -14,12 +14,35 @@
 #include "core/trace/TraceStore.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <utility>
 
 namespace torquebus {
 namespace {
+
+/// A parameter path, made absolute against the project's directory.
+///
+/// An absolute path is returned unchanged: a user who typed one meant it, and
+/// silently reinterpreting it against a project folder would be worse than the
+/// problem this solves.
+[[nodiscard]] std::string resolvePath(const NodeBuildContext& context, std::string path)
+{
+    if (path.empty() || context.basePath.empty()) {
+        return path;
+    }
+
+    const std::filesystem::path candidate{path};
+    if (candidate.is_absolute()) {
+        return path;
+    }
+
+    // lexically_normal so that "../scripts/ecu.lua" comes out readable in an
+    // error message rather than as a base directory with a "/../" in the
+    // middle of it.
+    return (std::filesystem::path{context.basePath} / candidate).lexically_normal().string();
+}
 
 /// Reads a script from disk, so a project can reference a .lua by path.
 [[nodiscard]] Result readFile(const std::string& path, std::string& out)
@@ -267,7 +290,7 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             std::string name{nodeId};
 
             if (hasPath) {
-                const std::string path = parameters.text("scriptPath");
+                const std::string path = resolvePath(context, parameters.text("scriptPath"));
                 if (Result result = readFile(path, source); result.failed()) {
                     return Result::error(result.code(),
                                          std::format("Node '{}': {}", nodeId,
@@ -344,9 +367,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                                .required = true,
                                                .description = "Path to a .dbc file."}},
         },
-        [](const NodeParameters& parameters, const NodeBuildContext&, std::string_view nodeId,
-           std::unique_ptr<IPipelineNode>& out) -> Result {
-            const std::string path{parameters.text("database", "")};
+        [](const NodeParameters& parameters, const NodeBuildContext& context,
+           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
+            const std::string path = resolvePath(context, parameters.text("database", ""));
 
             // An empty path builds a decoder with no database rather than
             // failing. A block dropped on the canvas has no path yet, and a

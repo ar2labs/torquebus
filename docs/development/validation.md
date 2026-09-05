@@ -201,6 +201,15 @@ This is the acceptance test for v0.6 and v0.7 together.
    restart.
 7. **File → New Project**. It asks about unsaved changes, because step 6 changed
    something. Answer **Cancel** — nothing should be lost.
+8. Reopen the example project, drop a **DBC Decoder** block on the canvas and
+   set its **Database** to `..\databases\vehicle.dbc` — a path relative to the
+   project file, not to wherever the executable was launched from. Press
+   **Start**. The Output panel reports the pipeline building, with no file
+   error.
+
+   Then launch the application from a different directory entirely and repeat.
+   It has to behave the same: that is the whole point, and until this release
+   the project only opened from the repository root.
 
 **Worked:** all seven. Step 4 is the one that proves the milestone: a script
 edited in the window is running on a bus and reaching a panel.

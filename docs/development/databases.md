@@ -194,8 +194,14 @@ looking at while you open the file in an editor.
 
 Drop a **DBC Decoder** block and set its `database` parameter to a `.dbc` path.
 
-> **Known gap.** That path is resolved against the process's working directory,
-> not against the `.tbsproj`. Use an absolute path until that is fixed.
+A relative path is resolved against the **project file's own directory**, so a
+`.tbsproj` and the databases beside it travel together and open from anywhere.
+An absolute path is left exactly as written — somebody who typed one meant it.
+
+Resolution happens when the graph is built, not when the project is read. Doing
+it at load would make the stored paths absolute, and the next save would write
+them back that way — turning a project that travels with its folder into one
+pinned to the machine that last saved it.
 
 The panel and the graph are deliberately separate: a decoder block names its own
 file, so a project describes its own decoding rather than depending on what
