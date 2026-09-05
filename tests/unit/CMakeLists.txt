@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 add_executable(torquebus_unit_tests
+    AccentColorTests.cpp
     CanFrameTests.cpp
     CanSignalEncodeTests.cpp
     LuaSignalTests.cpp
@@ -29,6 +30,7 @@ target_link_libraries(torquebus_unit_tests
     PRIVATE torquebus::core
             torquebus::drivers
             torquebus::services
+            torquebus::theme
             torquebus::warnings
             Catch2::Catch2WithMain
 )

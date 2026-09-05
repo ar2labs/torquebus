@@ -155,14 +155,45 @@ target_link_libraries(torquebus_services
 set_target_properties(torquebus_services PROPERTIES FOLDER "Libraries")
 
 # ---------------------------------------------------------------------------
+# torquebus_theme - the colour vocabulary, and nothing that draws
+# ---------------------------------------------------------------------------
+#
+# Split out of torquebus_ui so it can be tested. The accent colour is derived
+# by arithmetic - a hue, a contrast search, a pair of tones - and arithmetic
+# that decides what the window looks like is arithmetic worth having tests for.
+# Linking the whole UI into the test binary to reach it would drag in Widgets,
+# KDDockWidgets and QtNodes to check a number.
+#
+# Qt6::Gui and no further: QColor is a value type and none of this needs a
+# QGuiApplication, which is what lets the tests run headless in CI.
+
+add_library(torquebus_theme STATIC
+    ui/theme/Theme.h
+    ui/theme/Theme.cpp
+    ui/theme/AccentColor.h
+    ui/theme/AccentColor.cpp
+    ui/theme/Contrast.h
+    ui/theme/Contrast.cpp
+)
+
+add_library(torquebus::theme ALIAS torquebus_theme)
+
+target_include_directories(torquebus_theme PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+
+target_link_libraries(torquebus_theme
+    PUBLIC  Qt6::Gui
+    PRIVATE torquebus::warnings
+)
+
+set_target_properties(torquebus_theme PROPERTIES FOLDER "Libraries")
+
+# ---------------------------------------------------------------------------
 # torquebus_ui - widgets, theming and docking
 # ---------------------------------------------------------------------------
 
 qt_add_library(torquebus_ui STATIC
     ui/engine/CanEngineController.h
     ui/engine/CanEngineController.cpp
-    ui/theme/Theme.h
-    ui/theme/Theme.cpp
     ui/theme/ThemeManager.h
     ui/theme/ThemeManager.cpp
     ui/mainwindow/Docking.h
@@ -227,6 +258,7 @@ target_link_libraries(torquebus_ui
     PUBLIC  torquebus::core
             torquebus::drivers
             torquebus::services
+            torquebus::theme
             Qt6::Widgets
             Qt6::Svg
             Qt6::SvgWidgets
