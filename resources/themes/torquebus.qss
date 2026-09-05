@@ -280,10 +280,14 @@ QTabBar::tab:hover:!selected {
     color: @text;
 }
 
+/* The accent marker is NOT here. StyledTabBar paints it, so that it slides
+ * between tabs instead of jumping - two markers would be drawn if this rule
+ * kept its own. The transparent border stays: it reserves the two pixels, so
+ * the label does not shift down when a tab becomes current. */
 QTabBar::tab:selected {
     background-color: @panel;
     color: @text;
-    border-top: 2px solid @accent;
+    border-top: 2px solid transparent;
 }
 
 /*
