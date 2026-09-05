@@ -438,10 +438,15 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             .description = "Frames a person asked to send, on a schedule or on demand.",
             .inputs = {},
             .outputs = {PortDescriptor{"frames", PortType::Frames}},
-            .parameters = {},
+            .parameters = {ParameterDescriptor{
+                .name = "channel",
+                .displayName = "Channel",
+                .type = ParameterValue::Type::Integer,
+                .required = false,
+                .description = "Which channel's rows this block sends. 0 for CAN 1."}},
         },
-        [](const NodeParameters&, const NodeBuildContext& context, std::string_view nodeId,
-           std::unique_ptr<IPipelineNode>& out) -> Result {
+        [](const NodeParameters& parameters, const NodeBuildContext& context,
+           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
             if (context.transmitList == nullptr) {
                 return Result::error(
                     ErrorCode::InvalidState,
@@ -450,7 +455,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                 nodeId));
             }
 
-            out = std::make_unique<TransmitListNode>(*context.transmitList);
+            const auto channel = static_cast<std::uint8_t>(parameters.integer("channel", 0));
+
+            out = std::make_unique<TransmitListNode>(*context.transmitList, channel);
             return Result::ok();
         });
 

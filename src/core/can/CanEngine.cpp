@@ -6,6 +6,7 @@
 #include "core/can/CanEngine.h"
 
 #include "core/pipeline/nodes/FrameNodes.h"
+#include "core/transmit/TransmitListNode.h"
 #include "core/trace/TraceSinkNode.h"
 
 #include <algorithm>
@@ -241,6 +242,36 @@ Result CanEngine::buildGraph()
         if (Result result = m_graph.connect(PortRef{source, 0}, PortRef{traceNode, 0});
             result.failed()) {
             return result;
+        }
+    }
+
+    // The implicit transmit path, for the same reason as the trace above.
+    //
+    // ARCHITECTURE.md 3b says reading a bus must never cost a visit to the
+    // canvas. Transmitting is the same promise seen from the other side: a user
+    // who fills in a row in the Transmit panel and presses Send has said
+    // everything they mean, and requiring them to also drop a block and draw a
+    // wire before anything happens would make the panel look broken.
+    //
+    // One pair per channel. Each list node collects only the rows that name its
+    // own channel, so a row goes out once, on the bus it was addressed to.
+    if (m_transmitList != nullptr) {
+        // Counted in size_t and narrowed, not counted in uint8_t: a loop whose
+        // counter is the same width as its limit never terminates once the
+        // limit passes 255.
+        for (std::size_t index = 0; index < m_channels.size(); ++index) {
+            const auto channel = static_cast<std::uint8_t>(index);
+
+            const NodeId listNode =
+                m_graph.addNode(std::make_unique<TransmitListNode>(*m_transmitList, channel));
+
+            const NodeId sink =
+                m_graph.addNode(std::make_unique<ChannelSinkNode>(*m_channels[index]));
+
+            if (Result result = m_graph.connect(PortRef{listNode, 0}, PortRef{sink, 0});
+                result.failed()) {
+                return result;
+            }
         }
     }
 

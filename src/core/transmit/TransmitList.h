@@ -16,15 +16,18 @@
 // already makes for its sink lists, and for the same reason: the contention is
 // a person against a loop, and the person always wins by being asleep.
 //
-// A one-shot send is different. Pressing "send" is a UI-thread event that must
-// reach the bus on the next pass, and blocking the executor behind a mutex the
-// UI happens to hold at that instant is the one case where the cost lands on
-// the measurement. Those go through the lock-free queue instead - the same
-// FrameQueue the drivers use.
+// One-shot sends were originally a lock-free FrameQueue, on the argument that a
+// button press must never block the executor. That argument was inconsistent
+// with the one above - a mutex held for the length of a scan is fine in both
+// directions - and it broke outright the moment there was more than one
+// channel: FrameQueue is single-producer *single-consumer*, and one node per
+// channel means several consumers each draining a fragment of the queue.
+//
+// They are an ordinary guarded vector now. Presses happen at human speed and
+// the executor holds the lock for microseconds.
 
 #pragma once
 
-#include "core/can/FrameQueue.h"
 #include "core/transmit/TransmitEntry.h"
 
 #include <cstdint>
@@ -51,6 +54,12 @@ public:
     /// Bounded, like every other queue here. A user leaning on the send button
     /// while the engine is stopped would otherwise grow it without limit.
     static constexpr std::size_t kOneShotCapacity = 256;
+
+    /// A frame waiting to go out once, and the channel it was asked for on.
+    struct OneShot final {
+        CanFrame frame;
+        std::uint8_t channel{0};
+    };
 
     TransmitList() = default;
 
@@ -90,19 +99,22 @@ public:
     /// Returns false when the queue is full, which is the honest answer: the
     /// frame was not accepted, and a caller that ignores it will wonder why
     /// nothing happened.
-    [[nodiscard]] bool sendOnce(const CanFrame& frame);
+    [[nodiscard]] bool sendOnce(const CanFrame& frame, std::uint8_t channel);
 
     /// Queues the entry at `index`, if it exists and is enabled.
     [[nodiscard]] bool sendOnce(std::size_t index);
 
-    /// Everything that should go out now, appended to `out`.
+    /// Everything that should go out on `channel` now, appended to `out`.
     ///
     /// `nowUs` is microseconds since the measurement started - the same clock
     /// the frame timestamps use, so a user comparing a send time against a
     /// trace row is comparing two numbers that mean the same thing.
     ///
-    /// Called once per dispatch pass from the executor thread.
-    void collectDue(std::uint64_t nowUs, std::vector<CanFrame>& out);
+    /// Called once per dispatch pass per channel, from the executor thread. The
+    /// channel filter is what lets one list serve every bus at once: a row is
+    /// collected by the node that serves the channel the row names, and by no
+    /// other.
+    void collectDue(std::uint64_t nowUs, std::uint8_t channel, std::vector<CanFrame>& out);
 
     /// Forgets when each periodic entry last went out.
     ///
@@ -121,7 +133,9 @@ private:
     /// m_entries and maintained with it.
     std::vector<std::uint64_t> m_nextDueUs;
 
-    FrameQueue m_oneShots{kOneShotCapacity};
+    /// Guarded by the same mutex. See the note at the top of the file for why
+    /// this is not the lock-free queue it started as.
+    std::vector<OneShot> m_oneShots;
 };
 
 } // namespace torquebus

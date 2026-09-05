@@ -48,6 +48,15 @@ struct TransmitEntry final {
     /// Exactly what goes on the bus.
     CanFrame frame;
 
+    /// Application channel this row transmits on; 0 is CAN 1.
+    ///
+    /// On the entry rather than on the frame, even though CanFrame has a
+    /// channel field, because this is a property of the *row* - where the user
+    /// decided to send it - and the frame's channel is stamped from it at send
+    /// time. Keeping the decision and its consequence in separate places is
+    /// what lets the panel show a column the user can change.
+    std::uint8_t channel{0};
+
     TransmitTrigger trigger{TransmitTrigger::Manual};
 
     /// Period in milliseconds. Ignored unless `trigger` is Periodic.

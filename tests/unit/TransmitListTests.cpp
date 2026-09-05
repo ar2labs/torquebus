@@ -48,6 +48,12 @@ namespace {
     return entry;
 }
 
+/// collectDue for channel 0, which is what most of these cases care about.
+void collect(TransmitList& list, std::uint64_t nowUs, std::vector<CanFrame>& out)
+{
+    list.collectDue(nowUs, 0, out);
+}
+
 /// Milliseconds, in the microseconds collectDue speaks.
 [[nodiscard]] constexpr std::uint64_t ms(std::uint64_t value)
 {
@@ -65,9 +71,9 @@ TEST_CASE("A manual entry never sends by itself", "[transmit]")
     (void)list.add(manual(0x100));
 
     std::vector<CanFrame> out;
-    list.collectDue(ms(0), out);
-    list.collectDue(ms(1000), out);
-    list.collectDue(ms(100000), out);
+    collect(list, ms(0), out);
+    collect(list, ms(1000), out);
+    collect(list, ms(100000), out);
 
     CHECK(out.empty());
 }
@@ -82,21 +88,21 @@ TEST_CASE("A periodic entry sends immediately and then on its period",
 
     // Straight away, not one period from now. Waiting a second before the first
     // frame of a 1 Hz message looks exactly like a list that is not working.
-    list.collectDue(ms(0), out);
+    collect(list, ms(0), out);
     REQUIRE(out.size() == 1);
     CHECK(out.front().identifier == 0x100);
 
     // Not yet.
-    list.collectDue(ms(50), out);
+    collect(list, ms(50), out);
     CHECK(out.size() == 1);
 
-    list.collectDue(ms(100), out);
+    collect(list, ms(100), out);
     CHECK(out.size() == 2);
 
-    list.collectDue(ms(199), out);
+    collect(list, ms(199), out);
     CHECK(out.size() == 2);
 
-    list.collectDue(ms(200), out);
+    collect(list, ms(200), out);
     CHECK(out.size() == 3);
 }
 
@@ -114,19 +120,19 @@ TEST_CASE("A late pass sends once, not a burst to catch up", "[transmit]")
     (void)list.add(periodic(0x100, 100));
 
     std::vector<CanFrame> out;
-    list.collectDue(ms(0), out);
+    collect(list, ms(0), out);
     REQUIRE(out.size() == 1);
 
     // A whole second with no dispatch at all.
-    list.collectDue(ms(1000), out);
+    collect(list, ms(1000), out);
     CHECK(out.size() == 2);
 
     // And the period restarts from when it actually went out, not from when it
     // was owed.
-    list.collectDue(ms(1050), out);
+    collect(list, ms(1050), out);
     CHECK(out.size() == 2);
 
-    list.collectDue(ms(1100), out);
+    collect(list, ms(1100), out);
     CHECK(out.size() == 3);
 }
 
@@ -139,17 +145,17 @@ TEST_CASE("A disabled entry stops, and re-enabling starts the period again",
     const std::size_t index = list.add(periodic(0x100, 100));
 
     std::vector<CanFrame> out;
-    list.collectDue(ms(0), out);
+    collect(list, ms(0), out);
     REQUIRE(out.size() == 1);
 
     list.setEnabled(index, false);
-    list.collectDue(ms(100), out);
-    list.collectDue(ms(200), out);
+    collect(list, ms(100), out);
+    collect(list, ms(200), out);
     CHECK(out.size() == 1);
 
     // Back on: due now, rather than counting the time it spent off as elapsed.
     list.setEnabled(index, true);
-    list.collectDue(ms(250), out);
+    collect(list, ms(250), out);
     CHECK(out.size() == 2);
 }
 
@@ -162,13 +168,13 @@ TEST_CASE("A one-shot goes out on the next pass whatever the schedule says",
     CHECK(list.sendOnce(index));
 
     std::vector<CanFrame> out;
-    list.collectDue(ms(0), out);
+    collect(list, ms(0), out);
 
     REQUIRE(out.size() == 1);
     CHECK(out.front().identifier == 0x200);
 
     // Once, not once per pass.
-    list.collectDue(ms(10), out);
+    collect(list, ms(10), out);
     CHECK(out.size() == 1);
 }
 
@@ -183,7 +189,7 @@ TEST_CASE("A one-shot on a disabled row is refused", "[transmit]")
     CHECK_FALSE(list.sendOnce(index));
 
     std::vector<CanFrame> out;
-    list.collectDue(ms(0), out);
+    collect(list, ms(0), out);
     CHECK(out.empty());
 }
 
@@ -198,8 +204,8 @@ TEST_CASE("Editing a row keeps the counters the run has accumulated",
     const std::size_t index = list.add(periodic(0x100, 100));
 
     std::vector<CanFrame> out;
-    list.collectDue(ms(0), out);
-    list.collectDue(ms(100), out);
+    collect(list, ms(0), out);
+    collect(list, ms(100), out);
 
     TransmitEntry edited;
     REQUIRE(list.entryAt(index, edited));
@@ -225,8 +231,8 @@ TEST_CASE("Restarting a measurement does not fire every row at once",
     (void)list.add(periodic(0x101, 500));
 
     std::vector<CanFrame> out;
-    list.collectDue(ms(0), out);
-    list.collectDue(ms(2000), out);
+    collect(list, ms(0), out);
+    collect(list, ms(2000), out);
     REQUIRE(out.size() == 4);
 
     list.restartSchedule();
@@ -234,7 +240,7 @@ TEST_CASE("Restarting a measurement does not fire every row at once",
 
     // Due at zero on the new clock, once each - not once for every period that
     // elapsed while nothing was running.
-    list.collectDue(ms(0), out);
+    collect(list, ms(0), out);
     CHECK(out.size() == 2);
 
     TransmitEntry entry;
@@ -252,14 +258,14 @@ TEST_CASE("A period below the dispatch loop's resolution is clamped",
     (void)list.add(periodic(0x100, 0));
 
     std::vector<CanFrame> out;
-    list.collectDue(ms(0), out);
+    collect(list, ms(0), out);
     CHECK(out.size() == 1);
 
     // Still one full millisecond apart rather than one per call.
-    list.collectDue(500, out);
+    collect(list, 500, out);
     CHECK(out.size() == 1);
 
-    list.collectDue(ms(1), out);
+    collect(list, ms(1), out);
     CHECK(out.size() == 2);
 }
 
@@ -272,17 +278,94 @@ TEST_CASE("Removing a row does not shift another row's schedule", "[transmit]")
     (void)list.add(periodic(0x101, 1000));
 
     std::vector<CanFrame> out;
-    list.collectDue(ms(0), out);
+    collect(list, ms(0), out);
     REQUIRE(out.size() == 2);
 
     list.remove(0);
     out.clear();
 
     // 0x101 is on a 1000 ms period and went out at zero, so it is not due yet.
-    list.collectDue(ms(500), out);
+    collect(list, ms(500), out);
     CHECK(out.empty());
 
-    list.collectDue(ms(1000), out);
+    collect(list, ms(1000), out);
     REQUIRE(out.size() == 1);
     CHECK(out.front().identifier == 0x101);
+}
+
+TEST_CASE("A row goes out on the channel it names, and on no other",
+          "[transmit][channel]")
+{
+    // One list serves every bus. Each channel's node collects only the rows
+    // addressed to it, which is what stops a row going out twice - once per
+    // channel - or on a bus the user did not choose.
+    TransmitList list;
+
+    TransmitEntry first = periodic(0x100, 100);
+    first.channel = 0;
+    (void)list.add(std::move(first));
+
+    TransmitEntry second = periodic(0x200, 100);
+    second.channel = 1;
+    (void)list.add(std::move(second));
+
+    std::vector<CanFrame> channelZero;
+    list.collectDue(ms(0), 0, channelZero);
+
+    REQUIRE(channelZero.size() == 1);
+    CHECK(channelZero.front().identifier == 0x100);
+
+    // And the frame carries the channel, so whatever transmits it and whatever
+    // shows it in a trace agree about which bus it was on.
+    CHECK(channelZero.front().channel == 0);
+
+    std::vector<CanFrame> channelOne;
+    list.collectDue(ms(0), 1, channelOne);
+
+    REQUIRE(channelOne.size() == 1);
+    CHECK(channelOne.front().identifier == 0x200);
+    CHECK(channelOne.front().channel == 1);
+}
+
+TEST_CASE("A one-shot waits for its own channel's pass", "[transmit][channel]")
+{
+    // The case that broke the original design. One-shots were a
+    // single-producer single-consumer queue, and one node per channel means
+    // several consumers - so whichever ran first would drain a frame meant for
+    // another bus and send it on its own.
+    TransmitList list;
+
+    TransmitEntry entry = manual(0x300);
+    entry.channel = 1;
+    const std::size_t index = list.add(std::move(entry));
+
+    CHECK(list.sendOnce(index));
+
+    // Channel 0 runs first and must leave it alone.
+    std::vector<CanFrame> channelZero;
+    list.collectDue(ms(0), 0, channelZero);
+    CHECK(channelZero.empty());
+
+    std::vector<CanFrame> channelOne;
+    list.collectDue(ms(0), 1, channelOne);
+    REQUIRE(channelOne.size() == 1);
+    CHECK(channelOne.front().identifier == 0x300);
+}
+
+TEST_CASE("A press made while stopped does not fire when the run starts",
+          "[transmit]")
+{
+    // Send is pressed, nothing is running, the frame waits. Ten minutes later
+    // somebody presses Start - and a press from ten minutes ago is not a
+    // request to transmit now.
+    TransmitList list;
+    const std::size_t index = list.add(manual(0x400));
+
+    CHECK(list.sendOnce(index));
+
+    list.restartSchedule();
+
+    std::vector<CanFrame> out;
+    collect(list, ms(0), out);
+    CHECK(out.empty());
 }
