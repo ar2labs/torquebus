@@ -221,6 +221,12 @@ qt_add_library(torquebus_ui STATIC
     ui/canvas/CanvasPanel.cpp
     ui/database/DatabasePanel.h
     ui/database/DatabasePanel.cpp
+    ui/preferences/AccentSwatchRow.h
+    ui/preferences/AccentSwatchRow.cpp
+    ui/preferences/PreferencesDialog.h
+    ui/preferences/PreferencesDialog.cpp
+    ui/preferences/ThemeCard.h
+    ui/preferences/ThemeCard.cpp
     ui/statistics/StatisticsPanel.h
     ui/statistics/StatisticsPanel.cpp
     ui/trace/TraceModel.h

@@ -171,6 +171,12 @@ void TracePanel::setDatabases(std::vector<std::shared_ptr<const CanDatabase>> da
     m_model->setDatabases(std::move(databases));
 }
 
+void TracePanel::applyPreferences(int refreshMs, bool decimalIdentifiers)
+{
+    m_model->setRefreshIntervalMs(refreshMs);
+    m_model->setDecimalIdentifiers(decimalIdentifiers);
+}
+
 void TracePanel::setStore(const TraceStore* store)
 {
     m_store = store;

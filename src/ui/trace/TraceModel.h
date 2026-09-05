@@ -84,6 +84,16 @@ public:
     /// repaint storm.
     void setRefreshIntervalMs(int milliseconds);
 
+    /// Whether identifiers are written in decimal rather than hexadecimal.
+    ///
+    /// Hex is the default and the right default: a database, a datasheet and
+    /// every other tool in this family writes a CAN identifier in hex. Decimal
+    /// exists because some J1939 documents quote PGNs that way, and reading a
+    /// trace with one eye on such a document is otherwise an exercise in
+    /// converting numbers by hand.
+    void setDecimalIdentifiers(bool decimal);
+    [[nodiscard]] bool usesDecimalIdentifiers() const noexcept { return m_decimalIdentifiers; }
+
     /// Stops picking up new rows. The store keeps filling - freezing the view
     /// must not lose data - so resuming catches up rather than skipping.
     void setFrozen(bool frozen);
@@ -143,6 +153,7 @@ private:
     std::uint64_t m_lastDiscarded{0};
 
     bool m_frozen{false};
+    bool m_decimalIdentifiers{false};
 
     std::vector<std::shared_ptr<const CanDatabase>> m_databases;
 };

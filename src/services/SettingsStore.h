@@ -69,6 +69,16 @@ namespace keys {
 inline constexpr auto kTheme            = "ui/theme";
 inline constexpr auto kAccent           = "ui/accent";
 inline constexpr auto kFollowSystemTheme = "ui/followSystemTheme";
+inline constexpr auto kDensity          = "ui/density";
+
+/// Splitters *inside* a panel. The dock layout saver knows about docks and the
+/// boundaries between them; a splitter a panel put inside itself is invisible
+/// to it, so each one that exists is stored here by name.
+inline constexpr auto kCanvasSplitter     = "ui/canvas/splitter";
+inline constexpr auto kStatisticsSplitter = "ui/statistics/splitter";
+
+inline constexpr auto kTraceRefreshMs      = "trace/refreshMs";
+inline constexpr auto kDecimalIdentifiers  = "trace/decimalIdentifiers";
 inline constexpr auto kWindowGeometry   = "ui/window/geometry";
 inline constexpr auto kWindowState      = "ui/window/state";
 inline constexpr auto kDockLayout       = "ui/window/dockLayout";

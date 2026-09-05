@@ -40,6 +40,10 @@ public:
     /// Databases used to name messages and fill the Signals column.
     void setDatabases(std::vector<std::shared_ptr<const CanDatabase>> databases);
 
+    /// Applies the Trace preferences. Called by the window when the
+    /// Preferences dialog changes them, and once at startup.
+    void applyPreferences(int refreshMs, bool decimalIdentifiers);
+
     /// True while the view is following new rows.
     [[nodiscard]] bool isFollowing() const noexcept { return m_following; }
 

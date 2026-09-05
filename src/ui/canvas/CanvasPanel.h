@@ -23,9 +23,12 @@
 #include "core/pipeline/NodeCatalog.h"
 #include "ui/theme/Theme.h"
 
+#include <QByteArray>
 #include <QWidget>
 
 #include <memory>
+
+class QSplitter;
 
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -58,6 +61,17 @@ public:
     /// destructor, before that description dies. See the definition for why the
     /// panel cannot simply do this in its own destructor.
     void releaseGraph();
+
+    /// The position of the divider inside this panel, for the settings file.
+    ///
+    /// The dock layout saver knows about docks and the boundaries between them.
+    /// A splitter a panel put inside itself is invisible to it, so unless it is
+    /// saved here, dragging this divider is the one arrangement in the window
+    /// that does not survive a restart.
+    [[nodiscard]] QByteArray splitterState() const;
+
+    /// Ignores an empty or unusable state, leaving the default proportions.
+    void restoreSplitterState(const QByteArray& state);
 
 Q_SIGNALS:
     /// The user selected a node. The Properties panel shows its settings.
@@ -92,6 +106,7 @@ private:
     std::unique_ptr<PipelineGraphModel> m_model;
     QtNodes::BasicGraphicsScene* m_scene{nullptr};
     QtNodes::GraphicsView* m_view{nullptr};
+    QSplitter* m_splitter{nullptr};
     QTreeWidget* m_palette{nullptr};
 };
 

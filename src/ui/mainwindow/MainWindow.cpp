@@ -13,6 +13,7 @@
 #include "ui/database/DatabasePanel.h"
 #include "ui/mainwindow/PlaceholderPanel.h"
 #include "ui/output/OutputPanel.h"
+#include "ui/preferences/PreferencesDialog.h"
 #include "ui/project/ProjectExplorerPanel.h"
 #include "ui/properties/NodePropertiesEditor.h"
 #include "ui/properties/PropertiesPanel.h"
@@ -327,6 +328,14 @@ void MainWindow::createPanels()
     m_tracePanel = new TracePanel;
     m_tracePanel->setStore(&m_controller->engine().traceStore());
 
+    // The Trace preferences the file remembers, applied before the first frame
+    // arrives rather than at the first visit to the dialog.
+    m_tracePanel->applyPreferences(
+        m_settings.intValue(QString::fromLatin1(services::keys::kTraceRefreshMs),
+                            PreferencesDialog::kDefaultTraceRefreshMs),
+        m_settings.boolValue(QString::fromLatin1(services::keys::kDecimalIdentifiers),
+                             PreferencesDialog::kDefaultDecimalIdentifiers));
+
     m_traceDock = createDockWidget(dockName(kDockTrace), tr("CAN Trace"),
                                    m_tracePanel, icon("trace"));
 
@@ -488,6 +497,16 @@ void MainWindow::createActions()
     m_actionToggleTheme->setShortcut(QKeySequence{Qt::CTRL | Qt::SHIFT | Qt::Key_T});
     connect(m_actionToggleTheme, &QAction::triggered, this, &MainWindow::onToggleTheme);
 
+    m_actionPreferences = new QAction(icon("properties"), tr("&Preferences..."), this);
+
+    // Both, because QKeySequence::Preferences is bound on macOS and empty on
+    // Windows - and Ctrl+, is what a hand reaches for on Windows anyway, since
+    // that is what VS Code and every editor beside it uses. An empty standard
+    // sequence in the list costs nothing.
+    m_actionPreferences->setShortcuts(
+        {QKeySequence::Preferences, QKeySequence{Qt::CTRL | Qt::Key_Comma}});
+    connect(m_actionPreferences, &QAction::triggered, this, &MainWindow::onPreferences);
+
     m_actionResetLayout = new QAction(tr("&Reset Window Layout"), this);
     connect(m_actionResetLayout, &QAction::triggered, this, &MainWindow::applyDefaultLayout);
 
@@ -570,6 +589,8 @@ void MainWindow::createMenus()
 
     QMenu* toolsMenu = bar->addMenu(tr("&Tools"));
     toolsMenu->addAction(m_actionToggleTheme);
+    toolsMenu->addSeparator();
+    toolsMenu->addAction(m_actionPreferences);
     toolsMenu->addSeparator();
     toolsMenu->addAction(m_outputDock->toggleAction());
     toolsMenu->addAction(m_actionInspectChrome);
@@ -759,6 +780,14 @@ void MainWindow::restoreWindowState()
             tr("The saved window layout could not be restored; the default layout was applied."));
         applyDefaultLayout();
     }
+
+    // After the docks are placed, and unconditionally: a divider inside a panel
+    // is the panel's business, not the dock layout's, so it is remembered even
+    // by somebody who has turned the layout restore off.
+    m_canvas->restoreSplitterState(
+        m_settings.binaryValue(QString::fromLatin1(services::keys::kCanvasSplitter)));
+    m_statisticsPanel->restoreSplitterState(
+        m_settings.binaryValue(QString::fromLatin1(services::keys::kStatisticsSplitter)));
 }
 
 void MainWindow::saveWindowState() const
@@ -775,6 +804,13 @@ void MainWindow::saveWindowState() const
                         toString(m_themes.accent()));
     m_settings.setBoolValue(QString::fromLatin1(services::keys::kFollowSystemTheme),
                             m_themes.followsSystemTheme());
+    m_settings.setValue(QString::fromLatin1(services::keys::kDensity),
+                        toString(m_themes.density()));
+
+    m_settings.setBinaryValue(QString::fromLatin1(services::keys::kCanvasSplitter),
+                              m_canvas->splitterState());
+    m_settings.setBinaryValue(QString::fromLatin1(services::keys::kStatisticsSplitter),
+                              m_statisticsPanel->splitterState());
 
     if (!m_settings.save()) {
         qWarning("TorqueBus: failed to write settings to %s",
@@ -906,6 +942,20 @@ void MainWindow::onDeviceSelected(const CanDeviceInfo& device)
 void MainWindow::onToggleTheme()
 {
     m_themes.toggleVariant();
+}
+
+void MainWindow::onPreferences()
+{
+    PreferencesDialog dialog{m_themes, m_settings, this};
+
+    // The Trace settings apply while the dialog is open, like everything else
+    // in it, so the window listens rather than reading the result at the end.
+    // Cancel emits this too, with the values it put back.
+    connect(&dialog, &PreferencesDialog::tracePreferencesChanged, this, [this, &dialog] {
+        m_tracePanel->applyPreferences(dialog.traceRefreshMs(), dialog.decimalIdentifiers());
+    });
+
+    dialog.exec();
 }
 
 void MainWindow::onAbout()

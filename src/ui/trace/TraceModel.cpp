@@ -111,6 +111,26 @@ void TraceModel::setRefreshIntervalMs(int milliseconds)
     m_timer->setInterval(std::max(milliseconds, 1));
 }
 
+void TraceModel::setDecimalIdentifiers(bool decimal)
+{
+    if (decimal == m_decimalIdentifiers) {
+        return;
+    }
+
+    m_decimalIdentifiers = decimal;
+
+    if (rowCount() == 0) {
+        return;
+    }
+
+    // One column, every row. Not a model reset: a reset would scroll the view
+    // back to the top and lose the selection, and the rows have not changed -
+    // only how one of their columns is spelled.
+    Q_EMIT dataChanged(index(0, Identifier),
+                       index(rowCount() - 1, Identifier),
+                       {Qt::DisplayRole});
+}
+
 void TraceModel::setFrozen(bool frozen)
 {
     m_frozen = frozen;
@@ -249,7 +269,12 @@ QString TraceModel::textFor(const TraceRow& row, int column) const
         return frame.isRx() ? QStringLiteral("Rx") : QStringLiteral("Tx");
 
     case Identifier:
-        return QString::fromStdString(toIdentifierString(frame));
+        // Plain digits in decimal, with no width padding: a hex identifier is
+        // padded to three or eight digits because those widths *mean*
+        // something - standard or extended - and 0000000257 would be padding
+        // that means nothing.
+        return m_decimalIdentifiers ? QString::number(frame.identifier)
+                                    : QString::fromStdString(toIdentifierString(frame));
 
     case Name: {
         // Blank rather than a placeholder when nothing knows this identifier:

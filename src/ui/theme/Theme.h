@@ -115,4 +115,33 @@ struct Theme final {
 [[nodiscard]] ThemeVariant themeVariantFromString(const QString& value,
                                                   ThemeVariant fallback = ThemeVariant::Dark);
 
+/// How much air a row of a table gets.
+///
+/// Not a colour, and here anyway: it is the other half of what "how the
+/// application looks" means, and it is decided in the same place and stored in
+/// the same file. TorqueBus is a dense tool by design - the QSS header says so
+/// - and Comfortable is that design. Compact is for a laptop screen with a
+/// thousand frames on it; Spacious is for reading across a desk, or for anyone
+/// who finds 20-pixel rows hard to hit with a mouse.
+enum class Density {
+    Compact,
+    Comfortable,
+    Spacious
+};
+
+/// Vertical padding, in pixels, applied above and below a table row's text.
+///
+/// Comfortable is 1 px, which is what the style sheet has always had - so the
+/// default changes nothing for anybody who never opens Preferences.
+[[nodiscard]] int rowPaddingFor(Density density);
+
+/// Floor on a row's height, in pixels. Padding alone does not settle it: below
+/// this the row is whatever the font makes it, and the mouse target shrinks
+/// with the font rather than with the setting.
+[[nodiscard]] int rowMinimumHeightFor(Density density);
+
+[[nodiscard]] QString toString(Density density);
+[[nodiscard]] Density densityFromString(const QString& value,
+                                        Density fallback = Density::Comfortable);
+
 } // namespace torquebus::ui

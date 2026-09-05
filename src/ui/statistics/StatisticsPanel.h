@@ -27,12 +27,14 @@
 
 #include "ui/engine/CanEngineController.h"
 
+#include <QByteArray>
 #include <QList>
 #include <QString>
 #include <QWidget>
 
 class QLabel;
 class QShowEvent;
+class QSplitter;
 class QTableWidget;
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -44,6 +46,16 @@ class StatisticsPanel final : public QWidget {
 
 public:
     explicit StatisticsPanel(QWidget* parent = nullptr);
+
+    /// The position of the divider between the two tables.
+    ///
+    /// Saved here because the dock layout saver only knows about docks and the
+    /// boundaries between them; a splitter a panel put inside itself is
+    /// invisible to it.
+    [[nodiscard]] QByteArray splitterState() const;
+
+    /// Ignores an empty or unusable state, leaving the default proportions.
+    void restoreSplitterState(const QByteArray& state);
 
 public Q_SLOTS:
     /// One row per channel. Connected to CanEngineController::statusUpdated.
@@ -86,6 +98,7 @@ private:
 
     void rebuildTree(const QList<NodeStatus>& nodes);
 
+    QSplitter* m_splitter{nullptr};
     QTableWidget* m_channels{nullptr};
     QTreeWidget* m_nodes{nullptr};
     QLabel* m_status{nullptr};
