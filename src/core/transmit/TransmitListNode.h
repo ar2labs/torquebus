@@ -73,6 +73,11 @@ public:
 
     [[nodiscard]] std::uint64_t sentFrames() const noexcept { return m_sent; }
 
+    [[nodiscard]] std::vector<NodeStatistic> statistics() const override
+    {
+        return {{"Frames sent from the list", m_sent}};
+    }
+
 private:
     static constexpr std::array<PortDescriptor, 1> kOutputs{
         PortDescriptor{"frames", PortType::Frames},

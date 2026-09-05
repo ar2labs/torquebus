@@ -157,6 +157,11 @@ public:
 
     [[nodiscard]] std::uint64_t rejectedFrames() const noexcept { return m_rejected; }
 
+    [[nodiscard]] std::vector<NodeStatistic> statistics() const override
+    {
+        return {{"Frames rejected", m_rejected}};
+    }
+
 private:
     static constexpr std::array<PortDescriptor, 1> kInputs{
         PortDescriptor{"frames", PortType::Frames},
@@ -215,6 +220,14 @@ public:
 
     [[nodiscard]] std::uint64_t transmittedFrames() const noexcept { return m_transmitted; }
     [[nodiscard]] std::uint64_t failedFrames() const noexcept { return m_failed; }
+
+    [[nodiscard]] std::vector<NodeStatistic> statistics() const override
+    {
+        // Failures are counted rather than logged per frame, so this is the
+        // only place a bus that has gone bus-off becomes visible without
+        // reading the channel state.
+        return {{"Frames transmitted", m_transmitted}, {"Transmissions failed", m_failed}};
+    }
 
 private:
     static constexpr std::array<PortDescriptor, 1> kTransmitInputs{
@@ -291,6 +304,11 @@ public:
     }
 
     [[nodiscard]] std::uint64_t deliveredFrames() const noexcept { return m_delivered; }
+
+    [[nodiscard]] std::vector<NodeStatistic> statistics() const override
+    {
+        return {{"Frames delivered", m_delivered}};
+    }
 
 private:
     static constexpr std::array<PortDescriptor, 1> kInputs{

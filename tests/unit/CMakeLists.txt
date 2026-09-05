@@ -5,6 +5,7 @@ add_executable(torquebus_unit_tests
     CanSignalEncodeTests.cpp
     LuaSignalTests.cpp
     NodePathTests.cpp
+    NodeStatisticsTests.cpp
     CanSignalTests.cpp
     DbcDecoderNodeTests.cpp
     DbcParserTests.cpp

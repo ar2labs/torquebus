@@ -80,6 +80,11 @@ public:
 
     [[nodiscard]] std::uint64_t deliveredSignals() const noexcept { return m_delivered; }
 
+    [[nodiscard]] std::vector<NodeStatistic> statistics() const override
+    {
+        return {{"Signals delivered", m_delivered}};
+    }
+
 private:
     static constexpr std::array<PortDescriptor, 1> kInputs{
         PortDescriptor{"signals", PortType::Signals},

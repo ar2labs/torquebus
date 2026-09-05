@@ -446,6 +446,12 @@ std::size_t CanEngine::pumpOnce()
     return dispatchPass();
 }
 
+std::vector<CanEngine::NodeReport> CanEngine::nodeStatistics() const
+{
+    const std::lock_guard lock{m_nodeStatisticsMutex};
+    return m_nodeStatistics;
+}
+
 void CanEngine::publishStatistics(std::uint64_t elapsedNs)
 {
     const auto sinks = copySinks(m_sinksMutex, m_statisticsSinks);
@@ -460,6 +466,37 @@ void CanEngine::publishStatistics(std::uint64_t elapsedNs)
             channel->closeStatisticsWindow(elapsedNs);
             m_statisticsScratch.push_back(channel->statistics());
         }
+    }
+
+    // The pipeline's counters, taken on the thread that owns them.
+    //
+    // Built into a local and swapped in under the lock, so the UI never sees a
+    // half-filled table and the dispatch thread never holds the lock while
+    // asking a node for its numbers.
+    {
+        std::vector<NodeReport> reports;
+
+        for (const NodeId id : m_graph.nodeIds()) {
+            const IPipelineNode* node = m_graph.node(id);
+            if (node == nullptr) {
+                continue;
+            }
+
+            std::vector<NodeStatistic> counters = node->statistics();
+            if (counters.empty()) {
+                // A node with nothing to report stays out of the table
+                // entirely. A row of a name and no numbers is a row that only
+                // makes the ones that matter harder to find.
+                continue;
+            }
+
+            reports.push_back(NodeReport{node->displayName(),
+                                         std::string{node->typeName()},
+                                         std::move(counters)});
+        }
+
+        const std::lock_guard lock{m_nodeStatisticsMutex};
+        m_nodeStatistics.swap(reports);
     }
 
     if (sinks.empty()) {
