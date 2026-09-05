@@ -36,6 +36,7 @@ namespace torquebus {
 
 class CanChannel;
 class TraceStore;
+class TransmitList;
 
 /// The resources a node may need but must not own.
 ///
@@ -48,6 +49,14 @@ struct NodeBuildContext final {
 
     /// The measurement's trace store, or nullptr when there is none.
     TraceStore* traceStore{nullptr};
+
+    /// The transmit list the Transmit panel edits, or nullptr.
+    ///
+    /// Borrowed, like the trace store. It belongs to the project rather than to
+    /// the graph, because the panel goes on editing it while a measurement runs
+    /// - which is the whole point of a transmit list - and a copy taken at
+    /// compile time would freeze it at whatever it held when Start was pressed.
+    TransmitList* transmitList{nullptr};
 
     /// Where a script's log_message() and errors go.
     std::function<void(const std::string& text, bool isError)> log;

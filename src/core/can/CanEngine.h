@@ -55,6 +55,8 @@
 
 namespace torquebus {
 
+class TransmitList;
+
 /// Receives batches of filtered frames on the engine thread.
 ///
 /// Contract for every sink: do not block, do not throw, and do not call back
@@ -209,6 +211,13 @@ public:
         std::function<Result(PipelineGraph& graph, std::span<const NodeId> sources)>;
 
     /// Replaces the current builder. Takes effect at the next start().
+    /// The transmit list nodes of type `transmit.list` will send from.
+    ///
+    /// Borrowed and not owned, and deliberately not copied into the graph
+    /// description: the panel edits it while a measurement runs, which a copy
+    /// taken at Start would freeze.
+    void setTransmitList(TransmitList* list) noexcept { m_transmitList = list; }
+
     void setGraphBuilder(GraphBuilder builder);
 
     /// Builds the project's nodes from a description instead of from C++.
@@ -263,6 +272,9 @@ private:
     /// The compiled data path. Rebuilt by start(), which creates one source
     /// node per channel and wires the registered sinks to them.
     PipelineGraph m_graph;
+
+    /// Borrowed from the project. Null until the window hands one over.
+    TransmitList* m_transmitList{nullptr};
 
     /// Re-run on every start; see setGraphBuilder().
     GraphBuilder m_graphBuilder;

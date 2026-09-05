@@ -259,6 +259,39 @@ untested until a user finds it.
 
 ---
 
+## 5c. Transmitting by hand
+
+The acceptance test for the Transmit panel. Run it with the virtual bus
+started, and watch the **CAN Trace** while you do.
+
+1. **Transmit** tab → **Add**. A row appears: `New frame`, ID `100`, eight
+   zero bytes, **On** ticked and **Cyc** *not* ticked.
+2. **Nothing is on the bus.** A new row is manual, and manual means it goes out
+   when you say so. This is the point of the panel most worth checking: a list
+   is filled in with the cable already connected to something real.
+3. Type `52 03 00` into **Data**. The **DLC** column follows to 3 on its own -
+   it is derived, not typed.
+4. Press **Send**. Exactly one `0x100` appears in the trace. Press it three
+   more times: three more frames, one per press.
+5. Tick **Cyc** and set **ms** to `200`. Frames now arrive five times a second,
+   and the **Count** column climbs. Untick it and they stop.
+6. Type `zz` into **ID**. The cell snaps back to what it was and the Output
+   panel says the row could not be read. Nothing about a row that failed to
+   parse is left looking committed - believing you are transmitting on an
+   identifier you are not is the failure this prevents.
+7. Untick **On** and press **Send**. Nothing goes out, and the Output panel
+   says why rather than leaving a button that silently does nothing.
+8. With `vehicle.dbc` imported (step 5b), **Add from message...** → pick
+   `VehicleSpeed`. The row arrives named, with the right identifier and length,
+   and with the database's own cycle time already filled in - still manual,
+   because a period is a suggestion and transmitting is a decision.
+
+**Worked:** all eight. Steps 2 and 7 are the ones worth being fussy about;
+they are the difference between a tool that does what it is told and one that
+does things nobody asked for.
+
+---
+
 ## 6. Real hardware (optional)
 
 Only with a Kvaser adapter and CANlib installed.
