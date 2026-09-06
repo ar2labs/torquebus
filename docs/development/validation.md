@@ -136,6 +136,7 @@ because each pins something that was got wrong once:
 | `[contrast]` | The WCAG maths itself — black against white must be 21:1, and green must outrank red must outrank blue |
 | `[settings][bitrate]` | A hand-edited rate no backend has segment timing for being obeyed instead of replaced |
 | `[graph][validate]` | A block that cannot run being reported at Start instead of when it was dropped — and, the other way, a half-configured canvas being refused |
+| `[log]` | A recording that was cut short reading as corrupt instead of as forty-nine whole frames and a note |
 | `[plot]` | A plot quietly lying about the bus: a wrapped ring read out of order, a truncated signal drawn as zero, an axis that shrinks as history ages out |
 | `[statistics][bitrate]` | The default bitrate drifting apart between the three places that spell it |
 | Qt macro guard | A core header using `emit` or `signals` as an identifier |
