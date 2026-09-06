@@ -18,6 +18,7 @@
 
 #include "core/can/CanFrame.h"
 #include "core/database/DecodedSignal.h"
+#include "core/diagnostics/DiagnosticEvent.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -66,10 +67,15 @@ struct PortTraits<DecodedSignal> {
     static constexpr PortType kType = PortType::Signals;
 };
 
-// Pgns and Events get their specialisations as those payload types land
-// (v0.11, v0.14). Declaring the enum values now, rather than growing the enum
-// later, keeps the graph's type checking stable while the payloads are still
-// being designed.
+template <>
+struct PortTraits<DiagnosticEvent> {
+    static constexpr PortType kType = PortType::Events;
+};
+
+// Pgns gets its specialisation when that payload lands. Declaring the enum
+// values before the payloads existed - which is what v0.7 did - is what let
+// Events be wired up here without changing anything the graph had already
+// type-checked.
 
 /// One batch travelling along one edge.
 ///

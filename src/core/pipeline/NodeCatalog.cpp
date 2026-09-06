@@ -11,6 +11,8 @@
 #include "core/pipeline/nodes/FrameNodes.h"
 #include "core/transmit/TransmitListNode.h"
 #include "core/scripting/LuaEcuNode.h"
+#include "core/diagnostics/DiagnosticEvent.h"
+#include "core/isotp/IsoTpNode.h"
 #include "core/log/LogNodes.h"
 #include "core/plot/SignalPlotNode.h"
 #include "core/trace/TraceSinkNode.h"
@@ -603,6 +605,162 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                                   parameters.real("speed", 1.0),
                                                   "Log Replay",
                                                   context.replayControl);
+            return Result::ok();
+        });
+
+    catalog.registerType(
+        NodeTypeInfo{
+            .typeName = "isotp.transport",
+            .displayName = "ISO-TP Transport",
+            .category = "Diagnostics",
+            .description = "Carries diagnostic messages over CAN: ISO 15765-2 "
+                           "segmentation, flow control and timing.",
+            .inputs = {PortDescriptor{"frames", PortType::Frames},
+                       PortDescriptor{"requests", PortType::Events}},
+            .outputs = {PortDescriptor{"frames", PortType::Frames},
+                        PortDescriptor{"messages", PortType::Events}},
+            .parameters =
+                {
+                    ParameterDescriptor{.name = "transmitId",
+                                        .displayName = "Request ID",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description =
+                                            "Identifier this end sends on. 2016 (0x7E0) is "
+                                            "the legislated tester address."},
+                    ParameterDescriptor{.name = "receiveId",
+                                        .displayName = "Response ID",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description =
+                                            "Identifier the ECU answers on. 2024 (0x7E8) "
+                                            "answers 0x7E0."},
+                    ParameterDescriptor{.name = "extendedId",
+                                        .displayName = "29-bit identifiers",
+                                        .type = ParameterValue::Type::Boolean,
+                                        .required = false,
+                                        .description =
+                                            "Heavy vehicles use 29-bit addresses; cars "
+                                            "usually do not."},
+                    ParameterDescriptor{.name = "channel",
+                                        .displayName = "Channel",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description = "Application channel, 0 for CAN 1."},
+                    ParameterDescriptor{.name = "blockSize",
+                                        .displayName = "Block size",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description =
+                                            "Frames this end accepts before asking again. "
+                                            "0 means send it all."},
+                    ParameterDescriptor{.name = "separationTimeMs",
+                                        .displayName = "Separation time (ms)",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description =
+                                            "Gap this end needs between consecutive "
+                                            "frames, 0 to 127."},
+                    ParameterDescriptor{.name = "padding",
+                                        .displayName = "Pad frames",
+                                        .type = ParameterValue::Type::Boolean,
+                                        .required = false,
+                                        .description =
+                                            "Fill every frame to its full length. Many "
+                                            "ECUs ignore a frame that is not padded."},
+                    ParameterDescriptor{.name = "canFd",
+                                        .displayName = "CAN FD",
+                                        .type = ParameterValue::Type::Boolean,
+                                        .required = false,
+                                        .description = "Send with FD frames."},
+                    ParameterDescriptor{.name = "request",
+                                        .displayName = "Request",
+                                        .type = ParameterValue::Type::Text,
+                                        .required = false,
+                                        .description =
+                                            "Bytes to send, as hex: \"22 F1 90\". Left "
+                                            "empty, the block only carries what an "
+                                            "upstream block asks it to."},
+                    ParameterDescriptor{.name = "requestIntervalMs",
+                                        .displayName = "Repeat every (ms)",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description =
+                                            "0 asks once, at Start. Anything else repeats "
+                                            "- which is what a tester watching a value "
+                                            "while somebody drives does."},
+                },
+        },
+        [](const NodeParameters& parameters, const NodeBuildContext& context,
+           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
+            static_cast<void>(context);
+
+            IsoTpAddress address;
+            address.transmitId = static_cast<std::uint32_t>(parameters.integer("transmitId", 0x7E0));
+            address.receiveId = static_cast<std::uint32_t>(parameters.integer("receiveId", 0x7E8));
+            address.format = parameters.boolean("extendedId", false) ? CanFrameFormat::Extended
+                                                                     : CanFrameFormat::Standard;
+            address.channel = static_cast<std::uint8_t>(parameters.integer("channel", 0));
+
+            IsoTpConfig config;
+            config.blockSize = static_cast<std::uint8_t>(parameters.integer("blockSize", 0));
+            config.separationTime =
+                static_cast<std::uint8_t>(parameters.integer("separationTimeMs", 0));
+            config.padding = parameters.boolean("padding", true);
+            config.canFd = parameters.boolean("canFd", false);
+
+            std::vector<std::uint8_t> request;
+
+            if (const std::string text = parameters.text("request", ""); !text.empty()) {
+                if (!parseHexBytes(text, request)) {
+                    return Result::error(
+                        ErrorCode::InvalidArgument,
+                        std::format("Block '{}': '{}' is not a whole number of hex bytes.",
+                                    nodeId, text));
+                }
+            }
+
+            out = std::make_unique<IsoTpNode>(
+                address, config, std::move(request),
+                static_cast<std::uint32_t>(parameters.integer("requestIntervalMs", 0)));
+
+            return Result::ok();
+        },
+        [](const NodeParameters& parameters, std::string_view nodeId) -> Result {
+            // Checked while the block is on screen, not at Start. Both of these
+            // are values somebody types, and both have a range that is part of
+            // the protocol rather than of this implementation.
+            const std::int64_t separation = parameters.integer("separationTimeMs", 0);
+
+            if (separation < 0 || separation > 127) {
+                return Result::error(
+                    ErrorCode::InvalidArgument,
+                    std::format("Block '{}': a separation time is 0 to 127 ms. The "
+                                "microsecond range of the standard's encoding is not "
+                                "something a person needs to type.",
+                                nodeId));
+            }
+
+            const std::int64_t blockSize = parameters.integer("blockSize", 0);
+
+            if (blockSize < 0 || blockSize > 255) {
+                return Result::error(ErrorCode::InvalidArgument,
+                                     std::format("Block '{}': a block size is 0 to 255.",
+                                                 nodeId));
+            }
+
+            std::vector<std::uint8_t> ignored;
+
+            if (const std::string text = parameters.text("request", "");
+                !text.empty() && !parseHexBytes(text, ignored)) {
+                return Result::error(
+                    ErrorCode::InvalidArgument,
+                    std::format("Block '{}': '{}' is not a whole number of hex bytes - "
+                                "\"22 F1 90\" is three bytes, \"22 F1 9\" is not two and a "
+                                "half.",
+                                nodeId, text));
+            }
+
             return Result::ok();
         });
 
