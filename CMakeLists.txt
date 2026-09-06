@@ -21,8 +21,17 @@ cmake_minimum_required(VERSION 3.24)
 # The wording is generator-dependent - with Makefiles the same mistake reads
 # "Cannot determine link language for target torquebus_lua" - so match on the
 # cause rather than on the sentence.
+# The version names the last PLAN.md milestone that is *finished*, not the one
+# being worked on: a build made while v0.10 is half done says 0.9.0, because
+# what it contains is v0.9 plus some of the next thing. Bump it in the commit
+# that completes a milestone.
+#
+# It reaches the application as TORQUEBUS_VERSION, and from there the Output
+# panel's startup line, the About box and the installer's filename - so this is
+# the only place it is written down. It sat at 0.5.0 through four milestones
+# because nothing failed when it was wrong, which is what this comment is for.
 project(TorqueBusStudio
-    VERSION 0.5.0
+    VERSION 0.9.0
     DESCRIPTION "Open Automotive Network & Diagnostics Workbench"
     HOMEPAGE_URL "https://github.com/ar2labs/torquebus"
     LANGUAGES CXX C
