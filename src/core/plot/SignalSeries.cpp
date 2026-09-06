@@ -117,6 +117,11 @@ std::string SignalSeriesStore::qualify(const DecodedSignal& signal)
 
 void SignalSeriesStore::append(std::span<const DecodedSignal> batch)
 {
+    // One acquisition for the whole batch. A pass hands over every signal it
+    // decoded in one call, so this is the amortisation that makes a lock
+    // affordable on the frame path at all.
+    const std::lock_guard lock{m_mutex};
+
     for (const DecodedSignal& decoded : batch) {
         if (decoded.truncated) {
             // Not a zero. The frame was too short to hold this signal, so
@@ -151,6 +156,8 @@ void SignalSeriesStore::append(std::span<const DecodedSignal> batch)
 
 SeriesId SignalSeriesStore::find(std::string_view qualifiedName) const
 {
+    const std::lock_guard lock{m_mutex};
+
     // A string from the view: the map is keyed by std::string with no
     // transparent comparator, and this is a panel-side lookup rather than a
     // per-sample one.
@@ -158,8 +165,80 @@ SeriesId SignalSeriesStore::find(std::string_view qualifiedName) const
     return found != m_index.end() ? found->second : kNoSeries;
 }
 
+std::size_t SignalSeriesStore::seriesCount() const
+{
+    const std::lock_guard lock{m_mutex};
+    return m_series.size();
+}
+
+std::vector<SeriesInfo> SignalSeriesStore::listSeries() const
+{
+    const std::lock_guard lock{m_mutex};
+
+    std::vector<SeriesInfo> infos;
+    infos.reserve(m_series.size());
+
+    for (SeriesId id = 0; id < m_series.size(); ++id) {
+        infos.push_back(SeriesInfo{id, m_series[id].name(), m_series[id].unit(),
+                                   m_series[id].size()});
+    }
+
+    return infos;
+}
+
+void SignalSeriesStore::readWindows(std::span<const SeriesId> ids,
+                                    std::uint64_t sinceNs,
+                                    std::size_t maximumSamples,
+                                    std::vector<SeriesWindow>& out) const
+{
+    const std::lock_guard lock{m_mutex};
+
+    // Grown, not rebuilt: the caller hands the same buffer back every repaint,
+    // so after the first few frames this allocates nothing.
+    out.resize(ids.size());
+
+    for (std::size_t index = 0; index < ids.size(); ++index) {
+        SeriesWindow& window = out[index];
+
+        if (ids[index] >= m_series.size()) {
+            window = SeriesWindow{};
+            continue;
+        }
+
+        const SignalSeries& series = m_series[ids[index]];
+
+        window.id = ids[index];
+        window.name = series.name();
+        window.unit = series.unit();
+        window.minimum = series.minimum();
+        window.maximum = series.maximum();
+        window.discarded = series.discarded();
+
+        window.samples.resize(std::min(maximumSamples, series.size()));
+
+        const std::size_t copied = series.copySince(sinceNs, window.samples);
+        window.samples.resize(copied);
+    }
+}
+
+std::uint64_t SignalSeriesStore::newestTimestampNs() const
+{
+    const std::lock_guard lock{m_mutex};
+
+    std::uint64_t newest = 0;
+    for (const SignalSeries& series : m_series) {
+        if (!series.empty()) {
+            newest = std::max(newest, series.newest().timestampNs);
+        }
+    }
+
+    return newest;
+}
+
 std::uint64_t SignalSeriesStore::discarded() const
 {
+    const std::lock_guard lock{m_mutex};
+
     std::uint64_t total = 0;
     for (const SignalSeries& series : m_series) {
         total += series.discarded();
@@ -167,8 +246,16 @@ std::uint64_t SignalSeriesStore::discarded() const
     return total;
 }
 
+std::uint64_t SignalSeriesStore::truncated() const
+{
+    const std::lock_guard lock{m_mutex};
+    return m_truncated;
+}
+
 void SignalSeriesStore::clearSamples()
 {
+    const std::lock_guard lock{m_mutex};
+
     for (SignalSeries& series : m_series) {
         series.clear();
     }
@@ -178,6 +265,8 @@ void SignalSeriesStore::clearSamples()
 
 void SignalSeriesStore::reset()
 {
+    const std::lock_guard lock{m_mutex};
+
     m_series.clear();
     m_index.clear();
     m_truncated = 0;

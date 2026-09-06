@@ -29,10 +29,23 @@
 //     So a signal is identified by an integer here, and the string that integer
 //     stands for is copied once, when the signal is first seen.
 //
-// Not thread safe, by the same arrangement as TraceStore: written from the
-// pipeline executor thread, read from the GUI thread, with the ui layer
-// mediating - it copies the window it needs rather than reaching in while the
-// executor appends.
+// **The store is mutex-guarded; a series is not.** That split is the whole of
+// the threading design here, and it is a departure from TraceStore worth
+// stating.
+//
+// The trace is read by index: the model asks for size(), then for rows, and a
+// stale size is merely a row that appears a tick late. A plot is read by
+// *walking a ring* - a bisection over indices that a concurrent wrap would
+// invalidate mid-search - so the same arrangement would be a torn read rather
+// than a late one.
+//
+// The lock is taken once per batch, not once per sample. A pass hands over
+// every signal it decoded in one call, so the cost is amortised over hundreds
+// of samples - the same reasoning TransmitList uses, and the reason a mutex is
+// affordable on a path this hot.
+//
+// A series therefore stays plain data: no lock, no atomics, testable on its
+// own, and only ever touched through the store that owns it.
 
 #pragma once
 
@@ -40,6 +53,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <span>
 #include <string>
 #include <string_view>
@@ -138,6 +152,32 @@ private:
     double m_maximum{0.0};
 };
 
+/// What a legend needs, without copying a single sample.
+struct SeriesInfo final {
+    SeriesId id{kNoSeries};
+    std::string name;
+    std::string unit;
+    std::size_t size{};
+};
+
+/// One series' recent window, copied out for a repaint.
+///
+/// The samples come with the range and the discard count they were read
+/// alongside, because those three have to agree: an axis scaled from one read
+/// and a line drawn from another is a plot that jitters for no reason the user
+/// can see.
+struct SeriesWindow final {
+    SeriesId id{kNoSeries};
+    std::string name;
+    std::string unit;
+
+    double minimum{};
+    double maximum{};
+    std::uint64_t discarded{};
+
+    std::vector<SignalSample> samples;
+};
+
 /// Every signal a measurement has decoded, each with its own history.
 class SignalSeriesStore final {
 public:
@@ -159,19 +199,38 @@ public:
     /// The series for "MessageName.SignalName", or kNoSeries.
     [[nodiscard]] SeriesId find(std::string_view qualifiedName) const;
 
-    [[nodiscard]] std::size_t seriesCount() const noexcept { return m_series.size(); }
+    [[nodiscard]] std::size_t seriesCount() const;
 
-    [[nodiscard]] const SignalSeries& series(SeriesId id) const { return m_series[id]; }
+    /// Every series' name and size, in the order the signals were first seen -
+    /// so a legend's order is the order the bus introduced them rather than a
+    /// hash, and two runs of one measurement read the same way.
+    [[nodiscard]] std::vector<SeriesInfo> listSeries() const;
 
-    /// Every series, in the order the signals were first seen - so a legend's
-    /// order is the order the bus introduced them rather than a hash.
-    [[nodiscard]] std::span<const SignalSeries> all() const noexcept { return m_series; }
+    /// Copies each named series' samples at or after `sinceNs`.
+    ///
+    /// One call per repaint, taking the lock once: a call per series would hold
+    /// and release it a dozen times while the executor waited, and would let the
+    /// series disagree about which instant they were read at.
+    ///
+    /// `out` is cleared and refilled. It is the caller's buffer so a plot
+    /// running at 60 Hz allocates only when a series grows.
+    void readWindows(std::span<const SeriesId> ids,
+                     std::uint64_t sinceNs,
+                     std::size_t maximumSamples,
+                     std::vector<SeriesWindow>& out) const;
+
+    /// The newest timestamp in any series, or zero when nothing has arrived.
+    ///
+    /// What a plot that follows the tail scrolls to. Read here rather than
+    /// derived from the windows, so a series that has gone quiet does not drag
+    /// the view back to when it last spoke.
+    [[nodiscard]] std::uint64_t newestTimestampNs() const;
 
     /// Samples dropped because a signal's ring wrapped, across every series.
     [[nodiscard]] std::uint64_t discarded() const;
 
     /// Samples refused because the frame was too short to hold the signal.
-    [[nodiscard]] std::uint64_t truncated() const noexcept { return m_truncated; }
+    [[nodiscard]] std::uint64_t truncated() const;
 
     /// Empties every series but keeps them, so a plot's selection and colours
     /// survive a restart of the measurement.
@@ -185,6 +244,10 @@ private:
     /// databases can use one name for two different things and a plot legend
     /// showing "Speed" twice would be unreadable.
     [[nodiscard]] static std::string qualify(const DecodedSignal& signal);
+
+    /// Guards everything below. See the note at the top of this file for why
+    /// the store takes a lock where TraceStore does not.
+    mutable std::mutex m_mutex;
 
     std::size_t m_capacity;
     std::vector<SignalSeries> m_series;
