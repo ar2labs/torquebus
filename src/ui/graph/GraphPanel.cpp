@@ -20,6 +20,7 @@
 #include <QTimer>
 #include <QToolBar>
 #include <QVBoxLayout>
+#include <QVariant>
 #include <QtGlobal>
 
 #include <algorithm>

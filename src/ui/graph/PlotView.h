@@ -27,13 +27,18 @@
 #include "core/plot/SignalSeries.h"
 
 #include <QColor>
-#include <QList>
-#include <QtGlobal>
 #include <QString>
 #include <QWidget>
+#include <QtGlobal>
 
 #include <cstdint>
 #include <vector>
+
+// By reference in the painting helpers below, so a forward declaration is not
+// enough for the *definitions* but is exactly right here: <QWidget> does not
+// bring QPainter, and including it in a header that widgets include would put
+// the paint machinery in every translation unit that draws nothing.
+class QPainter;
 
 namespace torquebus::ui {
 
