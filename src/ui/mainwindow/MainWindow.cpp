@@ -27,6 +27,7 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QFileDialog>
+#include <QSignalBlocker>
 #include <QFileInfo>
 #include <QMessageBox>
 #include <QColor>
@@ -479,7 +480,10 @@ void MainWindow::createActions()
     m_actionRecord = new QAction(m_themes.icon(QStringLiteral("record"), m_themes.theme().error),
                                  tr("&Record"), this);
     m_actionRecord->setCheckable(true);
-    m_actionRecord->setToolTip(tr("Log every frame to disk, independently of the Trace panel"));
+    m_actionRecord->setToolTip(
+        tr("Choose a .tblog to record into, then press Start. What gets written is "
+           "whatever reaches a CAN Logger block on the pipeline - so a filter in "
+           "front of one decides what the recording holds."));
 
     m_actionReplay = new QAction(icon("replay"), tr("Re&play..."), this);
 
@@ -531,8 +535,11 @@ void MainWindow::createActions()
 
     // Everything whose module has not landed yet reports honestly instead of
     // doing nothing when clicked.
-    for (QAction* action : {m_actionRecord, m_actionReplay,
-                            m_actionHardwareConfiguration}) {
+    connect(m_actionRecord, &QAction::toggled, this, &MainWindow::onRecord);
+
+    // Everything whose module has not landed yet reports honestly instead of
+    // doing nothing when clicked.
+    for (QAction* action : {m_actionReplay, m_actionHardwareConfiguration}) {
         connect(action, &QAction::triggered, this, &MainWindow::onNotImplemented);
     }
 }
@@ -1236,6 +1243,65 @@ void MainWindow::onSaveProjectAs()
     writeProject(path);
 }
 
+void MainWindow::onRecord(bool checked)
+{
+    // Putting the button back is not the user changing their mind, so it must
+    // not arrive here again. Without the blocker, "untick while running" sets
+    // it back to true, which emits toggled, which finds the measurement still
+    // running, which sets it to false... forever.
+    const auto putBack = [this](bool state) {
+        const QSignalBlocker blocker{m_actionRecord};
+        m_actionRecord->setChecked(state);
+    };
+
+    if (!checked) {
+        // Untick while running does not stop the recording. The log is part of
+        // the graph that was built at Start - closing it underneath a running
+        // logger block would leave the block writing to a closed file - so the
+        // button goes back down and says why.
+        if (m_controller->isRunning()) {
+            putBack(true);
+            m_output->appendWarning(
+                tr("The recording runs until the measurement stops. Press Stop."));
+            return;
+        }
+
+        m_controller->engine().stopRecording();
+        m_recordingPath.clear();
+        return;
+    }
+
+    if (m_controller->isRunning()) {
+        putBack(false);
+        m_output->appendWarning(
+            tr("Recording has to be armed before Start: the pipeline is built when the "
+               "measurement begins, and that is when a Logger block looks for somewhere "
+               "to write."));
+        return;
+    }
+
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("Record to"), QString{}, tr("TorqueBus logs (*.tblog);;All files (*)"));
+
+    if (path.isEmpty()) {
+        putBack(false);
+        return;
+    }
+
+    if (const Result result = m_controller->engine().startRecording(path.toStdString());
+        result.failed()) {
+        putBack(false);
+        m_output->appendError(QString::fromStdString(std::string{result.message()}));
+        return;
+    }
+
+    m_recordingPath = path;
+
+    m_output->appendInfo(tr("Armed: recording to %1. Add a CAN Logger block to the "
+                            "pipeline and press Start.")
+                             .arg(QFileInfo{path}.fileName()));
+}
+
 void MainWindow::onStartMeasurement()
 {
     // The snapshot is taken HERE, and not once at construction.
@@ -1303,6 +1369,27 @@ void MainWindow::onMeasurementStopped()
 
     m_output->appendInfo(tr("Measurement stopped. %L1 frames captured.")
                              .arg(m_controller->engine().deliveredFrames()));
+
+    if (m_controller->engine().isRecording()) {
+        const std::uint64_t frames = m_controller->engine().logWriter().framesWritten();
+
+        m_controller->engine().stopRecording();
+
+        // The path, named at the moment somebody wants to know where it went -
+        // which is when the recording ends, not when it started.
+        m_output->appendInfo(tr("Recorded %L1 frame(s) to %2.")
+                                 .arg(frames)
+                                 .arg(m_recordingPath));
+
+        m_recordingPath.clear();
+
+        {
+            // Same reason as putBack above: the button is following the
+            // measurement, not being clicked.
+            const QSignalBlocker blocker{m_actionRecord};
+            m_actionRecord->setChecked(false);
+        }
+    }
 }
 
 void MainWindow::onMeasurementFailed(const QString& message)

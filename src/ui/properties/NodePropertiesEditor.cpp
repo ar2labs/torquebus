@@ -49,7 +49,7 @@ constexpr auto kParameterProperty = "torquebusParameter";
 /// is what a new file-shaped parameter costs.
 [[nodiscard]] bool isFilePath(std::string_view name)
 {
-    return name == "scriptPath" || name == "database";
+    return name == "scriptPath" || name == "database" || name == "path";
 }
 
 /// The file dialog's filter and title for a path parameter.
@@ -63,6 +63,11 @@ struct FileChoice final {
     if (name == "database") {
         return {NodePropertiesEditor::tr("Choose a database"),
                 NodePropertiesEditor::tr("CAN databases (*.dbc);;All files (*)")};
+    }
+
+    if (name == "path") {
+        return {NodePropertiesEditor::tr("Choose a recording"),
+                NodePropertiesEditor::tr("TorqueBus logs (*.tblog);;All files (*)")};
     }
 
     return {NodePropertiesEditor::tr("Choose a script"),
