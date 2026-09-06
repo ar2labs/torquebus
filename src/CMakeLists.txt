@@ -50,6 +50,10 @@ add_library(torquebus_core STATIC
     core/pipeline/GraphDescription.h
     core/pipeline/GraphDescription.cpp
 
+    core/isotp/IsoTpTypes.h
+    core/isotp/IsoTpTypes.cpp
+    core/isotp/IsoTpConnection.h
+    core/isotp/IsoTpConnection.cpp
     core/log/TraceLog.h
     core/log/TraceLog.cpp
     core/log/LogNodes.h
