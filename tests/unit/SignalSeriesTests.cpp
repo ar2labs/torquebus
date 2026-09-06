@@ -15,8 +15,11 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace torquebus;
@@ -205,12 +208,15 @@ TEST_CASE("A store gives each signal its own history", "[plot][store]")
 
     const SeriesId speed = store.find("EngineData.EngineSpeed");
     REQUIRE(speed != kNoSeries);
-    CHECK(store.series(speed).size() == 2);
-    CHECK(store.series(speed).unit() == "rpm");
+
+    const std::vector<SeriesInfo> infos = store.listSeries();
+    REQUIRE(infos.size() == 2);
+    CHECK(infos[speed].size == 2);
+    CHECK(infos[speed].unit == "rpm");
 
     const SeriesId temperature = store.find("EngineData.CoolantTemp");
     REQUIRE(temperature != kNoSeries);
-    CHECK(store.series(temperature).size() == 1);
+    CHECK(infos[temperature].size == 1);
 
     // Qualified by the message, because two databases can use one name for two
     // different things and a legend showing "Speed" twice would be unreadable.
@@ -237,9 +243,13 @@ TEST_CASE("A signal too short to read is counted, not plotted as zero",
     const SeriesId speed = store.find("EngineData.EngineSpeed");
     REQUIRE(speed != kNoSeries);
 
-    CHECK(store.series(speed).size() == 2);
+    std::vector<SeriesWindow> windows;
+    store.readWindows(std::array<SeriesId, 1>{speed}, 0, 64, windows);
+
+    REQUIRE(windows.size() == 1);
+    CHECK(windows[0].samples.size() == 2);
+    CHECK(windows[0].minimum == 800.0);
     CHECK(store.truncated() == 1);
-    CHECK(store.series(speed).minimum() == 800.0);
 }
 
 TEST_CASE("Series keep their order of first sighting", "[plot][store]")
@@ -254,9 +264,10 @@ TEST_CASE("Series keep their order of first sighting", "[plot][store]")
         sample(definitions, definitions.speed, 20, 700.0),
     });
 
-    REQUIRE(store.all().size() == 2);
-    CHECK(store.all()[0].name() == "EngineData.CoolantTemp");
-    CHECK(store.all()[1].name() == "EngineData.EngineSpeed");
+    const std::vector<SeriesInfo> infos = store.listSeries();
+    REQUIRE(infos.size() == 2);
+    CHECK(infos[0].name == "EngineData.CoolantTemp");
+    CHECK(infos[1].name == "EngineData.EngineSpeed");
 }
 
 TEST_CASE("Clearing samples keeps the signals", "[plot][store]")
@@ -271,7 +282,7 @@ TEST_CASE("Clearing samples keeps the signals", "[plot][store]")
 
     store.clearSamples();
     CHECK(store.seriesCount() == 1);
-    CHECK(store.series(0).empty());
+    CHECK(store.listSeries()[0].size == 0);
     CHECK(store.truncated() == 0);
 
     store.reset();
@@ -297,7 +308,87 @@ TEST_CASE("A store survives a database being swapped underneath it",
     // The definitions are gone. The series is not.
     const SeriesId speed = store.find("EngineData.EngineSpeed");
     REQUIRE(speed != kNoSeries);
-    CHECK(store.series(speed).name() == "EngineData.EngineSpeed");
-    CHECK(store.series(speed).unit() == "rpm");
-    CHECK(store.series(speed).newest().value == 700.0);
+
+    std::vector<SeriesWindow> windows;
+    store.readWindows(std::array<SeriesId, 1>{speed}, 0, 64, windows);
+
+    REQUIRE(windows.size() == 1);
+    CHECK(windows[0].name == "EngineData.EngineSpeed");
+    CHECK(windows[0].unit == "rpm");
+    REQUIRE(windows[0].samples.size() == 1);
+    CHECK(windows[0].samples[0].value == 700.0);
+}
+
+TEST_CASE("Reading a window while the executor appends is safe", "[plot][store][threads]")
+{
+    // The claim the store's mutex exists to make, and the reason it exists at
+    // all where TraceStore has none: a plot is read by *walking a ring*, and a
+    // bisection over indices that a concurrent wrap invalidates mid-search is a
+    // torn read rather than a late one.
+    //
+    // Run this under -fsanitize=thread to make the check mean something. Under
+    // ASan or a plain build it exercises the path and catches corruption, which
+    // is worth having and is not the same thing.
+    const Definitions definitions;
+    SignalSeriesStore store{256};
+
+    std::atomic<bool> stop{false};
+
+    std::thread writer{[&] {
+        std::uint64_t timestamp = 0;
+        std::vector<DecodedSignal> batch;
+
+        while (!stop.load(std::memory_order_relaxed)) {
+            batch.clear();
+            for (int index = 0; index < 32; ++index) {
+                batch.push_back(sample(definitions, definitions.speed, ++timestamp,
+                                       static_cast<double>(timestamp % 100)));
+                batch.push_back(sample(definitions, definitions.temperature, timestamp,
+                                       static_cast<double>(timestamp % 50)));
+            }
+            store.append(batch);
+        }
+    }};
+
+    std::vector<SeriesWindow> windows;
+    std::size_t reads = 0;
+
+    // Long enough for the rings to wrap several times over, which is the state
+    // the bisection has to survive.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{300};
+
+    while (std::chrono::steady_clock::now() < deadline) {
+        const std::vector<SeriesInfo> infos = store.listSeries();
+
+        std::vector<SeriesId> ids;
+        ids.reserve(infos.size());
+        for (const SeriesInfo& info : infos) {
+            ids.push_back(info.id);
+        }
+
+        store.readWindows(ids, store.newestTimestampNs() / 2, 128, windows);
+
+        for (const SeriesWindow& window : windows) {
+            // Whatever was read has to be internally consistent: in time order,
+            // and inside the range that was read alongside it.
+            for (std::size_t index = 1; index < window.samples.size(); ++index) {
+                REQUIRE(window.samples[index].timestampNs
+                        >= window.samples[index - 1].timestampNs);
+            }
+
+            for (const SignalSample& point : window.samples) {
+                REQUIRE(point.value >= window.minimum);
+                REQUIRE(point.value <= window.maximum);
+            }
+        }
+
+        ++reads;
+    }
+
+    stop.store(true, std::memory_order_relaxed);
+    writer.join();
+
+    // The test is worthless if it never actually read anything.
+    CHECK(reads > 10);
+    CHECK(store.discarded() > 0);
 }
