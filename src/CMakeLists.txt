@@ -158,6 +158,8 @@ add_library(torquebus_services STATIC
     services/HardwareProfile.cpp
     services/RecentProjects.h
     services/RecentProjects.cpp
+    services/Workspaces.h
+    services/Workspaces.cpp
     services/SettingsStore.h
     services/SettingsStore.cpp
 )

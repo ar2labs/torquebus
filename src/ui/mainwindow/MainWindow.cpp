@@ -32,6 +32,8 @@
 #include <QCloseEvent>
 #include <QDateTime>
 #include <QFileDialog>
+#include <QInputDialog>
+#include <QLineEdit>
 #include <QSignalBlocker>
 #include <QCursor>
 #include <QDir>
@@ -167,6 +169,7 @@ MainWindow::MainWindow(services::SettingsStore& settings, ThemeManager& themes)
     , m_themes{themes}
     , m_recentProjects{settings}
     , m_hardware{settings}
+    , m_workspaces{settings}
 {
     setWindowIcon(QIcon{QStringLiteral(":/icons/torquebus.svg")});
     resize(1440, 900);
@@ -624,6 +627,12 @@ void MainWindow::createMenus()
         }
     }
     viewMenu->addSeparator();
+
+    // Under the panel toggles, because a workspace is the same list of panels
+    // arranged - and above Reset, which is the workspace nobody has to save.
+    m_workspaceMenu = viewMenu->addMenu(tr("&Workspace"));
+    rebuildWorkspaceMenu();
+
     viewMenu->addAction(m_actionResetLayout);
 
     analysisMenu->addAction(m_traceDock->toggleAction());
@@ -1273,6 +1282,133 @@ void MainWindow::rebuildRecentMenu()
         m_recentProjects.clear();
         rebuildRecentMenu();
     });
+}
+
+void MainWindow::rebuildWorkspaceMenu()
+{
+    if (m_workspaceMenu == nullptr) {
+        return;
+    }
+
+    m_workspaceMenu->clear();
+
+    const QStringList names = m_workspaces.names();
+
+    if (names.isEmpty()) {
+        QAction* empty = m_workspaceMenu->addAction(tr("No saved workspaces"));
+        empty->setEnabled(false);
+    }
+
+    for (const QString& name : names) {
+        QAction* action = m_workspaceMenu->addAction(name);
+        action->setData(name);
+
+        if (m_workspaces.isStale(name, kDockLayoutVersion)) {
+            // Shown and disabled rather than hidden. A workspace that
+            // disappeared without explanation is a bug report; one that says it
+            // was saved by a different version is an answer.
+            action->setEnabled(false);
+            action->setToolTip(
+                tr("Saved by a version with a different set of panels. Arrange the "
+                   "window and save it again under this name."));
+        }
+
+        connect(action, &QAction::triggered, this,
+                [this, action] { applyWorkspace(action->data().toString()); });
+    }
+
+    m_workspaceMenu->setToolTipsVisible(true);
+    m_workspaceMenu->addSeparator();
+
+    QAction* save = m_workspaceMenu->addAction(tr("&Save Current As..."));
+    connect(save, &QAction::triggered, this, &MainWindow::onSaveWorkspace);
+
+    if (!names.isEmpty()) {
+        QMenu* forget = m_workspaceMenu->addMenu(tr("&Delete"));
+
+        for (const QString& name : names) {
+            QAction* action = forget->addAction(name);
+            action->setData(name);
+
+            connect(action, &QAction::triggered, this, [this, action] {
+                const QString name = action->data().toString();
+                m_workspaces.remove(name);
+                rebuildWorkspaceMenu();
+                m_output->appendInfo(tr("Deleted the workspace '%1'.").arg(name));
+            });
+        }
+    }
+}
+
+void MainWindow::applyWorkspace(const QString& name)
+{
+    const QByteArray layout = m_workspaces.layoutFor(name, kDockLayoutVersion);
+
+    if (layout.isEmpty()) {
+        m_output->appendWarning(
+            tr("The workspace '%1' was saved by a version with a different set of "
+               "panels, so it cannot be restored. Arrange the window and save it "
+               "again under the same name.")
+                .arg(name));
+        return;
+    }
+
+    // The docks have to exist in the layout engine before LayoutSaver can place
+    // them, which they do - the window built them at startup. A blob that still
+    // fails to restore leaves the arrangement untouched rather than half
+    // applied, so the user sees what they had and a sentence saying why.
+    if (!restoreDockLayout(layout)) {
+        m_output->appendWarning(
+            tr("The workspace '%1' could not be restored; the window was left as it "
+               "was.")
+                .arg(name));
+        return;
+    }
+
+    m_output->appendInfo(tr("Workspace '%1'.").arg(name));
+}
+
+void MainWindow::onSaveWorkspace()
+{
+    const QStringList existing = m_workspaces.names();
+
+    bool accepted = false;
+    const QString name = QInputDialog::getText(
+        this, tr("Save Workspace"),
+        tr("Name this arrangement of panels:"), QLineEdit::Normal,
+        existing.isEmpty() ? tr("CAN Development") : QString{}, &accepted);
+
+    if (!accepted) {
+        return;
+    }
+
+    if (!services::Workspaces::isValidName(name)) {
+        m_output->appendWarning(
+            tr("A workspace needs a name, and the name cannot contain a slash - it "
+               "is what the arrangement is stored under."));
+        return;
+    }
+
+    const bool replacing = m_workspaces.contains(name.trimmed());
+
+    if (replacing
+        && QMessageBox::question(
+               this, tr("Save Workspace"),
+               tr("Replace the workspace '%1' with the arrangement on screen?")
+                   .arg(name.trimmed()))
+            != QMessageBox::Yes) {
+        return;
+    }
+
+    if (!m_workspaces.save(name, saveDockLayout(), kDockLayoutVersion)) {
+        m_output->appendError(tr("The workspace could not be saved."));
+        return;
+    }
+
+    rebuildWorkspaceMenu();
+
+    m_output->appendInfo(replacing ? tr("Replaced the workspace '%1'.").arg(name.trimmed())
+                                   : tr("Saved the workspace '%1'.").arg(name.trimmed()));
 }
 
 void MainWindow::onNewProject()
