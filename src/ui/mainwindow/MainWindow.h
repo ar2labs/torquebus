@@ -18,6 +18,7 @@
 #include "core/transmit/TransmitList.h"
 #include "services/HardwareProfile.h"
 #include "services/RecentProjects.h"
+#include "services/Workspaces.h"
 #include "ui/engine/CanEngineController.h"
 #include "ui/mainwindow/Docking.h"
 #include "ui/theme/Theme.h"
@@ -82,6 +83,9 @@ private Q_SLOTS:
 
     /// Hardware > Configuration. Edits which interfaces become CAN 1..N.
     void onHardwareConfiguration();
+
+    /// View > Workspace > Save Current As. Names the arrangement on screen.
+    void onSaveWorkspace();
     void onAbout();
     void onNotImplemented();
     void onInspectChrome();
@@ -126,6 +130,13 @@ private:
     /// Rebuilds the Open Recent submenu from the stored list. Called whenever
     /// that list changes, which is on every open, save and failed open.
     void rebuildRecentMenu();
+
+    /// Rebuilds the Workspace submenu.
+    void rebuildWorkspaceMenu();
+
+    /// Puts a saved arrangement on screen, reporting in the Output panel when
+    /// it cannot be used.
+    void applyWorkspace(const QString& name);
 
     /// Reports, to the Output panel, which theme and which resources the
     /// running binary actually loaded. See the definition for why.
@@ -197,6 +208,10 @@ private:
     /// machine rather than to the project, which is why it is here and not in
     /// the .tbsproj.
     services::HardwareProfile m_hardware;
+
+    /// Named panel arrangements - the same window doing two different jobs.
+    services::Workspaces m_workspaces;
+    QMenu* m_workspaceMenu{nullptr};
     QMenu* m_recentMenu{nullptr};
 
     /// The log this run is recording into, or empty when it is not. Kept so the

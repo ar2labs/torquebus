@@ -44,7 +44,7 @@ so it needs network access and takes a few minutes.
 CMakeLists.txt)
 
 ```
-TorqueBus Studio 0.9.0
+TorqueBus Studio 0.10.0
   Build type ............ Debug
   Compiler .............. MSVC 19.x
   Qt .................... 6.11.2
@@ -730,6 +730,41 @@ whole feature, and it is also where the first implementation destroyed its own
 controls: `setCellWidget` deletes whatever the cell held, so moving widgets
 between rows deletes the ones being moved. The rows are the model now and the
 table is rebuilt from them.
+
+---
+
+## 5n. Workspaces
+
+The last of v0.10, and PLAN.md section 7's "CAN Development", "Diagnostics",
+"Vehicle Testing". The window already remembered the layout you left it in;
+that stops being enough the moment one person uses the tool for two jobs.
+
+1. Arrange the window for reading a trace - trace across the middle, console
+   short. **View > Workspace > Save Current As...**, name it *Logging*.
+2. Rearrange for building a simulation - canvas and Block panel side by side -
+   and save that as *Simulation*.
+3. Switch between the two from the menu. Each one comes back as it was saved,
+   and the Output panel names which one is on screen.
+4. Save over one of them: it asks first, because a workspace is a minute of
+   arranging panels and there is no undo for replacing it.
+5. Restart. Both are still there - the window itself reopens in whatever
+   arrangement it was closed in, which is a separate thing from a workspace and
+   deliberately so.
+6. **Delete** one from the submenu. The other is untouched.
+7. Names: a blank one and one with a slash in it are both refused, with the
+   reason. The name is what the arrangement is stored under, so a name that
+   could not be stored has to be refused where somebody can see it rather than
+   silently changed into one that can.
+8. The hard case: edit `kDockLayoutVersion` in `MainWindow.cpp`, rebuild, and
+   open the menu. The old workspaces are **shown and disabled**, with a tooltip
+   saying they were saved by a version with a different set of panels. Not
+   hidden - a workspace that vanished without explanation is a bug report -
+   and not restored, because a layout missing a panel that did not exist when
+   it was written is a window with something silently absent.
+
+**Worked:** all eight. Step 8 is the one to be fussy about; it is also the only
+one that needs a rebuild to test, which is why it is written down rather than
+left to be rediscovered.
 
 ---
 
