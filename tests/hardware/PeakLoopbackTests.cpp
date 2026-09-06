@@ -236,17 +236,22 @@ TEST_CASE("Frames sent on a bus with no other node come back as our own echo",
     if (sent.succeeded()) {
         const std::lock_guard lock{mutex};
 
-        // ReceiveOwnKey is on, so what we sent should come back to us - which
-        // is how the trace shows what actually reached the bus rather than what
-        // was requested. No adapter on a terminated bus means no echo, so this
-        // is reported rather than required.
-        if (received.empty()) {
-            WARN("No echo came back. Expected on an unterminated bus with no "
-                 "other node; a problem if this bus has traffic on it.");
-        } else {
-            CHECK(received.front().identifier == 0x123);
-            CHECK(received.front().length == 3);
-        }
+        // Required, not hoped for. The echo is synthesised by transmit()
+        // rather than read back from the driver - a QCanBusFrame carries no
+        // direction, so a driver echo would arrive indistinguishable from
+        // received traffic and the trace would call our own frame an Rx.
+        //
+        // Which means it does not depend on the bus at all: if transmit()
+        // reported success, the echo is there.
+        REQUIRE_FALSE(received.empty());
+
+        const CanFrame& echo = received.front();
+        CHECK(echo.identifier == 0x123);
+        CHECK(echo.length == 3);
+        CHECK(echo.data[0] == 0xDE);
+
+        // The whole point of synthesising it.
+        CHECK_FALSE(echo.isRx());
     }
 
     backend.close();
