@@ -23,6 +23,7 @@
 #include "core/pipeline/NodeParameters.h"
 #include "core/pipeline/PipelineNode.h"
 #include "core/pipeline/PortType.h"
+#include "core/log/TraceLog.h"
 #include "core/plot/SignalSeries.h"
 
 #include <functional>
@@ -50,6 +51,13 @@ struct NodeBuildContext final {
 
     /// The measurement's trace store, or nullptr when there is none.
     TraceStore* traceStore{nullptr};
+
+    /// The open log a `can.log` block records into, or nullptr.
+    ///
+    /// Borrowed, and nullptr when the measurement is not recording - which is
+    /// why a graph holding a logger block fails to build under Start and
+    /// succeeds under Record. Silently recording nothing would be worse.
+    TraceLogWriter* logWriter{nullptr};
 
     /// Where decoded signals accumulate for the Graph panel, or nullptr.
     ///

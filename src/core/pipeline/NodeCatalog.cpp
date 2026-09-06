@@ -11,6 +11,7 @@
 #include "core/pipeline/nodes/FrameNodes.h"
 #include "core/transmit/TransmitListNode.h"
 #include "core/scripting/LuaEcuNode.h"
+#include "core/log/LogNodes.h"
 #include "core/plot/SignalPlotNode.h"
 #include "core/trace/TraceSinkNode.h"
 #include "core/trace/TraceStore.h"
@@ -538,6 +539,56 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
 
     catalog.registerType(
         NodeTypeInfo{
+            .typeName = "log.source",
+            .displayName = "Log Replay",
+            .category = "Sources",
+            .description = "Replays a .tblog file as though it were a bus.",
+            .inputs = {},
+            .outputs = {PortDescriptor{"frames", PortType::Frames}},
+            .parameters =
+                {
+                    ParameterDescriptor{.name = "path",
+                                        .displayName = "Log file",
+                                        .type = ParameterValue::Type::Text,
+                                        .required = true,
+                                        .description = "The .tblog to replay."},
+                    ParameterDescriptor{.name = "speed",
+                                        .displayName = "Speed",
+                                        .type = ParameterValue::Type::Real,
+                                        .required = false,
+                                        .description =
+                                            "How much faster than real time. 1 replays a "
+                                            "minute in a minute."},
+                },
+        },
+        [](const NodeParameters& parameters, const NodeBuildContext& context,
+           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
+            const std::string path = resolvePath(context, parameters.text("path", ""));
+
+            // Required, unlike every other path in this catalog, and the
+            // difference is real: a decoder with no database decodes nothing
+            // and is a block you have not finished configuring, while a replay
+            // with no file is a source that will never produce a frame - a
+            // measurement that runs and does nothing, with no error anywhere.
+            if (path.empty()) {
+                return Result::error(
+                    ErrorCode::InvalidArgument,
+                    std::format("Block '{}' needs a log file to replay.", nodeId));
+            }
+
+            auto reader = std::make_unique<TraceLogReader>();
+            if (Result result = reader->open(path); result.failed()) {
+                return Result::error(result.code(),
+                                     std::format("Node '{}': {}", nodeId, result.message()));
+            }
+
+            out = std::make_unique<LogSourceNode>(std::move(reader),
+                                                  parameters.real("speed", 1.0));
+            return Result::ok();
+        });
+
+    catalog.registerType(
+        NodeTypeInfo{
             .typeName = "can.transmit",
             .displayName = "CAN Transmit",
             .category = "Sinks",
@@ -583,6 +634,30 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             }
 
             out = std::make_unique<TraceSinkNode>(*context.traceStore);
+            return Result::ok();
+        });
+
+    catalog.registerType(
+        NodeTypeInfo{
+            .typeName = "can.log",
+            .displayName = "CAN Logger",
+            .category = "Sinks",
+            .description = "Records the frames it receives into a .tblog file.",
+            .inputs = {PortDescriptor{"frames", PortType::Frames}},
+            .outputs = {},
+            .parameters = {},
+        },
+        [](const NodeParameters&, const NodeBuildContext& context, std::string_view nodeId,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
+            if (context.logWriter == nullptr) {
+                return Result::error(
+                    ErrorCode::InvalidState,
+                    std::format("Node '{}' records to a log, but this graph is being built "
+                                "without one. Use Record rather than Start.",
+                                nodeId));
+            }
+
+            out = std::make_unique<LogSinkNode>(*context.logWriter);
             return Result::ok();
         });
 

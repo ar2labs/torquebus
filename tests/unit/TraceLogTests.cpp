@@ -9,6 +9,10 @@
 
 #include "core/can/CanFrame.h"
 #include "core/log/TraceLog.h"
+#include "core/pipeline/GraphDescription.h"
+#include "core/pipeline/NodeCatalog.h"
+#include "core/pipeline/PipelineGraph.h"
+#include "core/trace/TraceStore.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -386,4 +390,151 @@ TEST_CASE("A zero-length frame costs no payload bytes", "[log]")
     std::array<CanFrame, 1> read{};
     REQUIRE(reader.read(read) == 1);
     CHECK(read[0].length == 0);
+}
+
+// ---------------------------------------------------------------------------
+// Recording and replaying as blocks
+// ---------------------------------------------------------------------------
+
+TEST_CASE("A log replays through the pipeline as though it were a bus",
+          "[log][graph][build]")
+{
+    // The claim rule #11 makes, tested on the last port it had not been tested
+    // on: a file is a source like any other, so everything downstream works on
+    // a recording without knowing it is one.
+    const ScopedLogFile file;
+
+    {
+        TraceLogWriter writer;
+        REQUIRE(writer.open(file.path()).succeeded());
+
+        for (std::uint32_t index = 0; index < 20; ++index) {
+            // All at time zero, so the replay's clock releases every one of
+            // them on the first pass and the test does not have to sleep.
+            REQUIRE(writer.append(std::array{frame(0x200 + index, 0)}).succeeded());
+        }
+    }
+
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    TraceStore trace{256};
+    NodeBuildContext context;
+    context.traceStore = &trace;
+
+    GraphDescription description;
+    description.addNode(NodeDescription{
+        .id = "replay",
+        .typeName = "log.source",
+        .parameters = {{"path", ParameterValue::fromText(file.path())}}});
+    description.addNode(NodeDescription{.id = "trace", .typeName = "trace.sink"});
+    description.addEdge(EdgeDescription{"replay", 0, "trace", 0});
+
+    REQUIRE(description.validate(catalog).succeeded());
+
+    PipelineGraph graph;
+    REQUIRE(description.build(catalog, context, graph).succeeded());
+    REQUIRE(graph.compile().succeeded());
+
+    graph.execute();
+
+    CHECK(trace.size() == 20);
+    CHECK(trace.row(0).frame.identifier == 0x200);
+    CHECK(trace.row(19).frame.identifier == 0x213);
+}
+
+TEST_CASE("A replay block with no file is refused while it is on screen",
+          "[log][graph][validate]")
+{
+    // Required, unlike every other path in the catalog, and for a reason worth
+    // stating: a decoder with no database decodes nothing and is a block you
+    // have not finished configuring, while a replay with no file is a source
+    // that will never produce a frame - a measurement that runs and does
+    // nothing, with no error anywhere.
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    GraphDescription description;
+    description.addNode(NodeDescription{.id = "replay", .typeName = "log.source"});
+
+    const Result result = description.validate(catalog);
+
+    REQUIRE(result.failed());
+    INFO(std::string{result.message()});
+    CHECK(std::string{result.message()}.find("Log file") != std::string::npos);
+}
+
+TEST_CASE("A logger block without an open log says which button to press",
+          "[log][graph][build]")
+{
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    GraphDescription description;
+    description.addNode(NodeDescription{.id = "logger", .typeName = "can.log"});
+
+    PipelineGraph graph;
+    const Result result = description.build(catalog, NodeBuildContext{}, graph);
+
+    REQUIRE(result.failed());
+    INFO(std::string{result.message()});
+    CHECK(std::string{result.message()}.find("Record") != std::string::npos);
+}
+
+TEST_CASE("What a logger records is what reached it, not what reached the bus",
+          "[log][graph][build]")
+{
+    // A sink and not a side effect bolted onto the channel, which is what lets
+    // a filter in front of it turn a 4 GB recording into a 40 MB one.
+    const ScopedLogFile source;
+    const ScopedLogFile recorded;
+
+    {
+        TraceLogWriter writer;
+        REQUIRE(writer.open(source.path()).succeeded());
+
+        for (std::uint32_t index = 0; index < 10; ++index) {
+            REQUIRE(writer.append(std::array{frame(0x100 + index, 0)}).succeeded());
+        }
+    }
+
+    TraceLogWriter output;
+    REQUIRE(output.open(recorded.path()).succeeded());
+
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    NodeBuildContext context;
+    context.logWriter = &output;
+
+    GraphDescription description;
+    description.addNode(NodeDescription{
+        .id = "replay",
+        .typeName = "log.source",
+        .parameters = {{"path", ParameterValue::fromText(source.path())}}});
+    description.addNode(NodeDescription{
+        .id = "filter",
+        .typeName = "can.filter",
+        .parameters = {{"from", ParameterValue::fromInteger(0x105)},
+                       {"to", ParameterValue::fromInteger(0x109)}}});
+    description.addNode(NodeDescription{.id = "logger", .typeName = "can.log"});
+    description.addEdge(EdgeDescription{"replay", 0, "filter", 0});
+    description.addEdge(EdgeDescription{"filter", 0, "logger", 0});
+
+    PipelineGraph graph;
+    REQUIRE(description.build(catalog, context, graph).succeeded());
+    REQUIRE(graph.compile().succeeded());
+
+    graph.execute();
+    REQUIRE(output.flush().succeeded());
+    output.close();
+
+    TraceLogReader reader;
+    REQUIRE(reader.open(recorded.path()).succeeded());
+
+    std::vector<CanFrame> read(32);
+    const std::size_t got = reader.read(read);
+
+    // Five of the ten: 0x105 through 0x109.
+    CHECK(got == 5);
+    if (got == 5) {
+        CHECK(read[0].identifier == 0x105);
+        CHECK(read[4].identifier == 0x109);
+    }
 }
