@@ -11,7 +11,6 @@
 #include <QFontMetrics>
 #include <QMouseEvent>
 #include <QPainter>
-#include <QPainterPath>
 #include <QPolygonF>
 
 #include <algorithm>

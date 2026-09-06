@@ -21,9 +21,11 @@
 #include "core/plot/SignalSeries.h"
 
 #include <QByteArray>
+#include <QColor>
 #include <QHash>
 #include <QString>
 #include <QWidget>
+#include <QtGlobal>
 
 #include <cstdint>
 #include <vector>
