@@ -12,6 +12,7 @@
 #include <chrono>
 #include <format>
 #include <mutex>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -108,7 +109,7 @@ constexpr auto kHandlePrefix = "peak:";
     out.fd = source.hasFlexibleDataRateFormat();
     out.brs = source.hasBitrateSwitch();
     out.error = source.frameType() == QCanBusFrame::ErrorFrame;
-    out.remote = source.frameType() == QCanBusFrame::RemoteRequestFrame;
+    out.rtr = source.frameType() == QCanBusFrame::RemoteRequestFrame;
 
     const auto length = static_cast<std::size_t>(
         std::min<qsizetype>(payload.size(), static_cast<qsizetype>(kMaxCanPayload)));
@@ -128,8 +129,8 @@ constexpr auto kHandlePrefix = "peak:";
     QCanBusFrame result;
     result.setFrameId(frame.identifier);
     result.setExtendedFrameFormat(frame.format == CanFrameFormat::Extended);
-    result.setFrameType(frame.remote ? QCanBusFrame::RemoteRequestFrame
-                                     : QCanBusFrame::DataFrame);
+    result.setFrameType(frame.rtr ? QCanBusFrame::RemoteRequestFrame
+                                  : QCanBusFrame::DataFrame);
 
     QByteArray payload;
     payload.resize(static_cast<qsizetype>(frame.length));
@@ -215,7 +216,11 @@ PeakCanBackend::PeakCanBackend()
     m_impl->capabilities.canClassic = true;
     m_impl->capabilities.errorFrames = true;
     m_impl->capabilities.hardwareTimestamp = true;
-    m_impl->capabilities.listenOnly = true;
+    // Qt SerialBus has no listen-only configuration key, so this route cannot
+    // do it - and listen-only is a safety setting. Advertising a capability the
+    // backend silently ignores is how somebody puts acknowledge bits on a bus
+    // they meant only to watch.
+    m_impl->capabilities.listenOnly = false;
 }
 
 PeakCanBackend::~PeakCanBackend()
@@ -297,6 +302,14 @@ Result PeakCanBackend::open(const CanChannelConfig& config)
                         kPlugin));
     }
 
+    if (config.listenOnly) {
+        return Result::error(
+            ErrorCode::UnsupportedFeature,
+            "Qt SerialBus offers no listen-only mode, so a PEAK channel opened this "
+            "way would acknowledge frames. Refused rather than opened, because that "
+            "is the one setting whose whole purpose is not to disturb the bus.");
+    }
+
     const QString interfaceName = interfaceFromHandle(config.deviceHandle);
     if (interfaceName.isEmpty()) {
         return Result::error(ErrorCode::InvalidArgument,
@@ -373,11 +386,10 @@ Result PeakCanBackend::open(const CanChannelConfig& config)
     const std::uint32_t dataBitrate = config.timing.dataBitrate;
     const bool wantFd = config.canFdEnabled;
     const bool wantBrs = config.bitRateSwitchEnabled;
-    const bool listenOnly = config.listenOnly;
 
     QMetaObject::invokeMethod(
         device,
-        [this, device, bitrate, dataBitrate, wantFd, wantBrs, listenOnly] {
+        [this, device, bitrate, dataBitrate, wantFd, wantBrs] {
             device->setConfigurationParameter(QCanBusDevice::BitRateKey,
                                               QVariant{static_cast<uint>(bitrate)});
 
@@ -395,17 +407,20 @@ Result PeakCanBackend::open(const CanChannelConfig& config)
                 }
             }
 
-            // What we send comes back to us, so the trace shows what actually
-            // reached the bus rather than what was requested. Same contract the
-            // Kvaser backend keeps, reached through a different switch.
+            // **The driver's echo is deliberately off.**
             //
-            // Off in listen-only, where there is nothing of ours to echo:
-            // never acknowledge, never transmit. That is the one configuration
-            // in which being on the wrong bitrate is harmless rather than
-            // disruptive, which is the whole reason it exists.
+            // A QCanBusFrame carries no direction, so a frame the plugin hands
+            // back is the same object whether the bus produced it or we did.
+            // With ReceiveOwnKey on, our own transmissions would arrive
+            // indistinguishable from received traffic: the trace would show
+            // them as Rx and the Tx counter would stay at zero.
+            //
+            // So transmit() produces the echo itself, with the direction it
+            // knows. That is the same fallback KvaserCanBackend uses on a
+            // driver that will not acknowledge transmissions - callers above
+            // the driver layer must see the same thing either way.
             device->setConfigurationParameter(QCanBusDevice::LoopbackKey, QVariant{false});
-            device->setConfigurationParameter(QCanBusDevice::ReceiveOwnKey,
-                                              QVariant{!listenOnly});
+            device->setConfigurationParameter(QCanBusDevice::ReceiveOwnKey, QVariant{false});
 
             // The device is the context object as well as the sender, so these
             // run on its thread - which is this thread - with no queueing.
@@ -679,6 +694,30 @@ Result PeakCanBackend::transmit(const CanFrame& frame)
                              std::format("PEAK refused the frame: {}",
                                          error.isEmpty() ? std::string{"queue full"}
                                                          : error.toStdString()));
+    }
+
+    // The echo, produced here because the driver's is switched off - see the
+    // configuration lambda in open() for why. Timestamped on our own clock,
+    // which is the same clock a received frame falls back to when the plugin
+    // gives no hardware timestamp.
+    FrameHandler handler;
+    std::uint8_t channel = 0;
+    {
+        const std::lock_guard lock{m_impl->mutex};
+        handler = m_impl->frameHandler;
+        channel = m_impl->config.applicationChannel;
+    }
+
+    if (handler) {
+        CanFrame echo = frame;
+        echo.direction = CanDirection::Tx;
+        echo.channel = channel;
+        echo.timestampNs = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - m_impl->started)
+                .count());
+
+        handler(std::span<const CanFrame>{&echo, 1});
     }
 
     return Result::ok();
