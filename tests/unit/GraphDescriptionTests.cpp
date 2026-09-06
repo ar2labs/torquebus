@@ -639,3 +639,154 @@ TEST_CASE("A description survives being edited while a measurement runs", "[grap
     CHECK(engine.isRunning());
     engine.stop();
 }
+
+// ---------------------------------------------------------------------------
+// Settings that are wrong before the graph is ever built
+// ---------------------------------------------------------------------------
+//
+// These exist because of a real session: a Lua ECU block was dropped on the
+// canvas, the Output panel said "Pipeline: 1 node(s), 0 connection(s)" - and
+// then Start failed with "has no script". validate() is the function that
+// promises to report a problem while the user is still looking at the block,
+// and it was not looking at parameters at all.
+
+TEST_CASE("A block missing a required setting is caught before Start",
+          "[graph][validate]")
+{
+    // Registered here rather than borrowed from the built-ins, and that is the
+    // finding rather than a convenience: **no built-in type has a required
+    // parameter.** All three that used to claim one - can.source, can.transmit
+    // and dbc.decoder - build perfectly well without it, on purpose, so that a
+    // canvas can be assembled in any order. Their descriptors said otherwise
+    // and were corrected.
+    //
+    // So this tests the mechanism, which is the part that has to work when a
+    // type does have a setting it genuinely cannot be built without.
+    NodeCatalog catalog;
+    catalog.registerType(
+        NodeTypeInfo{
+            .typeName = "test.needsPath",
+            .displayName = "Needs a path",
+            .category = "Tests",
+            .description = "A type with a setting that has no sensible default.",
+            .parameters = {ParameterDescriptor{.name = "path",
+                                               .displayName = "File",
+                                               .type = ParameterValue::Type::Text,
+                                               .required = true,
+                                               .description = "No default is possible."}},
+        },
+        [](const NodeParameters&, const NodeBuildContext&, std::string_view,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
+            out = nullptr;
+            return Result::ok();
+        });
+
+    GraphDescription graph;
+    graph.addNode(NodeDescription{.id = "reader", .typeName = "test.needsPath"});
+
+    const Result result = graph.validate(catalog);
+    REQUIRE(result.failed());
+
+    // Named by the label the properties editor shows, because the person
+    // reading this is looking at a form with an empty field in it - and by the
+    // block's id, because a graph with forty blocks has to say which one.
+    INFO(std::string{result.message()});
+    CHECK(std::string{result.message()}.find("File") != std::string::npos);
+    CHECK(std::string{result.message()}.find("reader") != std::string::npos);
+
+    graph.nodes()[0].parameters.set("path", ParameterValue::fromText("somewhere.txt"));
+    CHECK(graph.validate(catalog).succeeded());
+}
+
+TEST_CASE("A half-configured canvas is not an error", "[graph][validate]")
+{
+    // The decision this whole area turns on, written down in NodeCatalog.cpp
+    // and worth a test of its own: a block dropped and not yet filled in must
+    // still validate. A graph that refuses until every block is configured
+    // cannot be built up in any order but one, which is not how anybody draws.
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    GraphDescription graph;
+    graph.addNode(NodeDescription{.id = "src", .typeName = "can.source"});
+    graph.addNode(NodeDescription{.id = "dec", .typeName = "dbc.decoder"});
+    graph.addNode(NodeDescription{.id = "tx", .typeName = "can.transmit"});
+
+    const Result result = graph.validate(catalog);
+    INFO(std::string{result.message()});
+    CHECK(result.succeeded());
+}
+
+TEST_CASE("A Lua ECU with no script at all is caught before Start",
+          "[graph][validate][lua]")
+{
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    GraphDescription graph;
+    graph.addNode(NodeDescription{.id = "lua_ecu", .typeName = "lua.ecu"});
+
+    const Result result = graph.validate(catalog);
+
+    REQUIRE(result.failed());
+
+    // And it says what to do about it. "has no script" was true and useless.
+    INFO(std::string{result.message()});
+    CHECK(std::string{result.message()}.find("Script") != std::string::npos);
+}
+
+TEST_CASE("A Lua ECU with both a script and a path is caught before Start",
+          "[graph][validate][lua]")
+{
+    // Neither parameter is required on its own and exactly one is required
+    // together - a sentence about two parameters, which no ParameterDescriptor
+    // can express. That is what a type's own validator is for.
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    GraphDescription graph;
+    graph.addNode(NodeDescription{
+        .id = "lua_ecu",
+        .typeName = "lua.ecu",
+        .parameters = {{"script", ParameterValue::fromText("function on_frame() end")},
+                       {"scriptPath", ParameterValue::fromText("ecu.lua")}}});
+
+    CHECK(graph.validate(catalog).failed());
+}
+
+TEST_CASE("A block whose settings are complete passes", "[graph][validate]")
+{
+    // The other half of the same claim: a check that only ever refuses would
+    // pass the three cases above and be worthless.
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    GraphDescription graph;
+    graph.addNode(NodeDescription{
+        .id = "lua_ecu",
+        .typeName = "lua.ecu",
+        .parameters = {{"script", ParameterValue::fromText("function on_frame() end")}}});
+    graph.addNode(NodeDescription{
+        .id = "tx",
+        .typeName = "can.transmit",
+        .parameters = {{"channel", ParameterValue::fromInteger(0)}}});
+
+
+    const Result result = graph.validate(catalog);
+    INFO(std::string{result.message()});
+    CHECK(result.succeeded());
+}
+
+TEST_CASE("Validating settings twice is what the creator still does anyway",
+          "[graph][validate][lua]")
+{
+    // The creator does not assume anybody validated first. A caller can build
+    // a description it never validated - the engine does, on a project file -
+    // and a node built without a script would otherwise run as an ECU that
+    // does nothing, which is the failure that hides.
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    NodeBuildContext context;
+    std::unique_ptr<IPipelineNode> node;
+
+    const Result result = catalog.create("lua.ecu", NodeParameters{}, context, "lua_ecu", node);
+
+    CHECK(result.failed());
+    CHECK(node == nullptr);
+}

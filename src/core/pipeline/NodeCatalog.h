@@ -119,6 +119,17 @@ using NodeCreator = std::function<Result(const NodeParameters& parameters,
                                          std::string_view nodeId,
                                          std::unique_ptr<IPipelineNode>& out)>;
 
+/// Checks a node's settings without building it.
+///
+/// For the constraints a ParameterDescriptor cannot express - "exactly one of
+/// these two", "this range only applies when that flag is set". A descriptor
+/// says whether one parameter is required; a rule about two of them together
+/// has nowhere else to live.
+///
+/// Optional. A type whose parameters are independent registers none.
+using NodeValidator = std::function<Result(const NodeParameters& parameters,
+                                           std::string_view nodeId)>;
+
 class NodeCatalog final {
 public:
     /// A catalog with the built-in types already registered.
@@ -128,7 +139,21 @@ public:
     /// that a plugin has added to without every other measurement seeing it.
     [[nodiscard]] static NodeCatalog withBuiltinTypes();
 
-    void registerType(NodeTypeInfo info, NodeCreator creator);
+    void registerType(NodeTypeInfo info, NodeCreator creator, NodeValidator validator = {});
+
+    /// Everything wrong with a node's settings that can be known without a
+    /// build context - no channels, no trace store, no transmit list.
+    ///
+    /// This is what lets a problem be reported while the user is looking at the
+    /// block they just dropped, rather than at the next Start. Missing required
+    /// parameters, then the type's own rules.
+    ///
+    /// An unknown type is *not* an error here: GraphDescription::validate
+    /// reports that separately and with a better message, and reporting it
+    /// twice would put two lines in the Output panel for one mistake.
+    [[nodiscard]] Result validateParameters(std::string_view typeName,
+                                            const NodeParameters& parameters,
+                                            std::string_view nodeId) const;
 
     [[nodiscard]] bool contains(std::string_view typeName) const;
 
@@ -151,6 +176,7 @@ public:
 private:
     std::vector<NodeTypeInfo> m_order;
     std::map<std::string, NodeCreator, std::less<>> m_creators;
+    std::map<std::string, NodeValidator, std::less<>> m_validators;
     std::map<std::string, std::size_t, std::less<>> m_index;
 };
 

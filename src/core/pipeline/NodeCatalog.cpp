@@ -90,9 +90,43 @@ namespace {
     return Result::ok();
 }
 
+/// The one rule about lua.ecu's parameters that a descriptor cannot express.
+///
+/// Neither `script` nor `scriptPath` is required on its own, and exactly one of
+/// them is required together - which is a sentence about two parameters, and so
+/// has nowhere to live but here.
+///
+/// Called twice on purpose: once by the catalog's validator, so the problem is
+/// reported while the block is on screen, and once by the creator, which must
+/// not assume anybody validated first.
+[[nodiscard]] Result checkLuaScriptChoice(const NodeParameters& parameters,
+                                          std::string_view nodeId)
+{
+    const bool hasSource = parameters.contains("script");
+    const bool hasPath = parameters.contains("scriptPath");
+
+    if (hasSource && hasPath) {
+        return Result::error(
+            ErrorCode::InvalidArgument,
+            std::format("Block '{}' has both a script and a script file. Keep one - "
+                        "otherwise which one runs depends on this code, not on you.",
+                        nodeId));
+    }
+
+    if (!hasSource && !hasPath) {
+        return Result::error(
+            ErrorCode::InvalidArgument,
+            std::format("Block '{}' has no script yet. Select it and set either Script "
+                        "or Script file in its settings.",
+                        nodeId));
+    }
+
+    return Result::ok();
+}
+
 } // namespace
 
-void NodeCatalog::registerType(NodeTypeInfo info, NodeCreator creator)
+void NodeCatalog::registerType(NodeTypeInfo info, NodeCreator creator, NodeValidator validator)
 {
     const std::string typeName = info.typeName;
 
@@ -102,12 +136,48 @@ void NodeCatalog::registerType(NodeTypeInfo info, NodeCreator creator)
     if (const auto existing = m_index.find(typeName); existing != m_index.end()) {
         m_order[existing->second] = std::move(info);
         m_creators.insert_or_assign(typeName, std::move(creator));
+        m_validators.insert_or_assign(typeName, std::move(validator));
         return;
     }
 
     m_index.emplace(typeName, m_order.size());
     m_order.push_back(std::move(info));
     m_creators.emplace(typeName, std::move(creator));
+    m_validators.emplace(typeName, std::move(validator));
+}
+
+Result NodeCatalog::validateParameters(std::string_view typeName,
+                                       const NodeParameters& parameters,
+                                       std::string_view nodeId) const
+{
+    const NodeTypeInfo* info = find(typeName);
+    if (info == nullptr) {
+        return Result::ok();
+    }
+
+    for (const ParameterDescriptor& parameter : info->parameters) {
+        // A string from the view, because the parameter map is keyed by
+        // std::string with no transparent comparator. One allocation per
+        // declared parameter, on an edit - not on the frame path.
+        if (!parameter.required || parameters.contains(std::string{parameter.name})) {
+            continue;
+        }
+
+        // Named by the label the properties editor shows, not by the key the
+        // project file uses. The person reading this is looking at a form, and
+        // "Channel" is what is written next to the empty field.
+        return Result::error(
+            ErrorCode::InvalidArgument,
+            std::format("Block '{}' needs its {} set before the pipeline can run.",
+                        nodeId, parameter.displayName));
+    }
+
+    if (const auto validator = m_validators.find(typeName);
+        validator != m_validators.end() && validator->second) {
+        return validator->second(parameters, nodeId);
+    }
+
+    return Result::ok();
 }
 
 bool NodeCatalog::contains(std::string_view typeName) const
@@ -164,10 +234,13 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             .description = "Frames received on one application channel.",
             .inputs = {},
             .outputs = {PortDescriptor{"frames", PortType::Frames}},
+            // Not required: it defaults to CAN 1, which is the channel a block
+            // dropped on the canvas almost always means. `required` says the
+            // node *cannot be built* without it, and this one can.
             .parameters = {ParameterDescriptor{.name = "channel",
                                                .displayName = "Channel",
                                                .type = ParameterValue::Type::Integer,
-                                               .required = true,
+                                               .required = false,
                                                .description = "Application channel, 0 for CAN 1."}},
         },
         [](const NodeParameters& parameters, const NodeBuildContext& context,
@@ -278,21 +351,13 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             // Inline source or a path, never both silently: a project holding
             // one copy of the script and a stale path to another is a bug that
             // only shows up on the machine where the path resolves.
-            const bool hasSource = parameters.contains("script");
+            if (Result result = checkLuaScriptChoice(parameters, nodeId); result.failed()) {
+                return result;
+            }
+
+            // Exactly one of the two is present - checkLuaScriptChoice just
+            // said so - so asking about one answers for both.
             const bool hasPath = parameters.contains("scriptPath");
-
-            if (hasSource && hasPath) {
-                return Result::error(
-                    ErrorCode::InvalidArgument,
-                    std::format("Node '{}' has both a script and a script file. Keep one - "
-                                "otherwise which one runs depends on this code, not on you.",
-                                nodeId));
-            }
-
-            if (!hasSource && !hasPath) {
-                return Result::error(ErrorCode::InvalidArgument,
-                                     std::format("Node '{}' has no script", nodeId));
-            }
 
             std::string source;
             std::string name{nodeId};
@@ -381,7 +446,11 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
 
             out = std::move(node);
             return Result::ok();
-        });
+        },
+        // The same rule the creator checks, registered so it can also be
+        // checked without a build context - which is what lets an unfinished
+        // block be reported while it is on screen instead of at the next Start.
+        checkLuaScriptChoice);
 
     catalog.registerType(
         NodeTypeInfo{
@@ -391,10 +460,13 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             .description = "Turns frames into named signal values using a .dbc database.",
             .inputs = {PortDescriptor{"frames", PortType::Frames}},
             .outputs = {PortDescriptor{"signals", PortType::Signals}},
+            // Not required, and the creator below says why at length: a
+            // decoder with no database yet builds as a decoder that decodes
+            // nothing, so a canvas can be assembled in any order.
             .parameters = {ParameterDescriptor{.name = "database",
                                                .displayName = "Database",
                                                .type = ParameterValue::Type::Text,
-                                               .required = true,
+                                               .required = false,
                                                .description = "Path to a .dbc file."}},
         },
         [](const NodeParameters& parameters, const NodeBuildContext& context,
@@ -471,10 +543,11 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             .description = "Puts the frames it receives on a channel.",
             .inputs = {PortDescriptor{"frames", PortType::Frames}},
             .outputs = {},
+            // Defaults to CAN 1, like can.source and for the same reason.
             .parameters = {ParameterDescriptor{.name = "channel",
                                                .displayName = "Channel",
                                                .type = ParameterValue::Type::Integer,
-                                               .required = true,
+                                               .required = false,
                                                .description = "Application channel to send on."}},
         },
         [](const NodeParameters& parameters, const NodeBuildContext& context,
