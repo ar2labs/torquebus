@@ -54,6 +54,8 @@ add_library(torquebus_core STATIC
     core/log/TraceLog.cpp
     core/log/LogNodes.h
     core/log/LogNodes.cpp
+    core/log/TraceExport.h
+    core/log/TraceExport.cpp
 
     core/plot/SignalSeries.h
     core/plot/SignalSeries.cpp
