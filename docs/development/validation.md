@@ -559,6 +559,34 @@ reason the header carries no frame count.
 
 ---
 
+## 5j. A block that is not finished yet
+
+Reported from the running application, and the reason this section exists.
+
+1. Double-click **Simulation > Lua ECU** in the palette. The block appears
+   **selected**, and the **Block** panel comes forward showing its settings -
+   a block is dropped in order to be configured, so the settings belong in
+   front of you rather than one click away behind another tab.
+2. The Output panel says the block has no script and names both ways out.
+   Press **Start**: it is refused, naming the same block. That much was always
+   right.
+3. **Untick Enabled** in the Block panel and press Start again. It runs.
+   *This is the part that was broken*: `validate()` was checking the parameters
+   of a node `build()` skips entirely, so switching a block off did not
+   actually leave it out of the run and the only way forward was to delete it -
+   losing its settings and its position.
+4. The rule that fell out of it, now enforced in `validate()` and covered by
+   two tests: **whatever `validate()` rejects, `build()` must also reject.**
+   Anything else makes "off" a setting that does not mean off.
+5. The same from the other side: open a project that names a block type this
+   build does not have. It is refused, and unticking Enabled lets the rest of
+   the project run.
+
+**Worked:** all five. Step 3 is the one to be fussy about - it is the only step
+here that was a real bug rather than a check.
+
+---
+
 ## 5i. Exporting the trace
 
 A log only this tool reads is stuck here. This is the step that gets a

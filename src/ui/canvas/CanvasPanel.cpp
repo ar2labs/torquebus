@@ -13,6 +13,7 @@
 #include <QtNodes/GraphicsView>
 #include <QtNodes/GraphicsViewStyle>
 #include <QtNodes/NodeStyle>
+#include <QtNodes/internal/NodeGraphicsObject.hpp>
 
 #include <QAbstractItemView>
 #include <QHBoxLayout>
@@ -297,6 +298,20 @@ void CanvasPanel::addNodeFromPalette(QTreeWidgetItem* item)
     // happened, and the canvas scrolls.
     const QPointF centre = m_view->mapToScene(m_view->viewport()->rect().center());
     m_model->setNodeData(nodeId, QtNodes::NodeRole::Position, centre);
+
+    // Selected, and announced. A block is dropped in order to be configured,
+    // and most of them arrive incomplete on purpose - so the settings for the
+    // one just added belong in front of the user, not one click away behind
+    // whatever tab they were last on.
+    if (QtNodes::NodeGraphicsObject* object = m_scene->nodeGraphicsObject(nodeId);
+        object != nullptr) {
+        m_scene->clearSelection();
+        object->setSelected(true);
+    }
+
+    // Emitted by hand because QtNodes only raises nodeSelected from a mouse
+    // press: selecting the item above tells the user's eye and nothing else.
+    Q_EMIT nodeSelected(QString::fromStdString(m_model->descriptionId(nodeId)));
 }
 
 void CanvasPanel::reload()
