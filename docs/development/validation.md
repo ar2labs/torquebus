@@ -559,6 +559,47 @@ reason the header carries no frame count.
 
 ---
 
+## 5k. The Playback panel
+
+The transport, and the last thing v0.9 was missing. A recording that can only
+be played from the beginning at one speed is a file being poured through a
+pipe, not a measurement being examined.
+
+1. With nothing replaying, the **Playback** panel says so and its buttons are
+   disabled. A transport that is present and does nothing when pressed is worse
+   than one that admits it has nothing to drive.
+2. Drop a **Log Replay** block, give it a `.tblog`, wire it to **CAN Trace**,
+   press **Start**. The panel comes forward, names the file, and the bar starts
+   moving. The total on the right is the recording's real length - which cost a
+   walk of the file at Start, because the format carries no duration.
+3. **Pause.** The trace stops filling and the position stops. Wait ten seconds
+   and press play: it continues from where it was, *not* ten seconds further
+   in. That is the whole reason position is integrated rather than measured
+   from a start time.
+4. **Drag the handle** to two thirds along. The trace continues from there.
+   Drag it back to the start: the file is read again from the top, because there
+   is no index to jump with - and the wait for that on a large log is the price
+   of a header that is never patched on close.
+5. **Speed.** 0.1x to watch a burst, **Maximum** to reach minute nineteen of a
+   twenty-minute log. At Maximum the replay is bounded by how fast the graph
+   drains it rather than by the clock, which is what the menu entry means.
+6. Let it reach the end. The panel says **End of recording** rather than
+   *Paused*: those look identical on a bar that has stopped moving and only one
+   of them is answered by pressing play. Press play anyway - it starts again
+   from the top.
+7. Keyboard: click the bar and use Left/Right (one second), Page Up/Down (ten),
+   Home and End. The focus ring is drawn by hand, like every other one in this
+   application, because the platform's is invisible on a dark panel.
+8. **Seek while a live measurement is also running** (a replay block and a real
+   channel in one graph). The live channels keep up. A seek is bounded per pass
+   through the graph precisely so that dragging a timeline cannot stall them.
+
+**Worked:** all eight. Steps 3 and 8 are the ones to be fussy about: the first
+is the difference between a transport and a progress bar, and the second is the
+one that would show up as dropped frames on somebody else's channel.
+
+---
+
 ## 5j. A block that is not finished yet
 
 Reported from the running application, and the reason this section exists.

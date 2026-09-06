@@ -241,6 +241,10 @@ qt_add_library(torquebus_ui STATIC
     ui/graph/PlotView.cpp
     ui/graph/GraphPanel.h
     ui/graph/GraphPanel.cpp
+    ui/playback/TimelineBar.h
+    ui/playback/TimelineBar.cpp
+    ui/playback/PlaybackPanel.h
+    ui/playback/PlaybackPanel.cpp
     ui/preferences/AccentSwatchRow.h
     ui/preferences/AccentSwatchRow.cpp
     ui/preferences/PreferencesDialog.h
