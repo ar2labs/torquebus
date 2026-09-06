@@ -748,3 +748,11 @@ QLabel#preferencesHint {
     color: @textMuted;
     padding: 0px 0px 4px 1px;
 }
+
+/* The signal list beside the plot. Checkable rows, and nothing else - the
+ * colours are in the plot, and repeating them here would be a legend competing
+ * with the thing it describes. */
+QListWidget#torquebus\.list\.plotSignals::item {
+    padding: @rowPadding 4px;
+    min-height: @rowMinimumHeight;
+}

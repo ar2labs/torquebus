@@ -11,6 +11,7 @@
 #include "ui/canvas/CanvasPanel.h"
 #include "ui/common/AnimatedToolButton.h"
 #include "ui/database/DatabasePanel.h"
+#include "ui/graph/GraphPanel.h"
 #include "ui/mainwindow/PlaceholderPanel.h"
 #include "ui/output/OutputPanel.h"
 #include "ui/preferences/PreferencesDialog.h"
@@ -405,13 +406,11 @@ void MainWindow::createPanels()
     m_transmitDock = createDockWidget(dockName(kDockTransmit), tr("Transmit"),
                                       m_transmitPanel, icon("transmit"));
 
-    m_graphDock = createDockWidget(
-        dockName(kDockGraph), tr("Graph"),
-        new PlaceholderPanel(tr("Signal Graph"),
-                             tr("Live and offline signal plotting with cursors, multiple "
-                                "Y axes, zoom, measurement and export."),
-                             QStringLiteral("graph"), QStringLiteral("v0.8")),
-        icon("graph"));
+    m_graphPanel = new GraphPanel;
+    m_graphPanel->setStore(&m_controller->engine().plotStore());
+
+    m_graphDock = createDockWidget(dockName(kDockGraph), tr("Graph"), m_graphPanel,
+                                   icon("graph"));
 
     m_statisticsPanel = new StatisticsPanel;
 
@@ -788,6 +787,8 @@ void MainWindow::restoreWindowState()
         m_settings.binaryValue(QString::fromLatin1(services::keys::kCanvasSplitter)));
     m_statisticsPanel->restoreSplitterState(
         m_settings.binaryValue(QString::fromLatin1(services::keys::kStatisticsSplitter)));
+    m_graphPanel->restoreSplitterState(
+        m_settings.binaryValue(QString::fromLatin1(services::keys::kGraphSplitter)));
 }
 
 void MainWindow::saveWindowState() const
@@ -811,6 +812,8 @@ void MainWindow::saveWindowState() const
                               m_canvas->splitterState());
     m_settings.setBinaryValue(QString::fromLatin1(services::keys::kStatisticsSplitter),
                               m_statisticsPanel->splitterState());
+    m_settings.setBinaryValue(QString::fromLatin1(services::keys::kGraphSplitter),
+                              m_graphPanel->splitterState());
 
     if (!m_settings.save()) {
         qWarning("TorqueBus: failed to write settings to %s",

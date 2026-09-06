@@ -230,6 +230,10 @@ qt_add_library(torquebus_ui STATIC
     ui/canvas/CanvasPanel.cpp
     ui/database/DatabasePanel.h
     ui/database/DatabasePanel.cpp
+    ui/graph/PlotView.h
+    ui/graph/PlotView.cpp
+    ui/graph/GraphPanel.h
+    ui/graph/GraphPanel.cpp
     ui/preferences/AccentSwatchRow.h
     ui/preferences/AccentSwatchRow.cpp
     ui/preferences/PreferencesDialog.h

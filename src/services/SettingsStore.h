@@ -80,6 +80,7 @@ inline constexpr auto kDensity          = "ui/density";
 /// to it, so each one that exists is stored here by name.
 inline constexpr auto kCanvasSplitter     = "ui/canvas/splitter";
 inline constexpr auto kStatisticsSplitter = "ui/statistics/splitter";
+inline constexpr auto kGraphSplitter      = "ui/graph/splitter";
 
 inline constexpr auto kTraceRefreshMs      = "trace/refreshMs";
 inline constexpr auto kDecimalIdentifiers  = "trace/decimalIdentifiers";
