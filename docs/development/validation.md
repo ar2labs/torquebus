@@ -24,13 +24,6 @@ project file — and in full before tagging a release.
 > has test coverage; it compiles and the suite passes, which says nothing about
 > what the window looks like. Step 4 below is the part that does.
 >
-> A fourth, from the plot store: **ThreadSanitizer, when the claim is about a
-> lock rather than about memory.** AddressSanitizer finds a use-after-free and
-> says nothing about a data race; the store's mutex exists to make a read of a
-> wrapping ring safe, and only TSan can say whether it does. On a sandbox where
-> TSan refuses to start with "unexpected memory mapping", run the binary under
-> `setarch $(uname -m) -R` to turn ASLR off.
->
 > A third practice joined the two above while the accent colour was being
 > written: **running the real Qt value types before writing C++ against them.**
 > The PySide6 wheel for the pinned version carries the actual Qt libraries, so
@@ -40,6 +33,13 @@ project file — and in full before tagging a release.
 > behaviour rather than a memory of it, and it is what the
 > [`backgroundBrush` mistake](#what-is-likely-to-break-first) cost an afternoon
 > for want of.
+>
+> And a fourth, from the plot store: **ThreadSanitizer, when the claim is about
+> a lock rather than about memory.** AddressSanitizer finds a use-after-free and
+> says nothing at all about a data race; the store's mutex exists to make a read
+> of a wrapping ring safe, and only TSan can say whether it does. Where TSan
+> refuses to start with "unexpected memory mapping", run the binary under
+> `setarch $(uname -m) -R` to turn ASLR off.
 
 ---
 
