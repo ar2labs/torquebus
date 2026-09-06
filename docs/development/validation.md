@@ -39,10 +39,12 @@ cmake --preset windows-msvc-debug
 The first configure clones KDDockWidgets 2.2.5, QtNodes 3.0.16 and Catch2 3.7.1,
 so it needs network access and takes a few minutes.
 
-**Worked:** the summary block at the end reads
+**Worked:** the summary block at the end reads, with the version being the last
+*completed* milestone (see the comment above `project()` in the top-level
+CMakeLists.txt)
 
 ```
-TorqueBus Studio 0.5.0
+TorqueBus Studio 0.9.0
   Build type ............ Debug
   Compiler .............. MSVC 19.x
   Qt .................... 6.11.2
