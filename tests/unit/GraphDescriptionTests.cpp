@@ -468,6 +468,60 @@ TEST_CASE("A disabled node is skipped, and so are its wires", "[graph][build]")
     CHECK(graph.nodeIds().size() == 1);
 }
 
+TEST_CASE("A block that cannot be built can be switched off", "[graph][validation]")
+{
+    // Reported from the running application: drop a Lua ECU, do not fill it in
+    // yet, and Start is refused - correctly. Untick Enabled, which is the
+    // documented way to leave a block out of the run, and Start was *still*
+    // refused, because validate() checked the parameters of a node build()
+    // was about to skip entirely.
+    //
+    // The rule, now enforced in validate() itself: whatever validate() rejects,
+    // build() must also reject. Otherwise "off" is a setting that does not mean
+    // off, and the only way out of a half-finished block is to delete it.
+    TraceStore store{1024};
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    GraphDescription description;
+    // A filter rather than a channel source, so the test needs no engine: the
+    // subject is the disabled block, not what feeds it.
+    description.addNode(node("filter", "can.filter"));
+    description.addNode(node("lua_ecu", "lua.ecu"));   // No script: cannot build.
+    description.addNode(node("trace_1", "trace.sink"));
+    description.addEdge(EdgeDescription{"filter", 0, "lua_ecu", 0});
+    description.addEdge(EdgeDescription{"lua_ecu", 0, "trace_1", 0});
+
+    REQUIRE(description.validate(catalog).failed());
+
+    description.nodes()[1].enabled = false;
+
+    INFO(std::string{description.validate(catalog).message()});
+    CHECK(description.validate(catalog).succeeded());
+
+    // And it really does build - the half of the claim a validate()-only test
+    // would leave unchecked.
+    PipelineGraph graph;
+    REQUIRE(description.build(catalog, contextWith(store), graph).succeeded());
+    CHECK(graph.nodeIds().size() == 2);
+}
+
+TEST_CASE("A disabled node of a type this build does not have is not fatal",
+          "[graph][validation]")
+{
+    // The same rule from the other side. A project saved on a machine with a
+    // plugin, opened on one without it: switching that block off is the
+    // obvious move, and it now works. build() skips it either way.
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    GraphDescription description;
+    description.addNode(node("mystery", "plugin.not.installed"));
+
+    CHECK(description.validate(catalog).failed());
+
+    description.nodes()[0].enabled = false;
+    CHECK(description.validate(catalog).succeeded());
+}
+
 TEST_CASE("Two wires into one input are allowed when one source is disabled",
           "[graph][validation]")
 {
@@ -731,6 +785,10 @@ TEST_CASE("A Lua ECU with no script at all is caught before Start",
     // And it says what to do about it. "has no script" was true and useless.
     INFO(std::string{result.message()});
     CHECK(std::string{result.message()}.find("Script") != std::string::npos);
+
+    // Both ways out, not just the one. Somebody who wanted the rest of the
+    // pipeline running today should not have to delete the block to get it.
+    CHECK(std::string{result.message()}.find("Enabled") != std::string::npos);
 }
 
 TEST_CASE("A Lua ECU with both a script and a path is caught before Start",

@@ -66,6 +66,20 @@ Result GraphDescription::validate(const NodeCatalog& catalog) const
                             node.id));
         }
 
+        // A disabled node is skipped by build(), wires and all - so validate()
+        // must not refuse a graph over one. It did: a half-configured block
+        // could not be switched off, because the parameter check below still
+        // ran on it and Start was refused over a block that would never have
+        // been instantiated.
+        //
+        // The rule this establishes, and the reason the check sits here rather
+        // than being spelled into each test below: **whatever validate()
+        // rejects, build() must also reject.** Anything else makes "off" a
+        // setting that does not mean off.
+        if (!node.enabled) {
+            continue;
+        }
+
         if (!catalog.contains(node.typeName)) {
             return Result::error(ErrorCode::NotImplemented,
                                  std::format("Node '{}' has unknown type '{}'", node.id,

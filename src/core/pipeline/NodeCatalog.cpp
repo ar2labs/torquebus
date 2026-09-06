@@ -118,8 +118,9 @@ namespace {
     if (!hasSource && !hasPath) {
         return Result::error(
             ErrorCode::InvalidArgument,
-            std::format("Block '{}' has no script yet. Select it and set either Script "
-                        "or Script file in its settings.",
+            std::format("Block '{}' has no script yet. Set either Script or Script "
+                        "file in the Block panel - or untick Enabled there to leave "
+                        "it out of the run.",
                         nodeId));
     }
 
