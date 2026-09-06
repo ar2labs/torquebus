@@ -71,6 +71,16 @@ Result GraphDescription::validate(const NodeCatalog& catalog) const
                                  std::format("Node '{}' has unknown type '{}'", node.id,
                                              node.typeName));
         }
+
+        // What the node's own settings say, as far as that can be known
+        // without a build context. A block dropped on the canvas and not yet
+        // filled in is the ordinary case, not a strange one - it should be
+        // reported here, where the user is looking at it, rather than at the
+        // next Start when they are looking at something else.
+        if (Result result = catalog.validateParameters(node.typeName, node.parameters, node.id);
+            result.failed()) {
+            return result;
+        }
     }
 
     // How many edges arrive at each input. An input takes exactly one, because
