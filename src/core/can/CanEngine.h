@@ -38,6 +38,7 @@
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "core/pipeline/PipelineGraph.h"
+#include "core/plot/SignalSeries.h"
 #include "core/trace/TraceStore.h"
 
 #include <atomic>
@@ -264,6 +265,19 @@ public:
     [[nodiscard]] TraceStore& traceStore() noexcept { return m_traceStore; }
     [[nodiscard]] const TraceStore& traceStore() const noexcept { return m_traceStore; }
 
+    /// Where a `signal.plot` block's samples land, for the Graph panel.
+    ///
+    /// Owned here for the same reason the trace store is: it belongs to the
+    /// measurement, it outlives any one compiled graph, and the panel reads it
+    /// on its own timer while the executor writes.
+    ///
+    /// No implicit plot node, unlike the trace. A trace is what a measurement
+    /// is *for* and costs nothing when nobody looks; a plot only means anything
+    /// once a database is loaded and a decoder is wired, so building one into
+    /// every graph would keep a store of signals nobody asked to see.
+    [[nodiscard]] SignalSeriesStore& plotStore() noexcept { return m_plotStore; }
+    [[nodiscard]] const SignalSeriesStore& plotStore() const noexcept { return m_plotStore; }
+
     /// A registered sink and the handle that removes it again. Public only so
     /// that the dispatch helpers in the .cpp can name it.
     template <typename SinkType>
@@ -313,6 +327,7 @@ private:
     /// #7), and the graph is rebuilt on every start. The nodes that write into
     /// it are created per channel and hold a reference.
     TraceStore m_traceStore;
+    SignalSeriesStore m_plotStore;
 
     mutable std::mutex m_sinksMutex;
     std::vector<Registration<FrameSink>> m_frameSinks;

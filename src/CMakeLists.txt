@@ -50,6 +50,10 @@ add_library(torquebus_core STATIC
     core/pipeline/GraphDescription.h
     core/pipeline/GraphDescription.cpp
 
+    core/plot/SignalSeries.h
+    core/plot/SignalSeries.cpp
+    core/plot/SignalPlotNode.h
+
     core/trace/TraceStore.h
     core/trace/TraceStore.cpp
     core/transmit/TransmitEntry.h

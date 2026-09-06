@@ -11,6 +11,7 @@
 #include "core/pipeline/nodes/FrameNodes.h"
 #include "core/transmit/TransmitListNode.h"
 #include "core/scripting/LuaEcuNode.h"
+#include "core/plot/SignalPlotNode.h"
 #include "core/trace/TraceSinkNode.h"
 #include "core/trace/TraceStore.h"
 
@@ -582,6 +583,29 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             }
 
             out = std::make_unique<TraceSinkNode>(*context.traceStore);
+            return Result::ok();
+        });
+
+    catalog.registerType(
+        NodeTypeInfo{
+            .typeName = "signal.plot",
+            .displayName = "Signal Plot",
+            .category = "Sinks",
+            .description = "Keeps the decoded signals it receives, for the Graph panel.",
+            .inputs = {PortDescriptor{"signals", PortType::Signals}},
+            .outputs = {},
+            .parameters = {},
+        },
+        [](const NodeParameters&, const NodeBuildContext& context, std::string_view nodeId,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
+            if (context.plotStore == nullptr) {
+                return Result::error(ErrorCode::InvalidState,
+                                     std::format("Node '{}' plots signals, but this graph "
+                                                 "is being built without a plot store",
+                                                 nodeId));
+            }
+
+            out = std::make_unique<SignalPlotNode>(*context.plotStore);
             return Result::ok();
         });
 

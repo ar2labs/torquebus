@@ -23,6 +23,7 @@
 #include "core/pipeline/NodeParameters.h"
 #include "core/pipeline/PipelineNode.h"
 #include "core/pipeline/PortType.h"
+#include "core/plot/SignalSeries.h"
 
 #include <functional>
 #include <map>
@@ -49,6 +50,13 @@ struct NodeBuildContext final {
 
     /// The measurement's trace store, or nullptr when there is none.
     TraceStore* traceStore{nullptr};
+
+    /// Where decoded signals accumulate for the Graph panel, or nullptr.
+    ///
+    /// Borrowed like the trace store and for the same reason: it belongs to the
+    /// measurement rather than to the graph, and the panel reads it on its own
+    /// timer while the executor writes.
+    SignalSeriesStore* plotStore{nullptr};
 
     /// The transmit list the Transmit panel edits, or nullptr.
     ///
