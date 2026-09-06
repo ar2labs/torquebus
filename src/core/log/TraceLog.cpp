@@ -379,4 +379,84 @@ std::size_t TraceLogReader::read(std::span<CanFrame> out)
     return filled;
 }
 
+Result TraceLogReader::restart()
+{
+    if (!m_file.is_open()) {
+        return Result::error(ErrorCode::InvalidState, "restart() on a log that is not open");
+    }
+
+    // clear() first: the stream is usually sitting on eofbit by the time
+    // anybody rewinds it, and seekg on a stream in a failed state does nothing
+    // at all - silently, which would leave the replay reading nothing and
+    // looking like an empty file.
+    m_file.clear();
+    m_file.seekg(static_cast<std::streamoff>(m_header.headerSize), std::ios::beg);
+
+    if (!m_file) {
+        return Result::error(ErrorCode::FileAccessDenied,
+                             "The log file would not seek back to its first record");
+    }
+
+    m_frames = 0;
+    m_truncated = 0;
+    m_atEnd = false;
+
+    return Result::ok();
+}
+
+Result summarize(const std::string& path, TraceLogSummary& out)
+{
+    out = TraceLogSummary{};
+
+    // Opened through the reader so that the header checks - magic, version,
+    // headerSize - are the same ones a replay would apply. A file this accepts
+    // and the replay then refuses would be the worst of both.
+    TraceLogReader reader;
+
+    if (Result result = reader.open(path); result.failed()) {
+        return result;
+    }
+
+    out.startWallClockUs = reader.header().startWallClockUs;
+
+    // Read in batches rather than one frame at a time: the payload is copied
+    // either way, and the alternative was a second record parser living here,
+    // able to drift from the one in read().
+    constexpr std::size_t kBatch = 4096;
+    std::vector<CanFrame> frames(kBatch);
+
+    bool haveFirst = false;
+
+    while (true) {
+        const std::size_t got = reader.read(std::span{frames});
+
+        if (got == 0) {
+            break;
+        }
+
+        if (!haveFirst) {
+            out.firstTimestampNs = frames.front().timestampNs;
+            haveFirst = true;
+        }
+
+        out.lastTimestampNs = frames[got - 1].timestampNs;
+        out.frames += got;
+
+        if (got < kBatch) {
+            break;
+        }
+    }
+
+    out.truncatedBytes = reader.truncatedBytes();
+
+    // Not simply last - first: a log written by a source whose clock went
+    // backwards would otherwise produce a duration that underflows into
+    // something astronomical, and a timeline is drawn from this number.
+    out.durationNs = out.lastTimestampNs > out.firstTimestampNs
+                         ? out.lastTimestampNs - out.firstTimestampNs
+                         : 0;
+
+    return Result::ok();
+}
+
 } // namespace torquebus

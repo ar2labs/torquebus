@@ -322,6 +322,12 @@ void CanEngine::setGraphDescription(GraphDescription description,
         context.traceStore = &m_traceStore;
         context.plotStore = &m_plotStore;
 
+        // Cleared here rather than at Stop: what a panel shows between two runs
+        // should be the last run's position, not a bar that jumps to zero the
+        // moment a measurement ends.
+        m_replayControl.resetForRun();
+        context.replayControl = &m_replayControl;
+
         // Null unless a recording was started, which is what makes a `can.log`
         // block fail to build under Start and succeed under Record.
         context.logWriter = m_logWriter.isOpen() ? &m_logWriter : nullptr;

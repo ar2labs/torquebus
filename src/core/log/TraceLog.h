@@ -127,6 +127,41 @@ private:
     std::uint64_t m_bytes{0};
 };
 
+/// What one pass over a `.tblog` can say about it without keeping the frames.
+///
+/// The format carries no frame count and no duration - deliberately, because a
+/// header patched on close is a header that is wrong whenever the recording was
+/// stopped by a flat battery. The cost of that decision is paid here: knowing
+/// how long a recording is means walking it.
+///
+/// The walk skips payloads rather than reading them, so it touches a sixth of
+/// the bytes of a real read, but it is still O(file). Somewhere to build an
+/// index, if a user ever times this and finds it worth caching.
+struct TraceLogSummary final {
+    std::uint64_t frames{};
+
+    /// Timestamps of the first and last frame, as they are in the file:
+    /// nanoseconds since the measurement that recorded them began.
+    std::uint64_t firstTimestampNs{};
+    std::uint64_t lastTimestampNs{};
+
+    /// last - first. Zero for a file with one frame, which is honest: a single
+    /// frame has no duration.
+    std::uint64_t durationNs{};
+
+    /// Bytes at the end that were not a whole record. See TraceLogReader.
+    std::uint64_t truncatedBytes{};
+
+    /// From the header, so a report can say what day this was recorded.
+    std::uint64_t startWallClockUs{};
+};
+
+/// Walks `path` and fills in `out`.
+///
+/// Fails only for a file that cannot be opened or is not a `.tblog`; a
+/// truncated one summarises fine and says how much it ignored.
+[[nodiscard]] Result summarize(const std::string& path, TraceLogSummary& out);
+
 /// Reads frames back from a `.tblog`.
 class TraceLogReader final {
 public:
@@ -166,6 +201,15 @@ public:
     [[nodiscard]] std::uint64_t truncatedBytes() const noexcept { return m_truncated; }
 
     [[nodiscard]] std::uint64_t framesRead() const noexcept { return m_frames; }
+
+    /// Goes back to the first record, as though the file had just been opened.
+    ///
+    /// This is what a replay seeking backwards is made of. The format has no
+    /// index, so there is no cheaper way in: going back means going back to the
+    /// start and reading forward again. That is a sequential read at disk
+    /// speed, and it is the price of a header that never has to be patched -
+    /// which is what makes a recording that was cut short still readable.
+    [[nodiscard]] Result restart();
 
 private:
     std::ifstream m_file;

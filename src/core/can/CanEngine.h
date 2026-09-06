@@ -38,6 +38,7 @@
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "core/pipeline/PipelineGraph.h"
+#include "core/log/ReplayControl.h"
 #include "core/log/TraceLog.h"
 #include "core/plot/SignalSeries.h"
 #include "core/trace/TraceStore.h"
@@ -293,6 +294,18 @@ public:
     [[nodiscard]] SignalSeriesStore& plotStore() noexcept { return m_plotStore; }
     [[nodiscard]] const SignalSeriesStore& plotStore() const noexcept { return m_plotStore; }
 
+    /// The transport every replay block in this measurement obeys.
+    ///
+    /// Owned here for the same reason the trace store and the plot store are:
+    /// it belongs to the measurement rather than to any one compiled graph, and
+    /// the GUI holds it while the executor thread reads it. What crosses that
+    /// boundary is atomics only - see ReplayControl.
+    [[nodiscard]] ReplayControl& replayControl() noexcept { return m_replayControl; }
+    [[nodiscard]] const ReplayControl& replayControl() const noexcept
+    {
+        return m_replayControl;
+    }
+
     /// A registered sink and the handle that removes it again. Public only so
     /// that the dispatch helpers in the .cpp can name it.
     template <typename SinkType>
@@ -344,6 +357,7 @@ private:
     TraceStore m_traceStore;
     SignalSeriesStore m_plotStore;
     TraceLogWriter m_logWriter;
+    ReplayControl m_replayControl;
 
     mutable std::mutex m_sinksMutex;
     std::vector<Registration<FrameSink>> m_frameSinks;

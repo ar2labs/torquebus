@@ -18,6 +18,7 @@
 #pragma once
 
 #include "core/can/CanFrame.h"
+#include "core/log/ReplayControl.h"
 #include "core/log/TraceLog.h"
 #include "core/pipeline/PipelineNode.h"
 
@@ -96,6 +97,13 @@ private:
 ///
 /// The speed multiplier is what makes that bearable: 10x to find the interesting
 /// minute in a twenty-minute recording, then 1x to look at it.
+///
+/// **Driven, not just started.** A ReplayControl handed in at construction is
+/// where pause, speed and seek arrive from, and where this node publishes how
+/// far into the recording it has got. Without one the node plays the file
+/// through at its configured speed, which is what it did before there was a
+/// transport - the parameter stays the default so a graph built without a
+/// control still works.
 class LogSourceNode final : public IPipelineNode {
 public:
     /// Opens `path`. A file that will not open leaves the node empty rather
@@ -103,7 +111,8 @@ public:
     /// that threw here would take a whole measurement down for one bad path.
     explicit LogSourceNode(std::unique_ptr<TraceLogReader> reader,
                            double speed = 1.0,
-                           std::string label = "Log Replay");
+                           std::string label = "Log Replay",
+                           ReplayControl* control = nullptr);
 
     [[nodiscard]] std::string_view typeName() const noexcept override
     {
@@ -129,11 +138,19 @@ public:
     /// True once the file has been read to its end.
     [[nodiscard]] bool finished() const noexcept { return m_finished; }
 
+    /// How far into the recording the replay has reached, in nanoseconds from
+    /// its first frame. The number the timeline is drawn from.
+    [[nodiscard]] std::uint64_t positionNs() const noexcept { return m_positionNs; }
+
     [[nodiscard]] std::vector<NodeStatistic> statistics() const override
     {
         return {
             {"Frames replayed", m_replayed},
             {"Frames still in the file", m_pending.size() - m_pendingFirst},
+            // Frames a seek passed over. A big number here next to a small
+            // "replayed" is somebody dragging the timeline, not a fault - but
+            // it is also the first thing to look at if a seek felt slow.
+            {"Frames skipped", m_skipped},
         };
     }
 
@@ -141,6 +158,10 @@ private:
     static constexpr std::array<PortDescriptor, 1> kOutputs{
         PortDescriptor{"frames", PortType::Frames},
     };
+
+    /// Reads ahead and services a pending seek, both bounded per pass.
+    void topUp();
+    void serviceSeek();
 
     std::unique_ptr<TraceLogReader> m_reader;
     std::string m_label;
@@ -157,9 +178,29 @@ private:
     /// survive until the next process() (rule #12).
     std::vector<CanFrame> m_outgoing;
 
-    /// Measured from prepare(), like the transmit list's clock, so a replay
-    /// time and a frame timestamp are two readings of the same thing.
-    std::chrono::steady_clock::time_point m_started;
+    /// Where the transport arrives from and where position goes back to. Null
+    /// for a replay nobody is driving.
+    ReplayControl* m_control{nullptr};
+
+    /// When the last pass integrated the clock.
+    ///
+    /// Position is *accumulated* rather than derived from a start time, which
+    /// is what makes pause and a speed changed mid-file possible at all: time
+    /// that passed while paused, or at 0.5x, has to not count, and no start
+    /// time can express that after the fact.
+    std::chrono::steady_clock::time_point m_lastTick;
+
+    /// How far into the recording the replay has reached, from its first frame.
+    std::uint64_t m_positionNs{0};
+
+    /// A seek that has been asked for and not finished. Served a bounded number
+    /// of frames per pass: a seek to the end of a four-gigabyte log is a long
+    /// read, and doing it in one pass would stall every other node in the
+    /// graph - including the live channels of a measurement that is also
+    /// recording.
+    bool m_seekPending{false};
+    std::uint64_t m_seekTargetNs{0};
+    std::uint64_t m_skipped{0};
 
     /// The first frame's timestamp, so a recording that begins at 12.5 seconds
     /// starts playing immediately rather than after a twelve-second pause.
