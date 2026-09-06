@@ -16,6 +16,7 @@
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "core/transmit/TransmitList.h"
+#include "services/HardwareProfile.h"
 #include "services/RecentProjects.h"
 #include "ui/engine/CanEngineController.h"
 #include "ui/mainwindow/Docking.h"
@@ -78,6 +79,9 @@ private Q_SLOTS:
     void onDeviceSelected(const torquebus::CanDeviceInfo& device);
     void onToggleTheme();
     void onPreferences();
+
+    /// Hardware > Configuration. Edits which interfaces become CAN 1..N.
+    void onHardwareConfiguration();
     void onAbout();
     void onNotImplemented();
     void onInspectChrome();
@@ -188,6 +192,11 @@ private:
 
     /// The projects this user has opened, and the menu that shows them.
     services::RecentProjects m_recentProjects;
+
+    /// Which interfaces become CAN 1..N, and how each is opened. Belongs to the
+    /// machine rather than to the project, which is why it is here and not in
+    /// the .tbsproj.
+    services::HardwareProfile m_hardware;
     QMenu* m_recentMenu{nullptr};
 
     /// The log this run is recording into, or empty when it is not. Kept so the

@@ -154,6 +154,8 @@ set_target_properties(torquebus_drivers PROPERTIES FOLDER "Libraries")
 add_library(torquebus_services STATIC
     services/ProjectFile.h
     services/ProjectFile.cpp
+    services/HardwareProfile.h
+    services/HardwareProfile.cpp
     services/RecentProjects.h
     services/RecentProjects.cpp
     services/SettingsStore.h
@@ -239,6 +241,8 @@ qt_add_library(torquebus_ui STATIC
     ui/canvas/CanvasPanel.cpp
     ui/database/DatabasePanel.h
     ui/database/DatabasePanel.cpp
+    ui/hardware/HardwareDialog.h
+    ui/hardware/HardwareDialog.cpp
     ui/graph/PlotView.h
     ui/graph/PlotView.cpp
     ui/graph/GraphPanel.h

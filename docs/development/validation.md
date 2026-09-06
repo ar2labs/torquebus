@@ -695,6 +695,44 @@ step here about what the list is *not* allowed to do on its own.
 
 ---
 
+## 5m. Hardware Configuration
+
+The rest of v0.10, and the end of a comment that has been in `refreshHardware`
+since v0.2: *"until the Hardware Manager arrives, every detected channel is
+bound automatically in enumeration order"*.
+
+1. **Hardware > Configuration** on a machine with the virtual backend shows
+   four rows, numbered CAN 1 to CAN 4, in the order the Output panel reported
+   them at startup.
+2. Move the last row to the top. The **Channel** column renumbers as it moves -
+   the number is the thing being edited, so it has to be the thing that moves.
+   Press OK: the channels are rebound immediately and the Output panel names
+   them in the new order, without a Refresh.
+3. **Untick one.** It shows `-` instead of a number, the ones below it keep
+   theirs, and after OK it is not opened at all. The Output panel says how many
+   are switched off - an interface turned off and forgotten is otherwise
+   indistinguishable from a driver that stopped working.
+4. Set one to 500 kbit/s and restart the application. It is still 500. Now
+   reorder the adapters and check the rate followed the *adapter*, not the slot.
+5. **CAN FD** and **Listen only** are disabled for an adapter whose capabilities
+   say it cannot, with the reason in the tooltip. A tick nothing acts on is a
+   promise the driver breaks at Start.
+6. Start a measurement and open the dialog again. It says a measurement is
+   running, OK is disabled and nothing can be edited - the channel column of
+   every row already in the trace means the mapping that was in force at Start.
+7. Open it and press OK without touching anything: nothing is rebound and the
+   settings file is not rewritten.
+8. Switch *every* interface off. Start is disabled, rather than starting a
+   measurement with nothing in it.
+
+**Worked:** all eight. Step 2 is the one to be fussy about - reordering is the
+whole feature, and it is also where the first implementation destroyed its own
+controls: `setCellWidget` deletes whatever the cell held, so moving widgets
+between rows deletes the ones being moved. The rows are the model now and the
+table is rebuilt from them.
+
+---
+
 ## 6. Real hardware (optional)
 
 Only with a Kvaser adapter and CANlib installed.

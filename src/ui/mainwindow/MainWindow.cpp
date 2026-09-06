@@ -13,6 +13,7 @@
 #include "ui/common/AnimatedToolButton.h"
 #include "ui/database/DatabasePanel.h"
 #include "ui/graph/GraphPanel.h"
+#include "ui/hardware/HardwareDialog.h"
 #include "ui/mainwindow/PlaceholderPanel.h"
 #include "ui/output/OutputPanel.h"
 #include "ui/playback/PlaybackPanel.h"
@@ -55,6 +56,7 @@
 #include <QVariant>
 
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -164,6 +166,7 @@ MainWindow::MainWindow(services::SettingsStore& settings, ThemeManager& themes)
     , m_settings{settings}
     , m_themes{themes}
     , m_recentProjects{settings}
+    , m_hardware{settings}
 {
     setWindowIcon(QIcon{QStringLiteral(":/icons/torquebus.svg")});
     resize(1440, 900);
@@ -563,11 +566,12 @@ void MainWindow::createActions()
     connect(m_actionRecord, &QAction::toggled, this, &MainWindow::onRecord);
     connect(m_actionExportTrace, &QAction::triggered, this, &MainWindow::onExportTrace);
 
+    connect(m_actionHardwareConfiguration, &QAction::triggered, this,
+            &MainWindow::onHardwareConfiguration);
+
     // Everything whose module has not landed yet reports honestly instead of
     // doing nothing when clicked.
-    for (QAction* action : {m_actionReplay, m_actionHardwareConfiguration}) {
-        connect(action, &QAction::triggered, this, &MainWindow::onNotImplemented);
-    }
+    connect(m_actionReplay, &QAction::triggered, this, &MainWindow::onNotImplemented);
 }
 
 void MainWindow::createMenus()
@@ -915,19 +919,58 @@ void MainWindow::refreshHardware()
     m_output->appendInfo(tr("%n CAN channel(s) detected.", nullptr,
                             static_cast<int>(m_devices.size())));
 
-    // Until the Hardware Manager arrives in v0.3, every detected channel is
-    // bound automatically in enumeration order: CAN 1 is the first interface,
-    // CAN 2 the second. The mapping becomes explicit and persisted then.
-    m_controller->bindAvailableChannels([this](const QString& handle) {
-        return static_cast<quint32>(services::bitrateFor(m_settings, handle));
-    });
+    // Bound the way the saved hardware profile says, which on a machine nobody
+    // has arranged is exactly what it used to be: everything detected, in
+    // enumeration order, at the rate stored per handle.
+    QStringList handles;
+    handles.reserve(static_cast<qsizetype>(m_devices.size()));
 
-    m_actionStart->setEnabled(!m_devices.empty());
+    for (const CanDeviceInfo& device : m_devices) {
+        handles.append(QString::fromStdString(device.handle));
+    }
 
-    for (std::size_t index = 0; index < 2 && index < m_devices.size(); ++index) {
-        setChannelIndicator(static_cast<int>(index),
-                            QString::fromStdString(m_devices[index].name),
-                            QStringLiteral("ready"));
+    const std::size_t bound = m_controller->bindAvailableChannels(
+        [this](const CanDeviceInfo& device) -> std::optional<CanChannelConfig> {
+            const services::ChannelPreferences preferences =
+                m_hardware.preferencesFor(QString::fromStdString(device.handle));
+
+            if (!preferences.enabled) {
+                return std::nullopt;
+            }
+
+            CanChannelConfig config;
+            config.timing.bitrate = preferences.bitrate;
+            config.canFdEnabled = preferences.canFd;
+            config.bitRateSwitchEnabled = preferences.bitRateSwitch;
+            config.listenOnly = preferences.listenOnly;
+            config.receiveErrorFrames = preferences.receiveErrorFrames;
+            return config;
+        },
+        services::HardwareProfile::arrange(handles, m_hardware.order()));
+
+    if (bound < m_devices.size()) {
+        // Said out loud. An interface switched off in the hardware dialog and
+        // then forgotten about is otherwise indistinguishable from a driver
+        // that stopped working.
+        m_output->appendInfo(
+            tr("%n interface(s) are switched off in Hardware Configuration.", nullptr,
+               static_cast<int>(m_devices.size() - bound)));
+    }
+
+    m_actionStart->setEnabled(bound > 0);
+
+    // From what was actually bound, in channel order. Taking the first two
+    // detected devices was right only while CAN 1 meant "the first interface
+    // enumerated"; with an order and an off switch it would put the wrong name
+    // against the wrong number, which is worse than showing none.
+    const QList<QString>& names = m_controller->boundDeviceNames();
+
+    for (int index = 0; index < 2; ++index) {
+        if (index < names.size()) {
+            setChannelIndicator(index, names.at(index), QStringLiteral("ready"));
+        } else {
+            setChannelIndicator(index, tr("Not configured"), QStringLiteral("offline"));
+        }
     }
 }
 
@@ -995,6 +1038,31 @@ void MainWindow::onToggleTheme()
     m_themes.toggleVariant();
 }
 
+void MainWindow::onHardwareConfiguration()
+{
+    if (m_devices.empty()) {
+        m_output->appendWarning(
+            tr("No CAN interfaces were detected. Plug one in and use Hardware > Refresh; "
+               "the virtual backend is always available if you have none to hand."));
+        return;
+    }
+
+    HardwareDialog dialog{m_devices, m_hardware, m_controller->isRunning(), this};
+
+    if (dialog.exec() != QDialog::Accepted || !dialog.profileChanged()) {
+        return;
+    }
+
+    // Rebound rather than asking the user to press Refresh: they have just
+    // said what they want the channels to be, and a dialog whose effect
+    // arrives later is a dialog nobody trusts.
+    refreshHardware();
+
+    for (const QString& description : m_controller->boundChannelDescriptions()) {
+        m_output->appendInfo(description);
+    }
+}
+
 void MainWindow::onPreferences()
 {
     PreferencesDialog dialog{m_themes, m_settings, m_devices, this};
@@ -1018,9 +1086,10 @@ void MainWindow::onPreferences()
             return;
         }
 
-        m_controller->bindAvailableChannels([this](const QString& handle) {
-            return static_cast<quint32>(services::bitrateFor(m_settings, handle));
-        });
+        // Through the same path as everything else that rebinds, so that a
+        // rate changed in Preferences and a channel reordered in Hardware
+        // Configuration cannot end up applying two different rules.
+        refreshHardware();
 
         for (const QString& description : m_controller->boundChannelDescriptions()) {
             m_output->appendInfo(description);
