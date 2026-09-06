@@ -8,6 +8,8 @@
 // those three.
 
 #include "core/can/CanFrame.h"
+#include "core/log/LogNodes.h"
+#include "core/log/ReplayControl.h"
 #include "core/log/TraceLog.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
@@ -17,6 +19,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
+#include <chrono>
+#include <thread>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -77,6 +81,37 @@ private:
     }
 
     return result;
+}
+
+/// Builds `path` -> trace, with `control` driving the replay.
+///
+/// Everything is owned by the caller: a PipelineGraph holds the nodes, and a
+/// helper that owned it would be handing back references into a temporary.
+[[nodiscard]] Result buildReplay(const std::string& path,
+                                 const NodeCatalog& catalog,
+                                 TraceStore& trace,
+                                 ReplayControl& control,
+                                 NodeBuildContext& context,
+                                 GraphDescription& description,
+                                 PipelineGraph& graph,
+                                 double speed = 1.0)
+{
+    context.traceStore = &trace;
+    context.replayControl = &control;
+
+    description.addNode(NodeDescription{
+        .id = "replay",
+        .typeName = "log.source",
+        .parameters = {{"path", ParameterValue::fromText(path)},
+                       {"speed", ParameterValue::fromReal(speed)}}});
+    description.addNode(NodeDescription{.id = "trace", .typeName = "trace.sink"});
+    description.addEdge(EdgeDescription{"replay", 0, "trace", 0});
+
+    if (Result result = description.build(catalog, context, graph); result.failed()) {
+        return result;
+    }
+
+    return graph.compile();
 }
 
 /// Cuts `bytes` off the end of a file, which is what a killed process leaves.
@@ -537,4 +572,344 @@ TEST_CASE("What a logger records is what reached it, not what reached the bus",
         CHECK(read[0].identifier == 0x105);
         CHECK(read[4].identifier == 0x109);
     }
+}
+
+// ---------------------------------------------------------------------------
+// The transport
+// ---------------------------------------------------------------------------
+
+TEST_CASE("A log says how long it is, at the cost of a pass over it", "[log][summary]")
+{
+    // The format carries no duration - a header patched on close is a header
+    // that is wrong whenever the recording was stopped by a flat battery. So
+    // the number the timeline is drawn from has to be walked out of the file.
+    const ScopedLogFile file;
+
+    {
+        TraceLogWriter writer;
+        REQUIRE(writer.open(file.path(), 1'757'000'000'000'000ULL).succeeded());
+        REQUIRE(writer.append(std::array{frame(0x100, 500'000'000)}).succeeded());
+        REQUIRE(writer.append(std::array{frame(0x101, 1'500'000'000)}).succeeded());
+        REQUIRE(writer.append(std::array{frame(0x102, 3'000'000'000)}).succeeded());
+    }
+
+    TraceLogSummary summary;
+    REQUIRE(summarize(file.path(), summary).succeeded());
+
+    CHECK(summary.frames == 3);
+    CHECK(summary.firstTimestampNs == 500'000'000);
+    CHECK(summary.lastTimestampNs == 3'000'000'000);
+
+    // From the first frame to the last, not from zero: a recording that begins
+    // at half a second is two and a half seconds long, and a bar drawn from
+    // zero would leave a dead half-second nobody can play.
+    CHECK(summary.durationNs == 2'500'000'000);
+    CHECK(summary.startWallClockUs == 1'757'000'000'000'000ULL);
+    CHECK(summary.truncatedBytes == 0);
+}
+
+TEST_CASE("A recording that was cut short still says how long it is", "[log][summary]")
+{
+    // The case the whole format is shaped around. A summary that refused here
+    // would mean no timeline for exactly the recordings people care most about.
+    const ScopedLogFile file;
+
+    {
+        TraceLogWriter writer;
+        REQUIRE(writer.open(file.path()).succeeded());
+        for (std::uint32_t index = 0; index < 100; ++index) {
+            REQUIRE(writer.append(std::array{frame(0x300 + index, index * 10'000'000ULL)})
+                        .succeeded());
+        }
+    }
+
+    truncateBy(file.path(), 9);
+
+    TraceLogSummary summary;
+    REQUIRE(summarize(file.path(), summary).succeeded());
+
+    CHECK(summary.frames == 99);
+    CHECK(summary.truncatedBytes > 0);
+    CHECK(summary.durationNs == 98 * 10'000'000ULL);
+}
+
+TEST_CASE("A reader can go back to the beginning", "[log]")
+{
+    const ScopedLogFile file;
+
+    {
+        TraceLogWriter writer;
+        REQUIRE(writer.open(file.path()).succeeded());
+        REQUIRE(writer.append(std::array{frame(0x111, 0), frame(0x222, 1000)}).succeeded());
+    }
+
+    TraceLogReader reader;
+    REQUIRE(reader.open(file.path()).succeeded());
+
+    std::array<CanFrame, 8> frames{};
+    REQUIRE(reader.read(std::span{frames}) == 2);
+    CHECK(reader.atEnd());
+
+    // Rewound from the end, which is where a replay always is when somebody
+    // drags the handle backwards - and a stream sitting on eofbit ignores
+    // seekg unless it is cleared first.
+    REQUIRE(reader.restart().succeeded());
+    CHECK_FALSE(reader.atEnd());
+
+    REQUIRE(reader.read(std::span{frames}) == 2);
+    CHECK(frames[0].identifier == 0x111);
+    CHECK(reader.framesRead() == 2);
+}
+
+TEST_CASE("Pause stops the replay where it is", "[log][replay][transport]")
+{
+    // The point of the transport. Everything else is a convenience; a player
+    // that cannot be stopped at the interesting second is a file being poured
+    // through a pipe.
+    const ScopedLogFile file;
+
+    {
+        TraceLogWriter writer;
+        REQUIRE(writer.open(file.path()).succeeded());
+        REQUIRE(writer.append(std::array{frame(0x100, 0)}).succeeded());
+        REQUIRE(writer.append(std::array{frame(0x101, 100'000'000)}).succeeded());
+        REQUIRE(writer.append(std::array{frame(0x102, 200'000'000)}).succeeded());
+    }
+
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    TraceStore trace{256};
+    ReplayControl control;
+    NodeBuildContext context;
+    GraphDescription description;
+    PipelineGraph graph;
+
+    REQUIRE(buildReplay(file.path(), catalog, trace, control, context, description, graph)
+                .succeeded());
+
+    control.setPaused(true);
+    graph.execute();
+
+    // The frame at time zero is due at position zero, paused or not: pausing
+    // stops the clock, it does not un-play what the clock has already reached.
+    CHECK(trace.size() == 1);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds{300});
+    graph.execute();
+
+    // And this is the claim: three hundred milliseconds of wall clock went by
+    // and the recording did not advance.
+    CHECK(trace.size() == 1);
+    CHECK(control.positionNs() == 0);
+
+    control.setPaused(false);
+    std::this_thread::sleep_for(std::chrono::milliseconds{300});
+    graph.execute();
+
+    CHECK(trace.size() == 3);
+    CHECK(control.positionNs() > 0);
+}
+
+TEST_CASE("Seeking forward passes over what it skips", "[log][replay][transport]")
+{
+    const ScopedLogFile file;
+
+    {
+        TraceLogWriter writer;
+        REQUIRE(writer.open(file.path()).succeeded());
+        for (std::uint32_t index = 0; index < 4; ++index) {
+            REQUIRE(writer.append(std::array{frame(0x200 + index, index * 1'000'000'000ULL)})
+                        .succeeded());
+        }
+    }
+
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    TraceStore trace{256};
+    ReplayControl control;
+    NodeBuildContext context;
+    GraphDescription description;
+    PipelineGraph graph;
+
+    REQUIRE(buildReplay(file.path(), catalog, trace, control, context, description, graph)
+                .succeeded());
+
+    // Asked for before anything has played, so nothing before the target can
+    // reach the trace by accident and the count below means what it says.
+    control.requestSeek(2'000'000'000);
+
+    graph.execute();   // Services the seek. Seeking is not playing.
+    CHECK(trace.empty());
+
+    graph.execute();   // Now at 2 s, where a frame is waiting.
+
+    REQUIRE(trace.size() == 1);
+    CHECK(trace.row(0).frame.identifier == 0x202);
+    CHECK(control.positionNs() >= 2'000'000'000);
+
+    // Found by asking rather than by position: nodeIds() is in insertion
+    // order today, and a test that quietly depends on that breaks for a reason
+    // that has nothing to do with what it is checking.
+    const LogSourceNode* replay = nullptr;
+    for (const NodeId id : graph.nodeIds()) {
+        if (const auto* candidate = graph.nodeAs<LogSourceNode>(id); candidate != nullptr) {
+            replay = candidate;
+        }
+    }
+
+    REQUIRE(replay != nullptr);
+    CHECK(replay->positionNs() >= 2'000'000'000);
+}
+
+TEST_CASE("Seeking backwards reads the file again", "[log][replay][transport]")
+{
+    // There is no index to jump with, so going back ten seconds means going
+    // back to the top and reading forward. This is the test that says the
+    // rewind actually happens rather than the replay quietly staying put.
+    const ScopedLogFile file;
+
+    {
+        TraceLogWriter writer;
+        REQUIRE(writer.open(file.path()).succeeded());
+        for (std::uint32_t index = 0; index < 10; ++index) {
+            // All at time zero, so one pass plays the whole file and the test
+            // needs no clock.
+            REQUIRE(writer.append(std::array{frame(0x400 + index, 0)}).succeeded());
+        }
+    }
+
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    TraceStore trace{256};
+    ReplayControl control;
+    NodeBuildContext context;
+    GraphDescription description;
+    PipelineGraph graph;
+
+    REQUIRE(buildReplay(file.path(), catalog, trace, control, context, description, graph)
+                .succeeded());
+
+    graph.execute();
+    REQUIRE(trace.size() == 10);
+
+    control.requestSeek(0);
+    graph.execute();   // Rewinds.
+    graph.execute();   // Plays it again.
+
+    CHECK(trace.size() == 20);
+    CHECK(trace.row(10).frame.identifier == 0x400);
+}
+
+TEST_CASE("At maximum speed the file is bounded by the pipeline, not the clock",
+          "[log][replay][transport]")
+{
+    // "Maximum" on a playback menu means "as fast as it will go", and it is a
+    // speed rather than a mode so that nothing on the frame path has to branch
+    // on it.
+    const ScopedLogFile file;
+
+    {
+        TraceLogWriter writer;
+        REQUIRE(writer.open(file.path()).succeeded());
+        for (std::uint32_t index = 0; index < 30; ++index) {
+            // Spread over half a minute of recording, which at 1x would take
+            // half a minute to play.
+            REQUIRE(writer.append(std::array{frame(0x500 + index, index * 1'000'000'000ULL)})
+                        .succeeded());
+        }
+    }
+
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    TraceStore trace{256};
+    ReplayControl control;
+    NodeBuildContext context;
+    GraphDescription description;
+    PipelineGraph graph;
+
+    REQUIRE(buildReplay(file.path(), catalog, trace, control, context, description, graph)
+                .succeeded());
+
+    control.setSpeed(ReplayControl::kUnlimitedSpeed);
+
+    // A handful of passes, not one: the first pass measures a slice of the
+    // clock that may be zero on a machine whose steady_clock is coarse, and
+    // the read-ahead is topped up between passes by design.
+    for (int pass = 0; pass < 8 && trace.size() < 30; ++pass) {
+        graph.execute();
+    }
+
+    CHECK(trace.size() == 30);
+}
+
+TEST_CASE("The block's Speed parameter is where the transport starts",
+          "[log][replay][transport]")
+{
+    // A project that says 0.5x should open playing at 0.5x. After that the
+    // panel owns the speed - the parameter is a starting position, not a rival.
+    const ScopedLogFile file;
+
+    {
+        TraceLogWriter writer;
+        REQUIRE(writer.open(file.path()).succeeded());
+        REQUIRE(writer.append(std::array{frame(0x600, 0)}).succeeded());
+    }
+
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    TraceStore trace{256};
+    ReplayControl control;
+    NodeBuildContext context;
+    GraphDescription description;
+    PipelineGraph graph;
+
+    REQUIRE(buildReplay(file.path(), catalog, trace, control, context, description, graph, 0.5)
+                .succeeded());
+
+    CHECK(control.speed() == 0.5);
+
+    // And the duration was scanned at build time, so the timeline has a total
+    // before the first frame is played.
+    CHECK(control.durationNs() == 0);   // One frame: no duration, honestly.
+    CHECK(control.isActive());
+}
+
+TEST_CASE("A speed outside what a player offers is brought back in",
+          "[log][replay][transport]")
+{
+    ReplayControl control;
+
+    control.setSpeed(0.0);
+    CHECK(control.speed() == ReplayControl::kMinimumSpeed);
+
+    control.setSpeed(-4.0);
+    CHECK(control.speed() == ReplayControl::kMinimumSpeed);
+
+    control.setSpeed(1.0e30);
+    CHECK(control.speed() == ReplayControl::kUnlimitedSpeed);
+}
+
+TEST_CASE("A seek request is taken once", "[log][replay][transport]")
+{
+    // The replay reads this every pass; a request that came back twice would
+    // rewind the file again on the pass after it finished seeking.
+    ReplayControl control;
+
+    std::uint64_t target = 0;
+    CHECK_FALSE(control.takeSeekRequest(target));
+
+    control.requestSeek(1234);
+    REQUIRE(control.takeSeekRequest(target));
+    CHECK(target == 1234);
+
+    CHECK_FALSE(control.takeSeekRequest(target));
+
+    // A request made while an earlier one is still being served replaces it:
+    // dragging a timeline produces a stream of these, and serving every
+    // intermediate position would be slower than serving where it stopped.
+    control.requestSeek(10);
+    control.requestSeek(20);
+    REQUIRE(control.takeSeekRequest(target));
+    CHECK(target == 20);
+    CHECK_FALSE(control.takeSeekRequest(target));
 }

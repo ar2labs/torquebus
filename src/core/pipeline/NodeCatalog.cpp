@@ -583,8 +583,26 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                      std::format("Node '{}': {}", nodeId, result.message()));
             }
 
+            // How long the recording is, so the timeline has a total to draw
+            // against. It costs a pass over the file - the format carries no
+            // duration, on purpose - and Start is the one moment where that is
+            // affordable: it is off the frame path, it happens once, and the
+            // alternative is a playback bar with no end.
+            //
+            // A file that will not summarise is not a reason to refuse the
+            // measurement. The replay works without a total; only the handle
+            // does not know where it is going.
+            if (context.replayControl != nullptr) {
+                TraceLogSummary summary;
+                if (summarize(path, summary).succeeded()) {
+                    context.replayControl->setDurationNs(summary.durationNs);
+                }
+            }
+
             out = std::make_unique<LogSourceNode>(std::move(reader),
-                                                  parameters.real("speed", 1.0));
+                                                  parameters.real("speed", 1.0),
+                                                  "Log Replay",
+                                                  context.replayControl);
             return Result::ok();
         });
 
