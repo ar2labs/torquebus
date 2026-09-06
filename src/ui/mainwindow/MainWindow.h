@@ -35,6 +35,7 @@ namespace torquebus::ui {
 
 class CanvasPanel;
 class DatabasePanel;
+class GraphPanel;
 class OutputPanel;
 class ProjectExplorerPanel;
 class NodePropertiesEditor;
@@ -152,6 +153,7 @@ private:
     DatabasePanel* m_databasePanel{nullptr};
     TransmitPanel* m_transmitPanel{nullptr};
     StatisticsPanel* m_statisticsPanel{nullptr};
+    GraphPanel* m_graphPanel{nullptr};
 
     // --- The pipeline the canvas edits ------------------------------------
     //

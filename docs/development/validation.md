@@ -506,6 +506,47 @@ places where the honest answer is to refuse and say so.
 
 ---
 
+## 5g. The Graph panel
+
+The other half of v0.8, and the first thing that makes a decoded signal worth
+decoding.
+
+1. Open a `.dbc` (**File -> Import Database**), then on the **Pipeline** canvas
+   wire **CAN Channel -> DBC Decoder -> Signal Plot**. Give the decoder its
+   database with the **...** button in the Block panel. Press **Start**.
+2. The **Graph** tab's list fills with `Message.Signal` names as the bus
+   introduces them - qualified by message, because two databases can use one
+   name for two different things.
+3. Tick two signals with very different ranges: an engine speed in the thousands
+   and a temperature in the tens. **Both are readable.** Each gets its own
+   vertical scale, labelled at the left edge in that trace's colour. On one
+   shared axis this is a line and a flat line, which is why every tool in this
+   family does it this way.
+4. Hover the plot. A dashed cursor follows, and the status line reads the value
+   each ticked signal held *at that instant* - the last sample at or before the
+   cursor, not an interpolation. A signal that changes in steps must not be
+   reported at a value it never carried.
+5. Change the window to **1 s** and back to **10 s**. The time labels gain and
+   lose decimals: at one second, tenths would print the same number six times.
+6. **Freeze.** The line stops advancing and the Output panel keeps counting
+   frames - the pipeline is still recording. Unfreeze and it catches up rather
+   than resuming from where it stopped.
+7. Leave it running past the capacity of a series (8192 samples - about 80
+   seconds of a 100 Hz signal). The status line starts reporting samples that
+   have aged out. A plot that silently began part-way through a measurement is
+   one somebody draws a wrong conclusion from.
+8. Switch theme while it is running. The lines change colour: they are the
+   accent palette, derived per theme and contrast-checked, so a plot line is
+   legible on both themes for the same reason a focus ring is.
+9. Drag the divider between the list and the plot, restart, and it is where you
+   left it.
+
+**Worked:** all nine. Steps 3 and 4 are the ones to be fussy about - both are
+places where the convenient answer produces a plot that is wrong rather than
+merely ugly.
+
+---
+
 ## 6. Real hardware (optional)
 
 Only with a Kvaser adapter and CANlib installed.
