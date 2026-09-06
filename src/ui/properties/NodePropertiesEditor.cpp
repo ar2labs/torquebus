@@ -43,9 +43,30 @@ namespace {
 constexpr auto kParameterProperty = "torquebusParameter";
 
 /// Parameters that name a file, and so deserve a Browse button.
+///
+/// By name, like isSourceCode above, because the type says only "Text" and a
+/// path is not a kind of text a descriptor can announce. Adding a filter here
+/// is what a new file-shaped parameter costs.
 [[nodiscard]] bool isFilePath(std::string_view name)
 {
-    return name == "scriptPath";
+    return name == "scriptPath" || name == "database";
+}
+
+/// The file dialog's filter and title for a path parameter.
+struct FileChoice final {
+    QString title;
+    QString filter;
+};
+
+[[nodiscard]] FileChoice fileChoiceFor(std::string_view name)
+{
+    if (name == "database") {
+        return {NodePropertiesEditor::tr("Choose a database"),
+                NodePropertiesEditor::tr("CAN databases (*.dbc);;All files (*)")};
+    }
+
+    return {NodePropertiesEditor::tr("Choose a script"),
+            NodePropertiesEditor::tr("Lua scripts (*.lua);;All files (*)")};
 }
 
 [[nodiscard]] QString toQt(std::string_view text)
@@ -309,13 +330,14 @@ void NodePropertiesEditor::addDeclaredRow(const NodeDescription& node,
             rowLayout->setSpacing(4);
             rowLayout->addWidget(edit, 1);
 
+            const FileChoice choice = fileChoiceFor(parameter.name);
+
             auto* browse = new QPushButton(tr("..."));
             browse->setFixedWidth(28);
-            browse->setToolTip(tr("Choose a Lua script"));
-            connect(browse, &QPushButton::clicked, this, [this, name, edit] {
+            browse->setToolTip(choice.title);
+            connect(browse, &QPushButton::clicked, this, [this, name, edit, choice] {
                 const QString chosen = QFileDialog::getOpenFileName(
-                    this, tr("Choose a script"), edit->text(),
-                    tr("Lua scripts (*.lua);;All files (*)"));
+                    this, choice.title, edit->text(), choice.filter);
 
                 if (!chosen.isEmpty()) {
                     edit->setText(chosen);
