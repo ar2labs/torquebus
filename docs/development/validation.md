@@ -127,6 +127,8 @@ because each pins something that was got wrong once:
 | `[pipeline]` | Fan-out reaching only the last consumer |
 | `[accent]` | A chosen accent that is invisible on its panel, unreadable under its own label, or that changed the house colour for everybody |
 | `[contrast]` | The WCAG maths itself — black against white must be 21:1, and green must outrank red must outrank blue |
+| `[settings][bitrate]` | A hand-edited rate no backend has segment timing for being obeyed instead of replaced |
+| `[statistics][bitrate]` | The default bitrate drifting apart between the three places that spell it |
 | Qt macro guard | A core header using `emit` or `signals` as an identifier |
 
 A failure here is a real defect: these all pass in CI on Linux, so a Windows-only
@@ -453,6 +455,45 @@ and the other two say so.
 **Worked:** all sixteen. Steps 5 and 16 are the ones to be fussy about. Step 5
 is the promise that makes applying live acceptable at all, and step 16 is the
 distinction that most invites being got wrong.
+
+---
+
+## 5f. The bitrate of each interface
+
+The default is 250 kbit/s - the J1939 rate, and so the rate of the buses this
+tool was started to read. A passenger car is usually 500k, so most sessions
+change this once and never again.
+
+1. **Tools -> Preferences -> Hardware.** One row per interface the Hardware menu
+   last found, numbered the way the rest of the window numbers them: row 1 is
+   CAN 1, the same channel the status bar, the Trace and the transmit list mean.
+2. Set CAN 1 to 500 kbit/s with the measurement stopped. The Output panel says
+   the channel was rebound and at what rate - the change is applied, not merely
+   recorded.
+3. Press **Start**. Frames arrive. Set the rate to 125 kbit/s *while running*:
+   the Output panel says it was saved but the channels are on the bus, and
+   nothing changes underneath the measurement. **Stop**, then **Hardware ->
+   Refresh Interfaces**, and it takes effect.
+4. Put a channel on a rate the bus is not using and press Start. The Trace stays
+   empty, the error counter in the Statistics panel climbs and the state goes to
+   warning and then bus-off. That is the mistake being loud rather than subtle,
+   and it is the reason a default is a convenience here rather than a hazard.
+5. Close and reopen TorqueBus. Each interface still has its own rate.
+6. Unplug an adapter, plug it back in so it enumerates second, and reopen the
+   page. It kept its rate: the setting is keyed by the device handle, not by the
+   channel slot it happened to occupy last time.
+7. Hand-edit `settings.json` and put `33333` under one of the `can/bitrate/`
+   keys. TorqueBus opens that interface at 250k instead. A CAN controller is
+   configured with segment timing rather than a frequency, so a rate nothing has
+   timing for would open a channel that produces error frames instead of failing
+   outright - `[settings][bitrate]` asserts this, and step 4 is what it looks
+   like when it is not caught.
+8. **Reset preferences** puts every interface back to 250k and removes the keys,
+   which is the state a fresh installation is in - not one that has explicitly
+   chosen the default everywhere.
+
+**Worked:** all eight. Steps 3 and 7 are the ones to be fussy about; both are
+places where the honest answer is to refuse and say so.
 
 ---
 

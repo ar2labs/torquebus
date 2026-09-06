@@ -12,9 +12,13 @@
 
 #pragma once
 
+#include "core/can/CanTypes.h"
+
 #include <QByteArray>
 #include <QJsonObject>
 #include <QString>
+
+#include <cstdint>
 
 namespace torquebus::services {
 
@@ -79,6 +83,15 @@ inline constexpr auto kStatisticsSplitter = "ui/statistics/splitter";
 
 inline constexpr auto kTraceRefreshMs      = "trace/refreshMs";
 inline constexpr auto kDecimalIdentifiers  = "trace/decimalIdentifiers";
+
+/// Prefix for the bitrate chosen for one interface: "can/bitrate/peak:usb0".
+///
+/// Keyed by the device handle rather than by the application channel, because
+/// the rate belongs to the bus the adapter is plugged into, not to the slot it
+/// happens to occupy in this session's channel list. Unplug an adapter, plug it
+/// back in second, and it keeps its rate.
+inline constexpr auto kBitratePrefix = "can/bitrate/";
+
 inline constexpr auto kWindowGeometry   = "ui/window/geometry";
 inline constexpr auto kWindowState      = "ui/window/state";
 inline constexpr auto kDockLayout       = "ui/window/dockLayout";
@@ -88,5 +101,19 @@ inline constexpr auto kRestoreLayout    = "ui/window/restoreLayout";
 inline constexpr auto kSettingsVersion  = "meta/version";
 
 } // namespace keys
+
+/// The settings key holding `handle`'s bitrate.
+///
+/// A function rather than a concatenation at each call site, so the one place
+/// that decides what a per-device key looks like is the one place that has to
+/// change when devices grow a second per-device setting.
+[[nodiscard]] QString bitrateKey(const QString& handle);
+
+/// The bitrate stored for `handle`, or the default when nothing is stored.
+///
+/// Also the default when what is stored is not one of the rates TorqueBus can
+/// actually configure - a hand-edited settings file is a supported thing to
+/// have, and a number nothing can honour is better replaced than obeyed.
+[[nodiscard]] std::uint32_t bitrateFor(const SettingsStore& settings, const QString& handle);
 
 } // namespace torquebus::services

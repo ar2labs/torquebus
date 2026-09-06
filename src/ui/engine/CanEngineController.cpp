@@ -86,7 +86,7 @@ CanEngineController::~CanEngineController()
 // Configuration
 // ---------------------------------------------------------------------------
 
-std::size_t CanEngineController::bindAvailableChannels(quint32 bitrate)
+std::size_t CanEngineController::bindAvailableChannels(const BitrateForHandle& bitrateFor)
 {
     if (isRunning()) {
         return m_engine->channelCount();
@@ -104,9 +104,12 @@ std::size_t CanEngineController::bindAvailableChannels(quint32 bitrate)
             continue;
         }
 
+        const QString handle = QString::fromStdString(device.handle);
+
         CanChannelConfig config;
         config.deviceHandle = device.handle;
-        config.timing.bitrate = bitrate;
+        config.timing.bitrate =
+            bitrateFor ? static_cast<std::uint32_t>(bitrateFor(handle)) : kDefaultBitrate;
 
         if (m_engine->addChannel(std::move(backend), std::move(config)).succeeded()) {
             m_deviceNames.append(QString::fromStdString(device.name));

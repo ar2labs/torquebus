@@ -11,6 +11,7 @@
 
 #include "core/can/CanFrame.h"
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -72,6 +73,43 @@ struct CanDeviceInfo final {
 /// stays empty. That is a mistake the Statistics panel makes visible in
 /// seconds, which is why a default is a convenience here and not a hazard.
 inline constexpr std::uint32_t kDefaultBitrate = 250'000;
+
+/// The arbitration rates TorqueBus offers, slowest first.
+///
+/// Not "every rate that exists". A CAN controller is configured with segment
+/// timing, not with a frequency, and deriving segments from an arbitrary number
+/// is how you get a channel that opens cleanly and then produces error frames
+/// on a real bus. These nine are the ones every backend here already has proper
+/// timing for - it is exactly the list KvaserCanBackend accepts, which is the
+/// most restrictive of them.
+///
+/// A bus at some other rate is a real thing and will be reachable when the
+/// Hardware Manager can ask for the segment timing properly. Offering the
+/// number without the timing would be offering a channel that does not work.
+[[nodiscard]] constexpr std::array<std::uint32_t, 9> standardBitrates() noexcept
+{
+    return {10'000, 50'000, 62'000, 83'000, 100'000, 125'000, 250'000, 500'000, 1'000'000};
+}
+
+/// "250 kbit/s", "1 Mbit/s".
+///
+/// Formatted rather than printed raw because 1000 kbit/s is not how anybody
+/// says it, and a list where one row breaks the pattern is a list somebody
+/// misreads.
+[[nodiscard]] inline std::string describeBitrate(std::uint32_t bitrate)
+{
+    if (bitrate >= 1'000'000 && bitrate % 1'000'000 == 0) {
+        return std::to_string(bitrate / 1'000'000) + " Mbit/s";
+    }
+
+    if (bitrate >= 1000 && bitrate % 1000 == 0) {
+        return std::to_string(bitrate / 1000) + " kbit/s";
+    }
+
+    // An odd rate - 83 kbit/s is stored as 83'000 but 33.333k would not be -
+    // is printed as it is rather than rounded into a prettier lie.
+    return std::to_string(bitrate) + " bit/s";
+}
 
 /// Nominal (arbitration) and data phase bit timing.
 struct CanBitTiming final {

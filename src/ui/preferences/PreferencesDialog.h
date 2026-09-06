@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "core/can/CanTypes.h"
 #include "ui/theme/AccentColor.h"
 #include "ui/theme/Theme.h"
 
@@ -33,6 +34,7 @@ class QLabel;
 class QListWidget;
 class QSpinBox;
 class QStackedWidget;
+class QTableWidget;
 
 namespace torquebus::services {
 class SettingsStore;
@@ -48,8 +50,15 @@ class PreferencesDialog final : public QDialog {
     Q_OBJECT
 
 public:
+    /// `devices` is the interface list the window has already enumerated.
+    ///
+    /// Handed in rather than looked up, so opening Preferences does not rescan
+    /// the hardware behind a running measurement. The dialog shows what the
+    /// Hardware menu last found, which is also what the user is looking at in
+    /// the Project Explorer.
     PreferencesDialog(ThemeManager& themes,
                       services::SettingsStore& settings,
+                      CanDeviceInfoList devices,
                       QWidget* parent = nullptr);
 
     /// How often the trace view picks up new rows, in milliseconds.
@@ -63,6 +72,10 @@ Q_SIGNALS:
     /// the dialog is open. The window applies it to the panels; this dialog
     /// does not know they exist.
     void tracePreferencesChanged();
+
+    /// A channel's bitrate changed. The window rebinds - which it can only do
+    /// while stopped, and which is why the page says so.
+    void hardwarePreferencesChanged();
 
 public:
     // --- Defaults, shared with the window so Reset and first-run agree ------
@@ -84,6 +97,7 @@ private Q_SLOTS:
     void onFollowSystemToggled(bool follow);
     void onAccentChanged(torquebus::ui::AccentColor accent);
     void onDensityChanged(int index);
+    void onBitrateChanged(int row);
     void onResetPreferences();
     void onOpenSettingsFolder();
 
@@ -92,6 +106,7 @@ private:
     [[nodiscard]] QWidget* buildGeneralPage();
     [[nodiscard]] QWidget* buildAppearancePage();
     [[nodiscard]] QWidget* buildTracePage();
+    [[nodiscard]] QWidget* buildHardwarePage();
 
     /// A page with nothing on it but an honest sentence about when it will
     /// have something.
@@ -146,6 +161,11 @@ private:
 
     QSpinBox* m_traceRefresh{nullptr};
     QCheckBox* m_decimalIdentifiers{nullptr};
+
+    /// The interfaces the window found, in the order the engine binds them -
+    /// so row N of the table is CAN N+1, and the page can say so.
+    CanDeviceInfoList m_devices;
+    QTableWidget* m_hardware{nullptr};
 };
 
 } // namespace torquebus::ui

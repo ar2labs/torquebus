@@ -869,7 +869,9 @@ void MainWindow::refreshHardware()
     // Until the Hardware Manager arrives in v0.3, every detected channel is
     // bound automatically in enumeration order: CAN 1 is the first interface,
     // CAN 2 the second. The mapping becomes explicit and persisted then.
-    m_controller->bindAvailableChannels();
+    m_controller->bindAvailableChannels([this](const QString& handle) {
+        return static_cast<quint32>(services::bitrateFor(m_settings, handle));
+    });
 
     m_actionStart->setEnabled(!m_devices.empty());
 
@@ -946,13 +948,34 @@ void MainWindow::onToggleTheme()
 
 void MainWindow::onPreferences()
 {
-    PreferencesDialog dialog{m_themes, m_settings, this};
+    PreferencesDialog dialog{m_themes, m_settings, m_devices, this};
 
     // The Trace settings apply while the dialog is open, like everything else
     // in it, so the window listens rather than reading the result at the end.
     // Cancel emits this too, with the values it put back.
     connect(&dialog, &PreferencesDialog::tracePreferencesChanged, this, [this, &dialog] {
         m_tracePanel->applyPreferences(dialog.traceRefreshMs(), dialog.decimalIdentifiers());
+    });
+
+    // A bitrate is applied by rebinding, which cannot happen under a running
+    // measurement - the channels are open on the bus. Said out loud rather than
+    // silently ignored: a setting that appears to do nothing is worse than one
+    // that explains when it will.
+    connect(&dialog, &PreferencesDialog::hardwarePreferencesChanged, this, [this] {
+        if (m_controller->isRunning()) {
+            m_output->appendWarning(
+                tr("The bitrate was saved, but the channels are on the bus. It takes "
+                   "effect at the next Stop, or at Hardware > Refresh Interfaces."));
+            return;
+        }
+
+        m_controller->bindAvailableChannels([this](const QString& handle) {
+            return static_cast<quint32>(services::bitrateFor(m_settings, handle));
+        });
+
+        for (const QString& description : m_controller->boundChannelDescriptions()) {
+            m_output->appendInfo(description);
+        }
     });
 
     dialog.exec();

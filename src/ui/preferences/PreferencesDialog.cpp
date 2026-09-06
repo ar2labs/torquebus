@@ -14,18 +14,24 @@
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QDialogButtonBox>
+#include <QAbstractItemView>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
 #include <QListWidget>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QStackedWidget>
+#include <QTableWidget>
+#include <QTableWidgetItem>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QtGlobal>
+
+#include <utility>
 
 namespace torquebus::ui {
 namespace {
@@ -36,6 +42,13 @@ constexpr int kDialogWidth = 720;
 constexpr int kDialogHeight = 520;
 
 constexpr int kPageListWidth = 176;
+
+enum HardwareColumn : int {
+    HardwareColumnChannel = 0,
+    HardwareColumnInterface,
+    HardwareColumnBitrate,
+    HardwareColumnCount
+};
 
 /// A section heading inside a page. Bold and spaced rather than a QGroupBox:
 /// a box around three controls is a border the eye has to cross for nothing,
@@ -66,10 +79,12 @@ constexpr int kPageListWidth = 176;
 
 PreferencesDialog::PreferencesDialog(ThemeManager& themes,
                                      services::SettingsStore& settings,
+                                     CanDeviceInfoList devices,
                                      QWidget* parent)
     : QDialog{parent}
     , m_themes{themes}
     , m_settings{settings}
+    , m_devices{std::move(devices)}
 {
     setWindowTitle(tr("Preferences"));
     setModal(true);
@@ -107,6 +122,7 @@ void PreferencesDialog::buildUi()
 
     addPage(tr("General"), buildGeneralPage());
     addPage(tr("Appearance"), buildAppearancePage());
+    addPage(tr("Hardware"), buildHardwarePage());
     addPage(tr("Trace and Transmit"), buildTracePage());
     addPage(tr("Shortcuts"),
             buildPlannedPage(tr("Shortcuts"),
@@ -350,6 +366,87 @@ QWidget* PreferencesDialog::buildTracePage()
     return page;
 }
 
+QWidget* PreferencesDialog::buildHardwarePage()
+{
+    auto* page = new QWidget(this);
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(8);
+
+    layout->addWidget(sectionLabel(tr("Interfaces"), page));
+
+    m_hardware = new QTableWidget(page);
+    m_hardware->setColumnCount(HardwareColumnCount);
+    m_hardware->setHorizontalHeaderLabels({tr("Channel"), tr("Interface"), tr("Bitrate")});
+    m_hardware->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_hardware->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_hardware->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_hardware->setAlternatingRowColors(true);
+    m_hardware->setFrameShape(QFrame::NoFrame);
+    m_hardware->verticalHeader()->setVisible(false);
+    m_hardware->setColumnWidth(HardwareColumnChannel, 70);
+    m_hardware->setColumnWidth(HardwareColumnInterface, 300);
+    m_hardware->setColumnWidth(HardwareColumnBitrate, 130);
+
+    m_hardware->setRowCount(static_cast<int>(m_devices.size()));
+
+    for (int row = 0; row < static_cast<int>(m_devices.size()); ++row) {
+        const CanDeviceInfo& device = m_devices[static_cast<std::size_t>(row)];
+
+        // The engine binds interfaces in enumeration order, so row N is CAN
+        // N+1 - the same numbering the status bar, the Trace and the transmit
+        // list all use. A page that listed them in some other order would be
+        // asking the user to hold two mappings in their head.
+        auto* channel = new QTableWidgetItem{tr("CAN %1").arg(row + 1)};
+        channel->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        m_hardware->setItem(row, HardwareColumnChannel, channel);
+
+        auto* name = new QTableWidgetItem{QString::fromStdString(device.name)};
+        name->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        name->setToolTip(QString::fromStdString(device.handle));
+        m_hardware->setItem(row, HardwareColumnInterface, name);
+
+        auto* bitrate = new QComboBox(m_hardware);
+        for (const std::uint32_t rate : standardBitrates()) {
+            bitrate->addItem(QString::fromStdString(describeBitrate(rate)),
+                             QVariant{static_cast<uint>(rate)});
+        }
+
+        const std::uint32_t current = services::bitrateFor(
+            m_settings, QString::fromStdString(device.handle));
+        bitrate->setCurrentIndex(bitrate->findData(QVariant{static_cast<uint>(current)}));
+
+        connect(bitrate, &QComboBox::currentIndexChanged, this,
+                [this, row](int) { onBitrateChanged(row); });
+
+        m_hardware->setCellWidget(row, HardwareColumnBitrate, bitrate);
+    }
+
+    layout->addWidget(m_hardware, 1);
+
+    if (m_devices.empty()) {
+        layout->addWidget(hintLabel(
+            tr("No interfaces were found. Connect an adapter and use "
+               "Hardware > Refresh Interfaces, then reopen this page."),
+            page));
+    } else {
+        layout->addWidget(hintLabel(
+            tr("The rate belongs to the bus an adapter is plugged into, so it is "
+               "remembered per interface rather than per channel: unplug an adapter "
+               "and plug it back in second, and it keeps its rate."),
+            page));
+
+        layout->addWidget(hintLabel(
+            tr("A change takes effect when the channels are next bound - immediately "
+               "while stopped, and at the next Refresh Interfaces if a measurement is "
+               "running. A controller on the wrong rate cannot acknowledge a frame, so "
+               "it shows up as errors and an empty Trace rather than as wrong data."),
+            page));
+    }
+
+    return page;
+}
+
 QWidget* PreferencesDialog::buildPlannedPage(const QString& title,
                                              const QString& description,
                                              const QString& milestone)
@@ -416,6 +513,26 @@ void PreferencesDialog::onDensityChanged(int /*index*/)
     storeToSettings();
 }
 
+void PreferencesDialog::onBitrateChanged(int row)
+{
+    if (m_loading || row < 0 || row >= static_cast<int>(m_devices.size())) {
+        return;
+    }
+
+    const auto* combo =
+        qobject_cast<QComboBox*>(m_hardware->cellWidget(row, HardwareColumnBitrate));
+    if (combo == nullptr) {
+        return;
+    }
+
+    const QString handle = QString::fromStdString(m_devices[static_cast<std::size_t>(row)].handle);
+
+    m_settings.setIntValue(services::bitrateKey(handle), combo->currentData().toInt());
+    storeToSettings();
+
+    Q_EMIT hardwarePreferencesChanged();
+}
+
 void PreferencesDialog::onResetPreferences()
 {
     m_themes.applyPreferences(AccentColor::TorqueBus, Density::Comfortable,
@@ -428,12 +545,29 @@ void PreferencesDialog::onResetPreferences()
     m_accentRow->setAccent(AccentColor::TorqueBus);
     m_density->setCurrentIndex(m_density->findData(toString(Density::Comfortable)));
     m_followSystem->setChecked(true);
+
+    // Every interface back to the default rate, and the stored keys removed
+    // rather than overwritten - a settings file with no bitrate entries is what
+    // a fresh installation has, and Reset should produce that rather than an
+    // installation that has explicitly chosen the default everywhere.
+    for (int row = 0; row < static_cast<int>(m_devices.size()); ++row) {
+        m_settings.remove(services::bitrateKey(
+            QString::fromStdString(m_devices[static_cast<std::size_t>(row)].handle)));
+
+        if (auto* combo = qobject_cast<QComboBox*>(
+                m_hardware->cellWidget(row, HardwareColumnBitrate))) {
+            combo->setCurrentIndex(
+                combo->findData(QVariant{static_cast<uint>(kDefaultBitrate)}));
+        }
+    }
+
     m_loading = false;
 
     applyAppearance();
     storeToSettings();
 
     Q_EMIT tracePreferencesChanged();
+    Q_EMIT hardwarePreferencesChanged();
 }
 
 void PreferencesDialog::onOpenSettingsFolder()
