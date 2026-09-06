@@ -559,6 +559,37 @@ reason the header carries no frame count.
 
 ---
 
+## 5i. Exporting the trace
+
+A log only this tool reads is stuck here. This is the step that gets a
+measurement out to a supplier, a colleague's CANalyzer, or a spreadsheet.
+
+1. Run a measurement, **Stop**, then **File > Export Trace...**. The dialog
+   offers ASC and CSV. Type a name with no extension and one is added to match
+   the filter that was chosen - the filter decides the format, not the typing.
+2. Try it **while the measurement is running**. It refuses and says to stop
+   first. This is not tidiness: the store is being written by the executor
+   thread, and a full walk of a million rows is long enough for that to be a
+   real race rather than a theoretical one.
+3. Open the `.asc` in a text editor. First line is a `date ... UTC`, then
+   `base hex  timestamps absolute`, and the last line is `End TriggerBlock`. A
+   reader that does not find the last one treats the file as truncated.
+4. Open the same trace exported as `.csv` in a spreadsheet. The header row names
+   nine columns and the identifier column is hex without a `0x`, with `extended`
+   in its own column - so nothing has to be told how to read it.
+5. **Export a trace that has wrapped** (let a fast measurement run past a
+   million frames). The Output panel says how many earlier frames were already
+   gone. An export quietly missing its first hour is worse than one that never
+   happened, because somebody will draw a conclusion from what is in the file.
+6. Export a trace containing an extended identifier and confirm the trailing
+   `x` on that line and *only* that line. 0x100 standard and 0x100 extended are
+   two different messages on one bus and the `x` is all that separates them.
+
+**Worked:** all six. Step 5 is the one to be fussy about - it is the only step
+here about what is *not* in the file.
+
+---
+
 ## 6. Real hardware (optional)
 
 Only with a Kvaser adapter and CANlib installed.

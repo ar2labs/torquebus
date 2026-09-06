@@ -24,6 +24,8 @@
 #include <QString>
 #include <QVector>
 
+#include <cstdint>
+
 class QAction;
 class QLabel;
 
@@ -90,6 +92,9 @@ private Q_SLOTS:
 
     /// File > Import Database. Loads a .dbc into the DBC Explorer.
     void onImportDatabase();
+
+    /// File > Export Trace. Writes what the trace is holding as ASC or CSV.
+    void onExportTrace();
 
     void onSaveProject();
     void onSaveProjectAs();
@@ -178,6 +183,11 @@ private:
     /// wants to know where it went.
     QString m_recordingPath;
 
+    /// Wall clock at the last Start, in microseconds since the epoch, or zero
+    /// when nothing has been measured in this session. Only the ASC date line
+    /// reads it; every frame carries its own timestamp.
+    std::uint64_t m_measurementStartUs{0};
+
     /// The pipeline has changed since it was last saved or opened.
     ///
     /// Adding project files created a way to lose work that did not exist
@@ -207,6 +217,7 @@ private:
     QAction* m_actionSaveProject{nullptr};
     QAction* m_actionSaveProjectAs{nullptr};
     QAction* m_actionImportDatabase{nullptr};
+    QAction* m_actionExportTrace{nullptr};
     QAction* m_actionExit{nullptr};
 
     QAction* m_actionStart{nullptr};

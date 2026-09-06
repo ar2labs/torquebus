@@ -6,6 +6,7 @@
 #include "ui/mainwindow/MainWindow.h"
 
 #include "drivers/api/CanBackendRegistry.h"
+#include "core/log/TraceExport.h"
 #include "services/ProjectFile.h"
 #include "services/SettingsStore.h"
 #include "ui/canvas/CanvasPanel.h"
@@ -19,6 +20,7 @@
 #include "ui/properties/NodePropertiesEditor.h"
 #include "ui/properties/PropertiesPanel.h"
 #include "ui/theme/ThemeManager.h"
+#include "core/trace/TraceStore.h"
 #include "ui/trace/TracePanel.h"
 #include "ui/statistics/StatisticsPanel.h"
 #include "ui/transmit/TransmitPanel.h"
@@ -26,9 +28,13 @@
 #include <QAction>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QDateTime>
 #include <QFileDialog>
 #include <QSignalBlocker>
+#include <QCursor>
+#include <QDir>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QMessageBox>
 #include <QColor>
 #include <QFontMetrics>
@@ -47,6 +53,9 @@
 #include <QToolBar>
 
 #include <algorithm>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace torquebus::ui {
 namespace {
@@ -456,6 +465,11 @@ void MainWindow::createActions()
     m_actionImportDatabase = new QAction(icon("database"), tr("&Import Database..."), this);
     m_actionImportDatabase->setStatusTip(tr("Load a .dbc file into the DBC Explorer."));
 
+    m_actionExportTrace = new QAction(tr("&Export Trace..."), this);
+    m_actionExportTrace->setStatusTip(
+        tr("Write what the trace is holding as ASC, for another CAN tool, or CSV, "
+           "for a spreadsheet."));
+
     m_actionSaveProjectAs = new QAction(icon("save"), tr("Save Project &As..."), this);
     m_actionSaveProjectAs->setShortcut(QKeySequence::SaveAs);
 
@@ -536,6 +550,7 @@ void MainWindow::createActions()
     // Everything whose module has not landed yet reports honestly instead of
     // doing nothing when clicked.
     connect(m_actionRecord, &QAction::toggled, this, &MainWindow::onRecord);
+    connect(m_actionExportTrace, &QAction::triggered, this, &MainWindow::onExportTrace);
 
     // Everything whose module has not landed yet reports honestly instead of
     // doing nothing when clicked.
@@ -555,6 +570,7 @@ void MainWindow::createMenus()
     fileMenu->addAction(m_actionSaveProjectAs);
     fileMenu->addSeparator();
     fileMenu->addAction(m_actionImportDatabase);
+    fileMenu->addAction(m_actionExportTrace);
     fileMenu->addSeparator();
     fileMenu->addAction(m_actionExit);
 
@@ -1145,6 +1161,123 @@ void MainWindow::onOpenProject()
     }
 }
 
+void MainWindow::onExportTrace()
+{
+    // Refused while the measurement is running. TraceStore is written by the
+    // executor thread, and the trace panel gets away with reading it because it
+    // reads a screenful on a timer; this walks every row, which is long enough
+    // that racing it would be a real bug rather than a theoretical one.
+    if (m_controller->isRunning()) {
+        m_output->appendWarning(
+            tr("Stop the measurement before exporting - the trace is still being "
+               "written to."));
+        return;
+    }
+
+    const TraceStore& store = m_controller->engine().traceStore();
+
+    if (store.empty()) {
+        m_output->appendWarning(tr("There is nothing in the trace to export."));
+        return;
+    }
+
+    const QString ascFilter = tr("Vector ASCII (*.asc)");
+    const QString csvFilter = tr("Comma separated (*.csv)");
+
+    QString selected = ascFilter;
+    const QString chosen = QFileDialog::getSaveFileName(
+        this, tr("Export trace"), QString{},
+        ascFilter + QStringLiteral(";;") + csvFilter, &selected);
+
+    if (chosen.isEmpty()) {
+        return;
+    }
+
+    // The filter decides the format, not the typed name: somebody who picks
+    // "Vector ASCII" and types `run3` gets an ASC file, which is what they
+    // asked for. The extension is only appended when they left it off.
+    const TraceExporter::Format format = selected == csvFilter
+                                             ? TraceExporter::Format::Csv
+                                             : TraceExporter::Format::Asc;
+
+    QString target = chosen;
+    if (QFileInfo{target}.suffix().isEmpty()) {
+        const std::string_view extension = extensionFor(format);
+        target += QLatin1Char('.')
+            + QString::fromUtf8(extension.data(), static_cast<qsizetype>(extension.size()));
+    }
+
+    // A million rows takes a moment, and a window that stops repainting with no
+    // explanation reads as a hang. The wait cursor is the honest minimum; a
+    // progress dialog is worth building the first time somebody says the wait
+    // was long enough to wonder about.
+    QGuiApplication::setOverrideCursor(QCursor{Qt::WaitCursor});
+
+    TraceExporter exporter;
+
+    // The date line describes when this was captured. m_measurementStartUs is
+    // the UI's view of Start, a few milliseconds after the engine's - which is
+    // below the resolution of a line nothing parses. Zero, for a trace loaded
+    // rather than captured, writes the epoch: honest about not knowing, rather
+    // than stamping today's date on a measurement made last month.
+    Result result = exporter.open(target.toStdString(), format, m_measurementStartUs);
+
+    if (result.succeeded()) {
+        // Fed in batches so the exporter's own buffering does the work, and so
+        // this never materialises a million frames to hand over.
+        constexpr std::size_t kBatch = 4096;
+
+        std::vector<CanFrame> batch;
+        batch.reserve(kBatch);
+
+        for (std::size_t index = 0; index < store.size() && result.succeeded(); ++index) {
+            batch.push_back(store.row(index).frame);
+
+            if (batch.size() == kBatch) {
+                result = exporter.write(batch);
+                batch.clear();
+            }
+        }
+
+        if (result.succeeded() && !batch.empty()) {
+            result = exporter.write(batch);
+        }
+    }
+
+    // close() is what writes End TriggerBlock, so it is called whether or not
+    // the writes went well - but its result only matters when nothing has gone
+    // wrong yet, since the first failure is the one worth reporting.
+    const Result finished = exporter.close();
+    if (result.succeeded()) {
+        result = finished;
+    }
+
+    QGuiApplication::restoreOverrideCursor();
+
+    if (result.failed()) {
+        const std::string_view message = result.message();
+        m_output->appendError(
+            tr("Export failed: %1")
+                .arg(QString::fromUtf8(message.data(),
+                                       static_cast<qsizetype>(message.size()))));
+        return;
+    }
+
+    m_output->appendInfo(tr("Exported %L1 frame(s) to %2.")
+                             .arg(exporter.framesWritten())
+                             .arg(QDir::toNativeSeparators(target)));
+
+    if (store.discarded() > 0) {
+        // Said plainly, because an export that is quietly missing its first
+        // hour is worse than one that never happened: somebody will draw a
+        // conclusion from what is in the file.
+        m_output->appendWarning(
+            tr("%L1 earlier frame(s) had already fallen out of the trace and are "
+               "not in the file. Record to a log to keep everything.")
+                .arg(store.discarded()));
+    }
+}
+
 void MainWindow::onImportDatabase()
 {
     const QString path = QFileDialog::getOpenFileName(
@@ -1343,6 +1476,12 @@ void MainWindow::onStopMeasurement()
 
 void MainWindow::onMeasurementStarted()
 {
+    // Wall clock of Start, kept for the date line an exported ASC carries. The
+    // frames themselves are timestamped from the start of the measurement, so
+    // without this an export has no way to say what day it was made.
+    m_measurementStartUs =
+        static_cast<std::uint64_t>(QDateTime::currentMSecsSinceEpoch()) * 1000ULL;
+
     m_actionStart->setEnabled(false);
     m_actionStop->setEnabled(true);
     m_actionRefreshHardware->setEnabled(false);
