@@ -52,6 +52,7 @@
 #include <QStatusBar>
 #include <QStyle>
 #include <QToolBar>
+#include <QVariant>
 
 #include <algorithm>
 #include <string>
@@ -162,6 +163,7 @@ MainWindow::MainWindow(services::SettingsStore& settings, ThemeManager& themes)
     : DockMainWindowBase{QStringLiteral("torquebus.mainwindow")}
     , m_settings{settings}
     , m_themes{themes}
+    , m_recentProjects{settings}
 {
     setWindowIcon(QIcon{QStringLiteral(":/icons/torquebus.svg")});
     resize(1440, 900);
@@ -575,6 +577,17 @@ void MainWindow::createMenus()
     QMenu* fileMenu = bar->addMenu(tr("&File"));
     fileMenu->addAction(m_actionNewProject);
     fileMenu->addAction(m_actionOpenProject);
+
+    // Directly under Open, which is where every application of this shape puts
+    // it and therefore where the hand goes without reading.
+    m_recentMenu = fileMenu->addMenu(tr("Open &Recent"));
+
+    // Off by default in Qt, and without it the full path set on each entry is
+    // stored and never shown - which is the whole point of setting it.
+    m_recentMenu->setToolTipsVisible(true);
+
+    rebuildRecentMenu();
+
     fileMenu->addAction(m_actionSaveProject);
     fileMenu->addAction(m_actionSaveProjectAs);
     fileMenu->addSeparator();
@@ -1136,6 +1149,63 @@ bool MainWindow::confirmDiscardChanges()
     }
 }
 
+void MainWindow::rebuildRecentMenu()
+{
+    if (m_recentMenu == nullptr) {
+        return;
+    }
+
+    m_recentMenu->clear();
+
+    if (m_recentProjects.isEmpty()) {
+        // A disabled "nothing here yet" rather than an empty menu that looks
+        // broken, or a greyed-out submenu that cannot be opened to find out
+        // why it is greyed out.
+        QAction* empty = m_recentMenu->addAction(tr("No recent projects"));
+        empty->setEnabled(false);
+        return;
+    }
+
+    int number = 1;
+
+    for (const QString& path : m_recentProjects.paths()) {
+        // "&1 name.tbsproj", with the full path in the tooltip: two projects
+        // called `bench.tbsproj` in two directories are the ordinary case, and
+        // the name alone cannot tell them apart.
+        const QString name = QFileInfo{path}.fileName();
+
+        QAction* action = m_recentMenu->addAction(
+            number < 10 ? tr("&%1  %2").arg(number).arg(name) : name);
+
+        action->setStatusTip(path);
+        action->setToolTip(path);
+
+        // The path travels with the action rather than being captured, so a
+        // rebuilt menu cannot leave a lambda holding a path that has moved.
+        action->setData(path);
+
+        connect(action, &QAction::triggered, this, [this, action] {
+            const QString wanted = action->data().toString();
+
+            if (!confirmDiscardChanges()) {
+                return;
+            }
+
+            openProject(wanted);
+        });
+
+        ++number;
+    }
+
+    m_recentMenu->addSeparator();
+
+    QAction* forget = m_recentMenu->addAction(tr("&Clear the list"));
+    connect(forget, &QAction::triggered, this, [this] {
+        m_recentProjects.clear();
+        rebuildRecentMenu();
+    });
+}
+
 void MainWindow::onNewProject()
 {
     if (!confirmDiscardChanges()) {
@@ -1145,6 +1215,11 @@ void MainWindow::onNewProject()
     m_pipeline.clear();
     m_projectPath.clear();
     m_dirty = false;
+
+    // Forgotten as the last project, so quitting from an empty canvas does not
+    // reopen yesterday's work tomorrow. It stays on the recent list: New is a
+    // statement about this session, not about the project's worth.
+    m_settings.remove(QString::fromLatin1(services::keys::kLastProject));
 
     if (m_canvas != nullptr) {
         m_canvas->reload();
@@ -1318,6 +1393,12 @@ void MainWindow::openProject(const QString& path)
         result.failed()) {
         m_output->appendError(tr("Could not open the project: %1")
                                   .arg(QString::fromStdString(std::string{result.message()})));
+
+        // Dropped from the recent list here and nowhere else. A file that will
+        // not open is the only evidence worth acting on - a project on a
+        // network share is not gone because it is unreachable this morning.
+        m_recentProjects.remove(path);
+        rebuildRecentMenu();
         return;
     }
 
@@ -1332,6 +1413,10 @@ void MainWindow::openProject(const QString& path)
     if (m_nodeProperties != nullptr) {
         m_nodeProperties->clear();
     }
+
+    m_recentProjects.add(path);
+    rebuildRecentMenu();
+    m_settings.setValue(QString::fromLatin1(services::keys::kLastProject), m_projectPath);
 
     updateWindowTitle();
     m_output->appendInfo(tr("Opened %1.").arg(QFileInfo{path}.fileName()));
@@ -1350,6 +1435,13 @@ bool MainWindow::writeProject(const QString& path)
 
     m_projectPath = path;
     m_dirty = false;
+
+    // Saved counts as used. Save As on a new project is exactly the moment it
+    // becomes a project worth finding again.
+    m_recentProjects.add(path);
+    rebuildRecentMenu();
+    m_settings.setValue(QString::fromLatin1(services::keys::kLastProject), m_projectPath);
+
     updateWindowTitle();
     m_output->appendInfo(tr("Saved %1.").arg(QFileInfo{path}.fileName()));
 

@@ -15,6 +15,7 @@
 
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QFileInfo>
 #include <QIcon>
 
 namespace {
@@ -74,8 +75,21 @@ int main(int argc, char* argv[])
     // ignored for just as long. Opened after show() so that a failure reports
     // itself in the Output panel of a window the user can actually see.
     const QStringList positional = parser.positionalArguments();
+
     if (!positional.isEmpty()) {
         window.openProject(positional.first());
+    } else if (context.settings().boolValue(
+                   QString::fromLatin1(torquebus::services::keys::kRestoreLastProject), true)) {
+        // Where the last session left off. A project named on the command line
+        // always wins - somebody who typed a path meant that path - and a
+        // stored path that no longer opens takes itself off the recent list
+        // rather than stopping the launch.
+        const QString last =
+            context.settings().value(QString::fromLatin1(torquebus::services::keys::kLastProject));
+
+        if (!last.isEmpty() && QFileInfo::exists(last)) {
+            window.openProject(last);
+        }
     }
 
     return QApplication::exec();

@@ -659,6 +659,40 @@ here about what is *not* in the file.
 
 ---
 
+## 5l. Recent projects, and picking up where you left off
+
+The first of v0.10, and the two things somebody notices on the second day of
+using a tool rather than the first.
+
+1. **File > Open Recent** on a fresh installation says *No recent projects* and
+   the entry is disabled - not an empty menu that looks broken.
+2. Open a project, save another under a new name, and both are on the list with
+   the most recent first. The number is a mnemonic (`&1`); the full path is in
+   the tooltip and the status bar, because two projects called `bench.tbsproj`
+   in two directories is the ordinary case and the name alone cannot tell them
+   apart.
+3. Open the same project again from the list. It **moves to the top** rather
+   than appearing twice - order is use, not time.
+4. Open eleven projects. The list holds ten and the oldest falls off.
+5. **Rename a project on disk, then open it from the list.** It fails, says so
+   in the Output panel, and *then* the entry disappears. Nothing prunes on
+   startup: a project on a network share is not gone because it is unreachable
+   this morning, and a list that shortens itself whenever somebody works
+   offline is a list nobody can trust.
+6. Quit with a project open and start again: it opens. Quit after **File >
+   New** and start again: an empty canvas. A path given on the command line
+   beats both.
+7. **Preferences > General > Open the last project again**, unticked, then
+   restart. Nothing opens, and the recent list is still there - the two are
+   separate settings because they answer different questions.
+8. The settings file is JSON, so open it and put rubbish in the list: blanks,
+   the same path twice, thirty entries. None of it reaches the menu.
+
+**Worked:** all eight. Step 5 is the one to be fussy about - it is the only
+step here about what the list is *not* allowed to do on its own.
+
+---
+
 ## 6. Real hardware (optional)
 
 Only with a Kvaser adapter and CANlib installed.

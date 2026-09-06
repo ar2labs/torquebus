@@ -16,6 +16,7 @@
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "core/transmit/TransmitList.h"
+#include "services/RecentProjects.h"
 #include "ui/engine/CanEngineController.h"
 #include "ui/mainwindow/Docking.h"
 #include "ui/theme/Theme.h"
@@ -28,6 +29,7 @@
 
 class QAction;
 class QLabel;
+class QMenu;
 
 namespace torquebus::services {
 class SettingsStore;
@@ -117,6 +119,10 @@ private:
     void createStatusBar();
     void createEngine();
 
+    /// Rebuilds the Open Recent submenu from the stored list. Called whenever
+    /// that list changes, which is on every open, save and failed open.
+    void rebuildRecentMenu();
+
     /// Reports, to the Output panel, which theme and which resources the
     /// running binary actually loaded. See the definition for why.
     void reportThemeDiagnostics();
@@ -179,6 +185,10 @@ private:
 
     /// Where the open project lives, or empty for one never saved.
     QString m_projectPath;
+
+    /// The projects this user has opened, and the menu that shows them.
+    services::RecentProjects m_recentProjects;
+    QMenu* m_recentMenu{nullptr};
 
     /// The log this run is recording into, or empty when it is not. Kept so the
     /// Output panel can name the file at Stop, which is the moment somebody
