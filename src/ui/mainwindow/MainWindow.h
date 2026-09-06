@@ -39,6 +39,7 @@ class CanvasPanel;
 class DatabasePanel;
 class GraphPanel;
 class OutputPanel;
+class PlaybackPanel;
 class ProjectExplorerPanel;
 class NodePropertiesEditor;
 class PropertiesPanel;
@@ -160,6 +161,7 @@ private:
     TransmitPanel* m_transmitPanel{nullptr};
     StatisticsPanel* m_statisticsPanel{nullptr};
     GraphPanel* m_graphPanel{nullptr};
+    PlaybackPanel* m_playbackPanel{nullptr};
 
     // --- The pipeline the canvas edits ------------------------------------
     //
@@ -205,6 +207,7 @@ private:
     DockWidget* m_pipelineDock{nullptr};
     DockWidget* m_transmitDock{nullptr};
     DockWidget* m_graphDock{nullptr};
+    DockWidget* m_playbackDock{nullptr};
     DockWidget* m_statisticsDock{nullptr};
     DockWidget* m_diagnosticsDock{nullptr};
     DockWidget* m_outputDock{nullptr};

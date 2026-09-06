@@ -668,6 +668,12 @@ QLabel[torquebusRole="placeholder"] {
     padding: 16px;
 }
 
+/* A small label explaining the control beside it - what is playing, whether it
+ * is paused. Present, and subordinate to the number or button it describes. */
+QLabel[torquebusRole="caption"] {
+    color: @textMuted;
+}
+
 /* Numeric status fields are monospaced so a changing count does not reflow the
  * bar underneath the reader's eye. */
 QLabel[torquebusRole="metric"] {

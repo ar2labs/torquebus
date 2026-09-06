@@ -15,6 +15,7 @@
 #include "ui/graph/GraphPanel.h"
 #include "ui/mainwindow/PlaceholderPanel.h"
 #include "ui/output/OutputPanel.h"
+#include "ui/playback/PlaybackPanel.h"
 #include "ui/preferences/PreferencesDialog.h"
 #include "ui/project/ProjectExplorerPanel.h"
 #include "ui/properties/NodePropertiesEditor.h"
@@ -71,6 +72,7 @@ constexpr auto kDockDatabase    = "torquebus.dock.database";
 constexpr auto kDockPipeline    = "torquebus.dock.pipeline";
 constexpr auto kDockTransmit    = "torquebus.dock.transmit";
 constexpr auto kDockGraph       = "torquebus.dock.graph";
+constexpr auto kDockPlayback    = "torquebus.dock.playback";
 constexpr auto kDockStatistics  = "torquebus.dock.statistics";
 constexpr auto kDockDiagnostics = "torquebus.dock.diagnostics";
 constexpr auto kDockOutput      = "torquebus.dock.output";
@@ -95,7 +97,8 @@ constexpr auto kBullet = "●";
 ///   1  v0.1  first arrangement (centre panel added last - wrong)
 ///   2  v0.2  centre panel added first, sized side panels, full-width console
 ///   5  v0.8  DBC Explorer joins the analysis stack
-constexpr int kDockLayoutVersion = 5;
+///   6  v0.9  Playback joins it, under the trace
+constexpr int kDockLayoutVersion = 6;
 
 /// Converts one of the frozen dock names above into a QString.
 ///
@@ -422,6 +425,12 @@ void MainWindow::createPanels()
     m_graphDock = createDockWidget(dockName(kDockGraph), tr("Graph"), m_graphPanel,
                                    icon("graph"));
 
+    m_playbackPanel = new PlaybackPanel;
+    m_playbackPanel->setControl(&m_controller->engine().replayControl());
+
+    m_playbackDock = createDockWidget(dockName(kDockPlayback), tr("Playback"),
+                                      m_playbackPanel, icon("replay"));
+
     m_statisticsPanel = new StatisticsPanel;
 
     connect(m_controller, &CanEngineController::statusUpdated,
@@ -442,8 +451,8 @@ void MainWindow::createPanels()
 
     m_allDocks = {m_projectDock,     m_propertiesDock,  m_nodePropertiesDock,
                   m_traceDock,       m_databaseDock,    m_pipelineDock,
-                  m_transmitDock,    m_graphDock,       m_statisticsDock,
-                  m_diagnosticsDock, m_outputDock};
+                  m_transmitDock,    m_graphDock,       m_playbackDock,
+                  m_statisticsDock,  m_diagnosticsDock, m_outputDock};
 }
 
 void MainWindow::createActions()
@@ -737,6 +746,7 @@ void MainWindow::applyDefaultLayout()
     m_traceDock->addDockWidgetAsTab(m_pipelineDock);
     m_traceDock->addDockWidgetAsTab(m_transmitDock);
     m_traceDock->addDockWidgetAsTab(m_graphDock);
+    m_traceDock->addDockWidgetAsTab(m_playbackDock);
     m_traceDock->addDockWidgetAsTab(m_statisticsDock);
     m_traceDock->addDockWidgetAsTab(m_diagnosticsDock);
     m_traceDock->setAsCurrentTab();
@@ -1493,10 +1503,40 @@ void MainWindow::onMeasurementStarted()
 
     m_output->appendInfo(tr("Measurement running on %n channel(s).", nullptr,
                             static_cast<int>(m_controller->engine().channelCount())));
+
+    // What the Playback panel is driving, taken from the graph rather than
+    // from a signal: the replay block knows the path, and the panel only ever
+    // needs the file's name to put above the bar.
+    QString replaying;
+
+    for (const NodeDescription& node : m_pipeline.nodes()) {
+        if (node.typeName == "log.source" && node.enabled) {
+            const QString path =
+                QString::fromStdString(node.parameters.text("path", ""));
+
+            if (!path.isEmpty()) {
+                replaying = QFileInfo{path}.fileName();
+                break;
+            }
+        }
+    }
+
+    m_playbackPanel->setSourceName(replaying);
+
+    if (!replaying.isEmpty()) {
+        // Brought forward, because somebody who started a replay is about to
+        // want the transport - and a panel behind another tab is a panel they
+        // do not know they have.
+        m_playbackDock->setAsCurrentTab();
+    }
 }
 
 void MainWindow::onMeasurementStopped()
 {
+    // The panel keeps showing where the replay stopped, which is what somebody
+    // reading a fault wants on screen - but it is no longer driving anything,
+    // and the control says so on its own.
+
     m_actionStart->setEnabled(!m_devices.empty());
     m_actionStop->setEnabled(false);
     m_actionRefreshHardware->setEnabled(true);
