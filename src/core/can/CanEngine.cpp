@@ -306,6 +306,7 @@ void CanEngine::setGraphDescription(GraphDescription description,
         NodeBuildContext context;
         context.basePath = basePath;
         context.traceStore = &m_traceStore;
+        context.plotStore = &m_plotStore;
         context.transmitList = m_transmitList;
         context.channel = [this](std::uint8_t index) { return channel(index); };
         context.log = [this](const std::string& text, bool isError) {

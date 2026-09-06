@@ -790,3 +790,66 @@ TEST_CASE("Validating settings twice is what the creator still does anyway",
     CHECK(result.failed());
     CHECK(node == nullptr);
 }
+
+TEST_CASE("A decoder wired to a plot fills the plot's store", "[graph][build][plot]")
+{
+    // The wire this whole port existed for. PortType has carried Signals since
+    // v0.5; DbcDecoderNode started producing them in v0.8; and until now the
+    // only thing that could consume one was a callback a panel owned, so a
+    // Signals edge could not be *drawn* - it ended nowhere.
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    auto database = std::make_shared<CanDatabase>();
+
+    CanMessage message;
+    message.name = "EngineData";
+    message.identifier = 0x100;
+    message.length = 2;
+
+    CanSignal speed;
+    speed.name = "EngineSpeed";
+    speed.unit = "rpm";
+    speed.startBit = 0;
+    speed.bitLength = 16;
+    speed.factor = 0.25;
+
+    message.signalList.push_back(std::move(speed));
+    database->addMessage(std::move(message));
+
+    SignalSeriesStore plotStore{64};
+    TraceStore traceStore{16};
+
+    NodeBuildContext context;
+    context.traceStore = &traceStore;
+    context.plotStore = &plotStore;
+
+    GraphDescription description;
+    description.addNode(node("decoder", "dbc.decoder"));
+    description.addNode(node("plot", "signal.plot"));
+    description.addEdge(EdgeDescription{"decoder", 0, "plot", 0});
+
+    REQUIRE(description.validate(catalog).succeeded());
+
+    PipelineGraph graph;
+    REQUIRE(description.build(catalog, context, graph).succeeded());
+    REQUIRE(graph.compile().succeeded());
+}
+
+TEST_CASE("A plot block without a store fails rather than dropping samples",
+          "[graph][build][plot]")
+{
+    // The same shape as the trace node's own case, and for the same reason: a
+    // node that silently accepted nowhere to write would produce an empty
+    // Graph panel with no explanation anywhere.
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    GraphDescription description;
+    description.addNode(node("plot", "signal.plot"));
+
+    PipelineGraph graph;
+    const Result result = description.build(catalog, NodeBuildContext{}, graph);
+
+    CHECK(result.failed());
+    INFO(std::string{result.message()});
+    CHECK(std::string{result.message()}.find("plot") != std::string::npos);
+}
