@@ -10,6 +10,9 @@
 #include <QStringList>
 #include <QTimer>
 
+#include <algorithm>
+#include <optional>
+#include <vector>
 #include <utility>
 
 namespace torquebus::ui {
@@ -86,7 +89,8 @@ CanEngineController::~CanEngineController()
 // Configuration
 // ---------------------------------------------------------------------------
 
-std::size_t CanEngineController::bindAvailableChannels(const BitrateForHandle& bitrateFor)
+std::size_t CanEngineController::bindAvailableChannels(const ChannelPlan& plan,
+                                                       const QStringList& order)
 {
     if (isRunning()) {
         return m_engine->channelCount();
@@ -98,21 +102,53 @@ std::size_t CanEngineController::bindAvailableChannels(const BitrateForHandle& b
     CanBackendRegistry& registry = CanBackendRegistry::instance();
     registry.registerBuiltins();
 
-    for (const CanDeviceInfo& device : registry.enumerateAll()) {
-        std::unique_ptr<ICanBackend> backend = registry.create(device.backend);
+    const CanDeviceInfoList detected = registry.enumerateAll();
+
+    // Sorted into the order the caller asked for. Channel numbers are what a
+    // trace column, a transmit row and a saved project all mean, so which
+    // interface is CAN 1 must be somebody's decision rather than a property of
+    // which driver answered first this morning.
+    std::vector<const CanDeviceInfo*> arranged;
+    arranged.reserve(detected.size());
+
+    for (const QString& handle : order) {
+        for (const CanDeviceInfo& device : detected) {
+            if (QString::fromStdString(device.handle) == handle) {
+                arranged.push_back(&device);
+                break;
+            }
+        }
+    }
+
+    for (const CanDeviceInfo& device : detected) {
+        const auto already = std::find(arranged.begin(), arranged.end(), &device);
+        if (already == arranged.end()) {
+            arranged.push_back(&device);
+        }
+    }
+
+    for (const CanDeviceInfo* device : arranged) {
+        std::optional<CanChannelConfig> config =
+            plan ? plan(*device) : std::optional<CanChannelConfig>{CanChannelConfig{}};
+
+        if (!config.has_value()) {
+            // Switched off. Not opened, and - because addChannel is what hands
+            // out channel numbers - not occupying one either.
+            continue;
+        }
+
+        std::unique_ptr<ICanBackend> backend = registry.create(device->backend);
         if (!backend) {
             continue;
         }
 
-        const QString handle = QString::fromStdString(device.handle);
+        // The handle is the controller's to fill in, not the caller's: it comes
+        // from the device that was actually enumerated, so a plan that returned
+        // a config for the wrong interface cannot open the wrong adapter.
+        config->deviceHandle = device->handle;
 
-        CanChannelConfig config;
-        config.deviceHandle = device.handle;
-        config.timing.bitrate =
-            bitrateFor ? static_cast<std::uint32_t>(bitrateFor(handle)) : kDefaultBitrate;
-
-        if (m_engine->addChannel(std::move(backend), std::move(config)).succeeded()) {
-            m_deviceNames.append(QString::fromStdString(device.name));
+        if (m_engine->addChannel(std::move(backend), std::move(*config)).succeeded()) {
+            m_deviceNames.append(QString::fromStdString(device->name));
         }
     }
 

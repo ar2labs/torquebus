@@ -41,6 +41,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -104,27 +105,43 @@ public:
     /// The engine this controller drives. Owned by the controller.
     [[nodiscard]] CanEngine& engine() noexcept { return *m_engine; }
 
-    /// Answers what bitrate one device handle should be opened at.
+    /// Says how one detected interface should be opened, or that it should not
+    /// be.
     ///
     /// A callback rather than a map, because the answer lives in the settings
     /// file and the controller has no business reading it: this class is the
     /// seam between the engine and Qt, not between the engine and the
-    /// application's preferences.
-    using BitrateForHandle = std::function<quint32(const QString& handle)>;
+    /// application's preferences. Returning nullopt leaves the interface
+    /// unbound - it consumes no channel number and does not shift the ones
+    /// after it.
+    using ChannelPlan =
+        std::function<std::optional<CanChannelConfig>(const CanDeviceInfo& device)>;
 
-    /// Binds every available channel reported by the backend registry, in
-    /// enumeration order, and returns how many were bound. Only valid while
-    /// stopped; replaces any previous configuration.
+    /// Binds the interfaces `plan` accepts and returns how many were bound.
+    /// Only valid while stopped; replaces any previous configuration.
     ///
-    /// Each channel gets the rate `bitrateFor` gives for its handle - per
-    /// device and not one figure for the machine, because two adapters on one
-    /// desk are usually on two different buses.
-    std::size_t bindAvailableChannels(const BitrateForHandle& bitrateFor);
+    /// `order` is a list of handles saying which interface is CAN 1, CAN 2 and
+    /// so on. Anything detected but not named in it is bound after those, in
+    /// enumeration order; anything named but not detected is skipped. An empty
+    /// order is enumeration order, which is what a machine nobody has arranged
+    /// gets.
+    std::size_t bindAvailableChannels(const ChannelPlan& plan,
+                                      const QStringList& order = {});
 
     [[nodiscard]] bool isRunning() const;
 
     /// Human-readable summary of the bound channels, for the Output panel.
     [[nodiscard]] QStringList boundChannelDescriptions() const;
+
+    /// Device names in channel order: index 0 is CAN 1.
+    ///
+    /// Needed now that channel order is a decision rather than enumeration
+    /// order - the status bar cannot get CAN 1 by taking the first thing the
+    /// registry found any more.
+    [[nodiscard]] const QList<QString>& boundDeviceNames() const noexcept
+    {
+        return m_deviceNames;
+    }
 
 public Q_SLOTS:
     /// Starts the measurement. Emits started() or failed().

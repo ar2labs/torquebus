@@ -24,6 +24,7 @@ add_executable(torquebus_unit_tests
     TraceStoreTests.cpp
     TransmitListTests.cpp
     ResultTests.cpp
+    HardwareProfileTests.cpp
     RecentProjectsTests.cpp
     SettingsStoreTests.cpp
 )
