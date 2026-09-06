@@ -84,6 +84,11 @@ public:
     static constexpr bool kDefaultDecimalIdentifiers = false;
     static constexpr bool kDefaultRestoreLayout = true;
 
+    /// On by default. An engineering tool that opens where you left it is the
+    /// convention, and the alternative - an empty canvas every morning - makes
+    /// somebody find the same file in the same folder every day.
+    static constexpr bool kDefaultRestoreLastProject = true;
+
 public Q_SLOTS:
     /// Puts everything back the way it was when the dialog opened.
     ///
@@ -142,6 +147,7 @@ private:
     int m_openingTraceRefreshMs{kDefaultTraceRefreshMs};
     bool m_openingDecimalIdentifiers{kDefaultDecimalIdentifiers};
     bool m_openingRestoreLayout{kDefaultRestoreLayout};
+    bool m_openingRestoreLastProject{kDefaultRestoreLastProject};
 
     /// True while the dialog is writing into its own controls, so a
     /// programmatic change is not read back as the user having made one.
@@ -157,6 +163,7 @@ private:
     QComboBox* m_density{nullptr};
 
     QCheckBox* m_restoreLayout{nullptr};
+    QCheckBox* m_restoreLastProject{nullptr};
     QLabel* m_settingsPath{nullptr};
 
     QSpinBox* m_traceRefresh{nullptr};

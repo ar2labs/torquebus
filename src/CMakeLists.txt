@@ -154,6 +154,8 @@ set_target_properties(torquebus_drivers PROPERTIES FOLDER "Libraries")
 add_library(torquebus_services STATIC
     services/ProjectFile.h
     services/ProjectFile.cpp
+    services/RecentProjects.h
+    services/RecentProjects.cpp
     services/SettingsStore.h
     services/SettingsStore.cpp
 )

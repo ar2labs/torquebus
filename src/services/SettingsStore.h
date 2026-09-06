@@ -17,6 +17,7 @@
 #include <QByteArray>
 #include <QJsonObject>
 #include <QString>
+#include <QStringList>
 
 #include <cstdint>
 
@@ -58,6 +59,12 @@ public:
     [[nodiscard]] QByteArray binaryValue(const QString& key) const;
     void setBinaryValue(const QString& key, const QByteArray& value);
 
+    /// A list of strings, stored as a JSON array rather than as one joined
+    /// string. Nothing has to be escaped, and a path with a semicolon in it -
+    /// which is legal on every platform this runs on - cannot split into two.
+    [[nodiscard]] QStringList stringListValue(const QString& key) const;
+    void setStringListValue(const QString& key, const QStringList& values);
+
     void remove(const QString& key);
     [[nodiscard]] bool contains(const QString& key) const;
 
@@ -98,6 +105,8 @@ inline constexpr auto kWindowState      = "ui/window/state";
 inline constexpr auto kDockLayout       = "ui/window/dockLayout";
 inline constexpr auto kDockLayoutVersion = "ui/window/dockLayoutVersion";
 inline constexpr auto kLastProject      = "project/lastOpened";
+inline constexpr auto kRecentProjects   = "project/recent";
+inline constexpr auto kRestoreLastProject = "project/restoreLastOnStart";
 inline constexpr auto kRestoreLayout    = "ui/window/restoreLayout";
 inline constexpr auto kSettingsVersion  = "meta/version";
 

@@ -8,6 +8,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QSaveFile>
 #include <QStandardPaths>
@@ -134,6 +135,42 @@ void SettingsStore::setBinaryValue(const QString& key, const QByteArray& value)
         return;
     }
     m_root.insert(key, QString::fromLatin1(value.toBase64()));
+}
+
+QStringList SettingsStore::stringListValue(const QString& key) const
+{
+    const QJsonValue stored = m_root.value(key);
+    if (!stored.isArray()) {
+        return {};
+    }
+
+    QStringList result;
+
+    for (const QJsonValue& entry : stored.toArray()) {
+        // Anything that is not a string is skipped rather than stringified:
+        // this file is meant to be edited by hand, and a number where a path
+        // belongs is a mistake, not a path called "3".
+        if (entry.isString()) {
+            result.append(entry.toString());
+        }
+    }
+
+    return result;
+}
+
+void SettingsStore::setStringListValue(const QString& key, const QStringList& values)
+{
+    if (values.isEmpty()) {
+        m_root.remove(key);
+        return;
+    }
+
+    QJsonArray array;
+    for (const QString& value : values) {
+        array.append(value);
+    }
+
+    m_root.insert(key, array);
 }
 
 void SettingsStore::remove(const QString& key)

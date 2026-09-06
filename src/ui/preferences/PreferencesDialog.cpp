@@ -187,6 +187,13 @@ QWidget* PreferencesDialog::buildGeneralPage()
            "still saved either way, so turning this back on brings it back."),
         page));
 
+    m_restoreLastProject = new QCheckBox(tr("Open the last project again"), page);
+    layout->addWidget(m_restoreLastProject);
+    layout->addWidget(hintLabel(
+        tr("A project named on the command line always wins, and this never overrides "
+           "a File > New."),
+        page));
+
     layout->addSpacing(8);
     layout->addWidget(sectionLabel(tr("Settings file"), page));
 
@@ -213,11 +220,13 @@ QWidget* PreferencesDialog::buildGeneralPage()
 
     layout->addStretch(1);
 
-    connect(m_restoreLayout, &QCheckBox::toggled, this, [this](bool) {
-        if (!m_loading) {
-            storeToSettings();
-        }
-    });
+    for (QCheckBox* box : {m_restoreLayout, m_restoreLastProject}) {
+        connect(box, &QCheckBox::toggled, this, [this](bool) {
+            if (!m_loading) {
+                storeToSettings();
+            }
+        });
+    }
 
     return page;
 }
@@ -540,6 +549,7 @@ void PreferencesDialog::onResetPreferences()
 
     m_loading = true;
     m_restoreLayout->setChecked(kDefaultRestoreLayout);
+    m_restoreLastProject->setChecked(kDefaultRestoreLastProject);
     m_traceRefresh->setValue(kDefaultTraceRefreshMs);
     m_decimalIdentifiers->setChecked(kDefaultDecimalIdentifiers);
     m_accentRow->setAccent(AccentColor::TorqueBus);
@@ -610,6 +620,10 @@ void PreferencesDialog::loadFromSettings()
     m_restoreLayout->setChecked(m_settings.boolValue(
         QString::fromLatin1(services::keys::kRestoreLayout), kDefaultRestoreLayout));
 
+    m_restoreLastProject->setChecked(m_settings.boolValue(
+        QString::fromLatin1(services::keys::kRestoreLastProject),
+        kDefaultRestoreLastProject));
+
     m_traceRefresh->setValue(m_settings.intValue(
         QString::fromLatin1(services::keys::kTraceRefreshMs), kDefaultTraceRefreshMs));
 
@@ -631,6 +645,7 @@ void PreferencesDialog::loadFromSettings()
     m_openingTraceRefreshMs = m_traceRefresh->value();
     m_openingDecimalIdentifiers = m_decimalIdentifiers->isChecked();
     m_openingRestoreLayout = m_restoreLayout->isChecked();
+    m_openingRestoreLastProject = m_restoreLastProject->isChecked();
 
     applyAppearance();
 }
@@ -648,6 +663,8 @@ void PreferencesDialog::storeToSettings()
 
     m_settings.setBoolValue(QString::fromLatin1(services::keys::kRestoreLayout),
                             m_restoreLayout->isChecked());
+    m_settings.setBoolValue(QString::fromLatin1(services::keys::kRestoreLastProject),
+                            m_restoreLastProject->isChecked());
     m_settings.setIntValue(QString::fromLatin1(services::keys::kTraceRefreshMs),
                            m_traceRefresh->value());
     m_settings.setBoolValue(QString::fromLatin1(services::keys::kDecimalIdentifiers),
@@ -677,6 +694,7 @@ void PreferencesDialog::reject()
 
     m_loading = true;
     m_restoreLayout->setChecked(m_openingRestoreLayout);
+    m_restoreLastProject->setChecked(m_openingRestoreLastProject);
     m_traceRefresh->setValue(m_openingTraceRefreshMs);
     m_decimalIdentifiers->setChecked(m_openingDecimalIdentifiers);
     m_loading = false;
