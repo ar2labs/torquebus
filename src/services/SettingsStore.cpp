@@ -146,4 +146,31 @@ bool SettingsStore::contains(const QString& key) const
     return m_root.contains(key);
 }
 
+QString bitrateKey(const QString& handle)
+{
+    return QString::fromLatin1(keys::kBitratePrefix) + handle;
+}
+
+std::uint32_t bitrateFor(const SettingsStore& settings, const QString& handle)
+{
+    const int stored = settings.intValue(bitrateKey(handle), 0);
+    if (stored <= 0) {
+        return kDefaultBitrate;
+    }
+
+    const auto value = static_cast<std::uint32_t>(stored);
+
+    // Checked against the list rather than taken on trust. The settings file is
+    // JSON so that people can edit it, which means a number in it is input, and
+    // a rate no backend has segment timing for would open a channel that
+    // produces error frames instead of failing outright.
+    for (const std::uint32_t candidate : standardBitrates()) {
+        if (candidate == value) {
+            return value;
+        }
+    }
+
+    return kDefaultBitrate;
+}
+
 } // namespace torquebus::services

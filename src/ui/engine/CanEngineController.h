@@ -40,6 +40,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -103,10 +104,22 @@ public:
     /// The engine this controller drives. Owned by the controller.
     [[nodiscard]] CanEngine& engine() noexcept { return *m_engine; }
 
+    /// Answers what bitrate one device handle should be opened at.
+    ///
+    /// A callback rather than a map, because the answer lives in the settings
+    /// file and the controller has no business reading it: this class is the
+    /// seam between the engine and Qt, not between the engine and the
+    /// application's preferences.
+    using BitrateForHandle = std::function<quint32(const QString& handle)>;
+
     /// Binds every available channel reported by the backend registry, in
     /// enumeration order, and returns how many were bound. Only valid while
     /// stopped; replaces any previous configuration.
-    std::size_t bindAvailableChannels(quint32 bitrate = kDefaultBitrate);
+    ///
+    /// Each channel gets the rate `bitrateFor` gives for its handle - per
+    /// device and not one figure for the machine, because two adapters on one
+    /// desk are usually on two different buses.
+    std::size_t bindAvailableChannels(const BitrateForHandle& bitrateFor);
 
     [[nodiscard]] bool isRunning() const;
 

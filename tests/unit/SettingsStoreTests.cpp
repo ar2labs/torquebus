@@ -11,6 +11,8 @@
 #include <QFile>
 #include <QTemporaryDir>
 
+#include <cstdint>
+
 using torquebus::services::SettingsStore;
 
 namespace {
@@ -143,4 +145,99 @@ TEST_CASE("An empty binary value clears its key rather than storing nothing",
 
     store.setBinaryValue(QStringLiteral("ui/window/dockLayout"), QByteArray{});
     CHECK_FALSE(store.contains(QStringLiteral("ui/window/dockLayout")));
+}
+
+// ---------------------------------------------------------------------------
+// Per-interface bitrate
+// ---------------------------------------------------------------------------
+
+TEST_CASE("A bitrate key names the interface it belongs to", "[settings][bitrate]")
+{
+    // The shape is a format, not a convenience: these keys are read back by a
+    // later run and are the sort of thing people hand-edit.
+    CHECK(torquebus::services::bitrateKey(QStringLiteral("peak:usb0"))
+          == QStringLiteral("can/bitrate/peak:usb0"));
+    CHECK(torquebus::services::bitrateKey(QStringLiteral("kvaser:0"))
+          == QStringLiteral("can/bitrate/kvaser:0"));
+}
+
+TEST_CASE("An interface nobody configured gets the default", "[settings][bitrate]")
+{
+    const ScopedSettingsFile file;
+
+    SettingsStore store{file.path()};
+    REQUIRE(store.load());
+
+    CHECK(torquebus::services::bitrateFor(store, QStringLiteral("kvaser:0"))
+          == torquebus::kDefaultBitrate);
+}
+
+TEST_CASE("A stored bitrate survives a save and a load", "[settings][bitrate]")
+{
+    const ScopedSettingsFile file;
+
+    {
+        SettingsStore store{file.path()};
+        REQUIRE(store.load());
+        store.setIntValue(torquebus::services::bitrateKey(QStringLiteral("peak:usb0")),
+                          500'000);
+        REQUIRE(store.save());
+    }
+
+    SettingsStore reloaded{file.path()};
+    REQUIRE(reloaded.load());
+
+    CHECK(torquebus::services::bitrateFor(reloaded, QStringLiteral("peak:usb0")) == 500'000);
+
+    // And it belongs to that interface alone. Two adapters on one desk are
+    // usually on two different buses, which is the whole reason this is keyed
+    // per device rather than per machine.
+    CHECK(torquebus::services::bitrateFor(reloaded, QStringLiteral("kvaser:0"))
+          == torquebus::kDefaultBitrate);
+}
+
+TEST_CASE("A rate no backend can configure is replaced, not obeyed", "[settings][bitrate]")
+{
+    // This file is JSON so that people can edit it, which makes anything in it
+    // input. A controller is configured with segment timing rather than with a
+    // frequency, so a rate nothing has timing for would open a channel that
+    // produces error frames instead of failing outright - the worst of the
+    // available outcomes.
+    const ScopedSettingsFile file;
+
+    SettingsStore store{file.path()};
+    REQUIRE(store.load());
+
+    const QString key = torquebus::services::bitrateKey(QStringLiteral("kvaser:0"));
+
+    store.setIntValue(key, 33'333);
+    CHECK(torquebus::services::bitrateFor(store, QStringLiteral("kvaser:0"))
+          == torquebus::kDefaultBitrate);
+
+    store.setIntValue(key, -1);
+    CHECK(torquebus::services::bitrateFor(store, QStringLiteral("kvaser:0"))
+          == torquebus::kDefaultBitrate);
+
+    store.setIntValue(key, 0);
+    CHECK(torquebus::services::bitrateFor(store, QStringLiteral("kvaser:0"))
+          == torquebus::kDefaultBitrate);
+
+    // Every rate the list offers is accepted, which is the other half of the
+    // same claim - a check that only ever rejects would pass this test too.
+    for (const std::uint32_t rate : torquebus::standardBitrates()) {
+        store.setIntValue(key, static_cast<int>(rate));
+        INFO("rate " << rate);
+        CHECK(torquebus::services::bitrateFor(store, QStringLiteral("kvaser:0")) == rate);
+    }
+}
+
+TEST_CASE("Bitrates are described the way people say them", "[bitrate]")
+{
+    CHECK(torquebus::describeBitrate(250'000) == "250 kbit/s");
+    CHECK(torquebus::describeBitrate(1'000'000) == "1 Mbit/s");
+    CHECK(torquebus::describeBitrate(83'000) == "83 kbit/s");
+
+    // Not "1000 kbit/s", which is nobody's way of saying it and is the kind of
+    // odd row out that gets a list misread.
+    CHECK(torquebus::describeBitrate(1'000'000) != "1000 kbit/s");
 }
