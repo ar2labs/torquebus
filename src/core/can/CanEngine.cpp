@@ -18,6 +18,20 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
+/// Now, in microseconds since the Unix epoch.
+///
+/// The one wall-clock reading a measurement takes. Frames are timestamped on a
+/// steady clock, because a trace has to survive the system clock being adjusted
+/// mid-measurement; this is what turns those into a date on a report, and it is
+/// read once, when a recording starts.
+[[nodiscard]] std::uint64_t wallClockMicroseconds()
+{
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count());
+}
+
 /// Copies the sink list under the lock, so sinks are invoked without holding
 /// it. A sink that registers or removes another sink would otherwise deadlock,
 /// and a slow sink would block every registration in the application.
@@ -307,6 +321,10 @@ void CanEngine::setGraphDescription(GraphDescription description,
         context.basePath = basePath;
         context.traceStore = &m_traceStore;
         context.plotStore = &m_plotStore;
+
+        // Null unless a recording was started, which is what makes a `can.log`
+        // block fail to build under Start and succeed under Record.
+        context.logWriter = m_logWriter.isOpen() ? &m_logWriter : nullptr;
         context.transmitList = m_transmitList;
         context.channel = [this](std::uint8_t index) { return channel(index); };
         context.log = [this](const std::string& text, bool isError) {
@@ -445,6 +463,23 @@ std::uint64_t CanEngine::totalSourceFrames() const
 std::size_t CanEngine::pumpOnce()
 {
     return dispatchPass();
+}
+
+Result CanEngine::startRecording(const std::string& path)
+{
+    if (isRunning()) {
+        return Result::error(ErrorCode::InvalidState,
+                             "Recording has to be started before the measurement: the graph "
+                             "is built at Start, and that is when a logger block looks for "
+                             "somewhere to write");
+    }
+
+    return m_logWriter.open(path, wallClockMicroseconds());
+}
+
+void CanEngine::stopRecording()
+{
+    m_logWriter.close();
 }
 
 std::vector<CanEngine::NodeReport> CanEngine::nodeStatistics() const

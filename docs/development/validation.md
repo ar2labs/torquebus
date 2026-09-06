@@ -20,6 +20,13 @@ project file — and in full before tagging a release.
 > against the type stubs for the pinned Qt version instead of recalling it, and
 > running the core under `-fsanitize=address,undefined`.
 >
+> The v0.9 run repeated it at larger scale: nine commits, including the whole
+> Graph panel, the hand-painted plot, the plot store's mutex and the log format
+> - **284 tests, 0 failed**, with four compile errors across the batch and no
+> failing test. Three of the four were a signature mismatch; the fourth
+> was a header naming a Qt type it never declared, which a sweep then found
+> nowhere else.
+>
 > **A green ctest is not a green window.** None of the painting or animation
 > has test coverage; it compiles and the suite passes, which says nothing about
 > what the window looks like. Step 4 below is the part that does.
@@ -545,6 +552,46 @@ decoding.
 **Worked:** all nine. Steps 3 and 4 are the ones to be fussy about - both are
 places where the convenient answer produces a plot that is wrong rather than
 merely ugly.
+
+---
+
+## 5h. Recording and replaying
+
+The v0.9 loop, and the point at which the tool stops needing a bus to be useful.
+
+1. **Record** on the toolbar, with the measurement stopped. Choose a path. The
+   Output panel says it is armed and tells you the one thing that is easy to get
+   wrong: a recording needs a **CAN Logger** block on the pipeline.
+2. Press **Record** again *without* adding one, then **Start**. The measurement
+   refuses to start and names the block that could not be built - `can.log` with
+   nowhere to write is refused rather than silently recording nothing.
+3. Wire **CAN Channel -> CAN Logger** on the canvas. Arm Record, press Start,
+   let it run, press **Stop**. The Output panel names the file and how many
+   frames went into it, and the Record button releases itself.
+4. Try to untick Record while the measurement runs. It goes back down and says
+   to press Stop: the log is part of the graph that was built at Start, and
+   closing it under a running block would leave that block writing to a closed
+   file.
+5. **Now replay it.** File > New, drop a **Log Replay** block on the canvas, and
+   give it the file with the **...** button - the same Browse the decoder and
+   the Lua ECU have, now offering `*.tblog`. Wire it to **CAN Trace** and press
+   Start.
+6. The trace fills **at the speed it was recorded**, not instantly. Cycle times,
+   gaps and bursts are most of what a trace is read for, and a file poured
+   through at memory speed destroys all three. Set the block's **Speed** to 10
+   and it replays ten times faster, with the same shape.
+7. Wire the replay through a **DBC Decoder** into a **Signal Plot** instead. The
+   Graph panel draws a recorded measurement exactly as it draws a live one -
+   nothing downstream of a source knows the difference, which is what rule #11
+   has been claiming since v0.5.
+8. Kill TorqueBus with the task manager while a recording is running, then open
+   that file with a Log Replay block. It plays back everything up to the last
+   whole frame. **This is the case the format is shaped around** - a log is
+   usually stopped by something that did not ask first.
+
+**Worked:** all eight. Steps 6 and 8 are the ones to be fussy about: the first
+is the difference between a replay and a file dump, and the second is the whole
+reason the header carries no frame count.
 
 ---
 

@@ -38,6 +38,7 @@
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "core/pipeline/PipelineGraph.h"
+#include "core/log/TraceLog.h"
 #include "core/plot/SignalSeries.h"
 #include "core/trace/TraceStore.h"
 
@@ -265,6 +266,20 @@ public:
     [[nodiscard]] TraceStore& traceStore() noexcept { return m_traceStore; }
     [[nodiscard]] const TraceStore& traceStore() const noexcept { return m_traceStore; }
 
+    /// Opens `path` for recording, so a `can.log` block has somewhere to write.
+    ///
+    /// Called before start(), because the graph is built at start and a logger
+    /// block refuses to build without an open writer - which is deliberate: a
+    /// measurement that silently recorded nothing would be the worst outcome
+    /// available.
+    [[nodiscard]] Result startRecording(const std::string& path);
+    void stopRecording();
+
+    [[nodiscard]] bool isRecording() const noexcept { return m_logWriter.isOpen(); }
+
+    /// The open log, for the frame and byte counts a status bar shows.
+    [[nodiscard]] const TraceLogWriter& logWriter() const noexcept { return m_logWriter; }
+
     /// Where a `signal.plot` block's samples land, for the Graph panel.
     ///
     /// Owned here for the same reason the trace store is: it belongs to the
@@ -328,6 +343,7 @@ private:
     /// it are created per channel and hold a reference.
     TraceStore m_traceStore;
     SignalSeriesStore m_plotStore;
+    TraceLogWriter m_logWriter;
 
     mutable std::mutex m_sinksMutex;
     std::vector<Registration<FrameSink>> m_frameSinks;

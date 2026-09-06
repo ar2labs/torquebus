@@ -94,6 +94,7 @@ private Q_SLOTS:
     void onSaveProject();
     void onSaveProjectAs();
 
+    void onRecord(bool checked);
     void onStartMeasurement();
     void onStopMeasurement();
     void onMeasurementStarted();
@@ -171,6 +172,11 @@ private:
 
     /// Where the open project lives, or empty for one never saved.
     QString m_projectPath;
+
+    /// The log this run is recording into, or empty when it is not. Kept so the
+    /// Output panel can name the file at Stop, which is the moment somebody
+    /// wants to know where it went.
+    QString m_recordingPath;
 
     /// The pipeline has changed since it was last saved or opened.
     ///
