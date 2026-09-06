@@ -7,46 +7,9 @@ not mistaken for a pass.
 Run it after any change that touches the build, the docking, the canvas or the
 project file — and in full before tagging a release.
 
-> The first full run of this pass found seven failures, none of them in the
-> newly written Qt code — which built clean — and none of them Windows-specific.
-> Four were stale tests, one was an off-by-one in a test's own bound, and one
-> was a real defect in `removeFrameSink`. All are fixed. The lesson is recorded
-> under [What is likely to break first](#what-is-likely-to-break-first).
->
-> The v0.8 run — sixteen commits, including every hand-painted widget and the
-> whole database layer, none of it ever compiled — was green on the first
-> attempt: **222 tests, 0 failed**. Worth stating plainly, because the two
-> practices that got it there are cheap and easy to skip: checking each Qt call
-> against the type stubs for the pinned Qt version instead of recalling it, and
-> running the core under `-fsanitize=address,undefined`.
->
-> The v0.9 run repeated it at larger scale: nine commits, including the whole
-> Graph panel, the hand-painted plot, the plot store's mutex and the log format
-> - **284 tests, 0 failed**, with four compile errors across the batch and no
-> failing test. Three of the four were a signature mismatch; the fourth
-> was a header naming a Qt type it never declared, which a sweep then found
-> nowhere else.
->
 > **A green ctest is not a green window.** None of the painting or animation
 > has test coverage; it compiles and the suite passes, which says nothing about
 > what the window looks like. Step 4 below is the part that does.
->
-> A third practice joined the two above while the accent colour was being
-> written: **running the real Qt value types before writing C++ against them.**
-> The PySide6 wheel for the pinned version carries the actual Qt libraries, so
-> `QColor::fromHslF`, `toHsl` and `hslSaturationF` can be exercised in a
-> throwaway script and the derivation checked across all sixteen hue-and-theme
-> combinations *before* any of it exists as code. That is a measurement of Qt's
-> behaviour rather than a memory of it, and it is what the
-> [`backgroundBrush` mistake](#what-is-likely-to-break-first) cost an afternoon
-> for want of.
->
-> And a fourth, from the plot store: **ThreadSanitizer, when the claim is about
-> a lock rather than about memory.** AddressSanitizer finds a use-after-free and
-> says nothing at all about a data race; the store's mutex exists to make a read
-> of a wrapping ring safe, and only TSan can say whether it does. Where TSan
-> refuses to start with "unexpected memory mapping", run the binary under
-> `setarch $(uname -m) -R` to turn ASLR off.
 
 ---
 
@@ -144,6 +107,7 @@ because each pins something that was got wrong once:
 | `[settings][bitrate]` | A hand-edited rate no backend has segment timing for being obeyed instead of replaced |
 | `[graph][validate]` | A block that cannot run being reported at Start instead of when it was dropped — and, the other way, a half-configured canvas being refused |
 | `[log]` | A recording that was cut short reading as corrupt instead of as forty-nine whole frames and a note |
+| `[export]` | A file another tool reads wrongly — an extended identifier without its `x`, an error frame written as data, a DLC that came out as a control byte |
 | `[plot]` | A plot quietly lying about the bus: a wrapped ring read out of order, a truncated signal drawn as zero, an axis that shrinks as history ages out |
 | `[statistics][bitrate]` | The default bitrate drifting apart between the three places that spell it |
 | Qt macro guard | A core header using `emit` or `signals` as an identifier |
