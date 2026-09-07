@@ -32,6 +32,7 @@
 #pragma once
 
 #include <QColor>
+#include <QList>
 #include <QString>
 #include <QWidget>
 #include <QtGlobal>
@@ -40,6 +41,7 @@
 #include <vector>
 
 class QComboBox;
+class QFormLayout;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -72,13 +74,30 @@ private Q_SLOTS:
 
     void onSend();
     void onRequestChanged(const QString& text);
-    void onShortcut(int index);
+
+    /// A different service was picked: rebuild the form under it.
+    void onServiceChanged(int index);
+
+    /// A field was edited: reassemble the bytes.
+    void onFieldChanged();
+
     void onClear();
     void onThemeChanged();
 
 private:
     void buildUi();
     void updateAvailability();
+
+    /// Replaces the field editors with the ones the chosen service takes.
+    void buildForm();
+
+    /// Reads the editors, assembles the request and writes it into the hex box.
+    ///
+    /// The hex box is the one thing that gets sent, so the form is a way of
+    /// writing into it rather than a second path to the bus: what somebody sees
+    /// is what goes out, and a form that produced bytes nobody could look at
+    /// would be a worse tool for learning the protocol than the box alone.
+    void assembleFromForm();
 
     /// Adds one exchange to the log: the request, the answer, and the time.
     void appendExchange(const UdsExchange& exchange);
@@ -97,7 +116,15 @@ private:
     QLabel* m_targetLabel{nullptr};
     QLabel* m_sessionLabel{nullptr};
 
-    QComboBox* m_shortcuts{nullptr};
+    /// What is wrong with the form, when something is. Empty otherwise.
+    QLabel* m_hintLabel{nullptr};
+
+    QComboBox* m_service{nullptr};
+    QFormLayout* m_form{nullptr};
+
+    /// One editor per field of the chosen service, in field order.
+    QList<QWidget*> m_fields;
+
     QLineEdit* m_request{nullptr};
     QPushButton* m_send{nullptr};
     QPushButton* m_clear{nullptr};
@@ -107,6 +134,7 @@ private:
     /// Whether the transport was last drawn as available, so the controls are
     /// only re-enabled when that actually changed.
     bool m_shownAsActive{false};
+
 };
 
 } // namespace torquebus::ui
