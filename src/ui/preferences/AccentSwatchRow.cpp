@@ -22,7 +22,26 @@ namespace {
 
 constexpr double kSwatchDiameter = 22.0;
 constexpr double kSwatchSpacing = 32.0;
-constexpr double kMargin = 3.0;
+
+/// How far beyond a swatch the selection ring is drawn, and how thick.
+constexpr double kRingGap = 3.0;
+constexpr double kRingWidth = 1.6;
+
+/// How far the press ripple expands past the swatch, and how thick.
+///
+/// It used to reach eight pixels out, which was four more than the widget had
+/// room for: the ring and the ripple were both painted outside the margin and
+/// the top and bottom of every circle came out flat. A widget has to be as tall
+/// as the largest thing it draws, and the largest thing here is this.
+constexpr double kRippleReach = 5.0;
+constexpr double kRippleWidth = 2.0;
+
+/// The distance from a swatch's centre to the outermost pixel anything paints.
+constexpr double kPaintedRadius =
+    kSwatchDiameter / 2.0 + kRippleReach + kRippleWidth / 2.0;
+
+/// Margin around that, so nothing sits against the edge.
+constexpr double kMargin = 2.0;
 
 /// How long the press ripple takes. Shorter than the 130 ms of a state change
 /// because it is an acknowledgement, not a transition - it has to be over
@@ -81,9 +100,12 @@ AccentSwatchRow::AccentSwatchRow(QWidget* parent)
 
 QSize AccentSwatchRow::sizeHint() const
 {
+    // Wide enough for the swatches and tall enough for everything drawn around
+    // them - the ring and the ripple included, which is what this was missing.
     const double width = kMargin * 2.0 + kSwatchSpacing * (swatchCount() - 1) + kSwatchDiameter;
-    return QSize{static_cast<int>(std::ceil(width)),
-                 static_cast<int>(std::ceil(kSwatchDiameter + kMargin * 2.0))};
+    const double height = (kPaintedRadius + kMargin) * 2.0;
+
+    return QSize{static_cast<int>(std::ceil(width)), static_cast<int>(std::ceil(height))};
 }
 
 QSize AccentSwatchRow::minimumSizeHint() const
@@ -148,12 +170,18 @@ void AccentSwatchRow::paintEvent(QPaintEvent* /*event*/)
     QPainter painter{this};
     painter.setRenderHint(QPainter::Antialiasing, true);
 
+    // Derived from the room actually available rather than assumed. A layout
+    // that gives this widget less than it asked for should make the swatches
+    // smaller, not slice the tops off them - a clipped circle reads as a
+    // rendering fault, where a small circle reads as a small circle.
+    const double available = height() / 2.0 - kMargin - kRippleReach - kRippleWidth / 2.0;
+    const double radius = std::max(4.0, std::min(kSwatchDiameter / 2.0, available));
+
     const double ringProgress = m_ring.value();
     const double ringPosition = m_ringFrom + (indexOf(m_accent) - m_ringFrom) * ringProgress;
 
     for (int index = 0; index < swatchCount(); ++index) {
         const QPointF centre = centreOf(index);
-        const double radius = kSwatchDiameter / 2.0;
 
         // Each swatch shows the colour it will actually produce on the theme
         // that is running - not a nominal red or blue. Anything else would be
@@ -180,8 +208,10 @@ void AccentSwatchRow::paintEvent(QPaintEvent* /*event*/)
             wash.setAlphaF(static_cast<float>((1.0 - progress) * 0.55));
 
             painter.setBrush(Qt::NoBrush);
-            painter.setPen(QPen{wash, 2.0});
-            painter.drawEllipse(centre, radius + progress * 8.0, radius + progress * 8.0);
+            painter.setPen(QPen{wash, kRippleWidth});
+
+            const double reach = radius + progress * kRippleReach;
+            painter.drawEllipse(centre, reach, reach);
         }
     }
 
@@ -194,8 +224,10 @@ void AccentSwatchRow::paintEvent(QPaintEvent* /*event*/)
         // In the theme's border colour, not the swatch's own: a ring painted in
         // the colour it surrounds is a ring you cannot see.
         painter.setBrush(Qt::NoBrush);
-        painter.setPen(QPen{theme.text, 1.6});
-        painter.drawEllipse(centre, kSwatchDiameter / 2.0 + 3.0, kSwatchDiameter / 2.0 + 3.0);
+        painter.setPen(QPen{theme.text, kRingWidth});
+
+        const double ringRadius = radius + kRingGap;
+        painter.drawEllipse(centre, ringRadius, ringRadius);
     }
 
     if (hasFocus()) {
