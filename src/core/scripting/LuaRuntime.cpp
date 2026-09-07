@@ -144,6 +144,23 @@ Result LuaRuntime::call(std::string_view name)
 
 Result LuaRuntime::call(std::string_view name, const std::vector<LuaValue>& arguments)
 {
+    LuaValue ignored;
+    return call(name, arguments, ignored, 0);
+}
+
+Result LuaRuntime::call(std::string_view name,
+                        const std::vector<LuaValue>& arguments,
+                        LuaValue& result)
+{
+    result = LuaValue{};
+    return call(name, arguments, result, 1);
+}
+
+Result LuaRuntime::call(std::string_view name,
+                        const std::vector<LuaValue>& arguments,
+                        LuaValue& result,
+                        int results)
+{
     if (m_state == nullptr) {
         return Result::error(ErrorCode::Unknown, "Lua interpreter could not be created");
     }
@@ -172,10 +189,48 @@ Result LuaRuntime::call(std::string_view name, const std::vector<LuaValue>& argu
     // pcall, never lua_call: an uncaught error in lua_call longjmps out of the
     // interpreter and, from C++, past every destructor between here and the
     // handler. pcall keeps the failure inside Lua and hands it back as a value.
-    if (lua_pcall(m_state, static_cast<int>(arguments.size()), 0, 0) != LUA_OK) {
+    if (lua_pcall(m_state, static_cast<int>(arguments.size()), results, 0) != LUA_OK) {
         return Result::error(ErrorCode::InvalidState, takeError(m_state));
     }
 
+    if (results == 0) {
+        return Result::ok();
+    }
+
+    // Read as the type it actually is rather than coerced. lua_tostring on a
+    // number would rewrite the value on the stack in place, which is a
+    // documented way to confuse a later lua_next - and a script returning a
+    // number where bytes were expected is worth seeing as a number.
+    switch (lua_type(m_state, -1)) {
+    case LUA_TBOOLEAN:
+        result = LuaValue::fromBoolean(lua_toboolean(m_state, -1) != 0);
+        break;
+
+    case LUA_TNUMBER:
+        if (lua_isinteger(m_state, -1)) {
+            result = LuaValue::fromInteger(lua_tointeger(m_state, -1));
+        } else {
+            result = LuaValue::fromNumber(lua_tonumber(m_state, -1));
+        }
+        break;
+
+    case LUA_TSTRING: {
+        std::size_t length = 0;
+        const char* text = lua_tolstring(m_state, -1, &length);
+
+        // Length-counted: a UDS response is bytes, and a byte of zero in the
+        // middle of one is ordinary. Reading it as a C string would truncate
+        // the answer there and produce a response that is quietly short.
+        result = LuaValue::fromString(std::string{text, length});
+        break;
+    }
+
+    default:
+        result = LuaValue{}; // Nil, and anything this build cannot carry.
+        break;
+    }
+
+    lua_pop(m_state, 1);
     return Result::ok();
 }
 

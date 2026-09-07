@@ -159,6 +159,90 @@ strings all survive the crossing with their types intact.
 This is cansim's convention, unchanged, so scripts move across without editing
 that part.
 
+## Answering diagnostics
+
+Give the block a **Diagnostic request ID** and a **Diagnostic response ID** and
+it stops being only a frame generator: it carries an ISO-TP transport and a UDS
+server, and the script says what the ECU knows.
+
+The identifiers are the ECU's way round. It **listens** on what a tester
+transmits - request 0x7E0, response 0x7E8 for the usual pair - and getting that
+backwards is the commonest reason a simulated ECU is never heard from.
+
+```lua
+function on_enable()
+    uds_did(0xF190, "WVWZZZ1KZAW000001")     -- readable by anybody
+    uds_did(0x2001, string.char(0x00, 0x64),
+            { writable = true, session = 3, security = true })
+
+    uds_dtc(0x012800, 0x2F)                  -- a stored fault
+end
+```
+
+Everything ordinary then works without another line: reads, writes, the DTC
+list, clearing it, session changes, TesterPresent, and the refusals - a DID that
+does not exist, one that needs a session the tester is not in, one that needs
+the ECU unlocked. **The refusals are the point.** An ECU that answers everything
+is a mirror, and a tester that passes against a mirror fails on the bench.
+
+### `uds_did(identifier, value [, options])`
+
+`identifier` is the two-byte DID; `value` is a byte string. Options:
+
+| Option | Meaning |
+|---|---|
+| `writable` | WriteDataByIdentifier may change it. Off by default - a part number is not writeable. |
+| `session` | The session it needs: 1 default, 2 programming, 3 extended. |
+| `security` | Whether the ECU has to be unlocked first. |
+
+Call it again with the same identifier to change the value, which is how a
+value that moves is published - see `ecu_uds.lua`.
+
+### `uds_dtc(code [, status])` and `uds_clear_dtc()`
+
+`code` is the 24-bit trouble code: the first two bytes are what a workshop
+manual indexes (0x0128 is P0128) and the third is the failure type. `status`
+defaults to 0x08, "confirmed", which is what a scan tool shows as stored.
+
+Setting the same code twice updates it rather than storing it twice.
+
+### `uds_session()`
+
+Returns the session the ECU is in and whether it is unlocked:
+
+```lua
+local session, unlocked = uds_session()
+```
+
+Both, because a script that keeps its own copy will be wrong every time the
+session expires underneath it - which it does, after five seconds of silence,
+exactly as a real ECU's does.
+
+### `function on_security_seed(seed)`
+
+Returns the key the ECU will accept for that seed. Without this function the
+ECU is **locked**, not open: answering a seed no key can match would leave a
+tester trying for ever.
+
+### `function on_uds_request(request)`
+
+First refusal on every request, before the server sees it. Three answers,
+because a real ECU has three:
+
+| Return | Meaning |
+|---|---|
+| a byte string | This is the response. |
+| nothing | Not the script's business - the server answers. |
+| `false` | **Say nothing at all.** |
+
+That last one is a dead ECU, a busy one, a wire that fell off. It is the case a
+tester has to survive and the only one nothing else can simulate.
+
+A script that throws inside this is reported like any other error, and the
+server answers as it would have - a tester meeting a broken script should see
+the ECU that was configured, not silence.
+
+
 ## The sandbox
 
 Scripts get `base`, `table`, `string`, `math`, `utf8` and `coroutine`.

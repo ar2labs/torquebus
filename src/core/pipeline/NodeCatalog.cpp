@@ -349,6 +349,21 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .required = false,
                                         .description =
                                             "Channel stamped onto the frames it emits."},
+                    ParameterDescriptor{
+                        .name = "udsRequestId",
+                        .displayName = "Diagnostic request ID",
+                        .type = ParameterValue::Type::Integer,
+                        .required = false,
+                        .description =
+                            "Identifier this ECU *listens* on - what a tester sends to. "
+                            "Set it and the block answers UDS; leave it and it does not."},
+                    ParameterDescriptor{
+                        .name = "udsResponseId",
+                        .displayName = "Diagnostic response ID",
+                        .type = ParameterValue::Type::Integer,
+                        .required = false,
+                        .description = "Identifier this ECU answers on. 2024 (0x7E8) "
+                                       "answers a tester on 0x7E0."},
                 },
             .acceptsExtraParameters = true,
         },
@@ -388,6 +403,26 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                 std::move(source), std::move(name),
                 static_cast<std::uint8_t>(parameters.integer("channel", 0)));
 
+            // The diagnostic layer, when the block has been given addresses.
+            // The identifiers are the ECU's way round - it receives on what a
+            // tester transmits - and getting that backwards is the commonest
+            // way a simulated ECU is never heard from, so it is done here once
+            // rather than in every script.
+            if (parameters.contains("udsRequestId")) {
+                IsoTpAddress address;
+                address.receiveId =
+                    static_cast<std::uint32_t>(parameters.integer("udsRequestId", 0x7E0));
+                address.transmitId =
+                    static_cast<std::uint32_t>(parameters.integer("udsResponseId", 0x7E8));
+                address.channel = static_cast<std::uint8_t>(parameters.integer("channel", 0));
+                address.format = address.receiveId > kMaxStandardIdentifier
+                        || address.transmitId > kMaxStandardIdentifier
+                    ? CanFrameFormat::Extended
+                    : CanFrameFormat::Standard;
+
+                node->enableDiagnostics(address, IsoTpConfig{});
+            }
+
             // Everything the node itself did not consume becomes the script's
             // `parameters` table. That is what makes one script reusable: a
             // temperature sensor with can_id and update_interval as parameters
@@ -398,8 +433,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             // parameters.script would be reading its own source back.
             // Settings the *node* reads. Everything else in the parameter map
             // is the script's, and reaches it through the `parameters` global.
-            static constexpr std::string_view kReserved[] = {"script", "scriptPath",
-                                                             "channel", "database"};
+            static constexpr std::string_view kReserved[] = {
+                "script", "scriptPath", "channel", "database", "udsRequestId",
+                "udsResponseId"};
 
             std::map<std::string, LuaValue> scriptParameters;
 

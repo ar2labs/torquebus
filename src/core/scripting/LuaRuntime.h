@@ -118,6 +118,17 @@ public:
     /// Calls a global function with the given arguments.
     [[nodiscard]] Result call(std::string_view name, const std::vector<LuaValue>& arguments);
 
+    /// Calls a global function and keeps what it returns.
+    ///
+    /// One value, because that is what every use of this has needed and because
+    /// a script that returns two things has usually made a mistake it would
+    /// rather be told about. `result` is Nil when the function returned
+    /// nothing - which is a meaningful answer in its own right: a handler that
+    /// returns nothing has declined, where one that returns false has decided.
+    [[nodiscard]] Result call(std::string_view name,
+                              const std::vector<LuaValue>& arguments,
+                              LuaValue& result);
+
     /// Registers a C function as a global. `userData` is handed back to it.
     using NativeFunction = int (*)(lua_State*);
     void registerFunction(std::string_view name, NativeFunction function, void* userData);
@@ -146,6 +157,12 @@ public:
     [[nodiscard]] std::size_t memoryBytes() const;
 
 private:
+    /// The one implementation behind both call() overloads.
+    [[nodiscard]] Result call(std::string_view name,
+                              const std::vector<LuaValue>& arguments,
+                              LuaValue& result,
+                              int results);
+
     lua_State* m_state{nullptr};
 };
 
