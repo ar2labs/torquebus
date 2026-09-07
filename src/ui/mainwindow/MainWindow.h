@@ -41,6 +41,7 @@ namespace torquebus::ui {
 
 class CanvasPanel;
 class DatabasePanel;
+class DiagnosticsPanel;
 class GraphPanel;
 class OutputPanel;
 class PlaybackPanel;
@@ -183,6 +184,7 @@ private:
     StatisticsPanel* m_statisticsPanel{nullptr};
     GraphPanel* m_graphPanel{nullptr};
     PlaybackPanel* m_playbackPanel{nullptr};
+    DiagnosticsPanel* m_diagnosticsPanel{nullptr};
 
     // --- The pipeline the canvas edits ------------------------------------
     //

@@ -774,6 +774,42 @@ left to be rediscovered.
 
 ---
 
+## 5o. The Diagnostic Console
+
+PLAN.md section 27, and the end of v0.12. It needs an ECU to talk to: the Lua
+ECU can be one, or a second TorqueBus on a virtual pair.
+
+1. Drop a **UDS Client** block, wire **CAN Channel -> UDS Client -> CAN
+   Transmit**, press **Start**. The Diagnostics panel comes forward and names
+   the identifiers - taken from the block, because that is where a project
+   stores them and two places to edit them is two places to disagree.
+2. With no such block, the panel says so and its controls are disabled. A Send
+   button with nowhere to send is worse than no Send button.
+3. Pick **Read VIN** from the list: it fills the box and sends nothing. A
+   request that fires from a menu is one somebody sends by accident.
+4. Press **Send**. The request appears as a TX row *before* the answer arrives,
+   so the log reads in the order things happened - and an ECU that never
+   answers still leaves the question on screen.
+5. The RX row carries the elapsed time. **That number is the point of this
+   panel**: an ECU answering in 12 ms and the same ECU answering in 900 ms are
+   two different ECUs, and nothing else on screen says so.
+6. Type `22 F1 9` - half a byte. The field turns red as you type and Send goes
+   grey, rather than the request being sent and refused.
+7. Ask something the ECU does not have (`22 FF FF`): the row reads
+   "request out of range - usually an identifier this ECU does not have" rather
+   than `7F 22 31`.
+8. Ask an ECU that is not there. After 50 ms the row says "no answer in 50 ms",
+   in the error colour rather than the warning one - a refusal and a silence are
+   different diagnoses and have to look different.
+9. Send `10 03`, then leave the panel alone for a minute with the trace open.
+   TesterPresent goes out every two seconds without anybody asking, and the
+   session stays extended.
+
+**Worked:** all nine. Steps 5 and 8 are the ones to be fussy about: the first is
+the reason the panel exists, and the second is the distinction most tools lose.
+
+---
+
 ## 6. Real hardware (optional)
 
 Only with a Kvaser adapter and CANlib installed.
