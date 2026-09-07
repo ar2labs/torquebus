@@ -31,7 +31,7 @@ cmake_minimum_required(VERSION 3.24)
 # the only place it is written down. It sat at 0.5.0 through four milestones
 # because nothing failed when it was wrong, which is what this comment is for.
 project(TorqueBusStudio
-    VERSION 0.11.0
+    VERSION 0.12.0
     DESCRIPTION "Open Automotive Network & Diagnostics Workbench"
     HOMEPAGE_URL "https://github.com/ar2labs/torquebus"
     LANGUAGES CXX C
