@@ -480,6 +480,13 @@ QComboBox {
     min-height: 18px;
 }
 
+/* A field whose contents cannot be what they are meant to be - half a hex byte
+ * in a diagnostic request, for one. Said while it is being typed, because that
+ * is when it can be fixed without thinking about it. */
+QLineEdit[torquebusState="error"] {
+    border-color: @error;
+}
+
 QLineEdit:focus,
 QSpinBox:focus,
 QDoubleSpinBox:focus,

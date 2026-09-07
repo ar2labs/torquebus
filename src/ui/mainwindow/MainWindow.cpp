@@ -12,6 +12,7 @@
 #include "ui/canvas/CanvasPanel.h"
 #include "ui/common/AnimatedToolButton.h"
 #include "ui/database/DatabasePanel.h"
+#include "ui/diagnostics/DiagnosticsPanel.h"
 #include "ui/graph/GraphPanel.h"
 #include "ui/hardware/HardwareDialog.h"
 #include "ui/mainwindow/PlaceholderPanel.h"
@@ -449,13 +450,11 @@ void MainWindow::createPanels()
     m_statisticsDock = createDockWidget(dockName(kDockStatistics), tr("Statistics"),
                                         m_statisticsPanel, icon("statistics"));
 
-    m_diagnosticsDock = createDockWidget(
-        dockName(kDockDiagnostics), tr("Diagnostics"),
-        new PlaceholderPanel(tr("Diagnostics"),
-                             tr("ISO-TP transport and a UDS client: sessions, DIDs, DTCs "
-                                "and a request/response console."),
-                             QStringLiteral("diagnostics"), QStringLiteral("v0.12")),
-        icon("diagnostics"));
+    m_diagnosticsPanel = new DiagnosticsPanel;
+    m_diagnosticsPanel->setSession(&m_controller->engine().diagnosticSession());
+
+    m_diagnosticsDock = createDockWidget(dockName(kDockDiagnostics), tr("Diagnostics"),
+                                         m_diagnosticsPanel, icon("diagnostics"));
 
     m_allDocks = {m_projectDock,     m_propertiesDock,  m_nodePropertiesDock,
                   m_traceDock,       m_databaseDock,    m_pipelineDock,
@@ -1819,6 +1818,34 @@ void MainWindow::onMeasurementStarted()
     }
 
     m_playbackPanel->setSourceName(replaying);
+
+    // Which ECU the console is talking to, taken from the block rather than
+    // from a setting of its own: the identifiers belong to the project, and two
+    // places to edit them is two places to disagree.
+    QString target;
+
+    for (const NodeDescription& node : m_pipeline.nodes()) {
+        if (node.typeName != "uds.client" || !node.enabled) {
+            continue;
+        }
+
+        const auto request = static_cast<std::uint32_t>(
+            node.parameters.integer("transmitId", 0x7E0));
+        const auto response = static_cast<std::uint32_t>(
+            node.parameters.integer("receiveId", 0x7E8));
+
+        target = tr("Request 0x%1  Response 0x%2  (CAN %3)")
+                     .arg(request, 0, 16)
+                     .arg(response, 0, 16)
+                     .arg(node.parameters.integer("channel", 0) + 1);
+        break;
+    }
+
+    m_diagnosticsPanel->setTarget(target);
+
+    if (!target.isEmpty()) {
+        m_diagnosticsDock->setAsCurrentTab();
+    }
 
     if (!replaying.isEmpty()) {
         // Brought forward, because somebody who started a replay is about to

@@ -261,6 +261,8 @@ qt_add_library(torquebus_ui STATIC
     ui/database/DatabasePanel.cpp
     ui/hardware/HardwareDialog.h
     ui/hardware/HardwareDialog.cpp
+    ui/diagnostics/DiagnosticsPanel.h
+    ui/diagnostics/DiagnosticsPanel.cpp
     ui/graph/PlotView.h
     ui/graph/PlotView.cpp
     ui/graph/GraphPanel.h
