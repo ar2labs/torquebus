@@ -111,6 +111,7 @@ because each pins something that was got wrong once:
 | `[log]` | A recording that was cut short reading as corrupt instead of as forty-nine whole frames and a note |
 | `[export]` | A file another tool reads wrongly — an extended identifier without its `x`, an error frame written as data, a DLC that came out as a control byte |
 | `[plot]` | A plot quietly lying about the bus: a wrapped ring read out of order, a truncated signal drawn as zero, an axis that shrinks as history ages out |
+| `[uds][form]` | The knowledge the service forms exist to hold: an identifier written little-endian, a field of the wrong length accepted, a form whose service byte disagrees with its own template |
 | `[uds][graph]` | The two layers disagreeing: a request mis-segmented by ISO-TP getting no answer, a forty-byte response arriving in pieces, and the console's lock and the executor's pass deadlocking against each other |
 | `[uds]` | The two ways a tester gives up too early: 0x78 "still working" read as a failure, and a request to read the VIN read as a request for silence because 0xF1 has bit 7 set. Also a session believed from the request rather than from the answer |
 | `[uds][dtc]` | A trouble code shown as a raw number instead of P0128, and - worse - codes invented out of a response that is not a DTC list |
@@ -785,8 +786,18 @@ ECU can be one, or a second TorqueBus on a virtual pair.
    stores them and two places to edit them is two places to disagree.
 2. With no such block, the panel says so and its controls are disabled. A Send
    button with nowhere to send is worse than no Send button.
-3. Pick **Read VIN** from the list: it fills the box and sends nothing. A
-   request that fires from a menu is one somebody sends by accident.
+3. Pick **Read Data By Identifier** from the service list. A form appears with
+   an **Identifier** field already holding F190, and the box below fills in with
+   `22 F1 90` - so the bytes are visible rather than hidden behind a form.
+   Nothing is sent: a request that fires from a menu is one somebody sends by
+   accident.
+   * Type `F1` into the identifier. The box empties and the line underneath
+     says *"Identifier: 1 byte(s) given, 2 needed"*. This is the whole reason
+     the form exists - typing `22 90 F1` by hand gets "request out of range",
+     which points at the identifier and not at the byte order.
+   * Type over the hex box by hand: the service list drops back to **Raw hex**
+     and the form goes away, because a form and a request that disagree are two
+     things on screen and only one of them gets sent.
 4. Press **Send**. The request appears as a TX row *before* the answer arrives,
    so the log reads in the order things happened - and an ECU that never
    answers still leaves the question on screen.

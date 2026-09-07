@@ -7,12 +7,14 @@
 
 #include "core/diagnostics/DiagnosticEvent.h"
 #include "core/diagnostics/DiagnosticSession.h"
+#include "core/diagnostics/UdsServiceCatalog.h"
 #include "core/diagnostics/UdsTypes.h"
 #include "ui/theme/Theme.h"
 #include "ui/theme/ThemeManager.h"
 
 #include <QColor>
 #include <QComboBox>
+#include <QFormLayout>
 #include <QFontDatabase>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -20,6 +22,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QScrollBar>
+#include <QSignalBlocker>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTime>
@@ -28,7 +31,8 @@
 #include <QStyle>
 #include <QVariant>
 
-#include <array>
+#include <string>
+#include <vector>
 
 namespace torquebus::ui {
 namespace {
@@ -47,24 +51,6 @@ enum Column : int {
     ColumnMeaning,
     ColumnCount,
 };
-
-struct Shortcut final {
-    const char* label;
-    const char* hex;
-};
-
-/// The requests worth a button, which is the short list somebody types twenty
-/// times a day. Everything else is what the text box is for.
-constexpr std::array<Shortcut, 8> kShortcuts{{
-    {"Default session", "10 01"},
-    {"Extended session", "10 03"},
-    {"Programming session", "10 02"},
-    {"Read VIN", "22 F1 90"},
-    {"Read DTCs", "19 02 FF"},
-    {"Clear DTCs", "14 FF FF FF"},
-    {"ECU reset (hard)", "11 01"},
-    {"Tester present", "3E 00"},
-}};
 
 [[nodiscard]] Theme currentTheme()
 {
@@ -150,20 +136,22 @@ void DiagnosticsPanel::buildUi()
     row->setContentsMargins(0, 0, 0, 0);
     row->setSpacing(6);
 
-    m_shortcuts = new QComboBox;
-    m_shortcuts->addItem(tr("Common requests..."), QString{});
+    m_service = new QComboBox;
+    m_service->addItem(tr("Raw hex"), -1);
 
-    for (const Shortcut& shortcut : kShortcuts) {
-        m_shortcuts->addItem(QString::fromLatin1(shortcut.label),
-                             QString::fromLatin1(shortcut.hex));
+    for (const UdsServiceTemplate& service : serviceTemplates()) {
+        m_service->addItem(QString::fromUtf8(service.name.data(),
+                                             static_cast<qsizetype>(service.name.size())),
+                           static_cast<int>(service.service));
     }
 
-    m_shortcuts->setToolTip(tr("Fills the box below. Nothing is sent until you press "
-                               "Send - a request that fires from a menu is one somebody "
-                               "sends by accident."));
+    m_service->setToolTip(tr("Fills in the form below and writes the bytes into the box. "
+                             "Nothing is sent until you press Send - a request that fires "
+                             "from a menu is one somebody sends by accident."));
 
-    connect(m_shortcuts, &QComboBox::currentIndexChanged, this, &DiagnosticsPanel::onShortcut);
-    row->addWidget(m_shortcuts);
+    connect(m_service, &QComboBox::currentIndexChanged, this,
+            &DiagnosticsPanel::onServiceChanged);
+    row->addWidget(m_service);
 
     m_request = new QLineEdit;
     m_request->setPlaceholderText(tr("22 F1 90"));
@@ -186,6 +174,18 @@ void DiagnosticsPanel::buildUi()
     row->addWidget(m_clear);
 
     layout->addLayout(row);
+
+    // --- The fields of the chosen service ---------------------------------
+    m_form = new QFormLayout;
+    m_form->setContentsMargins(0, 0, 0, 0);
+    m_form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    layout->addLayout(m_form);
+
+    m_hintLabel = new QLabel;
+    m_hintLabel->setProperty("torquebusState", QStringLiteral("error"));
+    m_hintLabel->setWordWrap(true);
+    layout->addWidget(m_hintLabel);
 
     // --- What happened -----------------------------------------------------
     m_log = new QTableWidget(0, ColumnCount, this);
@@ -223,8 +223,9 @@ void DiagnosticsPanel::updateAvailability()
     std::vector<std::uint8_t> parsed;
     const bool valid = parseHexBytes(m_request->text().toStdString(), parsed);
 
-    m_send->setEnabled(active && valid && !m_session->isBusy());
-    m_shortcuts->setEnabled(active);
+    m_send->setEnabled(active && valid && !m_request->text().trimmed().isEmpty()
+                       && !m_session->isBusy());
+    m_service->setEnabled(active);
     m_request->setEnabled(active);
 
     if (!active) {
@@ -236,6 +237,20 @@ void DiagnosticsPanel::updateAvailability()
 
 void DiagnosticsPanel::onRequestChanged(const QString& text)
 {
+    // Typed over by hand: the box wins and the form stops claiming to describe
+    // it. Anything else leaves a form and a request on screen that disagree,
+    // and only one of them is going to be sent.
+    //
+    // This only runs for a human edit, because the form writes into the box
+    // with the signal blocked - which is also why there is no "am I writing
+    // this myself" flag to get wrong.
+    if (m_service->currentData().toInt() >= 0) {
+        const QSignalBlocker blocker{m_service};
+        m_service->setCurrentIndex(0);
+        buildForm();
+        m_hintLabel->clear();
+    }
+
     std::vector<std::uint8_t> parsed;
     const bool valid = text.trimmed().isEmpty() || parseHexBytes(text.toStdString(), parsed);
 
@@ -250,18 +265,154 @@ void DiagnosticsPanel::onRequestChanged(const QString& text)
     updateAvailability();
 }
 
-void DiagnosticsPanel::onShortcut(int index)
+void DiagnosticsPanel::onServiceChanged(int index)
 {
-    if (index <= 0) {
+    static_cast<void>(index);
+
+    buildForm();
+    assembleFromForm();
+}
+
+void DiagnosticsPanel::onFieldChanged()
+{
+    assembleFromForm();
+}
+
+void DiagnosticsPanel::buildForm()
+{
+    // The old editors go with their rows. takeRow leaves the widgets alive and
+    // parented to this panel, so they are deleted explicitly rather than left
+    // invisible and consuming the field values of a service nobody is looking
+    // at any more.
+    while (m_form->rowCount() > 0) {
+        QFormLayout::TakeRowResult row = m_form->takeRow(0);
+
+        if (row.labelItem != nullptr) {
+            delete row.labelItem->widget();
+            delete row.labelItem;
+        }
+        if (row.fieldItem != nullptr) {
+            delete row.fieldItem->widget();
+            delete row.fieldItem;
+        }
+    }
+
+    m_fields.clear();
+
+    const int service = m_service->currentData().toInt();
+
+    if (service < 0) {
+        return; // Raw hex: the box is the whole interface.
+    }
+
+    const UdsServiceTemplate* form = templateFor(static_cast<std::uint8_t>(service));
+    if (form == nullptr) {
         return;
     }
 
-    m_request->setText(m_shortcuts->itemData(index).toString());
+    for (const UdsField& field : form->fields) {
+        const QString name = QString::fromUtf8(field.name.data(),
+                                               static_cast<qsizetype>(field.name.size()));
+        const QString help = QString::fromUtf8(field.help.data(),
+                                               static_cast<qsizetype>(field.help.size()));
+        const QString initial =
+            QString::fromUtf8(field.initial.data(),
+                              static_cast<qsizetype>(field.initial.size()));
 
-    // Back to the prompt, so the box does not sit showing a request that is no
-    // longer what is in the field beside it.
-    m_shortcuts->setCurrentIndex(0);
-    m_request->setFocus();
+        QWidget* editor = nullptr;
+
+        if (field.kind == UdsField::Kind::SubFunction && !form->choices.empty()) {
+            // A named choice rather than a number: "Extended diagnostic" is what
+            // somebody means, and 0x03 is how it is spelled.
+            auto* box = new QComboBox;
+
+            for (const UdsChoice& choice : form->choices) {
+                box->addItem(QStringLiteral("%1  (%2)")
+                                 .arg(QString::fromUtf8(
+                                          choice.label.data(),
+                                          static_cast<qsizetype>(choice.label.size())))
+                                 .arg(choice.value, 2, 16, QLatin1Char('0')),
+                             QStringLiteral("%1").arg(choice.value, 2, 16, QLatin1Char('0')));
+            }
+
+            if (const int found = box->findData(initial); found >= 0) {
+                box->setCurrentIndex(found);
+            }
+
+            connect(box, &QComboBox::currentIndexChanged, this,
+                    &DiagnosticsPanel::onFieldChanged);
+
+            editor = box;
+        } else {
+            auto* line = new QLineEdit;
+            line->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+            line->setText(initial);
+
+            if (field.optional) {
+                line->setPlaceholderText(tr("optional"));
+            }
+
+            connect(line, &QLineEdit::textChanged, this, &DiagnosticsPanel::onFieldChanged);
+            editor = line;
+        }
+
+        editor->setToolTip(help);
+
+        auto* label = new QLabel(name);
+        label->setToolTip(help);
+
+        m_form->addRow(label, editor);
+        m_fields.append(editor);
+    }
+}
+
+void DiagnosticsPanel::assembleFromForm()
+{
+    const int service = m_service->currentData().toInt();
+
+    if (service < 0) {
+        return;
+    }
+
+    const UdsServiceTemplate* form = templateFor(static_cast<std::uint8_t>(service));
+    if (form == nullptr) {
+        return;
+    }
+
+    std::vector<std::string> values;
+    values.reserve(static_cast<std::size_t>(m_fields.size()));
+
+    for (QWidget* editor : m_fields) {
+        if (const auto* box = qobject_cast<QComboBox*>(editor); box != nullptr) {
+            values.push_back(box->currentData().toString().toStdString());
+        } else if (const auto* line = qobject_cast<QLineEdit*>(editor); line != nullptr) {
+            values.push_back(line->text().toStdString());
+        } else {
+            values.emplace_back();
+        }
+    }
+
+    std::vector<std::uint8_t> request;
+    const Result result = buildRequest(*form, values, request);
+
+    // A form that is not finished writes nothing rather than half a request:
+    // the box would otherwise show bytes that are not what the fields say, and
+    // the box is what gets sent.
+    const QSignalBlocker blocker{m_request};
+
+    m_request->setText(result.succeeded()
+                           ? QString::fromStdString(toHexBytes(request))
+                           : QString{});
+
+    if (result.failed()) {
+        // Named, and while it is being typed: "Identifier: 1 byte(s) given, 2
+        // needed" is the sentence that ends the question.
+        m_hintLabel->setText(QString::fromStdString(std::string{result.message()}));
+    } else {
+        m_hintLabel->clear();
+    }
+
+    updateAvailability();
 }
 
 void DiagnosticsPanel::onSend()
