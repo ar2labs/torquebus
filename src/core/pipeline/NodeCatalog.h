@@ -23,6 +23,7 @@
 #include "core/pipeline/NodeParameters.h"
 #include "core/pipeline/PipelineNode.h"
 #include "core/pipeline/PortType.h"
+#include "core/diagnostics/DiagnosticSession.h"
 #include "core/log/ReplayControl.h"
 #include "core/log/TraceLog.h"
 #include "core/plot/SignalSeries.h"
@@ -59,6 +60,10 @@ struct NodeBuildContext final {
     /// why a graph holding a logger block fails to build under Start and
     /// succeeds under Record. Silently recording nothing would be worse.
     TraceLogWriter* logWriter{nullptr};
+
+    /// The diagnostic conversation the console drives, or nullptr for a graph
+    /// nobody is asking questions through.
+    DiagnosticSession* diagnosticSession{nullptr};
 
     /// The transport a replay block obeys, or nullptr for a graph nobody is
     /// driving. Shared by every replay block in one graph, deliberately: Pause

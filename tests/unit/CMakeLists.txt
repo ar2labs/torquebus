@@ -27,6 +27,7 @@ add_executable(torquebus_unit_tests
     HardwareProfileTests.cpp
     IsoTpNodeTests.cpp
     IsoTpTests.cpp
+    UdsClientNodeTests.cpp
     UdsClientTests.cpp
     WorkspacesTests.cpp
     RecentProjectsTests.cpp
