@@ -111,6 +111,7 @@ because each pins something that was got wrong once:
 | `[log]` | A recording that was cut short reading as corrupt instead of as forty-nine whole frames and a note |
 | `[export]` | A file another tool reads wrongly — an extended identifier without its `x`, an error frame written as data, a DLC that came out as a control byte |
 | `[plot]` | A plot quietly lying about the bus: a wrapped ring read out of order, a truncated signal drawn as zero, an axis that shrinks as history ages out |
+| `[uds][server]` | A simulated ECU that cannot say no: a missing DID answered instead of refused, a locked DID readable, a session that never expires, security that survives leaving the session. Every one of those lets a tester pass here and fail on the bench |
 | `[uds][form]` | The knowledge the service forms exist to hold: an identifier written little-endian, a field of the wrong length accepted, a form whose service byte disagrees with its own template |
 | `[uds][graph]` | The two layers disagreeing: a request mis-segmented by ISO-TP getting no answer, a forty-byte response arriving in pieces, and the console's lock and the executor's pass deadlocking against each other |
 | `[uds]` | The two ways a tester gives up too early: 0x78 "still working" read as a failure, and a request to read the VIN read as a request for silence because 0xF1 has bit 7 set. Also a session believed from the request rather than from the answer |

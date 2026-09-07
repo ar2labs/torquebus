@@ -55,6 +55,8 @@ add_library(torquebus_core STATIC
     core/diagnostics/DiagnosticSession.cpp
     core/diagnostics/UdsClientNode.h
     core/diagnostics/UdsClientNode.cpp
+    core/diagnostics/UdsServer.h
+    core/diagnostics/UdsServer.cpp
     core/diagnostics/UdsServiceCatalog.h
     core/diagnostics/UdsServiceCatalog.cpp
     core/diagnostics/UdsTypes.h
