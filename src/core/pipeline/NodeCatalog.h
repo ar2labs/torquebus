@@ -39,6 +39,7 @@
 namespace torquebus {
 
 class CanChannel;
+class ScriptLibrary;
 class TraceStore;
 class TransmitList;
 
@@ -88,6 +89,15 @@ struct NodeBuildContext final {
 
     /// Where a script's log_message() and errors go.
     std::function<void(const std::string& text, bool isError)> log;
+
+    /// Where the script editor hands edited sources in, or nullptr for a graph
+    /// nobody is editing.
+    ///
+    /// Borrowed, like the trace store and for the same reason: it outlives the
+    /// graph. A measurement stopped and started again must not throw away what
+    /// the editor is holding, and the panel goes on editing while the executor
+    /// runs - which is the entire point.
+    ScriptLibrary* scriptLibrary{nullptr};
 
     /// Directory that a relative path in a node's parameters is relative *to*.
     ///

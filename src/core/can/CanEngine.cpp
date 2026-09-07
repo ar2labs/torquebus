@@ -333,6 +333,12 @@ void CanEngine::setGraphDescription(GraphDescription description,
         // through" instead of silently looking ready.
         context.diagnosticSession = &m_diagnostics;
 
+        // Cleared at every build, so that a reload offered against the last run
+        // - typed while the measurement was stopping, say - cannot land on this
+        // one, where it would arrive as a script nobody asked for.
+        m_scriptLibrary.clear();
+        context.scriptLibrary = &m_scriptLibrary;
+
         // Null unless a recording was started, which is what makes a `can.log`
         // block fail to build under Start and succeed under Record.
         context.logWriter = m_logWriter.isOpen() ? &m_logWriter : nullptr;

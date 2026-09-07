@@ -13,6 +13,7 @@
 #include "ui/common/AnimatedToolButton.h"
 #include "ui/database/DatabasePanel.h"
 #include "ui/diagnostics/DiagnosticsPanel.h"
+#include "ui/scripting/ScriptEditorPanel.h"
 #include "ui/graph/GraphPanel.h"
 #include "ui/hardware/HardwareDialog.h"
 #include "ui/mainwindow/PlaceholderPanel.h"
@@ -81,6 +82,7 @@ constexpr auto kDockGraph       = "torquebus.dock.graph";
 constexpr auto kDockPlayback    = "torquebus.dock.playback";
 constexpr auto kDockStatistics  = "torquebus.dock.statistics";
 constexpr auto kDockDiagnostics = "torquebus.dock.diagnostics";
+constexpr auto kDockScript      = "torquebus.dock.script";
 constexpr auto kDockOutput      = "torquebus.dock.output";
 
 // Starting geometry of the default arrangement. Wide enough for a channel name
@@ -104,7 +106,9 @@ constexpr auto kBullet = "●";
 ///   2  v0.2  centre panel added first, sized side panels, full-width console
 ///   5  v0.8  DBC Explorer joins the analysis stack
 ///   6  v0.9  Playback joins it, under the trace
-constexpr int kDockLayoutVersion = 6;
+///   7  v0.13 Script Editor, tabbed with the Block editor it replaces the
+///            need to type Lua into
+constexpr int kDockLayoutVersion = 7;
 
 /// Converts one of the frozen dock names above into a QString.
 ///
@@ -456,10 +460,32 @@ void MainWindow::createPanels()
     m_diagnosticsDock = createDockWidget(dockName(kDockDiagnostics), tr("Diagnostics"),
                                          m_diagnosticsPanel, icon("diagnostics"));
 
+    // The script editor edits the project like the Block panel does, and hands
+    // the result to the running node like the console hands it a request - so
+    // it is wired to both: nodeEdited marks the project dirty and re-validates,
+    // reported puts what happened in the Output panel.
+    m_scriptEditor = new ScriptEditorPanel(m_pipeline);
+    m_scriptEditor->setLibrary(&m_controller->engine().scriptLibrary());
+
+    connect(m_scriptEditor, &ScriptEditorPanel::nodeEdited,
+            this, [this](const QString&) { onGraphEdited(); });
+    connect(m_scriptEditor, &ScriptEditorPanel::reported, this,
+            [this](const QString& text, bool isError) {
+                if (isError) {
+                    m_output->appendError(text);
+                } else {
+                    m_output->appendInfo(text);
+                }
+            });
+
+    m_scriptDock = createDockWidget(dockName(kDockScript), tr("Script"),
+                                    m_scriptEditor, icon("script"));
+
     m_allDocks = {m_projectDock,     m_propertiesDock,  m_nodePropertiesDock,
                   m_traceDock,       m_databaseDock,    m_pipelineDock,
                   m_transmitDock,    m_graphDock,       m_playbackDock,
-                  m_statisticsDock,  m_diagnosticsDock, m_outputDock};
+                  m_statisticsDock,  m_diagnosticsDock, m_scriptDock,
+                  m_outputDock};
 }
 
 void MainWindow::createActions()
@@ -774,6 +800,7 @@ void MainWindow::applyDefaultLayout()
     m_traceDock->addDockWidgetAsTab(m_playbackDock);
     m_traceDock->addDockWidgetAsTab(m_statisticsDock);
     m_traceDock->addDockWidgetAsTab(m_diagnosticsDock);
+    m_traceDock->addDockWidgetAsTab(m_scriptDock);
     m_traceDock->setAsCurrentTab();
 
     // 2. Side panels split off the centre, with explicit starting widths so the
@@ -1142,6 +1169,13 @@ void MainWindow::onCanvasNodeSelected(const QString& descriptionId)
 
     m_nodeProperties->showNode(descriptionId);
 
+    // The script editor follows the same selection, and decides for itself
+    // whether this block has a script - a filter selected on the canvas must
+    // not throw away an edit in progress on an ECU.
+    if (m_scriptEditor != nullptr) {
+        m_scriptEditor->showNode(descriptionId);
+    }
+
     // Brought forward: an editor behind another tab is an editor the user does
     // not know they have.
     if (m_nodePropertiesDock != nullptr) {
@@ -1431,6 +1465,20 @@ void MainWindow::onNewProject()
     if (m_nodeProperties != nullptr) {
         m_nodeProperties->clear();
     }
+    if (m_scriptEditor != nullptr) {
+        m_scriptEditor->clear();
+
+        // Relative script paths resolve against the project's own folder, the
+        // same rule NodeCatalog builds by. A project opened from elsewhere must
+        // not have this panel reading and writing a file next to the binary.
+        // Empty for an unsaved project, which means "resolve against the
+        // working directory" - the same answer NodeCatalog gives, rather than
+        // QFileInfo's, which would quietly be the directory the binary was
+        // launched from.
+        m_scriptEditor->setBasePath(m_projectPath.isEmpty()
+                                        ? QString{}
+                                        : QFileInfo{m_projectPath}.absolutePath());
+    }
 
     updateWindowTitle();
     m_output->appendInfo(tr("New project."));
@@ -1617,6 +1665,20 @@ void MainWindow::openProject(const QString& path)
     if (m_nodeProperties != nullptr) {
         m_nodeProperties->clear();
     }
+    if (m_scriptEditor != nullptr) {
+        m_scriptEditor->clear();
+
+        // Relative script paths resolve against the project's own folder, the
+        // same rule NodeCatalog builds by. A project opened from elsewhere must
+        // not have this panel reading and writing a file next to the binary.
+        // Empty for an unsaved project, which means "resolve against the
+        // working directory" - the same answer NodeCatalog gives, rather than
+        // QFileInfo's, which would quietly be the directory the binary was
+        // launched from.
+        m_scriptEditor->setBasePath(m_projectPath.isEmpty()
+                                        ? QString{}
+                                        : QFileInfo{m_projectPath}.absolutePath());
+    }
 
     m_recentProjects.add(path);
     rebuildRecentMenu();
@@ -1639,6 +1701,12 @@ bool MainWindow::writeProject(const QString& path)
 
     m_projectPath = path;
     m_dirty = false;
+
+    // Save As moves the folder that relative script paths resolve against,
+    // and the panel is holding one open.
+    if (m_scriptEditor != nullptr) {
+        m_scriptEditor->setBasePath(QFileInfo{path}.absolutePath());
+    }
 
     // Saved counts as used. Save As on a new project is exactly the moment it
     // becomes a project worth finding again.
@@ -1819,6 +1887,10 @@ void MainWindow::onMeasurementStarted()
 
     m_playbackPanel->setSourceName(replaying);
 
+    // From here Reload means "reload it on the bus" rather than "save it for
+    // next time", and the button says so.
+    m_scriptEditor->setRunning(true);
+
     // Which ECU the console is talking to, taken from the block rather than
     // from a setting of its own: the identifiers belong to the project, and two
     // places to edit them is two places to disagree.
@@ -1857,6 +1929,8 @@ void MainWindow::onMeasurementStarted()
 
 void MainWindow::onMeasurementStopped()
 {
+    m_scriptEditor->setRunning(false);
+
     // The panel keeps showing where the replay stopped, which is what somebody
     // reading a fault wants on screen - but it is no longer driving anything,
     // and the control says so on its own.

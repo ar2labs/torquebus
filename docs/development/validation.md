@@ -121,6 +121,7 @@ because each pins something that was got wrong once:
 | `[uds][dtc]` | A trouble code shown as a raw number instead of P0128, and - worse - codes invented out of a response that is not a DTC list |
 | `[isotp][graph]`, `[isotp][validate]` | A request typed into a block never reaching the bus, a periodic request repeating when it was asked once, half a hex byte accepted at Start instead of refused on the canvas |
 | `[isotp]` | The failures of ISO 15765-2, which are all silences: a sequence number that does not wrap at sixteen, STmin's microsecond range read as milliseconds, a block size ignored, an unpadded frame an ECU will not answer, a four-gigabyte length field taken at its word |
+| `[lua][reload]` | The promise the script editor is built on: a half-typed edit taking a running ECU off the bus, a failed `on_enable` leaving half its timers behind, a reload restarting the measurement clock, a faulted node that no edit can revive, an `on_disable` run for a reload that was refused |
 | `[recent]`, `[workspace]`, `[hardware]` | A settings file edited by hand producing a menu entry nobody can open, a channel order that renumbers itself when an adapter is unplugged, a workspace from an older panel set restored with panels missing |
 | `[statistics][bitrate]` | The default bitrate drifting apart between the three places that spell it |
 | Qt macro guard | A core header using `emit` or `signals` as an identifier |
@@ -822,6 +823,49 @@ ECU can be one, or a second TorqueBus on a virtual pair.
 
 **Worked:** all nine. Steps 5 and 8 are the ones to be fussy about: the first is
 the reason the panel exists, and the second is the distinction most tools lose.
+
+---
+
+## 5p. Editing a script without stopping
+
+The first half of v0.13, and the one worth being fussy about: everything here
+is about the promise that a broken edit cannot take a running ECU off the bus.
+
+1. Drop a **Lua ECU** block with a script that sends something periodic —
+   `function on_enable() cyclic(0x100, 100, "\1") end` will do — wire it to a
+   **CAN Transmit**, and press **Start**. Frames every 100 ms in the trace.
+2. Select the block. The **Script** panel shows the source, with line numbers
+   and Lua colouring. The header says whether the script is kept in the project
+   or in a file, and the file's full path is in its tooltip.
+3. Change `100` to `20` and press **Reload** (or F5). The rate changes in the
+   trace **without the measurement stopping** — the frame counter keeps going
+   up, the trace is not cleared, and the status line says so.
+4. Now break it: delete the `end`. Press Reload. The line is marked in red, the
+   reason appears under the editor and in the Output panel, and **the ECU keeps
+   sending at 20 ms**. That is the whole feature; if the ECU goes quiet here,
+   stop and read `LuaEcuNode::reload`.
+5. Fix it and add `error("no")` to `on_enable` instead. Refused again — a
+   script that compiles but fails to set up is still a failed load — and again
+   nothing on the bus changed.
+6. Add `emit(0x111, "\xAA")` to `on_enable` and reload. The frame appears
+   once, in the same pass as the reload: an ECU announces itself when it powers
+   on, and a reload is a power-on.
+7. Check the clock survived: reload a script whose `on_enable` logs
+   `tb.now()`. The number continues from Start rather than restarting at zero.
+8. Make a script fail five times in a row (`every(2, function() error("x") end)`)
+   until the node says it has stopped. Then reload a working script: it runs
+   again. A faulted node that could only be revived by Stop/Start would defeat
+   the point.
+9. Look at **Statistics** for the node: *Scripts reloaded* and *Reloads refused*
+   are counted separately, which is where somebody wondering why their edit
+   changed nothing finds the answer.
+10. Press **Stop**. The button now says **Save**, and pressing it writes the
+    script into the project (or its file) without pretending anything reached a
+    bus.
+
+**Watch for:** a reload landing on the *next* measurement. Starting a
+measurement clears the library, so an edit offered while the last one was
+stopping cannot arrive as a script nobody asked for.
 
 ---
 

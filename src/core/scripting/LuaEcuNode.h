@@ -54,6 +54,7 @@
 #include "core/diagnostics/UdsServer.h"
 #include "core/isotp/IsoTpConnection.h"
 #include "core/scripting/LuaRuntime.h"
+#include "core/scripting/ScriptLibrary.h"
 
 #include <array>
 #include <chrono>
@@ -87,6 +88,14 @@ public:
     void enableDiagnostics(const IsoTpAddress& address, const IsoTpConfig& transport);
 
     [[nodiscard]] bool answersDiagnostics() const noexcept { return m_transport != nullptr; }
+
+    /// The ECU's diagnostic server, or nullptr on a node that answers none.
+    ///
+    /// Borrowed, and only ever touched on the executor thread. Exposed so that
+    /// a test can ask this ECU a question directly, without a transport and a
+    /// graph in between - the layer being tested there is what the script
+    /// declared, not how the bytes got in.
+    [[nodiscard]] UdsServer* diagnosticServer() noexcept { return m_server.get(); }
     ~LuaEcuNode() override;
 
     [[nodiscard]] std::string_view typeName() const noexcept override { return "lua.ecu"; }
@@ -114,6 +123,38 @@ public:
     /// Runs on_disable().
     void finish() override;
 
+    /// Replaces the running script without stopping the measurement.
+    ///
+    /// The rule, and the reason this is worth its complexity: **a script that
+    /// fails to load leaves the running one alone.** The new source is compiled
+    /// into a *second* interpreter and only becomes this node's when it has
+    /// loaded and its on_enable has returned. Until then the old one is intact -
+    /// its timers, its faults, its globals, the state somebody was debugging.
+    ///
+    /// What deliberately does *not* reset: the measurement clock. get_time_us()
+    /// keeps counting from Start, because a script reloaded at 40 seconds that
+    /// suddenly believed it was at zero would be a worse lie than no reload.
+    ///
+    /// A faulted node - one that went quiet after its error limit - gets a fresh
+    /// start here. The edit is usually the fix.
+    ///
+    /// Called on the executor thread, from process().
+    [[nodiscard]] Result reload(std::string source);
+
+    /// Where edited scripts arrive from, and where outcomes go back.
+    ///
+    /// The id is the node's id in the GraphDescription, because that is what the
+    /// editor knows; `nullptr` - the default - means this node simply never
+    /// looks, which is what every test and every headless run wants.
+    void setScriptLibrary(ScriptLibrary* library, std::string nodeId)
+    {
+        m_library = library;
+        m_nodeId = std::move(nodeId);
+    }
+
+    /// The source currently running. After a successful reload, the new one.
+    [[nodiscard]] const std::string& source() const noexcept { return m_source; }
+
     [[nodiscard]] std::vector<NodeStatistic> statistics() const override
     {
         return {
@@ -134,6 +175,12 @@ public:
             // own: an injected fault left switched on is the likeliest reason a
             // later measurement makes no sense.
             {"Frames corrupted on purpose", m_corrupted},
+            // Two numbers rather than one: a reload that was refused left the
+            // old script running, which is correct and completely invisible
+            // from the trace. Somebody wondering why their edit changed nothing
+            // should find the answer here.
+            {"Scripts reloaded", m_reloads},
+            {"Reloads refused", m_reloadsRefused},
         };
     }
 
@@ -221,6 +268,19 @@ private:
     static int luaGetTimeMicroseconds(lua_State* state);
 
     [[nodiscard]] static LuaEcuNode* self(lua_State* state);
+
+    /// Builds this node's script into whatever interpreter m_lua currently is:
+    /// libraries, bindings, globals, the prelude, `source`, and on_enable.
+    ///
+    /// Shared by prepare() and reload() so that a hot-swapped script is set up
+    /// by exactly the same code as one loaded at Start - a second, nearly
+    /// identical loader is how the two would drift until a script behaved
+    /// differently depending on when it arrived.
+    [[nodiscard]] Result install(const std::string& source);
+
+    /// Takes an edited script, if the editor has offered one and is not holding
+    /// the lock. Called once per pass.
+    void takeOfferedScript();
 
     void report(const std::string& text, bool isError);
     void handleScriptFailure(const Result& result, std::string_view during);
@@ -339,6 +399,14 @@ private:
     std::uint64_t m_emitted{0};
     int m_consecutiveErrors{0};
     bool m_faulted{false};
+
+    /// Not owned, and null in every headless run. Read from the executor thread
+    /// only, through try_lock - see ScriptLibrary.h.
+    ScriptLibrary* m_library{nullptr};
+    std::string m_nodeId;
+
+    std::uint64_t m_reloads{0};
+    std::uint64_t m_reloadsRefused{0};
 };
 
 } // namespace torquebus

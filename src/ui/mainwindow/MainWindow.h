@@ -45,6 +45,7 @@ class DiagnosticsPanel;
 class GraphPanel;
 class OutputPanel;
 class PlaybackPanel;
+class ScriptEditorPanel;
 class ProjectExplorerPanel;
 class NodePropertiesEditor;
 class PropertiesPanel;
@@ -185,6 +186,7 @@ private:
     GraphPanel* m_graphPanel{nullptr};
     PlaybackPanel* m_playbackPanel{nullptr};
     DiagnosticsPanel* m_diagnosticsPanel{nullptr};
+    ScriptEditorPanel* m_scriptEditor{nullptr};
 
     // --- The pipeline the canvas edits ------------------------------------
     //
@@ -246,6 +248,7 @@ private:
     DockWidget* m_playbackDock{nullptr};
     DockWidget* m_statisticsDock{nullptr};
     DockWidget* m_diagnosticsDock{nullptr};
+    DockWidget* m_scriptDock{nullptr};
     DockWidget* m_outputDock{nullptr};
 
     QVector<DockWidget*> m_allDocks;
