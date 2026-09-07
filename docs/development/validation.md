@@ -44,7 +44,7 @@ so it needs network access and takes a few minutes.
 CMakeLists.txt)
 
 ```
-TorqueBus Studio 0.10.0
+TorqueBus Studio 0.11.0
   Build type ............ Debug
   Compiler .............. MSVC 19.x
   Qt .................... 6.11.2
