@@ -50,6 +50,7 @@
 #include "core/can/CanFrame.h"
 #include "core/database/CanMessage.h"
 #include "core/pipeline/PipelineNode.h"
+#include "core/trace/TraceStore.h"
 #include "core/diagnostics/UdsServer.h"
 #include "core/isotp/IsoTpConnection.h"
 #include "core/scripting/LuaRuntime.h"
@@ -59,6 +60,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <utility>
 #include <memory>
 #include <span>
 #include <string>
@@ -128,10 +130,22 @@ public:
             {"Diagnostic requests", m_diagnosticRequests},
             {"Diagnostic answers", m_diagnosticAnswers},
             {"Deliberate silences", m_diagnosticSilences},
+            // Frames this node deliberately made wrong. Worth a number of its
+            // own: an injected fault left switched on is the likeliest reason a
+            // later measurement makes no sense.
+            {"Frames corrupted on purpose", m_corrupted},
         };
     }
 
     void setLogHandler(LogHandler handler) { m_log = std::move(handler); }
+
+    /// What the measurement has seen, for a script that asks about the bus.
+    ///
+    /// Read-only and read from the executor thread - the same thread that
+    /// writes it - so this needs no lock and gets none. A pointer rather than a
+    /// reference because a graph built for a test has no trace store and a
+    /// script that asks anyway should be told, not crash.
+    void setTraceStore(const TraceStore* store) { m_trace = store; }
 
     /// The database `emit_signal` and `decode` work against.
     ///
@@ -200,6 +214,9 @@ private:
     static int luaEvery(lua_State* state);
     static int luaCyclic(lua_State* state);
     static int luaStopCyclic(lua_State* state);
+    static int luaFault(lua_State* state);
+    static int luaBusLast(lua_State* state);
+    static int luaBusStats(lua_State* state);
     static int luaLogMessage(lua_State* state);
     static int luaGetTimeMicroseconds(lua_State* state);
 
@@ -234,6 +251,43 @@ private:
     std::uint64_t m_diagnosticAnswers{0};
     std::uint64_t m_diagnosticSilences{0};
     std::shared_ptr<const CanDatabase> m_database;
+    const TraceStore* m_trace{nullptr};
+
+    /// What to do to a frame on its way out, by identifier.
+    ///
+    /// Applied at the output stage rather than where the frame is built, so one
+    /// mechanism covers emit(), cyclic() and even the diagnostic responses -
+    /// corrupting a UDS answer to see what a tester does is a real experiment
+    /// and would otherwise need its own switch.
+    struct Fault final {
+        /// Send the previous payload again: a stuck ECU. Freezes a rolling
+        /// counter and stales a CRC without this code knowing which byte is
+        /// which, which is the only way to do it without a database.
+        bool freeze{false};
+
+        /// The DLC to claim, whatever the payload actually is. -1 leaves it
+        /// alone. A DLC that disagrees with the data is a fault a receiver
+        /// either tolerates or does not, and finding out is the point.
+        int dlc{-1};
+
+        /// Send only this many bytes. -1 sends them all.
+        int truncate{-1};
+
+        /// Bits to invert, as (index, mask) pairs. A CRC byte flipped here is
+        /// a message that arrives looking valid and checksums wrong.
+        std::vector<std::pair<std::size_t, std::uint8_t>> flips;
+
+        /// The last payload actually sent, for freeze.
+        std::vector<std::uint8_t> previous;
+        bool hasPrevious{false};
+    };
+
+    std::map<std::uint32_t, Fault> m_faults;
+
+    /// Applies m_faults to everything about to be published.
+    void applyFaults();
+
+    std::uint64_t m_corrupted{0};
     LogHandler m_log;
     std::map<std::string, LuaValue> m_scriptParameters;
 

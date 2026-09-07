@@ -253,6 +253,100 @@ lines of stack juggling to express three lines of maths, and in Lua they can be
 read, copied and changed by the person using them.
 
 
+## Asking about the bus
+
+`on_message` says what arrived on this node's input. These say what the
+*measurement* has seen - every identifier on every channel, whether or not it is
+wired into this block.
+
+### `bus_last(id [, channel])`
+
+The payload of the most recent frame with that identifier, and a table about it:
+
+```lua
+local data, info = bus_last(0x123)
+
+if data then
+    log_message(("last seen %d us ago, cycle %d us, %d times")
+        :format(get_time_us() - info.timestamp_us, info.cycle_us, info.count))
+end
+```
+
+| Field | Meaning |
+|---|---|
+| `count` | How many have been seen. |
+| `channel` | Which application channel it was on. |
+| `cycle_us` | Microseconds since the previous one. |
+| `min_cycle_us`, `max_cycle_us` | The extremes so far. |
+| `timestamp_us` | When the last one arrived. |
+| `changed_bytes` | Bitmask of the bytes that differed from the frame before. |
+
+**Nil when nothing has been seen yet** - not empty bytes, because "no frame" and
+"a frame with no payload" are different things and a script writing `if data
+then` has to be able to tell them apart.
+
+### `bus_stats()`
+
+`frames`, `identifiers`, `retained` and `discarded` - the last being what the
+trace's ring has overwritten, which is what a script deciding something from a
+count needs in order to know when the count stopped being all of them.
+
+Both are refused, with the name of the function, in a graph that has no trace.
+
+## Being deliberately wrong
+
+A tool that only ever sends correct traffic tests half of a receiver: the half
+that works. What a stuck counter, a stale checksum or a DLC that lies do to the
+rest of the network is the question a bench exists to answer.
+
+### `fault(id, spec)` and `fault(id)`
+
+Applied to every frame leaving this node with that identifier - `emit`, `cyclic`
+and even the diagnostic responses, so corrupting a UDS answer to see what a
+tester does is one line.
+
+```lua
+fault(0x123, { freeze = true })                    -- a stuck ECU
+fault(0x123, { dlc = 8 })                          -- claims eight, sends three
+fault(0x123, { truncate = 2 })                     -- sends two of eight
+fault(0x123, { flip = { [1] = 0xFF, [4] = 0x01 } })-- invert bits, one-based
+fault(0x123)                                       -- back to normal
+```
+
+`freeze` repeats the last payload that went out. It stops a rolling counter and
+stales a checksum **without this code knowing which byte is which**, which is
+the only way to do it without a database describing the message - and it is what
+a genuinely stuck ECU looks like on the wire.
+
+A fault declared again keeps what it has *seen*: writing `fault(id, { freeze =
+true })` from a timer means "freeze from now on", and resetting the remembered
+payload on every call would mean it never froze at all.
+
+The Statistics panel counts corrupted frames separately, because **an injected
+fault left switched on is the likeliest reason a later measurement makes no
+sense.**
+
+### Checksums, so that breaking one means something
+
+`tb.crc8(bytes)` is CRC-8/SAE-J1850 - polynomial 0x1D, initial 0xFF, final XOR
+0xFF - which is what AUTOSAR's end-to-end profiles 1 and 2 use and what most
+vehicle messages carry. `tb.e2e(payload, counter)` builds the usual shape: the
+checksum in the first byte, over everything after it, and the counter in the low
+nibble of the second.
+
+```lua
+local counter = tb.counter(4)
+local speed = tb.sine(800, 3000, 20)
+
+cyclic(0x0C0, 10, function()
+    return tb.e2e(string.pack("<I2", math.floor(speed())), counter())
+end)
+```
+
+They are here so a script can build a message that is **correct**: flipping a
+bit in a checksum nobody computed proves nothing.
+
+
 ## Answering diagnostics
 
 Give the block a **Diagnostic request ID** and a **Diagnostic response ID** and

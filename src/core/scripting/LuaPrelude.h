@@ -105,6 +105,43 @@ function tb.counter(bits)
     end
 end
 
+--- CRC-8 over a byte string, SAE J1850: polynomial 0x1D, initial value 0xFF,
+--- final XOR 0xFF. The one AUTOSAR's end-to-end profiles 1 and 2 use, and the
+--- one most vehicle messages carry.
+---
+--- Here so that a script can build a message that is *correct*, which is the
+--- prerequisite for making one deliberately wrong: flipping a bit in a checksum
+--- nobody computed proves nothing.
+function tb.crc8(bytes, start)
+    local crc = start or 0xFF
+
+    for index = 1, #bytes do
+        crc = crc ~ bytes:byte(index)
+
+        for _ = 1, 8 do
+            if (crc & 0x80) ~= 0 then
+                crc = ((crc << 1) ~ 0x1D) & 0xFF
+            else
+                crc = (crc << 1) & 0xFF
+            end
+        end
+    end
+
+    return crc ~ 0xFF
+end
+
+--- The E2E profile 1 shape most messages use: a CRC in the first byte over
+--- everything after it, and a counter in the low nibble of the second.
+---
+--- Returns the whole payload, ready to send:
+---     cyclic(0x123, 10, function()
+---         return tb.e2e(string.pack("<I2", speed()), counter())
+---     end)
+function tb.e2e(payload, counter)
+    local body = string.char(counter & 0x0F) .. payload
+    return string.char(tb.crc8(body)) .. body
+end
+
 --- Reads a generator or a plain value, so a caller can accept either.
 --- tb.value(42) is 42; tb.value(tb.ramp(0, 100)) is where the ramp is now.
 function tb.value(source)

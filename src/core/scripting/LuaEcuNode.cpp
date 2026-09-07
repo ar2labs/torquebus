@@ -62,6 +62,8 @@ Result LuaEcuNode::prepare(std::size_t maximumBatchSize)
     // releasing them against the new interpreter would unref numbers that mean
     // something else in it.
     m_repeating.clear();
+    m_faults.clear();
+    m_corrupted = 0;
 
     if (Result result = m_lua->openLibraries(); result.failed()) {
         return result;
@@ -76,6 +78,14 @@ Result LuaEcuNode::prepare(std::size_t maximumBatchSize)
     m_lua->registerFunction("every", &LuaEcuNode::luaEvery, this);
     m_lua->registerFunction("cyclic", &LuaEcuNode::luaCyclic, this);
     m_lua->registerFunction("stop_cyclic", &LuaEcuNode::luaStopCyclic, this);
+    m_lua->registerFunction("fault", &LuaEcuNode::luaFault, this);
+
+    // Only when there is a trace to read. A script asking about the bus in a
+    // graph that has none gets an error naming what is missing.
+    if (m_trace != nullptr) {
+        m_lua->registerFunction("bus_last", &LuaEcuNode::luaBusLast, this);
+        m_lua->registerFunction("bus_stats", &LuaEcuNode::luaBusStats, this);
+    }
 
     // Only when there is a diagnostic layer. A script calling uds_did on an ECU
     // with no addresses gets an error naming what is missing, rather than a
@@ -408,6 +418,12 @@ void LuaEcuNode::process(NodeContext& context)
     }
 
     if (!m_outgoing.empty()) {
+        // Faults last, so one mechanism covers everything leaving this node:
+        // emit(), cyclic(), and the diagnostic responses. Corrupting a UDS
+        // answer to see what a tester does is a real experiment, and it would
+        // otherwise have needed a switch of its own.
+        applyFaults();
+
         context.publish<CanFrame>(0, m_outgoing);
     }
 }
@@ -558,6 +574,219 @@ int LuaEcuNode::luaUdsSession(lua_State* state)
     lua_pushinteger(state, static_cast<lua_Integer>(node->m_server->session()));
     lua_pushboolean(state, node->m_server->isUnlocked() ? 1 : 0);
     return 2;
+}
+
+int LuaEcuNode::luaBusLast(lua_State* state)
+{
+    LuaEcuNode* node = self(state);
+    if (node == nullptr) {
+        return luaL_error(state, "bus_last called outside an ECU node");
+    }
+
+    if (node->m_trace == nullptr) {
+        return luaL_error(state,
+                          "bus_last: this graph has no trace, so there is nothing to "
+                          "ask about the bus");
+    }
+
+    const lua_Integer identifier = luaL_checkinteger(state, 1);
+    const lua_Integer channel = luaL_optinteger(state, 2, -1);
+
+    // Linear over the identifiers seen, which is dozens on a quiet bus and a
+    // few hundred on a busy one. At the rate a script asks, that is nothing;
+    // at the rate the trace is written it would matter, which is why this is a
+    // script-side question and not a per-frame one.
+    for (const TraceIdentifierStats& stats : node->m_trace->identifiers()) {
+        if (stats.identifier != static_cast<std::uint32_t>(identifier)) {
+            continue;
+        }
+
+        if (channel >= 0 && stats.channel != static_cast<std::uint8_t>(channel)) {
+            continue;
+        }
+
+        // The payload first, because it is what a script almost always wants:
+        //     local data = bus_last(0x123)
+        // and the rest is there for the script that needs it.
+        lua_pushlstring(state, reinterpret_cast<const char*>(stats.lastFrame.data.data()),
+                        stats.lastFrame.length);
+
+        lua_newtable(state);
+
+        const auto field = [state](const char* name, lua_Integer value) {
+            lua_pushinteger(state, value);
+            lua_setfield(state, -2, name);
+        };
+
+        field("count", static_cast<lua_Integer>(stats.count));
+        field("channel", stats.channel);
+        field("cycle_us", stats.lastCycleUs);
+        field("min_cycle_us", stats.minCycleUs);
+        field("max_cycle_us", stats.maxCycleUs);
+        field("timestamp_us", static_cast<lua_Integer>(stats.lastFrame.timestampNs / 1000ULL));
+
+        // Which bytes differed between the last two frames. Free here because
+        // the trace already computes it, and the single most useful thing to
+        // know about a message somebody is watching.
+        field("changed_bytes", static_cast<lua_Integer>(stats.changedBytes));
+
+        return 2;
+    }
+
+    // Nothing seen yet. Nil rather than empty bytes: "no frame" and "a frame
+    // with no payload" are different, and a script checking `if data then` has
+    // to be able to tell.
+    lua_pushnil(state);
+    return 1;
+}
+
+int LuaEcuNode::luaBusStats(lua_State* state)
+{
+    LuaEcuNode* node = self(state);
+    if (node == nullptr) {
+        return luaL_error(state, "bus_stats called outside an ECU node");
+    }
+
+    if (node->m_trace == nullptr) {
+        return luaL_error(state, "bus_stats: this graph has no trace");
+    }
+
+    lua_newtable(state);
+
+    const auto field = [state](const char* name, lua_Integer value) {
+        lua_pushinteger(state, value);
+        lua_setfield(state, -2, name);
+    };
+
+    field("frames", static_cast<lua_Integer>(node->m_trace->totalAppended()));
+    field("identifiers", static_cast<lua_Integer>(node->m_trace->identifiers().size()));
+    field("retained", static_cast<lua_Integer>(node->m_trace->size()));
+
+    // Frames the ring overwrote. A script deciding something from a count needs
+    // to know when the count stopped being all of them.
+    field("discarded", static_cast<lua_Integer>(node->m_trace->discarded()));
+
+    return 1;
+}
+
+int LuaEcuNode::luaFault(lua_State* state)
+{
+    LuaEcuNode* node = self(state);
+    if (node == nullptr) {
+        return luaL_error(state, "fault called outside an ECU node");
+    }
+
+    const lua_Integer identifier = luaL_checkinteger(state, 1);
+    const auto key = static_cast<std::uint32_t>(identifier);
+
+    // fault(id) or fault(id, nil) clears it. A fault left switched on is the
+    // likeliest reason a later measurement makes no sense, so turning one off
+    // has to be as easy as turning it on.
+    if (lua_isnoneornil(state, 2)) {
+        node->m_faults.erase(key);
+        return 0;
+    }
+
+    luaL_checktype(state, 2, LUA_TTABLE);
+
+    Fault fault;
+
+    lua_getfield(state, 2, "freeze");
+    fault.freeze = lua_toboolean(state, -1) != 0;
+    lua_pop(state, 1);
+
+    lua_getfield(state, 2, "dlc");
+    if (lua_isinteger(state, -1)) {
+        fault.dlc = static_cast<int>(lua_tointeger(state, -1));
+    }
+    lua_pop(state, 1);
+
+    lua_getfield(state, 2, "truncate");
+    if (lua_isinteger(state, -1)) {
+        fault.truncate = static_cast<int>(lua_tointeger(state, -1));
+    }
+    lua_pop(state, 1);
+
+    // flip = { [byte index] = mask }, one-based like every other index a Lua
+    // programmer types.
+    lua_getfield(state, 2, "flip");
+    if (lua_istable(state, -1)) {
+        lua_pushnil(state);
+
+        while (lua_next(state, -2) != 0) {
+            if (lua_isinteger(state, -2) && lua_isinteger(state, -1)) {
+                const lua_Integer index = lua_tointeger(state, -2);
+                const lua_Integer mask = lua_tointeger(state, -1);
+
+                if (index >= 1 && index <= static_cast<lua_Integer>(kMaxCanPayload)) {
+                    fault.flips.emplace_back(static_cast<std::size_t>(index - 1),
+                                             static_cast<std::uint8_t>(mask & 0xFF));
+                }
+            }
+
+            lua_pop(state, 1);
+        }
+    }
+    lua_pop(state, 1);
+
+    // A fault declared again keeps what it had *seen*. Anything else makes
+    // `fault(id, { freeze = true })` from a timer - which is the obvious way to
+    // write "freeze it from now on" - reset the remembered payload every call,
+    // so the message never actually froze. The declaration is the intent; the
+    // memory is the identifier's.
+    if (const auto existing = node->m_faults.find(key); existing != node->m_faults.end()) {
+        fault.previous = std::move(existing->second.previous);
+        fault.hasPrevious = existing->second.hasPrevious;
+    }
+
+    node->m_faults[key] = std::move(fault);
+    return 0;
+}
+
+void LuaEcuNode::applyFaults()
+{
+    if (m_faults.empty()) {
+        return;
+    }
+
+    for (CanFrame& frame : m_outgoing) {
+        const auto found = m_faults.find(frame.identifier);
+        if (found == m_faults.end()) {
+            continue;
+        }
+
+        Fault& fault = found->second;
+
+        if (fault.freeze && fault.hasPrevious) {
+            // The previous payload again, whatever the script just built. A
+            // stuck ECU: the counter stops, the CRC goes stale, and nothing
+            // here had to know which byte was which.
+            frame.length = static_cast<std::uint8_t>(
+                std::min(fault.previous.size(), kMaxCanPayload));
+            std::copy_n(fault.previous.begin(), frame.length, frame.data.begin());
+        } else {
+            fault.previous.assign(frame.data.begin(), frame.data.begin() + frame.length);
+            fault.hasPrevious = true;
+        }
+
+        for (const auto& [index, mask] : fault.flips) {
+            if (index < frame.length) {
+                frame.data[index] ^= mask;
+            }
+        }
+
+        if (fault.truncate >= 0) {
+            frame.length = static_cast<std::uint8_t>(
+                std::min<std::size_t>(static_cast<std::size_t>(fault.truncate), frame.length));
+        }
+
+        // The DLC last, so it wins over anything the truncation implied - which
+        // is the whole point of being able to set it: a frame carrying three
+        // bytes and claiming eight.
+        frame.dlc = fault.dlc >= 0 ? static_cast<std::uint8_t>(fault.dlc) : frame.length;
+
+        ++m_corrupted;
+    }
 }
 
 int LuaEcuNode::luaEvery(lua_State* state)

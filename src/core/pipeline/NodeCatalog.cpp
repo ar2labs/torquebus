@@ -403,6 +403,13 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                 std::move(source), std::move(name),
                 static_cast<std::uint8_t>(parameters.integer("channel", 0)));
 
+            // What the measurement has seen, so a script can ask about the bus
+            // rather than only about the frames wired into it. Borrowed, read
+            // from the executor thread that also writes it, and absent in a
+            // graph built without a trace - which the bindings say rather than
+            // crash on.
+            node->setTraceStore(context.traceStore);
+
             // The diagnostic layer, when the block has been given addresses.
             // The identifiers are the ECU's way round - it receives on what a
             // tester transmits - and getting that backwards is the commonest

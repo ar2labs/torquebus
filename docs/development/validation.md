@@ -111,6 +111,7 @@ because each pins something that was got wrong once:
 | `[log]` | A recording that was cut short reading as corrupt instead of as forty-nine whole frames and a note |
 | `[export]` | A file another tool reads wrongly — an extended identifier without its `x`, an error frame written as data, a DLC that came out as a control byte |
 | `[plot]` | A plot quietly lying about the bus: a wrapped ring read out of order, a truncated signal drawn as zero, an axis that shrinks as history ages out |
+| `[lua][bus]`, `[lua][fault]`, `[lua][prelude]` | A script told zero instead of "there is no trace"; a freeze that resets itself every time it is declared and so never freezes; a checksum that agrees only with its own implementation |
 | `[lua][timing]` | An ECU that cannot sound like a vehicle: one rate instead of several, a cyclic message that drifts or bursts, a resumed message that stays silent, a generator that leaves its bounds |
 | `[lua][uds]` | The two halves disagreeing where it matters: a Lua ECU and the real UDS client across a real ISO-TP transport, including a 17-byte VIN that only arrives if segmentation works at both ends, and a script that makes the ECU go silent |
 | `[uds][server]` | A simulated ECU that cannot say no: a missing DID answered instead of refused, a locked DID readable, a session that never expires, security that survives leaving the session. Every one of those lets a tester pass here and fail on the bench |
