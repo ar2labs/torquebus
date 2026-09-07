@@ -21,6 +21,22 @@
 //     log_message(text)             -- a line in the Output panel
 //     get_time_us()                 -- microseconds since the measurement began
 //
+// **And the ECU can answer diagnostics.** Given a pair of identifiers, the node
+// carries an ISO-TP connection and a UdsServer on the ECU side, so a script
+// declares what it knows and lets the server answer the rest:
+//
+//     uds_did(0xF190, "WVWZZZ...")        -- a value a tester can read
+//     uds_did(0x2001, "\x00\x64", { writable = true, session = 3,
+//                                    security = true })
+//     uds_dtc(0x012800, 0x2F)             -- a stored fault
+//     function on_security_seed(seed)     -- the key the ECU will accept
+//     function on_uds_request(request)    -- anything the server does not do
+//
+// on_uds_request is the escape hatch and it is three-valued, because a real ECU
+// has three answers: return bytes to answer, return nothing to let the server
+// deal with it, and return false to say *nothing at all* - a dead ECU, which is
+// the case a tester has to survive and the only one nothing else can simulate.
+//
 // What changed from cansim, and why: `emit` does not reach the bus. It puts a
 // frame on this node's *output port*, and where that goes is the graph's
 // business. An ECU wired to nothing is a valid, testable thing; an ECU wired to
@@ -32,6 +48,8 @@
 #include "core/can/CanFrame.h"
 #include "core/database/CanMessage.h"
 #include "core/pipeline/PipelineNode.h"
+#include "core/diagnostics/UdsServer.h"
+#include "core/isotp/IsoTpConnection.h"
 #include "core/scripting/LuaRuntime.h"
 
 #include <array>
@@ -55,6 +73,16 @@ public:
     /// `source` is the script itself, not a path - the project file carries
     /// scripts inline or by reference, and this node should not care which.
     LuaEcuNode(std::string source, std::string name, std::uint8_t transmitChannel = 0);
+
+    /// Makes this ECU answer diagnostic requests on `address`.
+    ///
+    /// The address is the ECU's own way round: it *receives* on what a tester
+    /// transmits. Called before prepare(); without it the node has no
+    /// diagnostic layer at all and costs nothing for the scripts that do not
+    /// use one.
+    void enableDiagnostics(const IsoTpAddress& address, const IsoTpConfig& transport);
+
+    [[nodiscard]] bool answersDiagnostics() const noexcept { return m_transport != nullptr; }
     ~LuaEcuNode() override;
 
     [[nodiscard]] std::string_view typeName() const noexcept override { return "lua.ecu"; }
@@ -91,6 +119,13 @@ public:
             // measurement carried on without it. That is the right behaviour
             // and an easy thing not to notice, so it gets a number.
             {"Stopped after repeated errors", m_faulted ? 1U : 0U},
+            // Only interesting on an ECU that answers diagnostics, and zero is
+            // the honest reading on one that does not: a tester talking to the
+            // wrong identifier sees these stay at zero, which is the fastest
+            // way to find that out.
+            {"Diagnostic requests", m_diagnosticRequests},
+            {"Diagnostic answers", m_diagnosticAnswers},
+            {"Deliberate silences", m_diagnosticSilences},
         };
     }
 
@@ -153,6 +188,10 @@ public:
 private:
     // --- Bindings, called from Lua ---------------------------------------
     static int luaEmit(lua_State* state);
+    static int luaUdsIdentifier(lua_State* state);
+    static int luaUdsTroubleCode(lua_State* state);
+    static int luaUdsClearTroubleCodes(lua_State* state);
+    static int luaUdsSession(lua_State* state);
     static int luaEmitSignal(lua_State* state);
     static int luaDecode(lua_State* state);
     static int luaSetTimer(lua_State* state);
@@ -176,6 +215,19 @@ private:
     std::uint8_t m_transmitChannel;
 
     std::unique_ptr<LuaRuntime> m_lua;
+
+    /// The diagnostic layer, or null for a script that does not answer
+    /// diagnostics. Held by pointer rather than by value so that the ordinary
+    /// ECU - which is most of them - carries no ISO-TP state it never uses.
+    std::unique_ptr<IsoTpConnection> m_transport;
+    std::unique_ptr<UdsServer> m_server;
+
+    bool m_hasOnUdsRequest{false};
+    bool m_hasOnSecuritySeed{false};
+
+    std::uint64_t m_diagnosticRequests{0};
+    std::uint64_t m_diagnosticAnswers{0};
+    std::uint64_t m_diagnosticSilences{0};
     std::shared_ptr<const CanDatabase> m_database;
     LogHandler m_log;
     std::map<std::string, LuaValue> m_scriptParameters;
