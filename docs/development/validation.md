@@ -111,6 +111,8 @@ because each pins something that was got wrong once:
 | `[log]` | A recording that was cut short reading as corrupt instead of as forty-nine whole frames and a note |
 | `[export]` | A file another tool reads wrongly — an extended identifier without its `x`, an error frame written as data, a DLC that came out as a control byte |
 | `[plot]` | A plot quietly lying about the bus: a wrapped ring read out of order, a truncated signal drawn as zero, an axis that shrinks as history ages out |
+| `[uds]` | The two ways a tester gives up too early: 0x78 "still working" read as a failure, and a request to read the VIN read as a request for silence because 0xF1 has bit 7 set. Also a session believed from the request rather than from the answer |
+| `[uds][dtc]` | A trouble code shown as a raw number instead of P0128, and - worse - codes invented out of a response that is not a DTC list |
 | `[isotp][graph]`, `[isotp][validate]` | A request typed into a block never reaching the bus, a periodic request repeating when it was asked once, half a hex byte accepted at Start instead of refused on the canvas |
 | `[isotp]` | The failures of ISO 15765-2, which are all silences: a sequence number that does not wrap at sixteen, STmin's microsecond range read as milliseconds, a block size ignored, an unpadded frame an ECU will not answer, a four-gigabyte length field taken at its word |
 | `[recent]`, `[workspace]`, `[hardware]` | A settings file edited by hand producing a menu entry nobody can open, a channel order that renumbers itself when an adapter is unplugged, a workspace from an older panel set restored with panels missing |
