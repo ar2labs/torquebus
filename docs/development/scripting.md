@@ -159,6 +159,100 @@ strings all survive the crossing with their types intact.
 This is cansim's convention, unchanged, so scripts move across without editing
 that part.
 
+## Timing: several rates at once
+
+A real ECU sends a 10 ms message and a 100 ms one and a 1 s one, all at the same
+time. `set_timer` gives a script one rate, which means faking the rest with a
+counter - and a counter that divides an interval is a place for an off-by-one to
+live for months.
+
+### `every(milliseconds, function)`
+
+As many as the script wants, each at its own rate.
+
+```lua
+function on_enable()
+    every(10,   function() emit(0x100, engine_state()) end)
+    every(100,  function() emit(0x200, temperatures()) end)
+    every(1000, function() log_message("still here") end)
+end
+```
+
+**It fires immediately and then on its period.** An ECU that went quiet for its
+first cycle is a difference somebody notices, and a script that wants the delay
+can check `tb.now()`. Jobs due in the same pass run in the order they were
+declared.
+
+The period is milliseconds and has to be positive; the second argument has to be
+a function. Both are refused where they were written rather than at the first
+tick.
+
+### `cyclic(id, milliseconds, data_or_function [, options])`
+
+A message that sends itself, with no timer body and no bookkeeping - an ECU's
+periodic traffic is a list of facts rather than a program.
+
+```lua
+function on_enable()
+    cyclic(0x123, 20, "\xAA\xBB")            -- fixed bytes
+
+    local counter = tb.counter(4)
+    cyclic(0x321, 10, function()              -- fresh bytes each time
+        return string.char(counter(), engine_temperature())
+    end)
+end
+```
+
+A provider that returns nothing **skips that cycle**, which is how a message
+that only goes out while a condition holds is written. Declaring the same
+identifier twice replaces the first declaration rather than sending it twice.
+
+### `stop_cyclic(id [, running])`
+
+Silences a message, and brings it back:
+
+```lua
+stop_cyclic(0x123)         -- quiet
+stop_cyclic(0x123, true)   -- talking again
+```
+
+Resuming fires on the next cycle rather than sending everything that was missed:
+a burst looks like a fault in the tool rather than the one being injected.
+Calling it with the state it is already in does nothing at all - a script saying
+`stop_cyclic(id, condition)` from a fast timer must not keep pushing the message
+it is trying to keep alive.
+
+## The `tb` prelude
+
+A small standard library, written in Lua and loaded before every script. All of
+it is arithmetic over the measurement clock:
+
+| Function | What it gives |
+|---|---|
+| `tb.now()` | Seconds since the measurement began. |
+| `tb.ramp(low, high, period)` | Sweeps up and jumps back. |
+| `tb.sine(low, high, period)` | Sweeps up and back down, smoothly. |
+| `tb.square(low, high, period)` | Half the period low, half high. |
+| `tb.drift(low, high, step)` | Wanders rather than jumping - noise that looks like a sensor. |
+| `tb.steps({...}, period)` | Walks a list, one entry per period. |
+| `tb.counter(bits)` | A counter that wraps, as nearly every real message carries. |
+| `tb.value(x)` | `x()` if it is a function, `x` otherwise. |
+
+Each generator returns a **function**: call it to get the value now.
+
+```lua
+local speed = tb.sine(800, 3000, 20)   -- engine speed over twenty seconds
+
+cyclic(0x0C0, 10, function()
+    return string.pack("<I2", math.floor(speed()))
+end)
+```
+
+They are Lua rather than C++ on purpose: a binding for each would be thirty
+lines of stack juggling to express three lines of maths, and in Lua they can be
+read, copied and changed by the person using them.
+
+
 ## Answering diagnostics
 
 Give the block a **Diagnostic request ID** and a **Diagnostic response ID** and
