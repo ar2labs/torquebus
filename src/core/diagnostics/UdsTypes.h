@@ -181,6 +181,12 @@ enum class UdsSession : std::uint8_t {
 /// status.
 struct DiagnosticTroubleCode final {
     /// The 24-bit code, as it appears on the wire.
+    ///
+    /// The first two bytes are the code a workshop manual indexes; the third is
+    /// the **failure type** - 0x35 is "signal above range", and so on. It is
+    /// carried here and deliberately not folded into name(), because P0128 and
+    /// P0128-35 are the same fault described at two levels of detail, and the
+    /// short form is the one people say out loud.
     std::uint32_t code{};
 
     /// Bit 0 is "test failed", bit 3 "confirmed", bit 8 would be... see the
