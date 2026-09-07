@@ -95,6 +95,8 @@ add_library(torquebus_core STATIC
     core/scripting/LuaRuntime.cpp
     core/scripting/LuaEcuNode.h
     core/scripting/LuaEcuNode.cpp
+    core/scripting/ScriptLibrary.h
+    core/scripting/ScriptLibrary.cpp
 
     # The driver interface belongs to the core, not to the drivers: the core
     # defines the abstraction, and each vendor implements it (dependency
@@ -268,6 +270,12 @@ qt_add_library(torquebus_ui STATIC
     ui/hardware/HardwareDialog.cpp
     ui/diagnostics/DiagnosticsPanel.h
     ui/diagnostics/DiagnosticsPanel.cpp
+    ui/scripting/ScriptEdit.h
+    ui/scripting/ScriptEdit.cpp
+    ui/scripting/LuaHighlighter.h
+    ui/scripting/LuaHighlighter.cpp
+    ui/scripting/ScriptEditorPanel.h
+    ui/scripting/ScriptEditorPanel.cpp
     ui/graph/PlotView.h
     ui/graph/PlotView.cpp
     ui/graph/GraphPanel.h

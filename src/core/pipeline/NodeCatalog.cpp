@@ -410,6 +410,11 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             // crash on.
             node->setTraceStore(context.traceStore);
 
+            // Where an edited script arrives from, keyed by this node's id
+            // because that is what the editor knows it by. Null in every
+            // headless build, and the node simply never looks.
+            node->setScriptLibrary(context.scriptLibrary, std::string{nodeId});
+
             // The diagnostic layer, when the block has been given addresses.
             // The identifiers are the ECU's way round - it receives on what a
             // tester transmits - and getting that backwards is the commonest

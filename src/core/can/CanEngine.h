@@ -39,6 +39,7 @@
 #include "core/pipeline/NodeCatalog.h"
 #include "core/pipeline/PipelineGraph.h"
 #include "core/diagnostics/DiagnosticSession.h"
+#include "core/scripting/ScriptLibrary.h"
 #include "core/log/ReplayControl.h"
 #include "core/log/TraceLog.h"
 #include "core/plot/SignalSeries.h"
@@ -304,6 +305,18 @@ public:
         return m_diagnostics;
     }
 
+    /// Where the script editor hands edited scripts to running ECUs.
+    ///
+    /// Owned here, like the diagnostic session, and for the same reason: it
+    /// belongs to the measurement, the GUI holds one end while the executor
+    /// thread holds the other, and everything that crosses is behind the
+    /// try_lock described in ScriptLibrary.h.
+    [[nodiscard]] ScriptLibrary& scriptLibrary() noexcept { return m_scriptLibrary; }
+    [[nodiscard]] const ScriptLibrary& scriptLibrary() const noexcept
+    {
+        return m_scriptLibrary;
+    }
+
     /// The transport every replay block in this measurement obeys.
     ///
     /// Owned here for the same reason the trace store and the plot store are:
@@ -369,6 +382,7 @@ private:
     TraceLogWriter m_logWriter;
     ReplayControl m_replayControl;
     DiagnosticSession m_diagnostics;
+    ScriptLibrary m_scriptLibrary;
 
     mutable std::mutex m_sinksMutex;
     std::vector<Registration<FrameSink>> m_frameSinks;

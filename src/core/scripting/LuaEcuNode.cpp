@@ -64,7 +64,38 @@ Result LuaEcuNode::prepare(std::size_t maximumBatchSize)
     m_repeating.clear();
     m_faults.clear();
     m_corrupted = 0;
+    m_reloads = 0;
+    m_reloadsRefused = 0;
 
+    m_outgoing.reserve(kMaximumEmitsPerPass);
+
+    // The clock is set before the script loads, because get_time_us() is legal
+    // at the top level of a script and inside on_enable - tb.ramp() captures it
+    // there - and a clock that started later would hand out negative time.
+    m_started = std::chrono::steady_clock::now();
+    m_lastTimer = m_started;
+    m_emitted = 0;
+    m_consecutiveErrors = 0;
+    m_faulted = false;
+    m_timerInterval = std::chrono::milliseconds{0};
+
+    // Cleared before on_enable, not after: a re-prepare must not carry frames
+    // from the previous measurement into this one.
+    m_outgoing.clear();
+
+    if (Result result = install(m_source); result.failed()) {
+        return result;
+    }
+
+    // Anything on_enable emitted is real traffic waiting for the first pass -
+    // an ECU announcing itself at power-on - not a leftover to be cleared.
+    m_carryingStartupFrames = !m_outgoing.empty();
+
+    return Result::ok();
+}
+
+Result LuaEcuNode::install(const std::string& source)
+{
     if (Result result = m_lua->openLibraries(); result.failed()) {
         return result;
     }
@@ -113,7 +144,7 @@ Result LuaEcuNode::prepare(std::size_t maximumBatchSize)
         return result;
     }
 
-    if (Result result = m_lua->load(m_source, m_name); result.failed()) {
+    if (Result result = m_lua->load(source, m_name); result.failed()) {
         // A script that will not compile stops the measurement from starting,
         // rather than surfacing on the first frame. The Lua message already
         // carries the file and line.
@@ -188,18 +219,6 @@ Result LuaEcuNode::prepare(std::size_t maximumBatchSize)
         }
     }
 
-    m_outgoing.reserve(kMaximumEmitsPerPass);
-
-    m_started = std::chrono::steady_clock::now();
-    m_lastTimer = m_started;
-    m_emitted = 0;
-    m_consecutiveErrors = 0;
-    m_faulted = false;
-
-    // Cleared before on_enable, not after: a re-prepare must not carry frames
-    // from the previous measurement into this one.
-    m_outgoing.clear();
-
     if (m_lua->hasFunction("on_enable")) {
         if (Result result = m_lua->call("on_enable"); result.failed()) {
             return Result::error(result.code(),
@@ -208,16 +227,150 @@ Result LuaEcuNode::prepare(std::size_t maximumBatchSize)
         }
     }
 
-    // Anything on_enable emitted is real traffic waiting for the first pass -
-    // an ECU announcing itself at power-on - not a leftover to be cleared.
-    m_carryingStartupFrames = !m_outgoing.empty();
+    return Result::ok();
+}
+
+Result LuaEcuNode::reload(std::string source)
+{
+    // Everything the running script owns, moved aside and kept alive - not
+    // destroyed - until the new one has proved it loads. The interpreter above
+    // all: the CallableRefs in m_repeating are indices into *its* registry, so
+    // restoring the timers without restoring the interpreter they belong to
+    // would be a list of numbers pointing at nothing.
+    std::unique_ptr<LuaRuntime> previous = std::move(m_lua);
+    std::vector<Repeating> previousRepeating = std::move(m_repeating);
+    std::map<std::uint32_t, Fault> previousFaults = std::move(m_faults);
+
+    // The diagnostic server goes with it, for a reason that is easy to miss:
+    // `uds_did` and `uds_dtc` *add* to the server, so a reload against the same
+    // one would leave every identifier the old script declared still answering.
+    // Deleting a DID from a script and having a tester go on reading it is the
+    // kind of bug that gets blamed on the tester for an afternoon.
+    //
+    // A fresh server also means the default session and a locked ECU, which is
+    // the honest reading: reloading a script is reprogramming the ECU, and a
+    // real one does not stay in an unlocked extended session across that.
+    std::unique_ptr<UdsServer> previousServer = std::move(m_server);
+
+    if (previousServer != nullptr) {
+        m_server = std::make_unique<UdsServer>();
+    }
+
+    const bool previousOnMessage = m_hasOnMessage;
+    const bool previousOnTimer = m_hasOnTimer;
+    const bool previousOnUdsRequest = m_hasOnUdsRequest;
+    const bool previousOnSecuritySeed = m_hasOnSecuritySeed;
+    const bool previousFaulted = m_faulted;
+    const auto previousTimerInterval = m_timerInterval;
+    const auto previousLastTimer = m_lastTimer;
+
+    m_repeating.clear();
+    m_faults.clear();
+
+    m_lua = std::make_unique<LuaRuntime>();
+
+    // A reload is a fresh start for a script that had gone quiet after its
+    // error limit: the edit is usually the fix, and requiring a Stop to clear
+    // the fault would be exactly the restart this feature exists to avoid.
+    m_faulted = false;
+    m_consecutiveErrors = 0;
+    m_timerInterval = std::chrono::milliseconds{0};
+    m_lastTimer = std::chrono::steady_clock::now();
+
+    if (Result result = install(source); result.failed()) {
+        // Refused. The new interpreter is dropped with everything it managed to
+        // register, and the measurement carries on as though nothing had been
+        // offered - which, from the bus's point of view, is the truth.
+        m_lua = std::move(previous);
+        m_repeating = std::move(previousRepeating);
+        m_faults = std::move(previousFaults);
+        m_server = std::move(previousServer);
+
+        m_hasOnMessage = previousOnMessage;
+        m_hasOnTimer = previousOnTimer;
+        m_hasOnUdsRequest = previousOnUdsRequest;
+        m_hasOnSecuritySeed = previousOnSecuritySeed;
+        m_faulted = previousFaulted;
+        m_timerInterval = previousTimerInterval;
+        m_lastTimer = previousLastTimer;
+
+        return result;
+    }
+
+    // The old script gets its on_disable *after* the new one has loaded, and
+    // gets it against its own interpreter with its own timers in place - a
+    // teardown that stops a cyclic message or reads a global has to mean what
+    // it meant while that script was running. Whatever it registers there is
+    // discarded with it rather than landing on the script that just arrived.
+    if (!previousFaulted && previous->hasFunction("on_disable")) {
+        std::vector<Repeating> loaded = std::move(m_repeating);
+        m_repeating = std::move(previousRepeating);
+        m_lua.swap(previous);
+
+        if (Result result = m_lua->call("on_disable"); result.failed()) {
+            // Logged, not returned: the new script is already this node's, and
+            // a complaint from the one being replaced must not be reported as
+            // the reload having failed.
+            report(std::format("{}: on_disable failed during reload: {}",
+                               m_name, std::string{result.message()}),
+                   true);
+        }
+
+        m_lua.swap(previous);
+        m_repeating = std::move(loaded);
+    }
+
+    m_source = std::move(source);
 
     return Result::ok();
 }
 
+void LuaEcuNode::takeOfferedScript()
+{
+    if (m_library == nullptr) {
+        return;
+    }
+
+    std::string offered;
+
+    // Never waits: take() tries the lock once and says no if the editor holds
+    // it, and the offer is still there next pass - a few milliseconds nobody
+    // can perceive, against a frame path that must not block on a text widget.
+    if (!m_library->take(m_nodeId, offered)) {
+        return;
+    }
+
+    const Result result = reload(std::move(offered));
+
+    ScriptReload outcome;
+    outcome.nodeId = m_nodeId;
+    outcome.succeeded = result.succeeded();
+    outcome.timestampNs = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - m_started)
+            .count());
+
+    if (result.succeeded()) {
+        ++m_reloads;
+        report(std::format("{}: script reloaded", m_name), false);
+    } else {
+        ++m_reloadsRefused;
+        outcome.message = std::string{result.message()};
+
+        // In the Output panel as well as back to the editor. A reload that was
+        // refused changes nothing visible on the bus, and somebody watching the
+        // trace rather than the editor would otherwise see no sign of it.
+        report(std::format("{}: reload refused, the running script is unchanged: {}",
+                           m_name, outcome.message),
+               true);
+    }
+
+    m_library->report(std::move(outcome));
+}
+
 void LuaEcuNode::process(NodeContext& context)
 {
-    if (m_faulted || !m_lua) {
+    if (!m_lua) {
         return;
     }
 
@@ -233,6 +386,20 @@ void LuaEcuNode::process(NodeContext& context)
         m_outgoing.clear();
     }
     m_carryingStartupFrames = false;
+
+    // --- A script edited while the measurement runs -----------------------
+    //
+    // After the clear, so that whatever the new script's on_enable emits goes
+    // out with this pass rather than being wiped by the next one. Before the
+    // faulted check, and this is the point of putting it here: a script that
+    // went quiet after its error limit is precisely the one somebody is about
+    // to edit, and a node that stopped reading offers could only be revived by
+    // the restart this whole feature exists to avoid.
+    takeOfferedScript();
+
+    if (m_faulted) {
+        return;
+    }
 
     // --- Diagnostics, when this ECU answers them --------------------------
     //

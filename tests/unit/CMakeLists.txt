@@ -28,6 +28,7 @@ add_executable(torquebus_unit_tests
     IsoTpNodeTests.cpp
     IsoTpTests.cpp
     LuaBusAndFaultTests.cpp
+    LuaHotReloadTests.cpp
     LuaTimingTests.cpp
     LuaUdsEcuTests.cpp
     UdsClientNodeTests.cpp

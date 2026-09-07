@@ -454,6 +454,44 @@ A script that fails to *compile* fails the start instead, with the Lua message
 and its line number — better than discovering it three seconds into a
 recording.
 
+## Editing a script while it runs
+
+Stop, edit, Start throws away the measurement — the trace, the state, the fault
+you had just provoked — to change a cycle time from 10 to 20. So the **Script**
+panel does not need any of that: select a Lua ECU block, edit, press **Reload**
+(or F5), and the node picks the new script up on its next pass. The measurement
+keeps running, the clock keeps counting, and the other ECUs never notice.
+
+The rule that makes this usable rather than merely quick:
+
+> **A script that fails to load leaves the running one alone.**
+
+An edit is usually broken — that is what editing is. A syntax error, or an
+`on_enable` that throws, is refused: the offending line is marked in the editor,
+the reason appears under it and in the Output panel, and the ECU on the bus goes
+on sending exactly what it was sending. Nothing about the measurement changed.
+
+What a reload does and does not reset:
+
+| | On reload |
+|---|---|
+| The interpreter, globals, timers, `cyclic` messages, injected faults | Rebuilt from the new script |
+| `get_time_us()` and everything in `tb` built on it | **Keeps counting from Start** |
+| The trace, the statistics, the other nodes | Untouched |
+| A node that had gone quiet after five errors | Runs again — the edit is usually the fix |
+
+The old script's `on_disable` runs *after* the new one has loaded, against its
+own interpreter, so a teardown means what it meant while that script was
+running. A refused reload runs no `on_disable` at all: nothing happened.
+
+Where the text is written back depends on where the script lives. A script kept
+inline in the project is written into the block's `script` setting; a script
+kept in a file is written to the file — which also means you can keep editing it
+in your own editor and press Reload here.
+
+While a measurement is *not* running the same button says **Save**, because
+that is all it can honestly do.
+
 ## Cost
 
 Measured on the pipeline, one ECU, 600,000 frames:

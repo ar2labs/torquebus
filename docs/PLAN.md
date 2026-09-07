@@ -1461,14 +1461,32 @@ hardware configuration
 
 ---
 
-# v0.13 — Python
+# v0.13 — Lua, todo o potencial
 
- embedded Python;
- TorqueBus API;
- editor;
- console;
- events;
- automation.
+Python foi retirado do plano. A ferramenta já embarca Lua 5.5, já tem vinte
+ECUs escritas em Lua vindas do cansim, e uma segunda linguagem embarcada seria
+duas APIs a manter, duas sandboxes a auditar e duas metades da documentação
+sempre desatualizadas. O investimento é em Lua.
+
+O que já foi feito:
+
+- **ECU simulada que fala UDS** — `uds_did`, `uds_dtc`, `uds_session`,
+  `on_uds_request` (três respostas: bytes, nada, ou `false` = silêncio),
+  `on_security_seed`.
+- **Temporização rica** — `every(ms, fn)` com vários temporizadores, mensagens
+  cíclicas declarativas (`cyclic`), `stop_cyclic`, e o prelúdio `tb` com
+  geradores de sinal, contador e CRC-8/E2E.
+- **Ler o barramento de dentro do script** — `bus_last`, `bus_stats`.
+- **Injeção de falha** — `fault(id, {...})`: congelar a mensagem, DLC errado,
+  truncar, inverter bits (um CRC deliberadamente errado).
+- **Recarga a quente** — editar um script sem parar a medição. `ScriptLibrary`
+  (o executor nunca espera pelo editor), `LuaEcuNode::reload`, e o painel
+  **Script** com número de linha, coloração e a linha do erro marcada. A regra:
+  *um script que falha ao carregar deixa o que está rodando em paz.*
+
+O que falta:
+
+- **Sequências de teste** — `expect`/`assert` com relatório de aprovado/reprovado.
 
 ---
 
