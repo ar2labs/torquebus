@@ -49,6 +49,41 @@ constexpr luaL_Reg kLibraries[] = {
     {LUA_COLIBNAME, luaopen_coroutine},
 };
 
+
+/// One Lua value, as the type it actually is rather than coerced.
+///
+/// lua_tostring on a number rewrites the value on the stack in place, which is
+/// a documented way to confuse a later traversal - and a script returning a
+/// number where bytes were expected is worth seeing as a number.
+[[nodiscard]] LuaValue readValue(lua_State* state, int index)
+{
+    switch (lua_type(state, index)) {
+    case LUA_TBOOLEAN:
+        return LuaValue::fromBoolean(lua_toboolean(state, index) != 0);
+
+    case LUA_TNUMBER:
+        if (lua_isinteger(state, index)) {
+            return LuaValue::fromInteger(lua_tointeger(state, index));
+        }
+        return LuaValue::fromNumber(lua_tonumber(state, index));
+
+    case LUA_TSTRING: {
+        std::size_t length = 0;
+        const char* text = lua_tolstring(state, index, &length);
+
+        // Length-counted: a UDS response is bytes, and a zero in the middle of
+        // one is ordinary. Reading it as a C string would truncate the answer
+        // there and produce a response that is quietly short.
+        return LuaValue::fromString(std::string{text, length});
+    }
+
+    default:
+        break;
+    }
+
+    return LuaValue{}; // Nil, and anything this build cannot carry.
+}
+
 } // namespace
 
 LuaRuntime::LuaRuntime()
@@ -197,41 +232,76 @@ Result LuaRuntime::call(std::string_view name,
         return Result::ok();
     }
 
-    // Read as the type it actually is rather than coerced. lua_tostring on a
-    // number would rewrite the value on the stack in place, which is a
-    // documented way to confuse a later lua_next - and a script returning a
-    // number where bytes were expected is worth seeing as a number.
-    switch (lua_type(m_state, -1)) {
-    case LUA_TBOOLEAN:
-        result = LuaValue::fromBoolean(lua_toboolean(m_state, -1) != 0);
-        break;
-
-    case LUA_TNUMBER:
-        if (lua_isinteger(m_state, -1)) {
-            result = LuaValue::fromInteger(lua_tointeger(m_state, -1));
-        } else {
-            result = LuaValue::fromNumber(lua_tonumber(m_state, -1));
-        }
-        break;
-
-    case LUA_TSTRING: {
-        std::size_t length = 0;
-        const char* text = lua_tolstring(m_state, -1, &length);
-
-        // Length-counted: a UDS response is bytes, and a byte of zero in the
-        // middle of one is ordinary. Reading it as a C string would truncate
-        // the answer there and produce a response that is quietly short.
-        result = LuaValue::fromString(std::string{text, length});
-        break;
-    }
-
-    default:
-        result = LuaValue{}; // Nil, and anything this build cannot carry.
-        break;
-    }
+    result = readValue(m_state, -1);
 
     lua_pop(m_state, 1);
     return Result::ok();
+}
+
+LuaRuntime::CallableRef LuaRuntime::storeCallable(int stackIndex)
+{
+    if (m_state == nullptr || !lua_isfunction(m_state, stackIndex)) {
+        return 0;
+    }
+
+    lua_pushvalue(m_state, stackIndex);
+
+    // luaL_ref pops the value and returns a key into the registry. That
+    // reference is what keeps the closure - and everything it captured - from
+    // being collected while a timer still points at it.
+    return luaL_ref(m_state, LUA_REGISTRYINDEX);
+}
+
+Result LuaRuntime::callStored(CallableRef ref)
+{
+    LuaValue ignored;
+    return callStored(ref, ignored, 0);
+}
+
+Result LuaRuntime::callStored(CallableRef ref, LuaValue& result)
+{
+    result = LuaValue{};
+    return callStored(ref, result, 1);
+}
+
+Result LuaRuntime::callStored(CallableRef ref, LuaValue& result, int results)
+{
+    if (m_state == nullptr) {
+        return Result::error(ErrorCode::Unknown, "Lua interpreter could not be created");
+    }
+
+    if (ref == 0) {
+        return Result::error(ErrorCode::InvalidArgument, "No function was stored");
+    }
+
+    lua_rawgeti(m_state, LUA_REGISTRYINDEX, ref);
+
+    if (!lua_isfunction(m_state, -1)) {
+        lua_pop(m_state, 1);
+        return Result::error(ErrorCode::InvalidState, "The stored value is no longer a function");
+    }
+
+    if (lua_pcall(m_state, 0, results, 0) != LUA_OK) {
+        return Result::error(ErrorCode::InvalidState, takeError(m_state));
+    }
+
+    if (results == 0) {
+        return Result::ok();
+    }
+
+    result = readValue(m_state, -1);
+    lua_pop(m_state, 1);
+
+    return Result::ok();
+}
+
+void LuaRuntime::releaseCallable(CallableRef ref)
+{
+    if (m_state == nullptr || ref == 0) {
+        return;
+    }
+
+    luaL_unref(m_state, LUA_REGISTRYINDEX, ref);
 }
 
 void LuaRuntime::registerFunction(std::string_view name, NativeFunction function, void* userData)

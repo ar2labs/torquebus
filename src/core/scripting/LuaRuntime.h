@@ -130,6 +130,28 @@ public:
                               LuaValue& result);
 
     /// Registers a C function as a global. `userData` is handed back to it.
+    /// A function value the script handed over, kept alive by the runtime.
+    ///
+    /// `every(100, function() ... end)` passes an anonymous function, which has
+    /// no name to call it by later. Lua's answer is the registry: the value is
+    /// stored under an integer key that keeps it from being collected, and this
+    /// is that key. Zero is never a valid one.
+    using CallableRef = int;
+
+    /// Takes the value at `stackIndex` and keeps it. Fails - returning 0 - when
+    /// it is not something that can be called, so a script passing a number
+    /// where a function belongs is told at the call site rather than at the
+    /// first tick.
+    [[nodiscard]] CallableRef storeCallable(int stackIndex);
+
+    /// Calls a stored function. The same rules as call(): pcall, never
+    /// lua_call, and one optional return value.
+    [[nodiscard]] Result callStored(CallableRef ref);
+    [[nodiscard]] Result callStored(CallableRef ref, LuaValue& result);
+
+    /// Lets a stored function be collected. Safe on 0.
+    void releaseCallable(CallableRef ref);
+
     using NativeFunction = int (*)(lua_State*);
     void registerFunction(std::string_view name, NativeFunction function, void* userData);
 
@@ -157,6 +179,9 @@ public:
     [[nodiscard]] std::size_t memoryBytes() const;
 
 private:
+    /// The one implementation behind both callStored() overloads.
+    [[nodiscard]] Result callStored(CallableRef ref, LuaValue& result, int results);
+
     /// The one implementation behind both call() overloads.
     [[nodiscard]] Result call(std::string_view name,
                               const std::vector<LuaValue>& arguments,

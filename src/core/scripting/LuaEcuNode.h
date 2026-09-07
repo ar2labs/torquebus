@@ -17,6 +17,8 @@
 // and the calls a script can make back:
 //
 //     emit(id, data, options)       -- put a frame on this node's output
+//     every(ms, function() ... end) -- one of many timers, each at its own rate
+//     cyclic(id, ms, data)          -- a message that sends itself
 //     set_timer(milliseconds)       -- how often on_timer runs
 //     log_message(text)             -- a line in the Output panel
 //     get_time_us()                 -- microseconds since the measurement began
@@ -195,6 +197,9 @@ private:
     static int luaEmitSignal(lua_State* state);
     static int luaDecode(lua_State* state);
     static int luaSetTimer(lua_State* state);
+    static int luaEvery(lua_State* state);
+    static int luaCyclic(lua_State* state);
+    static int luaStopCyclic(lua_State* state);
     static int luaLogMessage(lua_State* state);
     static int luaGetTimeMicroseconds(lua_State* state);
 
@@ -243,6 +248,35 @@ private:
 
     bool m_hasOnMessage{false};
     bool m_hasOnTimer{false};
+
+    /// One repeating job: a script function, or a message that sends itself.
+    ///
+    /// Both are here rather than in two lists because they are the same thing
+    /// with a different body, and a single list is what makes the ordering
+    /// between them the obvious one - due jobs run in the order they were
+    /// declared, every pass, whatever their rates.
+    struct Repeating final {
+        std::chrono::nanoseconds interval{};
+        std::chrono::steady_clock::time_point next{};
+
+        /// The function to call, for `every`.
+        LuaRuntime::CallableRef callable{0};
+
+        /// For `cyclic`: the frame to send, and optionally a function that
+        /// returns fresh bytes for it each time.
+        bool isMessage{false};
+        std::uint32_t identifier{0};
+        bool extended{false};
+        std::vector<std::uint8_t> payload;
+        LuaRuntime::CallableRef provider{0};
+
+        /// A stopped job stays in the list rather than being erased, so that
+        /// stop_cyclic() during a pass cannot invalidate the iteration - and so
+        /// that starting it again keeps its place.
+        bool stopped{false};
+    };
+
+    std::vector<Repeating> m_repeating;
 
     std::chrono::steady_clock::time_point m_started;
     std::chrono::steady_clock::time_point m_lastTimer;

@@ -5,6 +5,8 @@
 
 #include "core/scripting/LuaEcuNode.h"
 
+#include "core/scripting/LuaPrelude.h"
+
 #include <algorithm>
 #include <optional>
 #include <format>
@@ -54,6 +56,13 @@ Result LuaEcuNode::prepare(std::size_t maximumBatchSize)
 
     m_lua = std::make_unique<LuaRuntime>();
 
+    // A second prepare - a measurement restarted without rebuilding the graph -
+    // gets a fresh interpreter, so the references from the last run belong to a
+    // state that no longer exists. Dropped here rather than released, because
+    // releasing them against the new interpreter would unref numbers that mean
+    // something else in it.
+    m_repeating.clear();
+
     if (Result result = m_lua->openLibraries(); result.failed()) {
         return result;
     }
@@ -64,6 +73,9 @@ Result LuaEcuNode::prepare(std::size_t maximumBatchSize)
     m_lua->registerFunction("set_timer", &LuaEcuNode::luaSetTimer, this);
     m_lua->registerFunction("log_message", &LuaEcuNode::luaLogMessage, this);
     m_lua->registerFunction("get_time_us", &LuaEcuNode::luaGetTimeMicroseconds, this);
+    m_lua->registerFunction("every", &LuaEcuNode::luaEvery, this);
+    m_lua->registerFunction("cyclic", &LuaEcuNode::luaCyclic, this);
+    m_lua->registerFunction("stop_cyclic", &LuaEcuNode::luaStopCyclic, this);
 
     // Only when there is a diagnostic layer. A script calling uds_did on an ECU
     // with no addresses gets an error naming what is missing, rather than a
@@ -83,6 +95,13 @@ Result LuaEcuNode::prepare(std::size_t maximumBatchSize)
     // Always defined, even when empty, so a script can write
     // `parameters.can_id or 0x100` without first testing that the table exists.
     m_lua->setGlobalTable("parameters", m_scriptParameters);
+
+    // The prelude first, so a script can use tb.ramp() at the top level. Its
+    // failure would be a fault in this build rather than in anybody's script,
+    // which is why it is reported with its own name rather than the script's.
+    if (Result result = m_lua->load(kLuaPrelude, "prelude"); result.failed()) {
+        return result;
+    }
 
     if (Result result = m_lua->load(m_source, m_name); result.failed()) {
         // A script that will not compile stops the measurement from starting,
@@ -285,6 +304,89 @@ void LuaEcuNode::process(NodeContext& context)
         }
     }
 
+    // --- every() and cyclic(), when due -----------------------------------
+    //
+    // Before on_timer, and in declaration order, so that a script mixing them
+    // gets an ordering it can predict rather than one that depends on how this
+    // loop happens to be written.
+    if (!m_repeating.empty()) {
+        const auto now = std::chrono::steady_clock::now();
+
+        // Indexed rather than iterated: a job's body can call cyclic() or
+        // every(), which appends - and appending during a range-for is how a
+        // reallocation invalidates the iterator underneath it. New jobs are
+        // picked up on the next pass, which is also the behaviour that makes
+        // "declare a timer from a timer" not run away.
+        const std::size_t count = m_repeating.size();
+
+        for (std::size_t index = 0; index < count && !m_faulted; ++index) {
+            Repeating& job = m_repeating[index];
+
+            if (job.stopped || now < job.next) {
+                continue;
+            }
+
+            // Advanced from the deadline rather than from now, so a cycle time
+            // does not drift by however long the pass took. Caught up rather
+            // than repeated when the executor was late: a graph stalled for
+            // half a second must not then fire fifty 10 ms jobs in one pass.
+            job.next += job.interval;
+            if (job.next < now) {
+                job.next = now + job.interval;
+            }
+
+            if (!job.isMessage) {
+                if (Result result = m_lua->callStored(job.callable); result.failed()) {
+                    handleScriptFailure(result, "every");
+                } else {
+                    m_consecutiveErrors = 0;
+                }
+                continue;
+            }
+
+            // A message: fresh bytes if it has a provider, otherwise the ones
+            // it was declared with.
+            if (job.provider != 0) {
+                LuaValue produced;
+
+                if (Result result = m_lua->callStored(job.provider, produced);
+                    result.failed()) {
+                    handleScriptFailure(result, "cyclic");
+                    continue;
+                }
+
+                m_consecutiveErrors = 0;
+
+                if (produced.type != LuaValue::Type::String) {
+                    // A provider that returned nothing is a script saying "not
+                    // this time", which is a legitimate way to skip a cycle -
+                    // and not an error worth counting against it.
+                    continue;
+                }
+
+                job.payload.assign(produced.text.begin(), produced.text.end());
+            }
+
+            if (m_outgoing.size() >= kMaximumEmitsPerPass) {
+                continue;
+            }
+
+            CanFrame frame;
+            frame.identifier = job.identifier;
+            frame.format = job.extended ? CanFrameFormat::Extended : CanFrameFormat::Standard;
+            frame.channel = m_transmitChannel;
+            frame.direction = CanDirection::Tx;
+            frame.length = static_cast<std::uint8_t>(
+                std::min<std::size_t>(job.payload.size(), kMaxCanPayload));
+            frame.dlc = frame.length;
+
+            std::copy_n(job.payload.begin(), frame.length, frame.data.begin());
+
+            m_outgoing.push_back(frame);
+            ++m_emitted;
+        }
+    }
+
     // --- on_timer, when due ----------------------------------------------
     //
     // Checked once per pass, so the resolution is the executor's dispatch
@@ -456,6 +558,151 @@ int LuaEcuNode::luaUdsSession(lua_State* state)
     lua_pushinteger(state, static_cast<lua_Integer>(node->m_server->session()));
     lua_pushboolean(state, node->m_server->isUnlocked() ? 1 : 0);
     return 2;
+}
+
+int LuaEcuNode::luaEvery(lua_State* state)
+{
+    LuaEcuNode* node = self(state);
+    if (node == nullptr) {
+        return luaL_error(state, "every called outside an ECU node");
+    }
+
+    const lua_Integer milliseconds = luaL_checkinteger(state, 1);
+
+    if (milliseconds <= 0) {
+        // A period of zero is a loop that never yields, and a negative one is
+        // a typo. Both are refused where they were written.
+        return luaL_error(state, "every: a period is milliseconds and has to be positive");
+    }
+
+    const LuaRuntime::CallableRef callable = node->m_lua->storeCallable(2);
+
+    if (callable == 0) {
+        return luaL_error(state, "every: the second argument has to be a function");
+    }
+
+    Repeating job;
+    job.interval = std::chrono::milliseconds{milliseconds};
+    job.callable = callable;
+
+    // Due immediately, so a script that says every(1000, ...) sees its first
+    // call at the start of the measurement rather than a second into it. An ECU
+    // that goes quiet for its first cycle is a difference somebody notices.
+    job.next = std::chrono::steady_clock::now();
+
+    node->m_repeating.push_back(std::move(job));
+
+    lua_pushinteger(state, static_cast<lua_Integer>(node->m_repeating.size()));
+    return 1;
+}
+
+int LuaEcuNode::luaCyclic(lua_State* state)
+{
+    LuaEcuNode* node = self(state);
+    if (node == nullptr) {
+        return luaL_error(state, "cyclic called outside an ECU node");
+    }
+
+    const lua_Integer identifier = luaL_checkinteger(state, 1);
+    const lua_Integer milliseconds = luaL_checkinteger(state, 2);
+
+    if (milliseconds <= 0) {
+        return luaL_error(state, "cyclic: a cycle time is milliseconds and has to be positive");
+    }
+
+    Repeating job;
+    job.isMessage = true;
+    job.identifier = static_cast<std::uint32_t>(identifier);
+    job.extended = identifier > static_cast<lua_Integer>(kMaxStandardIdentifier);
+    job.interval = std::chrono::milliseconds{milliseconds};
+    job.next = std::chrono::steady_clock::now();
+
+    // Bytes, or a function that produces them. The second is what makes a
+    // cyclic message worth having: a counter that increments, a signal that
+    // moves, a payload built from the ECU's own state.
+    if (lua_isfunction(state, 3)) {
+        job.provider = node->m_lua->storeCallable(3);
+    } else {
+        std::size_t length = 0;
+        const char* payload = luaL_checklstring(state, 3, &length);
+
+        if (length > kMaxCanPayload) {
+            return luaL_error(state, "cyclic: %d bytes is more than a frame carries",
+                              static_cast<int>(length));
+        }
+
+        job.payload.assign(reinterpret_cast<const std::uint8_t*>(payload),
+                           reinterpret_cast<const std::uint8_t*>(payload) + length);
+    }
+
+    if (lua_istable(state, 4)) {
+        lua_getfield(state, 4, "extended");
+        if (!lua_isnil(state, -1)) {
+            job.extended = lua_toboolean(state, -1) != 0;
+        }
+        lua_pop(state, 1);
+    }
+
+    // Replacing a cycle already declared for the same identifier, rather than
+    // adding a second: two jobs sending 0x100 at different rates is never what
+    // anybody meant, and it is what a reloaded script would otherwise produce.
+    for (Repeating& existing : node->m_repeating) {
+        if (existing.isMessage && existing.identifier == job.identifier) {
+            node->m_lua->releaseCallable(existing.provider);
+            existing = std::move(job);
+            lua_pushboolean(state, 1);
+            return 1;
+        }
+    }
+
+    node->m_repeating.push_back(std::move(job));
+
+    lua_pushboolean(state, 1);
+    return 1;
+}
+
+int LuaEcuNode::luaStopCyclic(lua_State* state)
+{
+    LuaEcuNode* node = self(state);
+    if (node == nullptr) {
+        return luaL_error(state, "stop_cyclic called outside an ECU node");
+    }
+
+    const lua_Integer identifier = luaL_checkinteger(state, 1);
+
+    // Optional second argument: false stops it, true starts it again. A message
+    // that can be silenced and brought back is what fault injection is made of -
+    // "what does the rest of the network do when this ECU goes quiet?" - so
+    // stopping is not a deletion.
+    const bool stopped = lua_isnone(state, 2) || lua_toboolean(state, 2) == 0;
+
+    bool found = false;
+
+    for (Repeating& job : node->m_repeating) {
+        if (job.isMessage && job.identifier == static_cast<std::uint32_t>(identifier)) {
+            // Only a real change touches the schedule. Resuming a message that
+            // is already running used to push its next send a full cycle away,
+            // so a script calling stop_cyclic(id, true) from a fast timer -
+            // which is the ordinary way to say "keep going unless X" - silenced
+            // the message it was trying to keep alive. A no-op has to be a
+            // no-op.
+            if (job.stopped != stopped) {
+                job.stopped = stopped;
+
+                if (!stopped) {
+                    // Resumed on its own cycle rather than firing immediately,
+                    // so that stopping and starting does not produce a burst of
+                    // everything that was missed.
+                    job.next = std::chrono::steady_clock::now() + job.interval;
+                }
+            }
+
+            found = true;
+        }
+    }
+
+    lua_pushboolean(state, found ? 1 : 0);
+    return 1;
 }
 
 int LuaEcuNode::luaEmit(lua_State* state)
