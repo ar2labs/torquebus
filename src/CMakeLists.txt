@@ -51,6 +51,10 @@ add_library(torquebus_core STATIC
     core/pipeline/GraphDescription.cpp
 
     core/diagnostics/DiagnosticEvent.h
+    core/diagnostics/DiagnosticSession.h
+    core/diagnostics/DiagnosticSession.cpp
+    core/diagnostics/UdsClientNode.h
+    core/diagnostics/UdsClientNode.cpp
     core/diagnostics/UdsTypes.h
     core/diagnostics/UdsTypes.cpp
     core/diagnostics/UdsClient.h

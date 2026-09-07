@@ -12,6 +12,7 @@
 #include "core/transmit/TransmitListNode.h"
 #include "core/scripting/LuaEcuNode.h"
 #include "core/diagnostics/DiagnosticEvent.h"
+#include "core/diagnostics/UdsClientNode.h"
 #include "core/isotp/IsoTpNode.h"
 #include "core/log/LogNodes.h"
 #include "core/plot/SignalPlotNode.h"
@@ -605,6 +606,126 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                                   parameters.real("speed", 1.0),
                                                   "Log Replay",
                                                   context.replayControl);
+            return Result::ok();
+        });
+
+    catalog.registerType(
+        NodeTypeInfo{
+            .typeName = "uds.client",
+            .displayName = "UDS Client",
+            .category = "Diagnostics",
+            .description = "Talks ISO 14229 to an ECU: sessions, identifiers, DTCs. "
+                           "Carries its own ISO-TP transport.",
+            .inputs = {PortDescriptor{"frames", PortType::Frames},
+                       PortDescriptor{"requests", PortType::Events}},
+            .outputs = {PortDescriptor{"frames", PortType::Frames},
+                        PortDescriptor{"messages", PortType::Events}},
+            .parameters =
+                {
+                    ParameterDescriptor{.name = "transmitId",
+                                        .displayName = "Request ID",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description =
+                                            "Identifier requests go out on. 2016 (0x7E0) "
+                                            "is the legislated tester address."},
+                    ParameterDescriptor{.name = "receiveId",
+                                        .displayName = "Response ID",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description = "Identifier the ECU answers on."},
+                    ParameterDescriptor{.name = "extendedId",
+                                        .displayName = "29-bit identifiers",
+                                        .type = ParameterValue::Type::Boolean,
+                                        .required = false,
+                                        .description = "Heavy vehicles use 29-bit addresses."},
+                    ParameterDescriptor{.name = "channel",
+                                        .displayName = "Channel",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description = "Application channel, 0 for CAN 1."},
+                    ParameterDescriptor{.name = "padding",
+                                        .displayName = "Pad frames",
+                                        .type = ParameterValue::Type::Boolean,
+                                        .required = false,
+                                        .description =
+                                            "Fill every frame to its full length. Many "
+                                            "ECUs ignore a frame that is not padded."},
+                    ParameterDescriptor{.name = "canFd",
+                                        .displayName = "CAN FD",
+                                        .type = ParameterValue::Type::Boolean,
+                                        .required = false,
+                                        .description = "Send with FD frames."},
+                    ParameterDescriptor{.name = "p2Ms",
+                                        .displayName = "P2 timeout (ms)",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description =
+                                            "How long the ECU has to answer. 50 ms is the "
+                                            "standard's figure."},
+                    ParameterDescriptor{.name = "p2StarMs",
+                                        .displayName = "P2* timeout (ms)",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description =
+                                            "How long after the ECU says it is still "
+                                            "working. 5000 ms."},
+                    ParameterDescriptor{.name = "keepSessionAlive",
+                                        .displayName = "Hold the session open",
+                                        .type = ParameterValue::Type::Boolean,
+                                        .required = false,
+                                        .description =
+                                            "Send TesterPresent so a non-default session "
+                                            "does not expire while nobody is asking "
+                                            "anything."},
+                },
+        },
+        [](const NodeParameters& parameters, const NodeBuildContext& context,
+           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
+            static_cast<void>(nodeId);
+
+            IsoTpAddress address;
+            address.transmitId = static_cast<std::uint32_t>(parameters.integer("transmitId", 0x7E0));
+            address.receiveId = static_cast<std::uint32_t>(parameters.integer("receiveId", 0x7E8));
+            address.format = parameters.boolean("extendedId", false) ? CanFrameFormat::Extended
+                                                                     : CanFrameFormat::Standard;
+            address.channel = static_cast<std::uint8_t>(parameters.integer("channel", 0));
+
+            IsoTpConfig transport;
+            transport.padding = parameters.boolean("padding", true);
+            transport.canFd = parameters.boolean("canFd", false);
+
+            UdsTiming timing;
+            timing.p2Ms = static_cast<std::uint32_t>(parameters.integer("p2Ms", 50));
+            timing.p2StarMs = static_cast<std::uint32_t>(parameters.integer("p2StarMs", 5000));
+            timing.keepSessionAlive = parameters.boolean("keepSessionAlive", true);
+
+            out = std::make_unique<UdsClientNode>(address, transport, timing,
+                                                  context.diagnosticSession);
+            return Result::ok();
+        },
+        [](const NodeParameters& parameters, std::string_view nodeId) -> Result {
+            // P2 is checked because it is the one timing value somebody is
+            // tempted to "fix" by typing a bigger number, and a P2 above P2*
+            // makes the extended deadline meaningless.
+            const std::int64_t p2 = parameters.integer("p2Ms", 50);
+            const std::int64_t p2Star = parameters.integer("p2StarMs", 5000);
+
+            if (p2 <= 0 || p2Star <= 0) {
+                return Result::error(ErrorCode::InvalidArgument,
+                                     std::format("Block '{}': a timeout has to be positive.",
+                                                 nodeId));
+            }
+
+            if (p2 > p2Star) {
+                return Result::error(
+                    ErrorCode::InvalidArgument,
+                    std::format("Block '{}': P2 ({} ms) is longer than P2* ({} ms). P2* is "
+                                "the *extended* deadline the ECU gets after saying it is "
+                                "still working, so it cannot be the shorter of the two.",
+                                nodeId, p2, p2Star));
+            }
+
             return Result::ok();
         });
 

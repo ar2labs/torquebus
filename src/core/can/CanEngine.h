@@ -38,6 +38,7 @@
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "core/pipeline/PipelineGraph.h"
+#include "core/diagnostics/DiagnosticSession.h"
 #include "core/log/ReplayControl.h"
 #include "core/log/TraceLog.h"
 #include "core/plot/SignalSeries.h"
@@ -294,6 +295,15 @@ public:
     [[nodiscard]] SignalSeriesStore& plotStore() noexcept { return m_plotStore; }
     [[nodiscard]] const SignalSeriesStore& plotStore() const noexcept { return m_plotStore; }
 
+    /// The diagnostic conversation the console drives. Owned here for the same
+    /// reason the replay transport is: it belongs to the measurement, and the
+    /// GUI holds it while the executor thread reads it.
+    [[nodiscard]] DiagnosticSession& diagnosticSession() noexcept { return m_diagnostics; }
+    [[nodiscard]] const DiagnosticSession& diagnosticSession() const noexcept
+    {
+        return m_diagnostics;
+    }
+
     /// The transport every replay block in this measurement obeys.
     ///
     /// Owned here for the same reason the trace store and the plot store are:
@@ -358,6 +368,7 @@ private:
     SignalSeriesStore m_plotStore;
     TraceLogWriter m_logWriter;
     ReplayControl m_replayControl;
+    DiagnosticSession m_diagnostics;
 
     mutable std::mutex m_sinksMutex;
     std::vector<Registration<FrameSink>> m_frameSinks;

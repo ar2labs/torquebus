@@ -328,6 +328,11 @@ void CanEngine::setGraphDescription(GraphDescription description,
         m_replayControl.resetForRun();
         context.replayControl = &m_replayControl;
 
+        // Cleared by the node's prepare() rather than here, because a graph
+        // with no UDS block should leave the console saying "nothing to ask
+        // through" instead of silently looking ready.
+        context.diagnosticSession = &m_diagnostics;
+
         // Null unless a recording was started, which is what makes a `can.log`
         // block fail to build under Start and succeed under Record.
         context.logWriter = m_logWriter.isOpen() ? &m_logWriter : nullptr;
