@@ -81,12 +81,15 @@
       "configurePreset": "windows-msvc-vs",
       "configuration": "Debug",
       "output": { "outputOnFailure": true },
+      "execution": { "jobs": 4 },
       "filter": { "exclude": { "label": "hardware" } }
     },
     {
       "name": "windows-msvc-debug",
       "configurePreset": "windows-msvc-debug",
+      "description": "catch_discover_tests registers every Catch2 case as its own CTest test, so the 520 tests are 520 process launches and the run is dominated by startup, not by the tests - which take about 10s of actual work. Serially that is about 31s; 4 jobs brings it to about 8s and one job per processor, which is what jobs 0 means here, to about 4.5s. Any number is safe: the fixtures in TraceExportTests, TraceLogTests and NodePathTests build their temp paths through UniqueTempPath.h, which mixes in a per-process tag. Before that they used a counter that restarted in every process, and concurrent cases deleted each other files in TEMP.",
       "output": { "outputOnFailure": true },
+      "execution": { "jobs": 4 },
       "filter": { "exclude": { "label": "hardware" } }
     }
   ]
