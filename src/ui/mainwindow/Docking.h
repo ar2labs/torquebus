@@ -87,6 +87,20 @@ void addDockTo(DockMainWindowBase* window,
                DockLocation location,
                QSize initialSize = {});
 
+/// Places `dock` beside one particular panel rather than beside the window.
+///
+/// The difference matters as soon as a layout has more than three regions.
+/// `addDockTo(..., Bottom)` puts a panel across the *whole* width of the
+/// window, under everything; this splits `relativeTo` alone. That is what makes
+/// the console sit under the analysis stack while the explorer column runs the
+/// full height beside it - an arrangement that cannot be expressed at all in
+/// terms of the window as a whole.
+void addDockNextTo(DockMainWindowBase* window,
+                   DockWidget* dock,
+                   DockLocation location,
+                   DockWidget* relativeTo,
+                   QSize initialSize = {});
+
 /// Serialises the current arrangement of every panel, including floating
 /// windows and panels the user moved to a second monitor.
 [[nodiscard]] QByteArray saveDockLayout();

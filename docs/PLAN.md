@@ -1484,9 +1484,21 @@ O que já foi feito:
   **Script** com número de linha, coloração e a linha do erro marcada. A regra:
   *um script que falha ao carregar deixa o que está rodando em paz.*
 
-O que falta:
+- **Sequências de teste** — o bloco **Test Sequence**: `test(name, fn)`,
+  `expect`/`expect_frame`/`expect_silence`, `assert_*`, `send`, `wait`, e um
+  relatório de aprovado/reprovado/erro por caso. Cada caso roda numa corrotina
+  Lua, então a sequência é escrita na ordem em que as coisas acontecem sem que o
+  executor jamais bloqueie. Três resultados, não dois: uma falha é sobre a rede,
+  um erro é sobre o teste, e confundir os dois manda a pessoa errada para a
+  bancada.
 
-- **Sequências de teste** — `expect`/`assert` com relatório de aprovado/reprovado.
+- **Painel Test** — o resumo primeiro (que é a resposta inteira), uma linha por
+  caso, e cada linha abre nas verificações que fez. Exporta a execução em
+  Markdown, porque um veredito que não sai da janela é um veredito sobre o qual
+  ninguém mais pode agir. O resultado continua na tela depois do Stop, que é
+  quando ele é lido de verdade.
+
+**v0.13 fechada.**
 
 ---
 

@@ -121,6 +121,7 @@ because each pins something that was got wrong once:
 | `[uds][dtc]` | A trouble code shown as a raw number instead of P0128, and - worse - codes invented out of a response that is not a DTC list |
 | `[isotp][graph]`, `[isotp][validate]` | A request typed into a block never reaching the bus, a periodic request repeating when it was asked once, half a hex byte accepted at Start instead of refused on the canvas |
 | `[isotp]` | The failures of ISO 15765-2, which are all silences: a sequence number that does not wrap at sixteen, STmin's microsecond range read as milliseconds, a block size ignored, an unpadded frame an ECU will not answer, a four-gigabyte length field taken at its word |
+| `[lua][sequence]` | A test framework reporting a pass it did not earn, which is worse than no framework because somebody signs off on it: a timeout that passes quietly, a sequence declaring nothing that reads green, a nil index filed as a failure of the network, a `where` filter that gives up on the first frame it rejects, a run stopped halfway counted as passed |
 | `[lua][reload]` | The promise the script editor is built on: a half-typed edit taking a running ECU off the bus, a failed `on_enable` leaving half its timers behind, a reload restarting the measurement clock, a faulted node that no edit can revive, an `on_disable` run for a reload that was refused |
 | `[recent]`, `[workspace]`, `[hardware]` | A settings file edited by hand producing a menu entry nobody can open, a channel order that renumbers itself when an adapter is unplugged, a workspace from an older panel set restored with panels missing |
 | `[statistics][bitrate]` | The default bitrate drifting apart between the three places that spell it |
@@ -143,11 +144,19 @@ panels.
 
 **Worked:**
 
-- The window opens with **Project Explorer** left, **Properties** and **Block**
-  tabbed right, the analysis stack in the middle (**CAN Trace**, **Pipeline**,
-  **Transmit**, **Graph**, **Statistics**, **Diagnostics**) and **Output**
-  across the bottom.
-- Each panel shows its name **once**, in a tab. No title bar above the tab.
+- The window opens with **one column on the left** — **Project Explorer** above,
+  **Properties** and **Block** tabbed below it — the analysis stack filling the
+  middle (**CAN Trace**, **DBC Explorer**, **Pipeline**, **Transmit**, **Graph**,
+  **Playback**, **Statistics**, **Diagnostics**, **Script**), and **Output**
+  under that stack rather than across the whole window: the left column runs the
+  full height beside it.
+- Each panel shows its name **once**, in a tab. No title bar above the tab, and
+  **no buttons at the end of the tab strip.** The blank squares that used to sit
+  there were close and float buttons the library builds without asking the view
+  factory for an icon; every panel is toggled from the **View** menu instead.
+- The toolbar ends with an **Output** button that hides and shows the console
+  (Ctrl+Alt+O). It is the dock's own toggle action, so the button, the View menu
+  entry and the panel are always in agreement.
 - The tab strip is *darker* than the panel body; the active tab is the same
   colour as the panel and carries an accent line on top.
 - The gaps between panels are visible bars, about 5 px, in **both**
@@ -866,6 +875,57 @@ is about the promise that a broken edit cannot take a running ECU off the bus.
 **Watch for:** a reload landing on the *next* measurement. Starting a
 measurement clears the library, so an edit offered while the last one was
 stopping cannot arrive as a script nobody asked for.
+
+---
+
+## 5q. A test sequence
+
+The other half of v0.13. The whole point is a verdict somebody can hand to
+somebody else, so the steps that matter are the ones where a wrong answer would
+still look green.
+
+1. Drop a **Test Sequence** block, point it at
+   `examples/scripts/sequence_engine.lua`, and wire **CAN Channel → Test
+   Sequence → CAN Transmit**. Put a **Lua ECU** on the same channel so there is
+   something to test.
+2. **Start**. The **Test** panel comes forward by itself - a graph with a
+   sequence in it is a run somebody started in order to read a verdict - and
+   fills in one case at a time. The same lines appear in the Output panel,
+   beside the frames that caused them.
+   * The summary at the top turns red **as soon as the first failure lands**,
+     not only at the end: a run that is already lost should say so while there
+     is still time to stop it.
+   * Opening a case row shows the checks it made. Failing cases open
+     themselves; passing ones stay folded.
+   * With no sequence in the graph the panel says so in words. An empty table
+     reads as "everything passed", which is the one thing it must not mean.
+   * **Export...** writes the run as Markdown - summary, a table of cases, and
+     the checks of everything that did not pass.
+   * Press **Stop**: the verdict stays on screen. That is when it is read.
+3. Cases run **in order and one at a time**. Watch the timestamps: no case
+   starts before the previous one finished.
+4. Break one deliberately - change `0x100` to `0x101` in the sequence. That case
+   now fails on its timeout and says so; **the ones after it still run.** If the
+   run stops at the first failure, that is a defect: a suite that stops has to
+   be repeated once per bug.
+5. Break the *test* rather than the network - add `local x = nil; return x.y` to
+   a case. It is reported as **an error**, not a failure. The distinction is
+   which person the report is for.
+6. Empty the sequence file. At Start it says the sequence declared no cases, in
+   the error colour. It must not read as a passing run - "0 of 0 passed" is the
+   most dangerous sentence a test report can print.
+7. Press **Stop** while a case is waiting on a long timeout. The case is
+   recorded as an error, not dropped and not passed.
+8. With the sequence running, look at the **Statistics** panel: cases declared,
+   passed, failed, in error, and the number of checks made. The last one is
+   worth a glance - a suite whose check count is far lower than expected is a
+   suite that is not checking what it looks like it is checking.
+9. The measurement is **not** affected: the trace keeps filling, the other
+   blocks keep running, and a failing test changes nothing on the bus.
+
+**Watch for:** a case with a `where` filter on a busy identifier. It must keep
+waiting for a frame that matches, up to its original deadline - not give up on
+the first frame it rejects, and not restart the clock on every rejection.
 
 ---
 

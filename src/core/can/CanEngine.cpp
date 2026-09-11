@@ -339,6 +339,13 @@ void CanEngine::setGraphDescription(GraphDescription description,
         m_scriptLibrary.clear();
         context.scriptLibrary = &m_scriptLibrary;
 
+        // Not cleared here: the node's prepare() calls begin() when there is a
+        // sequence to run, and clearing here as well would wipe the last run's
+        // verdict off a panel the moment somebody pressed Start on a graph that
+        // has no test block - which reads as "the tests are gone" rather than
+        // "this graph has none".
+        context.testReport = &m_testReport;
+
         // Null unless a recording was started, which is what makes a `can.log`
         // block fail to build under Start and succeed under Record.
         context.logWriter = m_logWriter.isOpen() ? &m_logWriter : nullptr;
