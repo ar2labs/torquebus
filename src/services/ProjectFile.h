@@ -23,6 +23,7 @@
 #pragma once
 
 #include "core/Result.h"
+#include "core/dashboard/DashboardDescription.h"
 #include "core/transmit/TransmitList.h"
 #include "core/pipeline/GraphDescription.h"
 
@@ -46,7 +47,10 @@ public:
     /// and drop them on the next save - which is exactly what the version check
     /// below refuses to let happen. Older files still load; only *newer* ones
     /// are refused, and with a message that says why.
-    static constexpr int kFormatVersion = 2;
+    /// Bumped to 3 when the dashboard joined it, for the same reason: an older
+    /// build would open the project, draw no dashboard, and write the file back
+    /// without one.
+    static constexpr int kFormatVersion = 3;
 
     /// The extension, without the dot.
     [[nodiscard]] static QString extension() { return QStringLiteral("tbsproj"); }
@@ -61,21 +65,33 @@ public:
     /// crash during today's save is not a trade anyone agreed to.
     /// Writes the project: the pipeline, and the transmit list beside it.
     ///
-    /// Two out-parameters rather than a Project struct, for now. When databases
-    /// and workspaces join the file this wants to become one object; two is not
-    /// yet enough to justify the indirection.
+    /// Three out-parameters now, and this is the last one that goes in as a
+    /// parameter: when the database list joins the file, these become a
+    /// document object. Three is where a fourth would start being passed in the
+    /// wrong order by somebody, and no compiler would notice.
+    ///
+    /// Not defaulted, deliberately. An overload that left the dashboard out
+    /// would compile at every existing call site and silently erase a dashboard
+    /// on the next save, which is the worst kind of convenience.
     [[nodiscard]] static Result save(const QString& path,
                                      const GraphDescription& pipeline,
-                                     const TransmitList& transmit);
+                                     const TransmitList& transmit,
+                                     const DashboardDescription& dashboard);
 
     /// Reads `path` into `pipeline`, replacing its contents.
     ///
     /// On failure `pipeline` is left untouched: a half-read project would leave
     /// the canvas showing something that was never saved.
-    /// Reads a project. Both arguments are left untouched when it fails.
+    /// Reads a project. Every argument is left untouched when it fails.
+    ///
+    /// A file with no dashboard in it - every project written before this
+    /// version - loads with an empty one rather than failing. That is what the
+    /// version field is for, and it is the whole reason an older project still
+    /// opens here.
     [[nodiscard]] static Result load(const QString& path,
                                      GraphDescription& pipeline,
-                                     TransmitList& transmit);
+                                     TransmitList& transmit,
+                                     DashboardDescription& dashboard);
 };
 
 } // namespace torquebus::services

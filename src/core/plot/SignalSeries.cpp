@@ -221,6 +221,29 @@ void SignalSeriesStore::readWindows(std::span<const SeriesId> ids,
     }
 }
 
+bool SignalSeriesStore::latest(SeriesId id, double& value,
+                               std::uint64_t& timestampNs) const
+{
+    const std::lock_guard lock{m_mutex};
+
+    if (id == kNoSeries || id >= m_series.size()) {
+        return false;
+    }
+
+    const SignalSeries& series = m_series[id];
+
+    if (series.empty()) {
+        return false;
+    }
+
+    const SignalSample& sample = series.newest();
+
+    value = sample.value;
+    timestampNs = sample.timestampNs;
+
+    return true;
+}
+
 std::uint64_t SignalSeriesStore::newestTimestampNs() const
 {
     const std::lock_guard lock{m_mutex};

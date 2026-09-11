@@ -346,6 +346,11 @@ void CanEngine::setGraphDescription(GraphDescription description,
         // "this graph has none".
         context.testReport = &m_testReport;
 
+        // Deliberately not cleared here, unlike the script library: the values
+        // are the state of the simulated vehicle, and Start is not a reason to
+        // forget what somebody set.
+        context.variables = &m_variables;
+
         // Null unless a recording was started, which is what makes a `can.log`
         // block fail to build under Start and succeed under Record.
         context.logWriter = m_logWriter.isOpen() ? &m_logWriter : nullptr;

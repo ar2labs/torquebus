@@ -13,6 +13,7 @@
 #pragma once
 
 #include "core/can/CanTypes.h"
+#include "core/dashboard/DashboardDescription.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "core/transmit/TransmitList.h"
@@ -45,6 +46,8 @@ class DiagnosticsPanel;
 class GraphPanel;
 class OutputPanel;
 class PlaybackPanel;
+class DashboardPanel;
+class DashboardWidgetEditor;
 class ScriptEditorPanel;
 class TestPanel;
 class ProjectExplorerPanel;
@@ -189,6 +192,12 @@ private:
     DiagnosticsPanel* m_diagnosticsPanel{nullptr};
     ScriptEditorPanel* m_scriptEditor{nullptr};
     TestPanel* m_testPanel{nullptr};
+    DashboardPanel* m_dashboardPanel{nullptr};
+    DashboardWidgetEditor* m_dashboardEditor{nullptr};
+
+    /// The dashboard the project holds, edited in place by the panel - the same
+    /// arrangement the pipeline has with the canvas.
+    DashboardDescription m_dashboard;
 
     // --- The pipeline the canvas edits ------------------------------------
     //
@@ -252,6 +261,8 @@ private:
     DockWidget* m_diagnosticsDock{nullptr};
     DockWidget* m_scriptDock{nullptr};
     DockWidget* m_testDock{nullptr};
+    DockWidget* m_dashboardDock{nullptr};
+    DockWidget* m_dashboardPropertiesDock{nullptr};
     DockWidget* m_outputDock{nullptr};
 
     QVector<DockWidget*> m_allDocks;
@@ -277,6 +288,7 @@ private:
     QAction* m_actionPreferences{nullptr};
     QAction* m_actionResetLayout{nullptr};
     QAction* m_actionInspectChrome{nullptr};
+    QAction* m_actionEditDashboard{nullptr};
     QAction* m_actionAbout{nullptr};
     QAction* m_actionAboutQt{nullptr};
 

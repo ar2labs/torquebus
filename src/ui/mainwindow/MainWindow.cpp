@@ -13,6 +13,8 @@
 #include "ui/common/AnimatedToolButton.h"
 #include "ui/database/DatabasePanel.h"
 #include "ui/diagnostics/DiagnosticsPanel.h"
+#include "ui/dashboard/DashboardPanel.h"
+#include "ui/dashboard/DashboardWidgetEditor.h"
 #include "ui/scripting/ScriptEditorPanel.h"
 #include "ui/testing/TestPanel.h"
 #include "ui/graph/GraphPanel.h"
@@ -85,6 +87,8 @@ constexpr auto kDockStatistics  = "torquebus.dock.statistics";
 constexpr auto kDockDiagnostics = "torquebus.dock.diagnostics";
 constexpr auto kDockScript      = "torquebus.dock.script";
 constexpr auto kDockTest        = "torquebus.dock.test";
+constexpr auto kDockDashboard   = "torquebus.dock.dashboard";
+constexpr auto kDockDashboardProperties = "torquebus.dock.dashboard.widget";
 constexpr auto kDockOutput      = "torquebus.dock.output";
 
 // Starting geometry of the default arrangement. Wide enough for a channel name
@@ -120,7 +124,8 @@ constexpr auto kBullet = "●";
 ///   8  v0.13 One column on the left instead of two flanking margins, and the
 ///            console under the analysis stack rather than across the window
 ///   9  v0.13 Test joins the analysis stack
-constexpr int kDockLayoutVersion = 9;
+///  10  v0.14 Dashboard joins it, and the widget form joins the left column
+constexpr int kDockLayoutVersion = 10;
 
 /// Converts one of the frozen dock names above into a QString.
 ///
@@ -511,11 +516,58 @@ void MainWindow::createPanels()
     m_testDock = createDockWidget(dockName(kDockTest), tr("Test"), m_testPanel,
                                   icon("test"));
 
+    // --- The dashboard, and the form that edits one widget of it -----------
+    m_dashboardPanel = new DashboardPanel(m_dashboard);
+    m_dashboardPanel->setPlotStore(&m_controller->engine().plotStore());
+    m_dashboardPanel->setVariables(&m_controller->engine().variables());
+
+    m_dashboardEditor = new DashboardWidgetEditor(m_dashboard);
+
+    connect(m_dashboardPanel, &DashboardPanel::dashboardEdited, this, [this] {
+        markDirty();
+
+        // A widget that was just dragged is the one the form is showing, and
+        // the drag changed its geometry - so the form is read back rather than
+        // left describing where the widget used to be.
+        m_dashboardEditor->refreshFromDescription();
+    });
+
+    connect(m_dashboardPanel, &DashboardPanel::selectionChanged, this,
+            [this](const QString& widgetId) {
+                m_dashboardEditor->showWidget(widgetId);
+
+                if (!widgetId.isEmpty() && m_dashboardPropertiesDock != nullptr) {
+                    m_dashboardPropertiesDock->setAsCurrentTab();
+                }
+            });
+
+    connect(m_dashboardPanel, &DashboardPanel::reported, this,
+            [this](const QString& text, bool isError) {
+                if (isError) {
+                    m_output->appendError(text);
+                } else {
+                    m_output->appendInfo(text);
+                }
+            });
+
+    connect(m_dashboardEditor, &DashboardWidgetEditor::widgetEdited, this,
+            [this](const QString&) {
+                markDirty();
+                m_dashboardPanel->update();
+            });
+
+    m_dashboardDock = createDockWidget(dockName(kDockDashboard), tr("Dashboard"),
+                                       m_dashboardPanel, icon("gauge"));
+
+    m_dashboardPropertiesDock = createDockWidget(dockName(kDockDashboardProperties),
+                                                 tr("Widget"), m_dashboardEditor,
+                                                 icon("properties"));
+
     m_allDocks = {m_projectDock,     m_propertiesDock,  m_nodePropertiesDock,
                   m_traceDock,       m_databaseDock,    m_pipelineDock,
                   m_transmitDock,    m_graphDock,       m_playbackDock,
                   m_statisticsDock,  m_diagnosticsDock, m_scriptDock,
-                  m_testDock,
+                  m_testDock,        m_dashboardDock,   m_dashboardPropertiesDock,
                   m_outputDock};
 }
 
@@ -628,6 +680,32 @@ void MainWindow::createActions()
     connect(m_actionHardwareConfiguration, &QAction::triggered, this,
             &MainWindow::onHardwareConfiguration);
 
+    // The dashboard's two modes, as one checkable action rather than two
+    // buttons: a mode is a state, and a state with two ways to say it is a
+    // state that can disagree with itself.
+    //
+    // On the menu and nowhere else, for now. It belongs beside the dashboard
+    // and there is no room on a toolbar that is already the width of the
+    // measurement controls.
+    m_actionEditDashboard = new QAction(tr("&Edit Dashboard"), this);
+    m_actionEditDashboard->setCheckable(true);
+    m_actionEditDashboard->setToolTip(
+        tr("In Edit, widgets are dragged, resized and added, and the controls do "
+           "not respond - dragging a slider into place must not send the values it "
+           "sweeps through on the way."));
+
+    connect(m_actionEditDashboard, &QAction::toggled, this, [this](bool editing) {
+        if (m_dashboardPanel != nullptr) {
+            m_dashboardPanel->setEditing(editing);
+        }
+
+        // Brought forward: switching to Edit and seeing nothing change because
+        // the dashboard is behind another tab is a confusing half-second.
+        if (editing && m_dashboardDock != nullptr) {
+            m_dashboardDock->setAsCurrentTab();
+        }
+    });
+
     // Everything whose module has not landed yet reports honestly instead of
     // doing nothing when clicked.
     connect(m_actionReplay, &QAction::triggered, this, &MainWindow::onNotImplemented);
@@ -699,6 +777,9 @@ void MainWindow::createMenus()
     simulationMenu->addAction(m_transmitDock->toggleAction());
     simulationMenu->addAction(m_scriptDock->toggleAction());
     simulationMenu->addAction(m_testDock->toggleAction());
+    simulationMenu->addSeparator();
+    simulationMenu->addAction(m_dashboardDock->toggleAction());
+    simulationMenu->addAction(m_actionEditDashboard);
 
     diagnosticsMenu->addAction(m_diagnosticsDock->toggleAction());
 
@@ -866,6 +947,7 @@ void MainWindow::applyDefaultLayout()
     m_traceDock->addDockWidgetAsTab(m_diagnosticsDock);
     m_traceDock->addDockWidgetAsTab(m_scriptDock);
     m_traceDock->addDockWidgetAsTab(m_testDock);
+    m_traceDock->addDockWidgetAsTab(m_dashboardDock);
     m_traceDock->setAsCurrentTab();
 
     // 2. One column down the left, not two columns flanking the centre.
@@ -885,6 +967,11 @@ void MainWindow::applyDefaultLayout()
                   QSize{0, kSidePanelSplit});
 
     m_propertiesDock->addDockWidgetAsTab(m_nodePropertiesDock);
+
+    // Beside the block editor, not beside the dashboard: it is the same job -
+    // "the thing selected, described" - and the left column is where that
+    // question is already answered.
+    m_propertiesDock->addDockWidgetAsTab(m_dashboardPropertiesDock);
     m_propertiesDock->setAsCurrentTab();
 
     // 3. The console goes under the *analysis stack*, not under the window.
@@ -1127,7 +1214,8 @@ void MainWindow::onThemeChanged(const Theme& theme)
         {m_statisticsDock, "statistics"},  {m_diagnosticsDock, "diagnostics"},
         {m_databaseDock, "database"},      {m_pipelineDock, "graph"},
         {m_scriptDock, "script"},          {m_testDock, "test"},
-        {m_playbackDock, "replay"},
+        {m_playbackDock, "replay"},        {m_dashboardDock, "gauge"},
+        {m_dashboardPropertiesDock, "properties"},
     };
 
     for (const auto& [dock, name] : dockIcons) {
@@ -1544,6 +1632,7 @@ void MainWindow::onNewProject()
     }
 
     m_pipeline.clear();
+    m_dashboard.clear();
     m_projectPath.clear();
     m_dirty = false;
 
@@ -1571,6 +1660,15 @@ void MainWindow::onNewProject()
         m_scriptEditor->setBasePath(m_projectPath.isEmpty()
                                         ? QString{}
                                         : QFileInfo{m_projectPath}.absolutePath());
+    }
+
+    // The dashboard was replaced wholesale too, and the panel is holding a
+    // selection that belonged to the last one.
+    if (m_dashboardPanel != nullptr) {
+        m_dashboardPanel->reload();
+    }
+    if (m_dashboardEditor != nullptr) {
+        m_dashboardEditor->clear();
     }
 
     updateWindowTitle();
@@ -1734,7 +1832,8 @@ void MainWindow::openProject(const QString& path)
     // Loaded into the live description. ProjectFile leaves it untouched when
     // the read fails, so a broken file cannot leave the canvas showing half a
     // pipeline that was never saved.
-    if (const Result result = services::ProjectFile::load(path, m_pipeline, m_transmitList);
+    if (const Result result =
+            services::ProjectFile::load(path, m_pipeline, m_transmitList, m_dashboard);
         result.failed()) {
         m_output->appendError(tr("Could not open the project: %1")
                                   .arg(QString::fromStdString(std::string{result.message()})));
@@ -1773,6 +1872,15 @@ void MainWindow::openProject(const QString& path)
                                         : QFileInfo{m_projectPath}.absolutePath());
     }
 
+    // The dashboard was replaced wholesale too, and the panel is holding a
+    // selection that belonged to the last one.
+    if (m_dashboardPanel != nullptr) {
+        m_dashboardPanel->reload();
+    }
+    if (m_dashboardEditor != nullptr) {
+        m_dashboardEditor->clear();
+    }
+
     m_recentProjects.add(path);
     rebuildRecentMenu();
     m_settings.setValue(QString::fromLatin1(services::keys::kLastProject), m_projectPath);
@@ -1785,7 +1893,8 @@ void MainWindow::openProject(const QString& path)
 
 bool MainWindow::writeProject(const QString& path)
 {
-    if (const Result result = services::ProjectFile::save(path, m_pipeline, m_transmitList);
+    if (const Result result =
+            services::ProjectFile::save(path, m_pipeline, m_transmitList, m_dashboard);
         result.failed()) {
         m_output->appendError(tr("Could not save the project: %1")
                                   .arg(QString::fromStdString(std::string{result.message()})));

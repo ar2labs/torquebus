@@ -15,6 +15,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "core/dashboard/DashboardDescription.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "core/transmit/TransmitList.h"
@@ -94,6 +95,19 @@ namespace {
     return list;
 }
 
+/// The same, for the dashboard, in the cases that are not about one.
+///
+/// A fresh one per call would do - DashboardDescription is copyable, unlike a
+/// transmit list - but the two read alike at the call site this way, and a
+/// reader should not have to work out why one is a reference and the other is
+/// not.
+[[nodiscard]] DashboardDescription& noDashboard()
+{
+    static DashboardDescription dashboard;
+    dashboard.clear();
+    return dashboard;
+}
+
 } // namespace
 
 TEST_CASE("A pipeline survives a save and a load unchanged", "[project]")
@@ -104,10 +118,10 @@ TEST_CASE("A pipeline survives a save and a load unchanged", "[project]")
     const GraphDescription original = richPipeline();
     const QString path = pathIn(directory, QStringLiteral("round-trip.tbsproj"));
 
-    REQUIRE(ProjectFile::save(path, original, scratch()).succeeded());
+    REQUIRE(ProjectFile::save(path, original, scratch(), noDashboard()).succeeded());
 
     GraphDescription reopened;
-    const Result result = ProjectFile::load(path, reopened, scratch());
+    const Result result = ProjectFile::load(path, reopened, scratch(), noDashboard());
 
     INFO(std::string{result.message()});
     REQUIRE(result.succeeded());
@@ -131,11 +145,11 @@ TEST_CASE("Saving twice produces byte-identical files", "[project]")
     const QString first = pathIn(directory, QStringLiteral("a.tbsproj"));
     const QString second = pathIn(directory, QStringLiteral("b.tbsproj"));
 
-    REQUIRE(ProjectFile::save(first, pipeline, scratch()).succeeded());
+    REQUIRE(ProjectFile::save(first, pipeline, scratch(), noDashboard()).succeeded());
 
     GraphDescription reopened;
-    REQUIRE(ProjectFile::load(first, reopened, scratch()).succeeded());
-    REQUIRE(ProjectFile::save(second, reopened, scratch()).succeeded());
+    REQUIRE(ProjectFile::load(first, reopened, scratch(), noDashboard()).succeeded());
+    REQUIRE(ProjectFile::save(second, reopened, scratch(), noDashboard()).succeeded());
 
     QFile fileA{first};
     QFile fileB{second};
@@ -165,10 +179,10 @@ TEST_CASE("Parameter types survive the crossing", "[project]")
     pipeline.addNode(node);
 
     const QString path = pathIn(directory, QStringLiteral("types.tbsproj"));
-    REQUIRE(ProjectFile::save(path, pipeline, scratch()).succeeded());
+    REQUIRE(ProjectFile::save(path, pipeline, scratch(), noDashboard()).succeeded());
 
     GraphDescription reopened;
-    REQUIRE(ProjectFile::load(path, reopened, scratch()).succeeded());
+    REQUIRE(ProjectFile::load(path, reopened, scratch(), noDashboard()).succeeded());
 
     const NodeDescription* back = reopened.find("n");
     REQUIRE(back != nullptr);
@@ -202,7 +216,7 @@ TEST_CASE("A file from a newer TorqueBus is refused, not half-read", "[project]"
     file.close();
 
     GraphDescription pipeline;
-    const Result result = ProjectFile::load(path, pipeline, scratch());
+    const Result result = ProjectFile::load(path, pipeline, scratch(), noDashboard());
 
     REQUIRE(result.failed());
     CHECK(result.code() == ErrorCode::VersionMismatch);
@@ -241,7 +255,7 @@ TEST_CASE("A wire naming a missing block is refused", "[project]")
     file.close();
 
     GraphDescription pipeline;
-    const Result result = ProjectFile::load(path, pipeline, scratch());
+    const Result result = ProjectFile::load(path, pipeline, scratch(), noDashboard());
 
     REQUIRE(result.failed());
     CHECK(std::string{result.message()}.find("gone") != std::string::npos);
@@ -262,7 +276,7 @@ TEST_CASE("A failed load leaves the previous pipeline untouched", "[project]")
     file.write("{ this is not json");
     file.close();
 
-    REQUIRE(ProjectFile::load(path, pipeline, scratch()).failed());
+    REQUIRE(ProjectFile::load(path, pipeline, scratch(), noDashboard()).failed());
     CHECK(pipeline == before);
 }
 
@@ -270,7 +284,7 @@ TEST_CASE("Opening a file that is not there says so", "[project]")
 {
     GraphDescription pipeline;
     const Result result =
-        ProjectFile::load(QStringLiteral("no/such/project.tbsproj"), pipeline, scratch());
+        ProjectFile::load(QStringLiteral("no/such/project.tbsproj"), pipeline, scratch(), noDashboard());
 
     REQUIRE(result.failed());
     CHECK(result.code() == ErrorCode::FileNotFound);
@@ -284,7 +298,7 @@ TEST_CASE("The saved file is readable JSON", "[project]")
     REQUIRE(directory.isValid());
 
     const QString path = pathIn(directory, QStringLiteral("readable.tbsproj"));
-    REQUIRE(ProjectFile::save(path, richPipeline(), scratch()).succeeded());
+    REQUIRE(ProjectFile::save(path, richPipeline(), scratch(), noDashboard()).succeeded());
 
     QFile file{path};
     REQUIRE(file.open(QIODevice::ReadOnly | QIODevice::Text));
@@ -304,7 +318,7 @@ TEST_CASE("The shipped example project opens and validates", "[project][examples
         QStringLiteral(TORQUEBUS_EXAMPLE_PROJECT_DIR "/virtual-vehicle.tbsproj");
 
     GraphDescription pipeline;
-    const Result opened = ProjectFile::load(path, pipeline, scratch());
+    const Result opened = ProjectFile::load(path, pipeline, scratch(), noDashboard());
 
     INFO(std::string{opened.message()});
     REQUIRE(opened.succeeded());
@@ -360,11 +374,11 @@ TEST_CASE("A transmit list survives a save and a load unchanged", "[project][tra
     GraphDescription pipeline;
     const QString path = pathIn(directory, QStringLiteral("transmit.tbsproj"));
 
-    REQUIRE(ProjectFile::save(path, pipeline, original).succeeded());
+    REQUIRE(ProjectFile::save(path, pipeline, original, noDashboard()).succeeded());
 
     GraphDescription reopenedPipeline;
     TransmitList reopened;
-    const Result result = ProjectFile::load(path, reopenedPipeline, reopened);
+    const Result result = ProjectFile::load(path, reopenedPipeline, reopened, noDashboard());
 
     INFO(std::string{result.message()});
     REQUIRE(result.succeeded());
@@ -413,11 +427,11 @@ TEST_CASE("A saved project does not claim a row has already been sent",
 
     GraphDescription pipeline;
     const QString path = pathIn(directory, QStringLiteral("counters.tbsproj"));
-    REQUIRE(ProjectFile::save(path, pipeline, original).succeeded());
+    REQUIRE(ProjectFile::save(path, pipeline, original, noDashboard()).succeeded());
 
     GraphDescription reopenedPipeline;
     TransmitList reopened;
-    REQUIRE(ProjectFile::load(path, reopenedPipeline, reopened).succeeded());
+    REQUIRE(ProjectFile::load(path, reopenedPipeline, reopened, noDashboard()).succeeded());
 
     TransmitEntry loaded;
     REQUIRE(reopened.entryAt(0, loaded));
@@ -449,7 +463,7 @@ TEST_CASE("A project written before the transmit list still opens",
     TransmitList transmit;
     (void)transmit.add(sampleRow());
 
-    REQUIRE(ProjectFile::load(path, pipeline, transmit).succeeded());
+    REQUIRE(ProjectFile::load(path, pipeline, transmit, noDashboard()).succeeded());
 
     // And the list is replaced, not merged: opening a project means opening its
     // transmit list, which in this case is an empty one.
@@ -481,7 +495,7 @@ TEST_CASE("An unknown trigger word does not start transmitting",
 
     GraphDescription pipeline;
     TransmitList transmit;
-    REQUIRE(ProjectFile::load(path, pipeline, transmit).succeeded());
+    REQUIRE(ProjectFile::load(path, pipeline, transmit, noDashboard()).succeeded());
 
     TransmitEntry row;
     REQUIRE(transmit.entryAt(0, row));
@@ -491,4 +505,158 @@ TEST_CASE("An unknown trigger word does not start transmitting",
     transmit.collectDue(0, 0, out);
     transmit.collectDue(1'000'000, 0, out);
     CHECK(out.empty());
+}
+
+// ---------------------------------------------------------------------------
+// The dashboard
+// ---------------------------------------------------------------------------
+
+TEST_CASE("A dashboard survives a save and a load unchanged", "[project][dashboard]")
+{
+    QTemporaryDir directory;
+    REQUIRE(directory.isValid());
+
+    DashboardDescription original;
+    original.setName("Powertrain");
+
+    DashboardWidget gauge;
+    gauge.id = "speed";
+    gauge.kind = DashboardWidgetKind::Gauge;
+    gauge.binding.source = DashboardBinding::Source::Signal;
+    gauge.binding.message = "Engine";
+    gauge.binding.signal = "EngineSpeed";
+    gauge.title = "Engine speed";
+    gauge.unit = "rpm";
+    gauge.x = 20.5;
+    gauge.y = -8.0;
+    gauge.width = 240.0;
+    gauge.height = 200.0;
+    gauge.minimum = 0.0;
+    gauge.maximum = 8000.0;
+    gauge.decimals = 0;
+    original.add(gauge);
+
+    DashboardWidget slider;
+    slider.id = "pedal";
+    slider.kind = DashboardWidgetKind::Slider;
+    slider.binding.source = DashboardBinding::Source::Variable;
+    slider.binding.variable = "brake_pedal";
+    slider.minimum = 0.0;
+    slider.maximum = 1.0;
+    slider.threshold = 0.25;
+    original.add(slider);
+
+    DashboardWidget label;
+    label.id = "heading";
+    label.kind = DashboardWidgetKind::Label;
+    label.title = "Bench 2";
+    original.add(label);
+
+    GraphDescription pipeline;
+    const QString path = pathIn(directory, QStringLiteral("dash.tbsproj"));
+
+    REQUIRE(ProjectFile::save(path, pipeline, scratch(), original).succeeded());
+
+    GraphDescription reopenedPipeline;
+    DashboardDescription reopened;
+
+    const Result result =
+        ProjectFile::load(path, reopenedPipeline, scratch(), reopened);
+
+    INFO(std::string{result.message()});
+    REQUIRE(result.succeeded());
+
+    // Whole objects, not fields: a property added to a widget and forgotten in
+    // the writer is exactly what this catches, and a field-by-field comparison
+    // would not.
+    CHECK(reopened == original);
+}
+
+TEST_CASE("A project from before dashboards opens with an empty one",
+          "[project][dashboard]")
+{
+    // Every project written before format 3. Refusing those would make the
+    // version field pointless.
+    QTemporaryDir directory;
+    REQUIRE(directory.isValid());
+
+    const QString path = pathIn(directory, QStringLiteral("old.tbsproj"));
+
+    QFile file{path};
+    REQUIRE(file.open(QIODevice::WriteOnly | QIODevice::Text));
+    file.write(R"({
+        "version": 2,
+        "pipeline": { "nodes": [], "edges": [] },
+        "transmit": []
+    })");
+    file.close();
+
+    GraphDescription pipeline;
+    DashboardDescription dashboard;
+
+    REQUIRE(ProjectFile::load(path, pipeline, scratch(), dashboard).succeeded());
+    CHECK(dashboard.empty());
+}
+
+TEST_CASE("A widget kind this build does not have refuses the file",
+          "[project][dashboard]")
+{
+    // Drawing something else in its place would be a lie about what the file
+    // contains - and the next save would write that lie back.
+    QTemporaryDir directory;
+    REQUIRE(directory.isValid());
+
+    const QString path = pathIn(directory, QStringLiteral("future.tbsproj"));
+
+    QFile file{path};
+    REQUIRE(file.open(QIODevice::WriteOnly | QIODevice::Text));
+    file.write(R"({
+        "version": 3,
+        "pipeline": { "nodes": [], "edges": [] },
+        "transmit": [],
+        "dashboard": { "widgets": [ { "id": "x", "kind": "hologram" } ] }
+    })");
+    file.close();
+
+    GraphDescription pipeline;
+    DashboardDescription dashboard;
+
+    const Result result = ProjectFile::load(path, pipeline, scratch(), dashboard);
+
+    REQUIRE(result.failed());
+    INFO(std::string{result.message()});
+    CHECK(std::string{result.message()}.find("hologram") != std::string::npos);
+}
+
+TEST_CASE("A dashboard that could not be drawn refuses the file",
+          "[project][dashboard]")
+{
+    // Validated before anything is assigned, so the alternative - opening the
+    // project, showing an empty panel, and writing it back that way - cannot
+    // happen.
+    QTemporaryDir directory;
+    REQUIRE(directory.isValid());
+
+    const QString path = pathIn(directory, QStringLiteral("broken.tbsproj"));
+
+    QFile file{path};
+    REQUIRE(file.open(QIODevice::WriteOnly | QIODevice::Text));
+    file.write(R"({
+        "version": 3,
+        "pipeline": { "nodes": [], "edges": [] },
+        "transmit": [],
+        "dashboard": { "widgets": [
+            { "id": "g", "kind": "gauge", "binding": {},
+              "minimum": 0, "maximum": 100 }
+        ] }
+    })");
+    file.close();
+
+    GraphDescription pipeline;
+    DashboardDescription dashboard;
+
+    const Result result = ProjectFile::load(path, pipeline, scratch(), dashboard);
+
+    REQUIRE(result.failed());
+    CHECK(dashboard.empty());
 }

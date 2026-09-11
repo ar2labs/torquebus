@@ -39,6 +39,7 @@
 #include "core/pipeline/NodeCatalog.h"
 #include "core/pipeline/PipelineGraph.h"
 #include "core/diagnostics/DiagnosticSession.h"
+#include "core/dashboard/SystemVariables.h"
 #include "core/scripting/ScriptLibrary.h"
 #include "core/testing/TestReport.h"
 #include "core/log/ReplayControl.h"
@@ -306,6 +307,15 @@ public:
         return m_diagnostics;
     }
 
+    /// The named values a dashboard and the scripts share.
+    ///
+    /// Owned here, and **not cleared between measurements**: a setpoint
+    /// somebody dialled in before Start is still there when it starts and still
+    /// there afterwards. A slider that reset itself every time would be the one
+    /// behaviour nobody wants and everybody has met.
+    [[nodiscard]] SystemVariables& variables() noexcept { return m_variables; }
+    [[nodiscard]] const SystemVariables& variables() const noexcept { return m_variables; }
+
     /// What the running test sequence has found.
     ///
     /// Owned here rather than by the node, so a panel can go on showing the
@@ -393,6 +403,7 @@ private:
     DiagnosticSession m_diagnostics;
     ScriptLibrary m_scriptLibrary;
     TestReport m_testReport;
+    SystemVariables m_variables;
 
     mutable std::mutex m_sinksMutex;
     std::vector<Registration<FrameSink>> m_frameSinks;

@@ -416,6 +416,10 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             // headless build, and the node simply never looks.
             node->setScriptLibrary(context.scriptLibrary, std::string{nodeId});
 
+            // What a dashboard's slider writes and its gauge reads. Null in a
+            // headless build, and the bindings are then simply not there.
+            node->setSystemVariables(context.variables);
+
             // The diagnostic layer, when the block has been given addresses.
             // The identifiers are the ECU's way round - it receives on what a
             // tester transmits - and getting that backwards is the commonest
