@@ -1555,12 +1555,41 @@ Feito:
 
 # v0.15 — Simulation
 
- ECU node simulation;
- periodic messages;
- signal manipulation;
- remaining bus simulation;
- message generators;
- script-driven simulation.
+Metade desta lista já chegou na v0.13, e vale dizer qual metade em vez de
+riscar em silêncio:
+
+- *ECU node simulation* — o bloco Lua ECU.
+- *periodic messages* — `cyclic()` no Lua e a lista de transmissão periódica.
+- *script-driven simulation* — é o que a v0.13 inteira é.
+- *message generators* — o prelúdio `tb`: ramp, sine, square, drift, steps,
+  counter. Continuam em Lua de propósito: são aritmética sobre o relógio da
+  medição, e um editor de geradores seria uma segunda forma de dizer a mesma
+  coisa.
+
+O que faltava de verdade:
+
+- **Simulação de barramento restante** — o bloco **Rest Bus**. Uma ECU numa
+  bancada está cercada de silêncio: ela espera a mensagem do motor, o status da
+  ignição, a velocidade — e sem isso fica em estado de falha, ou simplesmente
+  parada, enquanto alguém se pergunta se a fiação está errada. O bloco manda
+  tudo o que o resto da rede mandaria.
+
+  A forma é a que o fluxo de trabalho pede: uma lista dos nós **que não** são
+  simulados. É a pergunta que a pessoa tem de verdade ("tudo menos o que está
+  na minha mesa"), e fazer ao contrário é a mesma resposta digitada quarenta
+  vezes e redigitada toda vez que o banco de dados cresce um nó.
+
+  **Uma mensagem sem tempo de ciclo não é enviada.** Um banco que não declara
+  `GenMsgCycleTime` não está dizendo "a cada 100 ms"; muita mensagem é por
+  evento, e inventar um período põe no barramento tráfego que a rede real não
+  carrega — o que é pior que tráfego faltando, porque parece certo.
+
+- **Manipulação de sinal** — sinais nomeados em `signals` seguem uma **variável
+  de sistema**, e essa é a história interativa inteira: um slider do dashboard
+  ligado a `throttle_pedal` dirige o rest bus, e `var_set("throttle_pedal", 40)`
+  num script Lua também. Um mecanismo, já construído, já na tela.
+
+**v0.15 fechada.**
 
 ---
 
