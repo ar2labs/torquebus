@@ -40,6 +40,7 @@ namespace torquebus {
 
 class CanChannel;
 class ScriptLibrary;
+class SystemVariables;
 class TestReport;
 class TraceStore;
 class TransmitList;
@@ -90,6 +91,12 @@ struct NodeBuildContext final {
 
     /// Where a script's log_message() and errors go.
     std::function<void(const std::string& text, bool isError)> log;
+
+    /// The named values a dashboard and the scripts share, or nullptr.
+    ///
+    /// Borrowed, and it outlives the graph deliberately: a setpoint somebody
+    /// dialled in before Start is still there afterwards. See SystemVariables.h.
+    SystemVariables* variables{nullptr};
 
     /// Where a test sequence's verdict goes, or nullptr for a graph nobody is
     /// showing a report for.

@@ -492,6 +492,42 @@ in your own editor and press Reload here.
 While a measurement is *not* running the same button says **Save**, because
 that is all it can honestly do.
 
+## Values a dashboard shares
+
+```lua
+var_get("brake_pedal")          -- what somebody's hand is doing to a slider
+var_set("engine_speed", 2400)   -- what a gauge will show
+```
+
+A **system variable** is a named number that is not a CAN signal and not a
+diagnostic result — it belongs to the simulation rather than to the wire. A
+slider writes one, a script reads it and puts it on the bus; a script writes
+one and a gauge shows it. That is what makes a dashboard more than a second
+trace window: the person turns a knob and the simulated vehicle responds.
+
+- Values are **numbers**, always. A switch is 0 or 1, a lamp is on above its
+  threshold.
+- A variable nobody has written reads as **zero**, so no script needs
+  `var_get(x) or 0`.
+- They are created on first mention, by whoever mentions them first — a script
+  and a widget name the same variable without either having to declare it.
+- **They survive Start and Stop.** A setpoint dialled in before a measurement is
+  still there during it and after it.
+- Reading and writing one takes no lock, so a variable can be touched inside
+  `on_message` without the frame path ever waiting on a window.
+
+Both bindings are absent in a graph with no dashboard behind it, and a script
+calling one is told so — reading zeroes off a table that does not exist would
+look like a pedal nobody is pressing, which is a fault that looks like data.
+
+## Checking, rather than simulating
+
+An ECU script answers "what does this network look like". The other half of the
+question — "is it right" — belongs to a **Test Sequence** block, which is a Lua
+script of a different shape: cases, `expect`, `assert_*`, and a verdict.
+
+See [testing.md](testing.md). The `tb` prelude above is available there too.
+
 ## Cost
 
 Measured on the pipeline, one ECU, 600,000 frames:

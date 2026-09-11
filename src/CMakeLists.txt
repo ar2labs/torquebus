@@ -104,6 +104,11 @@ add_library(torquebus_core STATIC
     core/testing/TestReport.h
     core/testing/TestReport.cpp
 
+    core/dashboard/SystemVariables.h
+    core/dashboard/SystemVariables.cpp
+    core/dashboard/DashboardDescription.h
+    core/dashboard/DashboardDescription.cpp
+
     # The driver interface belongs to the core, not to the drivers: the core
     # defines the abstraction, and each vendor implements it (dependency
     # inversion). It lives under drivers/api/ because that is where PLAN.md
@@ -284,6 +289,10 @@ qt_add_library(torquebus_ui STATIC
     ui/scripting/ScriptEditorPanel.cpp
     ui/testing/TestPanel.h
     ui/testing/TestPanel.cpp
+    ui/dashboard/DashboardPanel.h
+    ui/dashboard/DashboardPanel.cpp
+    ui/dashboard/DashboardWidgetEditor.h
+    ui/dashboard/DashboardWidgetEditor.cpp
     ui/graph/PlotView.h
     ui/graph/PlotView.cpp
     ui/graph/GraphPanel.h

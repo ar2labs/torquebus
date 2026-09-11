@@ -1504,29 +1504,52 @@ O que já foi feito:
 
 # v0.14 — Dashboard Designer
 
-Aqui entra bastante QML
+Widgets: Gauge, Numeric, Lamp, Button, Switch, Slider, Knob, Label.
 
-```text
-Gauge
-Numeric display
-LED
-Button
-Switch
-Slider
-Graph
-Image
-Text
-Knob
-```
+Fora da lista original, e de propósito: **Graph** é o painel Graph, que já
+existe e faz isso melhor; **Image** é uma referência a arquivo que o projeto
+teria que carregar e resolver, e isso é um problema à parte.
 
-Associáveis a
+Associáveis a **sinal CAN** (leitura) e **variável de sistema** (leitura e
+escrita). A "Python variable" do plano original sai junto com o Python; o que
+ela nomeava — um valor que não é sinal nem resultado de diagnóstico, que
+pertence à simulação e não ao fio — é a variável de sistema. Resultado UDS e
+estatística de barramento ficam para depois.
 
-```text
-CAN signal
-system variable
-Python variable
-UDS result
-```
+Escrever um sinal CAN direto **não** é uma das ligações: um widget que
+escrevesse um sinal teria que ter mensagem, tempo de ciclo e canal — que é uma
+entrada de lista de transmissão, e já existe uma. Um slider escreve uma
+variável; um script ou uma entrada de transmissão decide o que aquilo significa
+no fio. Um mecanismo, um lugar para olhar quando o valor não chega.
+
+Feito:
+
+- **SystemVariables** — valores nomeados compartilhados entre dashboard,
+  script e barramento. Um `std::atomic<double>` por variável num array fixo:
+  ler e escrever não pega lock nenhum, então um script pode tocar uma variável
+  dentro do `on_message`. Os valores sobrevivem ao Start e ao Stop — um slider
+  que se reseta a cada medição é o comportamento que ninguém quer e todo mundo
+  já encontrou.
+- **`var_get` / `var_set`** nos scripts Lua.
+- **DashboardDescription** — o dashboard como dado, com `validate()` que recusa
+  o que faria um painel abrir e não mostrar nada.
+
+- **Serialização no .tbsproj** — formato 3. Um projeto escrito antes disso abre
+  com um dashboard vazio; um widget de um tipo que este build não tem **recusa
+  o arquivo**, porque desenhar outra coisa no lugar seria mentir sobre o que o
+  arquivo contém — e a próxima gravação escreveria a mentira de volta.
+- **Painel Dashboard** — dois modos, e o modo é o projeto inteiro. Em **Run** os
+  ponteiros andam e um slider sob a mão escreve a variável que uma ECU simulada
+  está lendo. Em **Edit** os widgets são arrastados, redimensionados pelo canto,
+  adicionados pelo menu de contexto e apagados — e os controles não respondem,
+  porque arrastar um slider para o lugar não pode mandar para o barramento os
+  valores que ele varre no caminho. Tudo desenhado à mão: não existe QGauge, e a
+  alternativa é um QDial vestindo uma folha de estilo que briga com ele.
+- **Painel Widget** — as configurações do widget selecionado, irmão do painel
+  Block e no mesmo lugar da tela. Um controle ligado a um sinal CAN é recusado
+  com a saída escrita por extenso.
+
+**v0.14 fechada.**
 
 ---
 

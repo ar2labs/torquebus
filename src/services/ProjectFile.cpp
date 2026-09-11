@@ -51,6 +51,25 @@ constexpr auto kMessage = "message";
 constexpr auto kTriggerManual = "manual";
 constexpr auto kTriggerPeriodic = "periodic";
 
+constexpr auto kDashboard = "dashboard";
+constexpr auto kWidgets = "widgets";
+constexpr auto kKind = "kind";
+constexpr auto kBinding = "binding";
+constexpr auto kSource = "source";
+constexpr auto kSignal = "signal";
+constexpr auto kVariable = "variable";
+constexpr auto kTitle = "title";
+constexpr auto kWidth = "width";
+constexpr auto kHeight = "height";
+constexpr auto kMinimum = "minimum";
+constexpr auto kMaximum = "maximum";
+constexpr auto kThreshold = "threshold";
+constexpr auto kUnit = "unit";
+constexpr auto kDecimals = "decimals";
+
+constexpr auto kSourceSignal = "signal";
+constexpr auto kSourceVariable = "variable";
+
 constexpr auto kFrom = "from";
 constexpr auto kFromPort = "fromPort";
 constexpr auto kTo = "to";
@@ -228,6 +247,113 @@ void payloadFromJson(const QString& text, CanFrame& frame)
     return entry;
 }
 
+[[nodiscard]] QJsonObject toJson(const DashboardWidget& widget)
+{
+    QJsonObject json;
+    json[kId] = QString::fromStdString(widget.id);
+
+    const std::string_view kind = nameOf(widget.kind);
+    json[kKind] = QString::fromUtf8(kind.data(), static_cast<qsizetype>(kind.size()));
+
+    QJsonObject binding;
+
+    switch (widget.binding.source) {
+    case DashboardBinding::Source::Signal:
+        binding[kSource] = QString::fromLatin1(kSourceSignal);
+        binding[kMessage] = QString::fromStdString(widget.binding.message);
+        binding[kSignal] = QString::fromStdString(widget.binding.signal);
+        break;
+
+    case DashboardBinding::Source::Variable:
+        binding[kSource] = QString::fromLatin1(kSourceVariable);
+        binding[kVariable] = QString::fromStdString(widget.binding.variable);
+        break;
+
+    case DashboardBinding::Source::None:
+        // Written as an empty object rather than left out, so that a label and
+        // a widget somebody has not bound yet look the same in the file - which
+        // they are.
+        break;
+    }
+
+    json[kBinding] = binding;
+
+    QJsonObject position;
+    position[kX] = widget.x;
+    position[kY] = widget.y;
+    json[kPosition] = position;
+
+    json[kWidth] = widget.width;
+    json[kHeight] = widget.height;
+
+    // Only what differs from the default. A file where every widget spells out
+    // every property is a file where the one deliberate setting is invisible -
+    // the same reasoning as `enabled` on a node.
+    if (!widget.title.empty()) {
+        json[kTitle] = QString::fromStdString(widget.title);
+    }
+    if (!widget.unit.empty()) {
+        json[kUnit] = QString::fromStdString(widget.unit);
+    }
+
+    json[kMinimum] = widget.minimum;
+    json[kMaximum] = widget.maximum;
+
+    if (widget.threshold != 0.5) {
+        json[kThreshold] = widget.threshold;
+    }
+    if (widget.decimals != 1) {
+        json[kDecimals] = widget.decimals;
+    }
+
+    return json;
+}
+
+/// False when the widget names a kind this build does not have.
+///
+/// Refused rather than defaulted: a project from a newer version that held a
+/// widget kind we cannot draw would otherwise open showing a numeric readout
+/// where a gauge was, which is a lie about what the file contains.
+[[nodiscard]] bool widgetFromJson(const QJsonObject& json, DashboardWidget& widget)
+{
+    widget.id = json.value(kId).toString().toStdString();
+
+    if (!kindFromName(json.value(kKind).toString().toStdString(), widget.kind)) {
+        return false;
+    }
+
+    const QJsonObject binding = json.value(kBinding).toObject();
+    const QString source = binding.value(kSource).toString();
+
+    if (source == QLatin1String{kSourceSignal}) {
+        widget.binding.source = DashboardBinding::Source::Signal;
+        widget.binding.message = binding.value(kMessage).toString().toStdString();
+        widget.binding.signal = binding.value(kSignal).toString().toStdString();
+    } else if (source == QLatin1String{kSourceVariable}) {
+        widget.binding.source = DashboardBinding::Source::Variable;
+        widget.binding.variable = binding.value(kVariable).toString().toStdString();
+    } else {
+        widget.binding.source = DashboardBinding::Source::None;
+    }
+
+    const QJsonObject position = json.value(kPosition).toObject();
+    widget.x = position.value(kX).toDouble(0.0);
+    widget.y = position.value(kY).toDouble(0.0);
+
+    widget.width = json.value(kWidth).toDouble(160.0);
+    widget.height = json.value(kHeight).toDouble(120.0);
+
+    widget.title = json.value(kTitle).toString().toStdString();
+    widget.unit = json.value(kUnit).toString().toStdString();
+
+    widget.minimum = json.value(kMinimum).toDouble(0.0);
+    widget.maximum = json.value(kMaximum).toDouble(100.0);
+    widget.threshold = json.value(kThreshold).toDouble(0.5);
+    widget.decimals = json.value(kDecimals).toInt(1);
+
+    return true;
+}
+
 } // namespace
 
 QString ProjectFile::fileFilter()
@@ -237,7 +363,8 @@ QString ProjectFile::fileFilter()
 
 Result ProjectFile::save(const QString& path,
                          const GraphDescription& pipeline,
-                         const TransmitList& transmit)
+                         const TransmitList& transmit,
+                         const DashboardDescription& dashboard)
 {
     QJsonArray nodes;
     for (const NodeDescription& node : pipeline.nodes()) {
@@ -258,11 +385,28 @@ Result ProjectFile::save(const QString& path,
         rows.append(toJson(entry));
     }
 
+    QJsonArray widgets;
+    for (const DashboardWidget& widget : dashboard.widgets()) {
+        widgets.append(toJson(widget));
+    }
+
+    QJsonObject panel;
+    panel[kWidgets] = widgets;
+
+    if (!dashboard.name().empty()) {
+        panel[kName] = QString::fromStdString(dashboard.name());
+    }
+
     QJsonObject root;
     root[kVersion] = kFormatVersion;
     root[kApplication] = QStringLiteral("TorqueBus Studio");
     root[kPipeline] = graph;
     root[kTransmit] = rows;
+
+    // Written even when empty, so a project that once had a dashboard and no
+    // longer does says so - rather than looking like a file from before
+    // dashboards existed, which is a different thing.
+    root[kDashboard] = panel;
 
     // QSaveFile writes to a temporary beside the target and renames on commit,
     // so a crash or a full disk during the save leaves yesterday's project
@@ -290,7 +434,8 @@ Result ProjectFile::save(const QString& path,
 
 Result ProjectFile::load(const QString& path,
                          GraphDescription& pipeline,
-                         TransmitList& transmit)
+                         TransmitList& transmit,
+                         DashboardDescription& dashboard)
 {
     QFile file{path};
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -414,6 +559,47 @@ Result ProjectFile::load(const QString& path,
         rows.push_back(std::move(row));
     }
 
+    // The dashboard, into a local for the same reason. Absent in every project
+    // written before format 3, which loads with an empty one rather than
+    // failing - that is what the version field is for.
+    DashboardDescription panel;
+
+    const QJsonObject dashboardJson = root.value(kDashboard).toObject();
+    panel.setName(dashboardJson.value(kName).toString().toStdString());
+
+    for (const QJsonValue& entry : dashboardJson.value(kWidgets).toArray()) {
+        const QJsonObject object = entry.toObject();
+
+        DashboardWidget widget;
+
+        if (!widgetFromJson(object, widget)) {
+            return Result::error(
+                ErrorCode::ParseError,
+                std::format("'{}' has a dashboard widget of kind '{}', which this build "
+                            "does not have. Drawing something else in its place would be "
+                            "a lie about what the file contains.",
+                            path.toStdString(),
+                            object.value(kKind).toString().toStdString()));
+        }
+
+        if (widget.id.empty()) {
+            return Result::error(
+                ErrorCode::ParseError,
+                std::format("'{}' has a dashboard widget with no id", path.toStdString()));
+        }
+
+        panel.add(std::move(widget));
+    }
+
+    // Checked before anything is assigned, so a dashboard that could not be
+    // drawn refuses the file rather than opening a project that shows an empty
+    // panel and writes it back that way.
+    if (Result result = panel.validate(); result.failed()) {
+        return Result::error(result.code(),
+                             std::format("'{}': {}", path.toStdString(),
+                                         std::string{result.message()}));
+    }
+
     pipeline = std::move(loaded);
 
     // Replaced wholesale, like the pipeline: opening a project means opening
@@ -422,6 +608,8 @@ Result ProjectFile::load(const QString& path,
     for (TransmitEntry& row : rows) {
         (void)transmit.add(std::move(row));
     }
+
+    dashboard = std::move(panel);
 
     return Result::ok();
 }

@@ -121,6 +121,8 @@ because each pins something that was got wrong once:
 | `[uds][dtc]` | A trouble code shown as a raw number instead of P0128, and - worse - codes invented out of a response that is not a DTC list |
 | `[isotp][graph]`, `[isotp][validate]` | A request typed into a block never reaching the bus, a periodic request repeating when it was asked once, half a hex byte accepted at Start instead of refused on the canvas |
 | `[isotp]` | The failures of ISO 15765-2, which are all silences: a sequence number that does not wrap at sixteen, STmin's microsecond range read as milliseconds, a block size ignored, an unpadded frame an ECU will not answer, a four-gigabyte length field taken at its word |
+| `[dashboard]` | A dashboard that opens and shows nothing: a widget bound to nothing, a gauge whose range cannot be swept, a slider bound to a CAN signal it cannot write (which moves under the mouse and changes nothing on the bus), a widget kind that does not survive the round trip through the project file |
+| `[dashboard][variables]` | The value path between a hand and a simulated ECU: two slots handed out for one name, a write that is lost, a revision that does not move when a script writes the same value twice, and the growing-container race the first version of SystemVariables had |
 | `[lua][sequence]` | A test framework reporting a pass it did not earn, which is worse than no framework because somebody signs off on it: a timeout that passes quietly, a sequence declaring nothing that reads green, a nil index filed as a failure of the network, a `where` filter that gives up on the first frame it rejects, a run stopped halfway counted as passed |
 | `[lua][reload]` | The promise the script editor is built on: a half-typed edit taking a running ECU off the bus, a failed `on_enable` leaving half its timers behind, a reload restarting the measurement clock, a faulted node that no edit can revive, an `on_disable` run for a reload that was refused |
 | `[recent]`, `[workspace]`, `[hardware]` | A settings file edited by hand producing a menu entry nobody can open, a channel order that renumbers itself when an adapter is unplugged, a workspace from an older panel set restored with panels missing |
@@ -926,6 +928,48 @@ still look green.
 **Watch for:** a case with a `where` filter on a busy identifier. It must keep
 waiting for a frame that matches, up to its original deadline - not give up on
 the first frame it rejects, and not restart the clock on every rejection.
+
+---
+
+## 5r. The dashboard
+
+v0.14. The point of it is the second half: a dashboard that only reads the bus
+is a display, and one whose slider a simulated ECU is reading lets somebody
+drive the simulation with their hands.
+
+1. Open the **Dashboard** tab. With nothing on it, it says how to start rather
+   than showing an empty grid.
+2. **Simulation → Edit Dashboard**. The grid appears and the dashboard comes
+   forward. Right-click: add a **Gauge**, a **Slider** and a **Lamp**.
+3. Select the gauge. The **Widget** tab in the left column shows its settings -
+   beside the Block editor, because it is the same job.
+   * Bind the gauge to a **CAN signal**: message and signal, both, because
+     signal names are only unique within a message.
+   * Bind the slider to a **variable** called `brake_pedal`.
+   * Try binding the slider to a *signal* instead: the form says a control
+     cannot write one, and names the way out. That refusal is the one that
+     saves an afternoon - a slider bound to a signal moves under the mouse and
+     changes nothing on the bus.
+4. Drag the gauge; drag its bottom-right corner to resize it. The Widget form
+   follows, and the title bar shows the project is now dirty.
+5. Turn **Edit Dashboard** off. Add a Lua ECU whose script does
+   `var_set("engine_speed", var_get("brake_pedal") * 8000)` on a timer, bind the
+   gauge to the variable `engine_speed`, and press **Start**. Move the slider:
+   **the needle follows.** That loop - hand, variable, script, gauge - is v0.14.
+6. Try to drag a widget while in Run mode. It does not move, and the slider
+   under the same click operates instead.
+7. **Save**, close the project, open it again. Every widget is where it was,
+   with its binding, its range and its unit.
+8. Open a project written by an older build (format 2): it opens, with an empty
+   dashboard, rather than being refused.
+9. Hand-edit a saved project and change a widget's `"kind"` to `"hologram"`.
+   Opening it **fails**, naming the kind. Drawing a numeric readout where a
+   gauge was would be a lie about what the file contains.
+
+**Watch for:** a dashboard of eight gauges on a stopped measurement. It must not
+repaint twenty times a second to draw the same picture - the panel compares what
+every widget is reading against the last repaint and does nothing when nothing
+moved.
 
 ---
 

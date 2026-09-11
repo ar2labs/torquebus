@@ -219,6 +219,15 @@ public:
                      std::size_t maximumSamples,
                      std::vector<SeriesWindow>& out) const;
 
+    /// The most recent sample of one series. False when it has none.
+    ///
+    /// What a dashboard reads: one value per widget per repaint. readWindows is
+    /// the wrong shape for that question - it copies a window into a buffer,
+    /// which is what a plot needs and what a needle does not, and a gauge
+    /// asking it would fill a vector to look at its last element.
+    [[nodiscard]] bool latest(SeriesId id, double& value,
+                              std::uint64_t& timestampNs) const;
+
     /// The newest timestamp in any series, or zero when nothing has arrived.
     ///
     /// What a plot that follows the tail scrolls to. Read here rather than

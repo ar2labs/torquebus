@@ -48,6 +48,7 @@
 #pragma once
 
 #include "core/can/CanFrame.h"
+#include "core/dashboard/SystemVariables.h"
 #include "core/database/CanMessage.h"
 #include "core/pipeline/PipelineNode.h"
 #include "core/trace/TraceStore.h"
@@ -194,6 +195,18 @@ public:
     /// script that asks anyway should be told, not crash.
     void setTraceStore(const TraceStore* store) { m_trace = store; }
 
+    /// The named values a dashboard and this script share.
+    ///
+    /// Borrowed, not owned, and null in a graph with no dashboard behind it -
+    /// in which case `var_get` and `var_set` are simply not registered, and a
+    /// script calling one is told what is missing rather than reading zeroes
+    /// off a table that does not exist.
+    ///
+    /// Handles are resolved on first use and cached per name, so a variable
+    /// touched inside on_message costs a map lookup and an atomic store: no
+    /// lock, ever, on the frame path. See SystemVariables.h.
+    void setSystemVariables(SystemVariables* variables) { m_variables = variables; }
+
     /// The database `emit_signal` and `decode` work against.
     ///
     /// Optional: a script that only ever calls `emit` with packed bytes needs
@@ -264,10 +277,16 @@ private:
     static int luaFault(lua_State* state);
     static int luaBusLast(lua_State* state);
     static int luaBusStats(lua_State* state);
+    static int luaVariableGet(lua_State* state);
+    static int luaVariableSet(lua_State* state);
     static int luaLogMessage(lua_State* state);
     static int luaGetTimeMicroseconds(lua_State* state);
 
     [[nodiscard]] static LuaEcuNode* self(lua_State* state);
+
+    /// The handle for `name`, resolved once and remembered. Only called with
+    /// m_variables non-null.
+    [[nodiscard]] SystemVariables::Handle variableHandle(const std::string& name);
 
     /// Builds this node's script into whatever interpreter m_lua currently is:
     /// libraries, bindings, globals, the prelude, `source`, and on_enable.
@@ -312,6 +331,12 @@ private:
     std::uint64_t m_diagnosticSilences{0};
     std::shared_ptr<const CanDatabase> m_database;
     const TraceStore* m_trace{nullptr};
+
+    SystemVariables* m_variables{nullptr};
+
+    /// Name to handle, so a script naming a variable in a timer pays a map
+    /// lookup rather than the library's lock. Rebuilt with the interpreter.
+    std::map<std::string, SystemVariables::Handle> m_variableHandles;
 
     /// What to do to a frame on its way out, by identifier.
     ///

@@ -118,6 +118,20 @@ Result LuaEcuNode::install(const std::string& source)
         m_lua->registerFunction("bus_stats", &LuaEcuNode::luaBusStats, this);
     }
 
+    // Only when there are variables to share. A script calling var_get in a
+    // graph with no dashboard behind it is told what is missing, rather than
+    // reading zeroes off a table that does not exist - which would look like a
+    // pedal nobody is pressing.
+    if (m_variables != nullptr) {
+        m_lua->registerFunction("var_get", &LuaEcuNode::luaVariableGet, this);
+        m_lua->registerFunction("var_set", &LuaEcuNode::luaVariableSet, this);
+    }
+
+    // The handles belong to the interpreter being replaced, not to the names.
+    // Cleared here so a reload resolves them again - the variables themselves
+    // and their values survive, which is the whole point of them.
+    m_variableHandles.clear();
+
     // Only when there is a diagnostic layer. A script calling uds_did on an ECU
     // with no addresses gets an error naming what is missing, rather than a
     // silent no-op that leaves somebody wondering why a tester sees nothing.
@@ -834,6 +848,71 @@ int LuaEcuNode::luaBusStats(lua_State* state)
     field("discarded", static_cast<lua_Integer>(node->m_trace->discarded()));
 
     return 1;
+}
+
+/// var_get("brake_pedal") -> number
+///
+/// The other half of a dashboard: a script reads what somebody's hand is doing
+/// to a slider and puts it on the bus. Zero for a variable nobody has written,
+/// which is the honest value and saves every script from writing
+/// `var_get(x) or 0`.
+int LuaEcuNode::luaVariableGet(lua_State* state)
+{
+    LuaEcuNode* node = self(state);
+    if (node == nullptr || node->m_variables == nullptr) {
+        return luaL_error(state, "var_get called outside an ECU node with variables");
+    }
+
+    const char* name = luaL_checkstring(state, 1);
+
+    lua_pushnumber(state, static_cast<lua_Number>(node->m_variables->value(
+                              node->variableHandle(name))));
+    return 1;
+}
+
+/// var_set("engine_speed", 2400)
+///
+/// And the first half: a script writes what the simulation is doing and a gauge
+/// shows it, with nothing in between - no message to define, no cycle time to
+/// choose, no database. Which is exactly why it is not a substitute for putting
+/// the value on the bus: a gauge reading a variable is reading the script, not
+/// the network.
+int LuaEcuNode::luaVariableSet(lua_State* state)
+{
+    LuaEcuNode* node = self(state);
+    if (node == nullptr || node->m_variables == nullptr) {
+        return luaL_error(state, "var_set called outside an ECU node with variables");
+    }
+
+    const char* name = luaL_checkstring(state, 1);
+    const lua_Number value = luaL_checknumber(state, 2);
+
+    const SystemVariables::Handle handle = node->variableHandle(name);
+
+    if (handle == SystemVariables::kUnknown) {
+        return luaL_error(state,
+                          "var_set('%s'): no room for another variable - the limit is "
+                          "%d names",
+                          name, static_cast<int>(SystemVariables::kMaximumVariables));
+    }
+
+    node->m_variables->set(handle, static_cast<double>(value));
+    return 0;
+}
+
+SystemVariables::Handle LuaEcuNode::variableHandle(const std::string& name)
+{
+    // Cached, because resolve() takes the library's lock and a script naming a
+    // variable inside on_message would otherwise take it once per frame - which
+    // is the one thing the frame path must never do.
+    if (const auto found = m_variableHandles.find(name); found != m_variableHandles.end()) {
+        return found->second;
+    }
+
+    const SystemVariables::Handle handle = m_variables->resolve(name);
+    m_variableHandles.emplace(name, handle);
+
+    return handle;
 }
 
 int LuaEcuNode::luaFault(lua_State* state)
