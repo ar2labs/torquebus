@@ -104,6 +104,9 @@ add_library(torquebus_core STATIC
     core/testing/TestReport.h
     core/testing/TestReport.cpp
 
+    core/simulation/RestBusNode.h
+    core/simulation/RestBusNode.cpp
+
     core/dashboard/SystemVariables.h
     core/dashboard/SystemVariables.cpp
     core/dashboard/DashboardDescription.h

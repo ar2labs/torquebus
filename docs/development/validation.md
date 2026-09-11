@@ -121,6 +121,7 @@ because each pins something that was got wrong once:
 | `[uds][dtc]` | A trouble code shown as a raw number instead of P0128, and - worse - codes invented out of a response that is not a DTC list |
 | `[isotp][graph]`, `[isotp][validate]` | A request typed into a block never reaching the bus, a periodic request repeating when it was asked once, half a hex byte accepted at Start instead of refused on the canvas |
 | `[isotp]` | The failures of ISO 15765-2, which are all silences: a sequence number that does not wrap at sixteen, STmin's microsecond range read as milliseconds, a block size ignored, an unpadded frame an ECU will not answer, a four-gigabyte length field taken at its word |
+| `[restbus]` | The two silent failures of a rest bus: sending an ECU's own messages back at it because it was on the bench, and inventing a cycle time for a message the database declares none for. Both look like a busy trace and neither shows up as an error |
 | `[dashboard]` | A dashboard that opens and shows nothing: a widget bound to nothing, a gauge whose range cannot be swept, a slider bound to a CAN signal it cannot write (which moves under the mouse and changes nothing on the bus), a widget kind that does not survive the round trip through the project file |
 | `[dashboard][variables]` | The value path between a hand and a simulated ECU: two slots handed out for one name, a write that is lost, a revision that does not move when a script writes the same value twice, and the growing-container race the first version of SystemVariables had |
 | `[lua][sequence]` | A test framework reporting a pass it did not earn, which is worse than no framework because somebody signs off on it: a timeout that passes quietly, a sequence declaring nothing that reads green, a nil index filed as a failure of the network, a `where` filter that gives up on the first frame it rejects, a run stopped halfway counted as passed |
@@ -970,6 +971,41 @@ drive the simulation with their hands.
 repaint twenty times a second to draw the same picture - the panel compares what
 every widget is reading against the last repaint and does nothing when nothing
 moved.
+
+---
+
+## 5s. The rest bus
+
+v0.15, and the feature a bench is built around: an ECU surrounded by silence
+sits in a fault state, and this is what makes the silence stop.
+
+1. Drop a **Rest Bus** block, point it at a `.dbc` with cycle times in it, wire
+   it to a **CAN Transmit**, and press **Start**. Every periodic message the
+   database describes appears in the trace at its own rate.
+2. Put the name of one node in **Real nodes** - the ECU on your desk. Its
+   messages stop, and everything else carries on. **This is the step to be
+   fussy about:** an ECU hearing its own messages come back at it is the hardest
+   fault on this list to diagnose, because the trace looks healthy.
+3. Look at the **Statistics** panel: messages simulated, and *messages without a
+   cycle time*. A database of event-triggered messages produces a rest bus that
+   sends nothing, and that number is the difference between "broken" and
+   "under-specified".
+4. Set **Default cycle time** to 100. The skipped messages join in. Leave it at
+   zero unless you mean it: traffic the real network never carries is worse than
+   missing traffic, because it looks right.
+5. Put `EngineData.EngineSpeed=engine_speed` in **Driven signals**. Add a
+   dashboard **Slider** bound to the variable `engine_speed`, press Start, and
+   move it: the value in the trace follows your hand, message after message.
+   A Lua script calling `var_set("engine_speed", 2400)` does the same thing -
+   one mechanism, two ways in.
+6. Misspell a signal name there. The block refuses **at Start**, naming the
+   signal - rather than running with a control that does nothing.
+7. Name a signal on a message belonging to an excluded node. Refused too, and
+   for the reason that is nobody's typo: the block is not sending that message,
+   so the control would silently do nothing.
+8. Watch the first pass of a large database. The messages must **not** all fall
+   due together - a trace with two hundred frames sharing a timestamp reads as a
+   fault in the tool, and a real network does not start in lockstep.
 
 ---
 

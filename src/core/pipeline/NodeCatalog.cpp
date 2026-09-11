@@ -12,6 +12,7 @@
 #include "core/transmit/TransmitListNode.h"
 #include "core/scripting/LuaEcuNode.h"
 #include "core/scripting/LuaTestNode.h"
+#include "core/simulation/RestBusNode.h"
 #include "core/diagnostics/DiagnosticEvent.h"
 #include "core/diagnostics/UdsClientNode.h"
 #include "core/isotp/IsoTpNode.h"
@@ -129,6 +130,109 @@ namespace {
     }
 
     return Result::ok();
+}
+
+/// Splits "a, b ,c" into three names, dropping the empty ones.
+///
+/// Comma-separated rather than a repeated parameter, because a project file is
+/// read and diffed by people and `exclude = "BodyController, Gateway"` is one
+/// line somebody can see the whole of.
+[[nodiscard]] std::vector<std::string> splitNames(const std::string& list)
+{
+    std::vector<std::string> names;
+
+    std::size_t start = 0;
+
+    while (start <= list.size()) {
+        const std::size_t comma = list.find(',', start);
+        const std::size_t end = comma == std::string::npos ? list.size() : comma;
+
+        std::string_view name{list};
+        name = name.substr(start, end - start);
+
+        while (!name.empty() && (name.front() == ' ' || name.front() == '\t')) {
+            name.remove_prefix(1);
+        }
+        while (!name.empty() && (name.back() == ' ' || name.back() == '\t')) {
+            name.remove_suffix(1);
+        }
+
+        if (!name.empty()) {
+            names.emplace_back(name);
+        }
+
+        if (comma == std::string::npos) {
+            break;
+        }
+
+        start = comma + 1;
+    }
+
+    return names;
+}
+
+/// Parses "Engine.EngineSpeed, Engine.Throttle=throttle_pedal".
+///
+/// The variable name is optional and defaults to the qualified signal name, so
+/// the short form is the one somebody writes and the long form is there for
+/// when a dashboard already has a variable by another name.
+[[nodiscard]] Result parseDrivenSignals(const std::string& list,
+                                        std::string_view nodeId,
+                                        std::vector<RestBusNode::DrivenSignal>& out)
+{
+    for (const std::string& entry : splitNames(list)) {
+        RestBusNode::DrivenSignal driven;
+
+        std::string_view qualified{entry};
+
+        if (const std::size_t equals = entry.find('='); equals != std::string::npos) {
+            qualified = std::string_view{entry}.substr(0, equals);
+            driven.variable = entry.substr(equals + 1);
+        }
+
+        const std::size_t dot = qualified.find('.');
+
+        if (dot == std::string_view::npos) {
+            return Result::error(
+                ErrorCode::InvalidArgument,
+                std::format("Block '{}': '{}' does not name a signal. Signal names are "
+                            "only unique within a message, so this wants "
+                            "Message.Signal.",
+                            nodeId, entry));
+        }
+
+        driven.message = std::string{qualified.substr(0, dot)};
+        driven.signal = std::string{qualified.substr(dot + 1)};
+
+        if (driven.message.empty() || driven.signal.empty()) {
+            return Result::error(
+                ErrorCode::InvalidArgument,
+                std::format("Block '{}': '{}' is missing one half of Message.Signal",
+                            nodeId, entry));
+        }
+
+        out.push_back(std::move(driven));
+    }
+
+    return Result::ok();
+}
+
+/// A rest bus with no database has nothing to say, and the block says so while
+/// it is on screen rather than at the next Start.
+[[nodiscard]] Result checkRestBus(const NodeParameters& parameters,
+                                  std::string_view nodeId)
+{
+    if (parameters.text("database", "").empty()) {
+        return Result::error(
+            ErrorCode::InvalidArgument,
+            std::format("Block '{}' has no database. A rest bus simulates the messages "
+                        "a database describes, so it needs one - or untick Enabled to "
+                        "leave it out of the run.",
+                        nodeId));
+    }
+
+    std::vector<RestBusNode::DrivenSignal> ignored;
+    return parseDrivenSignals(parameters.text("signals", ""), nodeId, ignored);
 }
 
 } // namespace
@@ -510,6 +614,113 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
         // checked without a build context - which is what lets an unfinished
         // block be reported while it is on screen instead of at the next Start.
         checkLuaScriptChoice);
+
+    catalog.registerType(
+        NodeTypeInfo{
+            .typeName = "sim.restbus",
+            .displayName = "Rest Bus",
+            .category = "Simulation",
+            .description = "Sends every message the rest of the network would send, "
+                           "from a database.",
+            .inputs = {},
+            .outputs = {PortDescriptor{"frames", PortType::Frames}},
+            .parameters =
+                {
+                    ParameterDescriptor{.name = "database",
+                                        .displayName = "Database",
+                                        .type = ParameterValue::Type::Text,
+                                        .required = true,
+                                        .description =
+                                            "The .dbc describing the network to stand "
+                                            "in for."},
+                    ParameterDescriptor{
+                        .name = "exclude",
+                        .displayName = "Real nodes",
+                        .type = ParameterValue::Type::Text,
+                        .required = false,
+                        .description =
+                            "Nodes NOT to simulate, comma separated - the ECUs actually "
+                            "on the bench. This is the list to fill in."},
+                    ParameterDescriptor{
+                        .name = "nodes",
+                        .displayName = "Simulated nodes",
+                        .type = ParameterValue::Type::Text,
+                        .required = false,
+                        .description =
+                            "Nodes to simulate, comma separated. Empty means every node "
+                            "the database describes."},
+                    ParameterDescriptor{
+                        .name = "signals",
+                        .displayName = "Driven signals",
+                        .type = ParameterValue::Type::Text,
+                        .required = false,
+                        .description =
+                            "Signals that follow a variable rather than holding their "
+                            "default: Engine.Speed, Engine.Throttle=throttle_pedal"},
+                    ParameterDescriptor{
+                        .name = "defaultCycleMs",
+                        .displayName = "Default cycle time",
+                        .type = ParameterValue::Type::Integer,
+                        .required = false,
+                        .description =
+                            "For messages whose database declares none. Zero - the "
+                            "default - leaves them unsent, because a message with no "
+                            "cycle time is usually event-triggered and inventing a "
+                            "period puts traffic on the bus the real network never "
+                            "carries."},
+                    ParameterDescriptor{.name = "channel",
+                                        .displayName = "Transmit channel",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description =
+                                            "Channel stamped onto the frames it sends."},
+                },
+        },
+        [](const NodeParameters& parameters, const NodeBuildContext& context,
+           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
+            if (Result result = checkRestBus(parameters, nodeId); result.failed()) {
+                return result;
+            }
+
+            auto node = std::make_unique<RestBusNode>();
+
+            const std::string databasePath =
+                resolvePath(context, parameters.text("database"));
+
+            auto database = std::make_shared<CanDatabase>();
+
+            if (Result result = DbcParser::parseFile(databasePath, *database);
+                result.failed()) {
+                return Result::error(result.code(),
+                                     std::format("Node '{}': {}", nodeId,
+                                                 std::string{result.message()}));
+            }
+
+            node->setDatabase(std::move(database));
+
+            node->setSimulatedNodes(splitNames(parameters.text("nodes", "")));
+            node->setExcludedNodes(splitNames(parameters.text("exclude", "")));
+
+            std::vector<RestBusNode::DrivenSignal> driven;
+
+            if (Result result =
+                    parseDrivenSignals(parameters.text("signals", ""), nodeId, driven);
+                result.failed()) {
+                return result;
+            }
+
+            node->setDrivenSignals(std::move(driven));
+            node->setSystemVariables(context.variables);
+
+            node->setDefaultCycleMs(
+                static_cast<std::uint32_t>(parameters.integer("defaultCycleMs", 0)));
+            node->setTransmitChannel(
+                static_cast<std::uint8_t>(parameters.integer("channel", 0)));
+
+            out = std::move(node);
+            return Result::ok();
+        },
+        checkRestBus);
 
     // --- Testing ----------------------------------------------------------
 
