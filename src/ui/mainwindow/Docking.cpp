@@ -256,22 +256,25 @@ void configureDockingSystem()
     // show neither tab nor title bar and lose its name entirely.
     flags |= KDDockWidgets::Config::Flag_HideTitleBarWhenTabsVisible;
 
-    // Hiding the title bar takes the close and float buttons with it, and
-    // without this flag there is no way to close a panel except the View menu.
-    // That is a control the user had before and would quietly have lost.
+    // **Flag_ShowButtonsOnTabBarIfTitleBarHidden is deliberately NOT set.**
     //
-    // These buttons were switched off for three rounds because they drew as
-    // blank squares with a broken edge beside the second one. Both causes have
-    // since been found and fixed, and neither was the flag:
+    // It puts close and float buttons at the right-hand end of every tab strip,
+    // and they draw as blank squares: the buttons the library builds there do
+    // not go through the view factory above, so `iconForButtonType` is never
+    // asked and no icon is ever supplied. What is left is a hit target with
+    // nothing in it, once per docked panel, which reads as a rendering defect
+    // rather than as a control - and is the thing most likely to be clicked by
+    // accident, because it is unlabelled and sits where a mouse rests.
     //
-    //   * the icon resource a static build never registered, so real buttons
-    //     drew an icon that did not exist (initializeDockingResources), and
-    //   * Group::paintEvent's hardcoded light rectangle, painted over
-    //     everything the style sheet had drawn (StyledGroup above).
+    // This was on for one round on the theory that the blank squares came from
+    // the unregistered icon resource and the hardcoded Group rectangle. Both of
+    // those were real and both are fixed; the squares on the *tab bar* were
+    // neither, and turning the flag off is the fix for those.
     //
-    // Turned on now, in a change separate from the one that fixed them, so that
-    // if the squares come back it is clear which change to look at.
-    flags |= KDDockWidgets::Config::Flag_ShowButtonsOnTabBarIfTitleBarHidden;
+    // Nothing is lost. Every panel has a checkable entry in the View menu -
+    // generated from the dock list, so a panel added later appears there
+    // automatically - the Output console has a toolbar button of its own, and a
+    // panel is still dragged by its tab and torn off by dragging it away.
 
     config.setFlags(flags);
 
@@ -404,6 +407,28 @@ void addDockTo(DockMainWindowBase* window,
     }
 
     window->addDockWidget(dock, toKddwLocation(location), nullptr,
+                          KDDockWidgets::InitialOption{initialSize});
+}
+
+void addDockNextTo(DockMainWindowBase* window,
+                   DockWidget* dock,
+                   DockLocation location,
+                   DockWidget* relativeTo,
+                   QSize initialSize)
+{
+    if (window == nullptr || dock == nullptr) {
+        return;
+    }
+
+    // A null `relativeTo` is the same call as addDockTo, and the framework
+    // reads it that way too - so this stays useful when a caller's neighbour is
+    // conditionally present rather than forcing the caller to branch.
+    if (initialSize.isNull()) {
+        window->addDockWidget(dock, toKddwLocation(location), relativeTo);
+        return;
+    }
+
+    window->addDockWidget(dock, toKddwLocation(location), relativeTo,
                           KDDockWidgets::InitialOption{initialSize});
 }
 

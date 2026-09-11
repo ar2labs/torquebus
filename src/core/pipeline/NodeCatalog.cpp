@@ -11,6 +11,7 @@
 #include "core/pipeline/nodes/FrameNodes.h"
 #include "core/transmit/TransmitListNode.h"
 #include "core/scripting/LuaEcuNode.h"
+#include "core/scripting/LuaTestNode.h"
 #include "core/diagnostics/DiagnosticEvent.h"
 #include "core/diagnostics/UdsClientNode.h"
 #include "core/isotp/IsoTpNode.h"
@@ -504,6 +505,108 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
         // The same rule the creator checks, registered so it can also be
         // checked without a build context - which is what lets an unfinished
         // block be reported while it is on screen instead of at the next Start.
+        checkLuaScriptChoice);
+
+    // --- Testing ----------------------------------------------------------
+
+    catalog.registerType(
+        NodeTypeInfo{
+            .typeName = "lua.test",
+            .displayName = "Test Sequence",
+            .category = "Simulation",
+            .description = "A Lua sequence that checks the bus and reports pass or fail.",
+            .inputs = {PortDescriptor{"frames", PortType::Frames}},
+            .outputs = {PortDescriptor{"frames", PortType::Frames}},
+            .parameters =
+                {
+                    ParameterDescriptor{.name = "script",
+                                        .displayName = "Sequence",
+                                        .type = ParameterValue::Type::Text,
+                                        .required = false,
+                                        .description = "The Lua source, held in the project."},
+                    ParameterDescriptor{.name = "scriptPath",
+                                        .displayName = "Sequence file",
+                                        .type = ParameterValue::Type::Text,
+                                        .required = false,
+                                        .description = "A .lua file to load instead."},
+                    ParameterDescriptor{.name = "channel",
+                                        .displayName = "Transmit channel",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description =
+                                            "Channel stamped onto the frames it sends."},
+                },
+            .acceptsExtraParameters = true,
+        },
+        [](const NodeParameters& parameters, const NodeBuildContext& context,
+           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
+            if (Result result = checkLuaScriptChoice(parameters, nodeId); result.failed()) {
+                return result;
+            }
+
+            const bool hasPath = parameters.contains("scriptPath");
+
+            std::string source;
+            std::string name{nodeId};
+
+            if (hasPath) {
+                const std::string path = resolvePath(context, parameters.text("scriptPath"));
+                if (Result result = readFile(path, source); result.failed()) {
+                    return Result::error(result.code(),
+                                         std::format("Node '{}': {}", nodeId,
+                                                     std::string{result.message()}));
+                }
+
+                const std::size_t separator = path.find_last_of("/\\");
+                name = separator == std::string::npos ? path : path.substr(separator + 1);
+            } else {
+                source = parameters.text("script");
+            }
+
+            auto node = std::make_unique<LuaTestNode>(
+                std::move(source), std::move(name),
+                static_cast<std::uint8_t>(parameters.integer("channel", 0)));
+
+            // Where the verdict goes. Null in a graph built without one, and
+            // the sequence then still runs and still logs - which is what a
+            // headless run wants and what makes the node testable on its own.
+            node->setReport(context.testReport);
+
+            static constexpr std::string_view kReserved[] = {"script", "scriptPath", "channel"};
+
+            std::map<std::string, LuaValue> scriptParameters;
+
+            for (const auto& [key, value] : parameters.values()) {
+                if (std::find(std::begin(kReserved), std::end(kReserved), key)
+                    != std::end(kReserved)) {
+                    continue;
+                }
+
+                switch (value.type()) {
+                case ParameterValue::Type::Boolean:
+                    scriptParameters.emplace(key, LuaValue::fromBoolean(value.asBoolean()));
+                    break;
+                case ParameterValue::Type::Integer:
+                    scriptParameters.emplace(key, LuaValue::fromInteger(value.asInteger()));
+                    break;
+                case ParameterValue::Type::Real:
+                    scriptParameters.emplace(key, LuaValue::fromNumber(value.asReal()));
+                    break;
+                case ParameterValue::Type::Text:
+                    scriptParameters.emplace(key, LuaValue::fromString(value.asText()));
+                    break;
+                }
+            }
+
+            node->setScriptParameters(std::move(scriptParameters));
+
+            if (context.log) {
+                node->setLogHandler(context.log);
+            }
+
+            out = std::move(node);
+            return Result::ok();
+        },
         checkLuaScriptChoice);
 
     catalog.registerType(

@@ -14,6 +14,7 @@
 #include "ui/database/DatabasePanel.h"
 #include "ui/diagnostics/DiagnosticsPanel.h"
 #include "ui/scripting/ScriptEditorPanel.h"
+#include "ui/testing/TestPanel.h"
 #include "ui/graph/GraphPanel.h"
 #include "ui/hardware/HardwareDialog.h"
 #include "ui/mainwindow/PlaceholderPanel.h"
@@ -83,6 +84,7 @@ constexpr auto kDockPlayback    = "torquebus.dock.playback";
 constexpr auto kDockStatistics  = "torquebus.dock.statistics";
 constexpr auto kDockDiagnostics = "torquebus.dock.diagnostics";
 constexpr auto kDockScript      = "torquebus.dock.script";
+constexpr auto kDockTest        = "torquebus.dock.test";
 constexpr auto kDockOutput      = "torquebus.dock.output";
 
 // Starting geometry of the default arrangement. Wide enough for a channel name
@@ -90,6 +92,13 @@ constexpr auto kDockOutput      = "torquebus.dock.output";
 constexpr int kSidePanelWidth = 260;
 constexpr int kSidePanelMinimumWidth = 180;
 constexpr int kConsoleHeight = 160;
+
+/// Starting height of the Properties/Block half of the left column.
+///
+/// Not half the window: the explorer's tree grows with the number of channels
+/// and databases, while a property form is a fixed number of rows and stops
+/// being more useful with more space.
+constexpr int kSidePanelSplit = 420;
 
 /// Status indicator bullet. The colour carries the state (see the
 /// torquebusState rules in the style sheet); the glyph just gives it a shape,
@@ -108,7 +117,10 @@ constexpr auto kBullet = "●";
 ///   6  v0.9  Playback joins it, under the trace
 ///   7  v0.13 Script Editor, tabbed with the Block editor it replaces the
 ///            need to type Lua into
-constexpr int kDockLayoutVersion = 7;
+///   8  v0.13 One column on the left instead of two flanking margins, and the
+///            console under the analysis stack rather than across the window
+///   9  v0.13 Test joins the analysis stack
+constexpr int kDockLayoutVersion = 9;
 
 /// Converts one of the frozen dock names above into a QString.
 ///
@@ -481,10 +493,29 @@ void MainWindow::createPanels()
     m_scriptDock = createDockWidget(dockName(kDockScript), tr("Script"),
                                     m_scriptEditor, icon("script"));
 
+    // The verdict of a test sequence. Reads the engine's report, which outlives
+    // the graph - so the result of a run is still on screen after Stop, which
+    // is the moment somebody actually reads it.
+    m_testPanel = new TestPanel;
+    m_testPanel->setReport(&m_controller->engine().testReport());
+
+    connect(m_testPanel, &TestPanel::reported, this,
+            [this](const QString& text, bool isError) {
+                if (isError) {
+                    m_output->appendError(text);
+                } else {
+                    m_output->appendInfo(text);
+                }
+            });
+
+    m_testDock = createDockWidget(dockName(kDockTest), tr("Test"), m_testPanel,
+                                  icon("test"));
+
     m_allDocks = {m_projectDock,     m_propertiesDock,  m_nodePropertiesDock,
                   m_traceDock,       m_databaseDock,    m_pipelineDock,
                   m_transmitDock,    m_graphDock,       m_playbackDock,
                   m_statisticsDock,  m_diagnosticsDock, m_scriptDock,
+                  m_testDock,
                   m_outputDock};
 }
 
@@ -666,6 +697,8 @@ void MainWindow::createMenus()
     analysisMenu->addAction(m_statisticsDock->toggleAction());
 
     simulationMenu->addAction(m_transmitDock->toggleAction());
+    simulationMenu->addAction(m_scriptDock->toggleAction());
+    simulationMenu->addAction(m_testDock->toggleAction());
 
     diagnosticsMenu->addAction(m_diagnosticsDock->toggleAction());
 
@@ -674,7 +707,11 @@ void MainWindow::createMenus()
     toolsMenu->addSeparator();
     toolsMenu->addAction(m_actionPreferences);
     toolsMenu->addSeparator();
-    toolsMenu->addAction(m_outputDock->toggleAction());
+
+    // The Output toggle used to be listed here as well. It is in the View menu
+    // with every other panel and now has a toolbar button of its own, and the
+    // same action in three menus is two places for somebody to wonder whether
+    // they do the same thing.
     toolsMenu->addAction(m_actionInspectChrome);
 
     QMenu* helpMenu = bar->addMenu(tr("&Help"));
@@ -728,6 +765,32 @@ void MainWindow::createToolBar()
     toolBar->addSeparator();
     addButton(m_actionToggleTheme);
 
+    // The console, on the toolbar rather than only in a menu.
+    //
+    // It is the one panel whose usefulness swings between "the only thing I am
+    // reading" and "in the way of the trace" several times in a session - a
+    // script's log lines matter while a script is being written and are noise
+    // while a bus is being watched - and a panel toggled that often should not
+    // cost two clicks through a menu each time.
+    //
+    // The dock's own toggle action, not a second action shadowing it: one
+    // checkable thing, so the button, the View menu entry and the panel can
+    // never disagree about whether it is open.
+    if (m_outputDock != nullptr) {
+        QAction* toggleOutput = m_outputDock->toggleAction();
+        toggleOutput->setIcon(m_themes.icon(QStringLiteral("console")));
+        toggleOutput->setIconText(tr("Output"));
+
+        // Spelled rather than assembled from Qt::CTRL | Qt::ALT | Qt::Key_O:
+        // the enum arithmetic changed shape between Qt 5 and 6, and the string
+        // form has meant the same thing in every version.
+        toggleOutput->setShortcut(QKeySequence{QStringLiteral("Ctrl+Alt+O")});
+        toggleOutput->setToolTip(tr("Show or hide the Output console (Ctrl+Alt+O)"));
+
+        toolBar->addSeparator();
+        addButton(toggleOutput);
+    }
+
     addToolBar(Qt::TopToolBarArea, toolBar);
 }
 
@@ -777,8 +840,9 @@ void MainWindow::createStatusBar()
 
 void MainWindow::applyDefaultLayout()
 {
-    // Reproduces PLAN.md section 37: explorer left, properties right, the
-    // analysis panels in the middle, console across the bottom.
+    // PLAN.md section 37, as it settled after being used: one column on the
+    // left holding the explorer above the property panels, the analysis stack
+    // filling the middle, and the console under that stack.
     //
     // ORDER IS THE WHOLE TRICK. In KDDockWidgets a location is relative to the
     // main window's layout as a whole, not to "whatever is in the middle": the
@@ -801,18 +865,37 @@ void MainWindow::applyDefaultLayout()
     m_traceDock->addDockWidgetAsTab(m_statisticsDock);
     m_traceDock->addDockWidgetAsTab(m_diagnosticsDock);
     m_traceDock->addDockWidgetAsTab(m_scriptDock);
+    m_traceDock->addDockWidgetAsTab(m_testDock);
     m_traceDock->setAsCurrentTab();
 
-    // 2. Side panels split off the centre, with explicit starting widths so the
-    //    centre keeps the space - the trace is what the user actually reads.
+    // 2. One column down the left, not two columns flanking the centre.
+    //
+    //    Both panels in that column describe *the thing currently selected* -
+    //    the explorer picks it, Properties and Block describe it - so they are
+    //    read together, top then bottom, without the eye crossing the trace to
+    //    get from one to the other. Splitting them to opposite edges put the
+    //    question on the left and its answer on the right, with 900 pixels of
+    //    unrelated data in between.
+    //
+    //    It also leaves the centre one wide region instead of two narrow
+    //    margins, which is what a 64-column trace and a node canvas both want.
     addDockTo(this, m_projectDock, DockLocation::Left, QSize{kSidePanelWidth, 0});
-    addDockTo(this, m_propertiesDock, DockLocation::Right, QSize{kSidePanelWidth, 0});
+
+    addDockNextTo(this, m_propertiesDock, DockLocation::Bottom, m_projectDock,
+                  QSize{0, kSidePanelSplit});
+
     m_propertiesDock->addDockWidgetAsTab(m_nodePropertiesDock);
     m_propertiesDock->setAsCurrentTab();
 
-    // 3. The console spans the full width underneath everything, the way every
-    //    engineering tool of this family arranges it.
-    addDockTo(this, m_outputDock, DockLocation::Bottom, QSize{0, kConsoleHeight});
+    // 3. The console goes under the *analysis stack*, not under the window.
+    //
+    //    Relative to m_traceDock rather than to the window as a whole, which is
+    //    the difference between a console that spans everything - cutting the
+    //    explorer column off at the knee - and one that occupies the bottom of
+    //    the area it belongs to. The left column then runs the full height,
+    //    which is where a tree of channels wants to be.
+    addDockNextTo(this, m_outputDock, DockLocation::Bottom, m_traceDock,
+                  QSize{0, kConsoleHeight});
 
     m_projectDock->setMinimumWidth(kSidePanelMinimumWidth);
     m_propertiesDock->setMinimumWidth(kSidePanelMinimumWidth);
@@ -1043,6 +1126,8 @@ void MainWindow::onThemeChanged(const Theme& theme)
         {m_transmitDock, "transmit"},      {m_graphDock, "graph"},
         {m_statisticsDock, "statistics"},  {m_diagnosticsDock, "diagnostics"},
         {m_databaseDock, "database"},      {m_pipelineDock, "graph"},
+        {m_scriptDock, "script"},          {m_testDock, "test"},
+        {m_playbackDock, "replay"},
     };
 
     for (const auto& [dock, name] : dockIcons) {
@@ -1059,6 +1144,14 @@ void MainWindow::onThemeChanged(const Theme& theme)
     m_actionHardwareConfiguration->setIcon(m_themes.icon(QStringLiteral("hardware")));
     m_actionToggleTheme->setIcon(m_themes.icon(QStringLiteral("theme")));
     m_actionAbout->setIcon(m_themes.icon(QStringLiteral("help")));
+
+    // The console's toolbar button carries a tinted icon like any other, and it
+    // is the one that would be missed: it belongs to the dock rather than to the
+    // action list above, so it is easy to leave out and hard to notice - the
+    // symptom is one blank button after a theme flip.
+    if (m_outputDock != nullptr) {
+        m_outputDock->toggleAction()->setIcon(m_themes.icon(QStringLiteral("console")));
+    }
 
     m_output->appendInfo(tr("Theme changed to %1.").arg(theme.name));
 }
@@ -1917,6 +2010,19 @@ void MainWindow::onMeasurementStarted()
 
     if (!target.isEmpty()) {
         m_diagnosticsDock->setAsCurrentTab();
+    }
+
+    // A graph with a test sequence in it is a run somebody started in order to
+    // read a verdict, so the verdict is what comes forward. Checked from the
+    // graph rather than from a setting, like everything else here.
+    const bool hasSequence = std::any_of(
+        m_pipeline.nodes().begin(), m_pipeline.nodes().end(),
+        [](const NodeDescription& node) {
+            return node.typeName == "lua.test" && node.enabled;
+        });
+
+    if (hasSequence && m_testDock != nullptr) {
+        m_testDock->setAsCurrentTab();
     }
 
     if (!replaying.isEmpty()) {

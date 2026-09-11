@@ -40,6 +40,7 @@ namespace torquebus {
 
 class CanChannel;
 class ScriptLibrary;
+class TestReport;
 class TraceStore;
 class TransmitList;
 
@@ -89,6 +90,13 @@ struct NodeBuildContext final {
 
     /// Where a script's log_message() and errors go.
     std::function<void(const std::string& text, bool isError)> log;
+
+    /// Where a test sequence's verdict goes, or nullptr for a graph nobody is
+    /// showing a report for.
+    ///
+    /// Borrowed, like the trace store: it belongs to the measurement, and the
+    /// panel reads it on its own timer while the executor writes.
+    TestReport* testReport{nullptr};
 
     /// Where the script editor hands edited sources in, or nullptr for a graph
     /// nobody is editing.

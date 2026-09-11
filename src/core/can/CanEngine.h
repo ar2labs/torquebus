@@ -40,6 +40,7 @@
 #include "core/pipeline/PipelineGraph.h"
 #include "core/diagnostics/DiagnosticSession.h"
 #include "core/scripting/ScriptLibrary.h"
+#include "core/testing/TestReport.h"
 #include "core/log/ReplayControl.h"
 #include "core/log/TraceLog.h"
 #include "core/plot/SignalSeries.h"
@@ -305,6 +306,14 @@ public:
         return m_diagnostics;
     }
 
+    /// What the running test sequence has found.
+    ///
+    /// Owned here rather than by the node, so a panel can go on showing the
+    /// verdict after the measurement has stopped - which is the moment somebody
+    /// actually reads it.
+    [[nodiscard]] TestReport& testReport() noexcept { return m_testReport; }
+    [[nodiscard]] const TestReport& testReport() const noexcept { return m_testReport; }
+
     /// Where the script editor hands edited scripts to running ECUs.
     ///
     /// Owned here, like the diagnostic session, and for the same reason: it
@@ -383,6 +392,7 @@ private:
     ReplayControl m_replayControl;
     DiagnosticSession m_diagnostics;
     ScriptLibrary m_scriptLibrary;
+    TestReport m_testReport;
 
     mutable std::mutex m_sinksMutex;
     std::vector<Registration<FrameSink>> m_frameSinks;
