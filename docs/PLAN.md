@@ -1595,16 +1595,127 @@ O que faltava de verdade:
 
 # v0.16 — J1939
 
- PGN;
- SPN;
- address claiming;
- BAM;
- TP;
- DM1;
- DM2;
- network view.
+Máquina agrícola, caminhão, ônibus, barco, gerador. A camada física é a mesma
+CAN de 29 bits que já está no fio; o que muda é que o identificador deixa de ser
+um número que um banco de dados traduz e passa a ser **estrutura** — quem
+mandou, para quem, e qual mensagem. Uma ferramenta que mostra `0x18FEE500` está
+tecnicamente certa e praticamente inútil.
 
-Essa parte será especialmente útil para máquinas agrícolas e veículos pesados.
+--- O que já existe e não será reescrito ------------------------------------
+
+**A decodificação de sinal.** Um SPN é um sinal: bit inicial, comprimento, ordem
+de bytes, fator, offset. `CanSignal` já faz isso, o `DbcParser` já lê bancos com
+identificador estendido (bit 31 do número na linha `BO_`), e bancos J1939 em
+`.dbc` são o formato que todo mundo realmente troca. Não haverá um segundo
+decodificador, nem um segundo formato de banco.
+
+O que falta não é decodificar: é **casar**. Hoje uma mensagem é encontrada pelo
+identificador inteiro. Em J1939 o identificador carrega o endereço de quem
+transmitiu, então a mesma mensagem vinda de duas ECUs são dois identificadores —
+e procurar por identificador não acha nenhuma das duas. O casamento passa a ser
+por **PGN**, com o endereço de origem como informação, não como parte da chave.
+
+--- O identificador, desmontado ---------------------------------------------
+
+Três bits de prioridade, EDP, DP, PF, PS, SA. A regra que decide tudo:
+
+* **PF < 240 (PDU1)** — específica de destino. `PS` é o endereço do destinatário
+  e **não faz parte do PGN**.
+* **PF >= 240 (PDU2)** — difusão. `PS` é extensão de grupo e **faz parte do PGN**.
+
+Zerar `PS` sempre, ou nunca, são os dois jeitos de errar isto, e os dois
+produzem o mesmo sintoma: um PGN que não existe em banco nenhum, e uma mensagem
+que a ferramenta jura não conhecer. Fica em `core/j1939/J1939Id.h` como função
+pura sobre um `CanFrame` — sem estado, sem alocação, testável sozinha. É a peça
+que todo o resto usa, então é a peça que tem de estar certa primeiro.
+
+--- Transporte: TP, BAM, e o que não será feito ------------------------------
+
+Acima de oito bytes, J1939 tem dois mecanismos, e **nenhum dos dois é ISO-TP**.
+A tentação de reaproveitar `IsoTpConnection` é real e está errada: outro
+cabeçalho, outra máquina de estados, outra numeração, outro handshake. Um
+transporte que é "quase" outro é a forma mais cara de compartilhar código.
+
+* **TP** ponto a ponto — RTS/CTS (PGN 60416) e os pacotes de dados (60160).
+* **BAM** difusão — anunciada e despejada, sem handshake, com no mínimo 50 ms
+  entre pacotes. Ninguém confirma nada, e ninguém pode pedir de novo.
+
+**Um BAM com pacote faltando é abandonado e relatado, nunca remendado.** Sete
+bytes ausentes preenchidos com zero produzem uma mensagem que remonta, decodifica
+e mente — e uma pressão de óleo zero lida de um buraco é indistinguível de uma
+pressão de óleo zero medida. Perder a mensagem é recuperável; acreditar nela não.
+
+Uma segunda sessão da mesma origem abandona a primeira, que é o que a norma diz e
+também o único comportamento que não vaza buffer numa bancada onde alguém está
+resetando uma ECU repetidamente.
+
+**ETP fica fora da v0.16.** Acima de 1785 bytes é outro par de PGNs e outra
+máquina de estados, e é raro fora de transferência de arquivo e calibração.
+Ficar fora é uma decisão, não um esquecimento: o bloco **reconhece** um
+`TP.CM/ETP.CM` que não trata e diz que não trata, em vez de ignorar em silêncio.
+
+--- Address claiming, e por que a ferramenta fica calada --------------------
+
+`0xEE00`, com o NAME de 64 bits: capaz de endereço arbitrário, grupo industrial,
+sistema veicular e instância, função e instância, instância de ECU, código de
+fabricante, número de identidade. NAME menor ganha a disputa.
+
+**Por padrão o TorqueBus observa e não reivindica.** Uma ferramenta que reivindica
+um endereço ao ser ligada pode derrubar do barramento uma ECU real que estava
+usando aquele endereço — numa bancada isso é uma tarde perdida, num veículo é
+pior. Reivindicar é uma opção explícita, com o NAME digitado por quem sabe o que
+está fazendo, e nunca o comportamento de quem só abriu o programa para olhar.
+
+Observando, dá para responder às perguntas que realmente se faz: quem está no
+barramento, quem disputou endereço com quem, e quem está transmitindo de um
+endereço que nunca reivindicou — este último é o caso interessante, e é
+justamente o que uma tabela só de reivindicações esconderia.
+
+--- DM1 e DM2 ---------------------------------------------------------------
+
+Byte de lâmpadas — MIL, parada vermelha, alerta âmbar, proteção — e depois DTCs
+de quatro bytes: SPN, FMI, CM, OC.
+
+Duas recusas:
+
+**Um DM1 sem falha ativa manda um DTC zerado.** Isso é a norma, e lê-se como uma
+falha de SPN 0 e FMI 0 em qualquer ferramenta que não trate o caso. Aparece como
+"sem falhas ativas", que é o que a mensagem significa.
+
+**A conversão do SPN é declarada, não adivinhada.** O campo foi codificado de
+três formas ao longo da vida da norma, e um fabricante que usa a antiga produz
+números plausíveis e errados sob a leitura nova — o pior tipo de erro, porque
+o resultado parece um SPN. A leitura é uma configuração do bloco, e os quatro
+bytes crus aparecem ao lado do SPN interpretado, sempre. Quem conhece a ECU
+reconhece a conversão certa em um segundo olhando os bytes; ninguém reconhece
+nada olhando um número já convertido errado.
+
+Mais de um DTC ativo não cabe em oito bytes, então DM1 real chega por BAM. DM1
+depende do transporte, e o transporte é o que tem de estar pronto antes.
+
+--- A forma na tela ---------------------------------------------------------
+
+Um bloco, não quatro. **J1939** em *Transforms*: recebe frames, remonta TP e BAM,
+casa por PGN contra o banco carregado, e emite sinais decodificados como o
+decodificador DBC já emite — o painel Graph, o dashboard e os scripts continuam
+recebendo o que sempre receberam. Endereçamento e diagnóstico são saídas
+adicionais do mesmo bloco, porque são leituras do mesmo tráfego: separá-los em
+blocos distintos seria pedir para desenhar três vezes o mesmo fio.
+
+Um painel **J1939 Network**: uma linha por endereço, o NAME decodificado em
+campos legíveis, fabricante, visto pela primeira e pela última vez, e as disputas
+de endereço. É a resposta para "o que está nesse barramento", que é a primeira
+pergunta de quem conecta numa máquina que não montou.
+
+--- Testes ------------------------------------------------------------------
+
+`[j1939]` — a desmontagem do identificador, com PDU1 e PDU2 nos dois lados da
+fronteira em 240; um BAM com pacote faltando, que tem de ser abandonado e não
+remontado; duas sessões concorrentes da mesma origem; um DM1 zerado lido como
+"sem falhas"; um SPN sob as três convenções, provando que a escolhida é a que
+foi pedida.
+
+Versão: **0.15.0 -> 0.16.0**.
 
 ---
 
