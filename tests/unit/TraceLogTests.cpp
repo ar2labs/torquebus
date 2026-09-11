@@ -16,6 +16,8 @@
 #include "core/pipeline/PipelineGraph.h"
 #include "core/trace/TraceStore.h"
 
+#include "UniqueTempPath.h"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
@@ -29,6 +31,7 @@
 #include <vector>
 
 using namespace torquebus;
+using torquebus::tests::uniqueTempPath;
 
 namespace {
 
@@ -37,9 +40,7 @@ namespace {
 class ScopedLogFile final {
 public:
     ScopedLogFile()
-        : m_path{(std::filesystem::temp_directory_path()
-                  / std::filesystem::path{"torquebus_test_" + std::to_string(counter()) + ".tblog"})
-                     .string()}
+        : m_path{uniqueTempPath("torquebus_test", counter(), ".tblog").string()}
     {
         std::filesystem::remove(m_path);
     }

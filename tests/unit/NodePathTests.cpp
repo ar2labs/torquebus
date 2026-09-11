@@ -15,11 +15,14 @@
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 
+#include "UniqueTempPath.h"
+
 #include <filesystem>
 #include <fstream>
 #include <string>
 
 using namespace torquebus;
+using torquebus::tests::uniqueTempDirectory;
 
 namespace {
 
@@ -27,8 +30,7 @@ namespace {
 class ProjectFolder final {
 public:
     ProjectFolder()
-        : m_root{std::filesystem::temp_directory_path()
-                 / "torquebus-path-tests"}
+        : m_root{uniqueTempDirectory("torquebus-path-tests")}
     {
         std::filesystem::remove_all(m_root);
         std::filesystem::create_directories(m_root / "databases");

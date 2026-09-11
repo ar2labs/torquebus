@@ -10,6 +10,8 @@
 #include "core/can/CanFrame.h"
 #include "core/log/TraceExport.h"
 
+#include "UniqueTempPath.h"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
@@ -21,15 +23,15 @@
 #include <vector>
 
 using namespace torquebus;
+using torquebus::tests::uniqueTempPath;
 
 namespace {
 
 class ScopedFile final {
 public:
     explicit ScopedFile(const char* extension)
-        : m_path{(std::filesystem::temp_directory_path()
-                  / std::filesystem::path{"torquebus_export_" + std::to_string(counter()) + "."
-                                          + extension})
+        : m_path{uniqueTempPath("torquebus_export", counter(),
+                                std::string{"."} + extension)
                      .string()}
     {
         std::filesystem::remove(m_path);
