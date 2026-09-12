@@ -16,6 +16,7 @@
 #include "ui/dashboard/DashboardPanel.h"
 #include "ui/dashboard/DashboardWidgetEditor.h"
 #include "ui/scripting/ScriptEditorPanel.h"
+#include "ui/j1939/J1939NetworkPanel.h"
 #include "ui/testing/TestPanel.h"
 #include "ui/graph/GraphPanel.h"
 #include "ui/hardware/HardwareDialog.h"
@@ -87,6 +88,7 @@ constexpr auto kDockStatistics  = "torquebus.dock.statistics";
 constexpr auto kDockDiagnostics = "torquebus.dock.diagnostics";
 constexpr auto kDockScript      = "torquebus.dock.script";
 constexpr auto kDockTest        = "torquebus.dock.test";
+constexpr auto kDockJ1939       = "torquebus.dock.j1939";
 constexpr auto kDockDashboard   = "torquebus.dock.dashboard";
 constexpr auto kDockDashboardProperties = "torquebus.dock.dashboard.widget";
 constexpr auto kDockOutput      = "torquebus.dock.output";
@@ -125,7 +127,8 @@ constexpr auto kBullet = "●";
 ///            console under the analysis stack rather than across the window
 ///   9  v0.13 Test joins the analysis stack
 ///  10  v0.14 Dashboard joins it, and the widget form joins the left column
-constexpr int kDockLayoutVersion = 10;
+///  11  v0.16 J1939 Network joins it
+constexpr int kDockLayoutVersion = 11;
 
 /// Converts one of the frozen dock names above into a QString.
 ///
@@ -516,6 +519,15 @@ void MainWindow::createPanels()
     m_testDock = createDockWidget(dockName(kDockTest), tr("Test"), m_testPanel,
                                   icon("test"));
 
+    // Who is on the bus. Reads the engine's view, which outlives the graph for
+    // the same reason the test report does - "what was on this machine" is
+    // asked after a run as often as during one.
+    m_j1939Panel = new J1939NetworkPanel;
+    m_j1939Panel->setNetwork(&m_controller->engine().j1939Network());
+
+    m_j1939Dock = createDockWidget(dockName(kDockJ1939), tr("J1939 Network"), m_j1939Panel,
+                                   icon("network"));
+
     // --- The dashboard, and the form that edits one widget of it -----------
     m_dashboardPanel = new DashboardPanel(m_dashboard);
     m_dashboardPanel->setPlotStore(&m_controller->engine().plotStore());
@@ -568,6 +580,7 @@ void MainWindow::createPanels()
                   m_transmitDock,    m_graphDock,       m_playbackDock,
                   m_statisticsDock,  m_diagnosticsDock, m_scriptDock,
                   m_testDock,        m_dashboardDock,   m_dashboardPropertiesDock,
+                  m_j1939Dock,
                   m_outputDock};
 }
 
@@ -782,6 +795,7 @@ void MainWindow::createMenus()
     simulationMenu->addAction(m_actionEditDashboard);
 
     diagnosticsMenu->addAction(m_diagnosticsDock->toggleAction());
+    diagnosticsMenu->addAction(m_j1939Dock->toggleAction());
 
     QMenu* toolsMenu = bar->addMenu(tr("&Tools"));
     toolsMenu->addAction(m_actionToggleTheme);
@@ -948,6 +962,7 @@ void MainWindow::applyDefaultLayout()
     m_traceDock->addDockWidgetAsTab(m_scriptDock);
     m_traceDock->addDockWidgetAsTab(m_testDock);
     m_traceDock->addDockWidgetAsTab(m_dashboardDock);
+    m_traceDock->addDockWidgetAsTab(m_j1939Dock);
     m_traceDock->setAsCurrentTab();
 
     // 2. One column down the left, not two columns flanking the centre.
@@ -1216,6 +1231,7 @@ void MainWindow::onThemeChanged(const Theme& theme)
         {m_scriptDock, "script"},          {m_testDock, "test"},
         {m_playbackDock, "replay"},        {m_dashboardDock, "gauge"},
         {m_dashboardPropertiesDock, "properties"},
+        {m_j1939Dock, "network"},
     };
 
     for (const auto& [dock, name] : dockIcons) {

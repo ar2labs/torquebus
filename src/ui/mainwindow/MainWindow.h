@@ -49,6 +49,7 @@ class PlaybackPanel;
 class DashboardPanel;
 class DashboardWidgetEditor;
 class ScriptEditorPanel;
+class J1939NetworkPanel;
 class TestPanel;
 class ProjectExplorerPanel;
 class NodePropertiesEditor;
@@ -192,6 +193,7 @@ private:
     DiagnosticsPanel* m_diagnosticsPanel{nullptr};
     ScriptEditorPanel* m_scriptEditor{nullptr};
     TestPanel* m_testPanel{nullptr};
+    J1939NetworkPanel* m_j1939Panel{nullptr};
     DashboardPanel* m_dashboardPanel{nullptr};
     DashboardWidgetEditor* m_dashboardEditor{nullptr};
 
@@ -261,6 +263,7 @@ private:
     DockWidget* m_diagnosticsDock{nullptr};
     DockWidget* m_scriptDock{nullptr};
     DockWidget* m_testDock{nullptr};
+    DockWidget* m_j1939Dock{nullptr};
     DockWidget* m_dashboardDock{nullptr};
     DockWidget* m_dashboardPropertiesDock{nullptr};
     DockWidget* m_outputDock{nullptr};
