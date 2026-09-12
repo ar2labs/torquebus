@@ -121,6 +121,7 @@ because each pins something that was got wrong once:
 | `[uds][dtc]` | A trouble code shown as a raw number instead of P0128, and - worse - codes invented out of a response that is not a DTC list |
 | `[isotp][graph]`, `[isotp][validate]` | A request typed into a block never reaching the bus, a periodic request repeating when it was asked once, half a hex byte accepted at Start instead of refused on the canvas |
 | `[isotp]` | The failures of ISO 15765-2, which are all silences: a sequence number that does not wrap at sixteen, STmin's microsecond range read as milliseconds, a block size ignored, an unpadded frame an ECU will not answer, a four-gigabyte length field taken at its word |
+| `[j1939]` | The three J1939 failures that produce a plausible answer instead of an error: a PGN built by zeroing the wrong byte, so it matches nothing and the bus looks silent; a transport session patched over a lost packet, which reassembles and decodes and lies; and an SPN assembled under a packing its sender did not use, which is still a number that looks like an SPN |
 | `[restbus]` | The two silent failures of a rest bus: sending an ECU's own messages back at it because it was on the bench, and inventing a cycle time for a message the database declares none for. Both look like a busy trace and neither shows up as an error |
 | `[dashboard]` | A dashboard that opens and shows nothing: a widget bound to nothing, a gauge whose range cannot be swept, a slider bound to a CAN signal it cannot write (which moves under the mouse and changes nothing on the bus), a widget kind that does not survive the round trip through the project file |
 | `[dashboard][variables]` | The value path between a hand and a simulated ECU: two slots handed out for one name, a write that is lost, a revision that does not move when a script writes the same value twice, and the growing-container race the first version of SystemVariables had |
@@ -1006,6 +1007,53 @@ sits in a fault state, and this is what makes the silence stop.
 8. Watch the first pass of a large database. The messages must **not** all fall
    due together - a trace with two hundred frames sharing a timestamp reads as a
    fault in the tool, and a real network does not start in lockstep.
+
+---
+
+## 5t. J1939
+
+Needs a J1939 bus, or a Lua ECU scripted to imitate one. What is being checked is
+mostly that the tool refuses to invent things.
+
+1. Drop a **J1939** block, wire **CAN Channel -> J1939**, point it at a J1939
+   `.dbc`, and **Start**. The **J1939 Network** panel fills with one row per
+   address.
+2. Compare the **Statistics** panel's *Messages decoded* against *PGNs not in the
+   database*. A machine where nearly everything is unknown is a machine with the
+   wrong database loaded - which otherwise looks like a quiet bus rather than a
+   wrong one.
+3. **The point of the block.** Change the source address of an ECU, or load a
+   database written for a different one. The messages still decode: matching is
+   by PGN, and the address is information rather than part of the key. With the
+   plain **DBC Decoder** in the same graph, the same traffic decodes nothing.
+4. Read the **State** column. On a machine that was already running when you
+   connected, every ECU says *transmitting* rather than *claimed* - no claims
+   happened while you were listening. That is not a fault, and the column
+   tooltip says so. Power-cycle one ECU and watch its row change to *claimed*
+   with a NAME.
+5. A message that needs transport - engine configuration, or a DM1 with several
+   faults - decodes into signals like any other. Watch the **Graph** panel: the
+   values appear when the last packet lands, not seven bytes at a time.
+6. **Break a transfer.** Interrupt the bus mid-BAM, or drop a packet with a
+   filter. The message must **not** appear. *Transport failures* counts up, and
+   nothing partial reaches the graph. A reassembled message with a hole in it
+   decodes into numbers that look measured.
+7. A DM1 from a healthy ECU shows *none* in green, not a fault numbered zero.
+   Every working ECU on the bus sending SPN 0 / FMI 0 is what a tool that does
+   not know about the placeholder looks like.
+8. Turn **Assemble the SPN** off in the block's settings. The faults stay, with
+   FMI and occurrence count, and each shows its four raw bytes instead of an SPN.
+   Turn it back on: a code whose sender declared the other packing still shows
+   bytes rather than a number.
+9. Power two ECUs configured for the same address at once. The panel shows the
+   contest, and the row keeps the lower NAME. Whether the loser actually stops
+   transmitting from that address is the thing worth watching.
+10. **Stop.** The table stays on screen - "what was on this machine" is asked
+    after a run as often as during one. **Start** again: it clears, because the
+    membership of a bus is a fact about the run.
+
+**Watch for:** the panel before any measurement has run. It must say that
+nothing has been seen yet, not show an empty table that reads as an empty bus.
 
 ---
 

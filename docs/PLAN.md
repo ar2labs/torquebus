@@ -1717,6 +1717,26 @@ foi pedida.
 
 Versão: **0.15.0 -> 0.16.0**.
 
+--- O que ficou de fora, e continua de fora ---------------------------------
+
+Três lacunas deliberadas, cada uma porque a alternativa era embarcar um número
+ou um rótulo que pareceria certo:
+
+* **Os empacotamentos antigos do SPN.** Um código que declara o outro
+  empacotamento não recebe SPN nenhum; os quatro bytes crus ficam no lugar.
+* **ETP**, reconhecido e recusado em voz alta.
+* **Tabelas de função e de fabricante.** Funções acima de 127 dependem do grupo
+  industrial e do sistema veicular; a lista de fabricantes tem uns dois mil
+  itens e cresce todo ano. Pertencem a um arquivo de dados corrigível sem
+  recompilar. O grupo industrial, que são oito valores fixos, está nomeado.
+
+E uma que é decisão de postura e não lacuna: **reivindicar endereço**. A tabela
+observa e não tem como transmitir. Um Request for Address Claimed - que
+transformaria "não visto reivindicando" em "nunca reivindicou" - é transmissão,
+e transmissão aqui é opt-in explícito.
+
+**v0.16 fechada.**
+
 ---
 
 # v0.17+ — expansão
