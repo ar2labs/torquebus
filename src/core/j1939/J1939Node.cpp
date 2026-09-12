@@ -69,6 +69,8 @@ Result J1939Node::prepare(std::size_t maximumBatchSize)
     }
 
     m_buffer.resize(worstCase);
+    m_present.reserve(widest);
+
     return Result::ok();
 }
 
@@ -91,7 +93,9 @@ std::size_t J1939Node::decodeInto(std::uint32_t pgn,
 
     std::size_t written = 0;
 
-    for (const CanSignal* signal : message->signalsIn(payload, length)) {
+    message->signalsIn(payload, length, m_present);
+
+    for (const CanSignal* signal : m_present) {
         if (at + written >= m_buffer.size()) {
             // Unreachable: prepare() sized for the worst case. Kept because
             // "unreachable" is a claim about code somewhere else.

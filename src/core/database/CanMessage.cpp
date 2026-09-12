@@ -20,11 +20,14 @@ const CanSignal* CanMessage::multiplexerSwitch() const noexcept
     return match == signalList.end() ? nullptr : &*match;
 }
 
-std::vector<const CanSignal*> CanMessage::signalsIn(const std::uint8_t* payload,
-                                                    std::size_t payloadLength) const
+void CanMessage::signalsIn(const std::uint8_t* payload,
+                           std::size_t payloadLength,
+                           std::vector<const CanSignal*>& out) const
 {
-    std::vector<const CanSignal*> present;
-    present.reserve(signalList.size());
+    // clear() keeps the capacity, which is the point: a caller on the frame
+    // path hands the same vector back every time and never allocates again
+    // after the first message wide enough to fill it.
+    out.clear();
 
     const CanSignal* switchSignal = multiplexerSwitch();
 
@@ -38,7 +41,7 @@ std::vector<const CanSignal*> CanMessage::signalsIn(const std::uint8_t* payload,
 
     for (const CanSignal& signal : signalList) {
         if (!signal.multiplexerValue.has_value()) {
-            present.push_back(&signal);
+            out.push_back(&signal);
             continue;
         }
 
@@ -50,9 +53,18 @@ std::vector<const CanSignal*> CanMessage::signalsIn(const std::uint8_t* payload,
         }
 
         if (static_cast<std::int64_t>(*signal.multiplexerValue) == *selector) {
-            present.push_back(&signal);
+            out.push_back(&signal);
         }
     }
+}
+
+std::vector<const CanSignal*> CanMessage::signalsIn(const std::uint8_t* payload,
+                                                    std::size_t payloadLength) const
+{
+    std::vector<const CanSignal*> present;
+    present.reserve(signalList.size());
+
+    signalsIn(payload, payloadLength, present);
 
     return present;
 }

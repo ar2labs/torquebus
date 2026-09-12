@@ -66,11 +66,27 @@ struct CanMessage final {
     /// The multiplexer switch signal, when this message has one.
     [[nodiscard]] const CanSignal* multiplexerSwitch() const noexcept;
 
-    /// Signals carried by this frame: every plain signal, plus the multiplexed
-    /// ones whose selector value matches what the switch currently reads.
+    /// Signals carried by this frame, written into `out`.
     ///
-    /// Returned by pointer into `signalList`, so the message must outlive the
-    /// result. It is a view, not a copy, because this runs per frame.
+    /// Pointers into `signalList`, so the message must outlive `out`.
+    ///
+    /// `out` is cleared and refilled rather than replaced, so its capacity is
+    /// reused. That is the whole reason this overload exists: this runs once
+    /// per decoded frame, and the one below allocates a vector every time it is
+    /// called. At the rates PipelineNode.h talks about - 150k frames/s - that
+    /// is 150k allocations a second on the path rule #12 exists to keep clear.
+    ///
+    /// A caller on the frame path keeps `out` as a member and sizes it in
+    /// prepare(); everybody else wants the overload below.
+    void signalsIn(const std::uint8_t* payload,
+                   std::size_t payloadLength,
+                   std::vector<const CanSignal*>& out) const;
+
+    /// The same, as a fresh vector.
+    ///
+    /// For callers that are not on the frame path - a dialog, a trace row being
+    /// formatted for a person to read - where one allocation costs nothing and
+    /// a scratch member is clutter nobody wants.
     [[nodiscard]] std::vector<const CanSignal*> signalsIn(const std::uint8_t* payload,
                                                           std::size_t payloadLength) const;
 

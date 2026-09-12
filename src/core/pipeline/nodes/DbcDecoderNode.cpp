@@ -54,6 +54,10 @@ Result DbcDecoderNode::prepare(std::size_t maximumBatchSize)
     }
 
     m_buffer.resize(worstCase);
+
+    // One message worth, which is all this ever holds at once.
+    m_present.reserve(widest);
+
     return Result::ok();
 }
 
@@ -82,7 +86,9 @@ void DbcDecoderNode::process(NodeContext& context)
 
         ++m_decoded;
 
-        for (const CanSignal* signal : message->signalsIn(frame.data.data(), frame.length)) {
+        message->signalsIn(frame.data.data(), frame.length, m_present);
+
+        for (const CanSignal* signal : m_present) {
             if (count >= m_buffer.size()) {
                 // Unreachable: prepare() sized for the worst case. Kept because
                 // "unreachable" is a claim about code somewhere else, and the

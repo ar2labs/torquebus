@@ -164,6 +164,10 @@ private:
     /// never resizes it.
     std::vector<DecodedSignal> m_buffer;
 
+    /// Which signals the message being decoded carries. A member for the same
+    /// reason m_buffer is: see CanMessage::signalsIn.
+    std::vector<const CanSignal*> m_present;
+
     std::uint64_t m_frames{0};
     std::uint64_t m_decodedMessages{0};
     std::uint64_t m_unknownPgns{0};
