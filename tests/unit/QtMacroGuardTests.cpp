@@ -57,8 +57,8 @@
 #include "core/trace/TraceStore.h"
 #include "drivers/api/CanBackendRegistry.h"
 #include "drivers/api/ICanBackend.h"
-#include "drivers/kvaser/KvaserCanBackend.h"
 #include "drivers/virtual/VirtualCanBackend.h"
+#include "plugins/driver-kvaser/KvaserCanBackend.h"
 
 #undef slots
 #undef signals

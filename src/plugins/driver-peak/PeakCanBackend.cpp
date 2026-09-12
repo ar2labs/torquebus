@@ -5,7 +5,7 @@
 //
 // The only translation unit in TorqueBus that includes QtSerialBus.
 
-#include "drivers/peak/PeakCanBackend.h"
+#include "plugins/driver-peak/PeakCanBackend.h"
 
 #include <algorithm>
 #include <atomic>

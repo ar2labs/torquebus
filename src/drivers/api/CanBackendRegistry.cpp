@@ -5,8 +5,6 @@
 
 #include "drivers/api/CanBackendRegistry.h"
 
-#include "drivers/kvaser/KvaserCanBackend.h"
-#include "drivers/peak/PeakCanBackend.h"
 #include "drivers/virtual/VirtualCanBackend.h"
 
 #include <algorithm>
@@ -54,21 +52,20 @@ void CanBackendRegistry::registerBuiltins()
     }
     m_builtinsRegistered = true;
 
+    // The virtual bus, and only the virtual bus.
+    //
+    // Kvaser and PEAK were two more lines here, and the comment on them said
+    // that adding a vendor cost one implementation of ICanBackend and one call
+    // to registerBackend. They are plugins now, and they make that same call -
+    // from outside the binary, through the pointer the loader hands them. The
+    // claim about the seam is the same one; it is now being kept by somebody
+    // who is not compiled in, which is the only way to find out whether it was
+    // ever true.
+    //
+    // What is left is the backend that needs nothing installed, so that an
+    // application with no plugins still has a bus to run against.
     registerBackend("virtual", "TorqueBus Virtual Bus",
                     [] { return std::make_unique<VirtualCanBackend>(); });
-
-    // Adding Kvaser cost exactly this: one implementation of ICanBackend, and
-    // this one line. Nothing above the driver layer changed - which is the
-    // whole claim ARCHITECTURE.md makes about the seam, now tested against a
-    // real vendor SDK rather than asserted.
-    registerBackend("kvaser", "Kvaser CANlib",
-                    [] { return std::make_unique<KvaserCanBackend>(); });
-
-    // And PEAK, in one more line just like it - which is the claim the Kvaser
-    // comment above made, now kept. Nothing between the two lines changed, and
-    // nothing above the driver layer did either.
-    registerBackend("peak", "PEAK-System PCAN-Basic",
-                    [] { return std::make_unique<PeakCanBackend>(); });
 }
 
 std::unique_ptr<ICanBackend> CanBackendRegistry::create(std::string_view name) const

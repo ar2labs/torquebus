@@ -18,7 +18,7 @@
 // no Kvaser software at all skips every test here rather than failing.
 
 #include "core/can/CanFrame.h"
-#include "drivers/kvaser/KvaserCanBackend.h"
+#include "plugins/driver-kvaser/KvaserCanBackend.h"
 
 #include <catch2/catch_test_macros.hpp>
 

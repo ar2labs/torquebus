@@ -5,7 +5,7 @@
 //
 // The only translation unit in TorqueBus that includes canlib.h.
 
-#include "drivers/kvaser/KvaserCanBackend.h"
+#include "plugins/driver-kvaser/KvaserCanBackend.h"
 
 #include <algorithm>
 #include <array>
