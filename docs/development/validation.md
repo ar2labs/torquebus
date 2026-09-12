@@ -121,7 +121,7 @@ because each pins something that was got wrong once:
 | `[uds][dtc]` | A trouble code shown as a raw number instead of P0128, and - worse - codes invented out of a response that is not a DTC list |
 | `[isotp][graph]`, `[isotp][validate]` | A request typed into a block never reaching the bus, a periodic request repeating when it was asked once, half a hex byte accepted at Start instead of refused on the canvas |
 | `[isotp]` | The failures of ISO 15765-2, which are all silences: a sequence number that does not wrap at sixteen, STmin's microsecond range read as milliseconds, a block size ignored, an unpadded frame an ECU will not answer, a four-gigabyte length field taken at its word |
-| `[j1939]` | The three J1939 failures that produce a plausible answer instead of an error: a PGN built by zeroing the wrong byte, so it matches nothing and the bus looks silent; a transport session patched over a lost packet, which reassembles and decodes and lies; and an SPN assembled under a packing its sender did not use, which is still a number that looks like an SPN |
+| `[j1939]` | The four J1939 failures that produce a plausible answer instead of an error: a PGN built by zeroing the wrong byte, so it matches nothing and the bus looks silent; a transport session patched over a lost packet, which reassembles and decodes and lies; an extended transfer whose offset window was ignored, which comes out the right length with its middle in the wrong place; and an SPN assembled under a packing its sender did not use, which is still a number that looks like an SPN |
 | `[restbus]` | The two silent failures of a rest bus: sending an ECU's own messages back at it because it was on the bench, and inventing a cycle time for a message the database declares none for. Both look like a busy trace and neither shows up as an error |
 | `[dashboard]` | A dashboard that opens and shows nothing: a widget bound to nothing, a gauge whose range cannot be swept, a slider bound to a CAN signal it cannot write (which moves under the mouse and changes nothing on the bus), a widget kind that does not survive the round trip through the project file |
 | `[dashboard][variables]` | The value path between a hand and a simulated ECU: two slots handed out for one name, a write that is lost, a revision that does not move when a script writes the same value twice, and the growing-container race the first version of SystemVariables had |
@@ -1051,6 +1051,13 @@ mostly that the tool refuses to invent things.
 10. **Stop.** The table stays on screen - "what was on this machine" is asked
     after a run as often as during one. **Start** again: it clears, because the
     membership of a bus is a fact about the run.
+11. **Extended transport**, if anything on the machine sends one - a calibration
+    upload, or a firmware transfer. It reassembles like any other message and
+    the block counts it. The thing to watch is that it reassembles *whole*: an
+    extended transfer runs to thousands of packets across many offset windows,
+    and a decoder that mishandled the offset would produce a message of the
+    right length with its middle in the wrong order, which decodes into numbers
+    that look measured.
 
 **Watch for:** the panel before any measurement has run. It must say that
 nothing has been seen yet, not show an empty table that reads as an empty bus.
