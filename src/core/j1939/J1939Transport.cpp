@@ -61,6 +61,30 @@ constexpr std::uint8_t kDataBytes = 8U;
 
 } // namespace
 
+std::string_view j1939AbortReasonText(std::uint8_t reason) noexcept
+{
+    switch (static_cast<J1939AbortReason>(reason)) {
+    case J1939AbortReason::AlreadyBusy:
+        return "already in as many connections as it can manage";
+    case J1939AbortReason::ResourcesNeeded:
+        return "its resources were needed for another task";
+    case J1939AbortReason::Timeout:
+        return "a timeout closed the session";
+    case J1939AbortReason::None:
+        break;
+    }
+
+    // The standard defines three. Saying which range the rest falls in is
+    // useful - it tells somebody whether to look in J1939-71 or to conclude
+    // that an ECU is sending something no standard has assigned - and saying
+    // more than that would be inventing it.
+    if (reason >= 251U) {
+        return "a reason J1939-71 defines";
+    }
+
+    return "a reason reserved for SAE assignment";
+}
+
 bool J1939Transport::onFrame(const CanFrame& frame, std::uint64_t nowNs)
 {
     const std::optional<J1939Id> id = j1939Decompose(frame);
@@ -140,7 +164,8 @@ void J1939Transport::onConnectionManagement(const CanFrame& frame,
     case J1939TransportControl::Abort: {
         const auto existing = m_sessions.find(keyFor(id.sourceAddress, id.destinationAddress()));
         if (existing != m_sessions.end()) {
-            fail(existing->second, J1939TransportError::AbortedByPeer, nowNs);
+            // Byte 1 is the reason. J1939-21 Table 6.
+            fail(existing->second, J1939TransportError::AbortedByPeer, nowNs, frame.data[1]);
         }
         return;
     }
@@ -197,7 +222,7 @@ void J1939Transport::onExtendedConnection(const CanFrame& frame,
     case J1939ExtendedControl::Abort: {
         const auto existing = m_sessions.find(keyFor(id.sourceAddress, id.destinationAddress()));
         if (existing != m_sessions.end()) {
-            fail(existing->second, J1939TransportError::AbortedByPeer, nowNs);
+            fail(existing->second, J1939TransportError::AbortedByPeer, nowNs, frame.data[1]);
         }
         return;
     }
@@ -360,11 +385,13 @@ void J1939Transport::poll(std::uint64_t nowNs)
 
 void J1939Transport::fail(const Session& session,
                           J1939TransportError error,
-                          std::uint64_t nowNs)
+                          std::uint64_t nowNs,
+                          std::uint8_t abortReason)
 {
     J1939TransportEvent event;
     event.kind = J1939TransportEvent::Kind::ReceiveFailed;
     event.error = error;
+    event.abortReason = abortReason;
     event.pgn = session.pgn;
     event.sourceAddress = session.sourceAddress;
     event.destinationAddress = session.destinationAddress;

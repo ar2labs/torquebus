@@ -56,9 +56,24 @@
 #include <cstdint>
 #include <map>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace torquebus {
+
+// --- Where these numbers came from -----------------------------------------
+//
+// The classic transport values below - the two PGNs, the five control bytes,
+// the layout of a BAM and the abort reasons - were read out of SAE J1939-21
+// REV APR 2001 itself, section 5.10.3 and Table 6.
+//
+// The extended transport values were not. That revision predates ETP, and the
+// revision that introduced it is not one this project has a copy of. They come
+// instead from the Linux kernel implementation (net/can/j1939), which is code
+// that has been run against real buses for years, corroborated by published
+// technical references. That is strong, and it is not the standard - so every
+// one of them is stated by extension in J1939TransportTests, where checking a
+// copy of the current J1939-21 against them is reading one screen.
 
 /// Extended transport, connection management. 51200.
 inline constexpr std::uint32_t kPgnExtendedTransportConnection = 0x0'C800U;
@@ -88,6 +103,30 @@ enum class J1939ExtendedControl : std::uint8_t {
     EndOfMessageAck = 23U,
     Abort = 255U,
 };
+
+/// Why a sender gave up, as SAE J1939-21 Table 6 defines it.
+///
+/// Only three values are given a meaning there. Four to 250 are reserved for
+/// SAE assignment and 251 to 255 are left to J1939-71, so this decodes what the
+/// standard decodes and reports the rest as the number it was - inventing a
+/// sentence for a reserved code would be putting words in an ECU's mouth.
+enum class J1939AbortReason : std::uint8_t {
+    /// Not an abort, or none was carried.
+    None = 0U,
+
+    /// Already in one or more connection managed sessions and cannot support
+    /// another.
+    AlreadyBusy = 1U,
+
+    /// System resources were needed for another task.
+    ResourcesNeeded = 2U,
+
+    /// A timeout occurred and this is the abort that closes the session.
+    Timeout = 3U,
+};
+
+/// The abort reason in words, or a description of the range it falls in.
+[[nodiscard]] std::string_view j1939AbortReasonText(std::uint8_t reason) noexcept;
 
 /// Why a transfer ended without a message.
 enum class J1939TransportError : std::uint8_t {
@@ -158,6 +197,12 @@ struct J1939TransportEvent final {
     /// firmware image or a calibration, and it takes seconds rather than
     /// milliseconds.
     bool extended{false};
+
+    /// The byte a Conn Abort carried, for error == AbortedByPeer and zero
+    /// otherwise. Kept as the raw number rather than only as the decoded enum,
+    /// because most of the range is reserved and a reserved code somebody is
+    /// really sending is worth seeing exactly as it arrived.
+    std::uint8_t abortReason{0U};
 
     /// The reassembled message, for MessageReceived only.
     std::vector<std::uint8_t> data;
@@ -304,7 +349,10 @@ private:
                       std::uint64_t nowNs);
 
     /// Emits a ReceiveFailed for `session` and forgets it.
-    void fail(const Session& session, J1939TransportError error, std::uint64_t nowNs);
+    void fail(const Session& session,
+              J1939TransportError error,
+              std::uint64_t nowNs,
+              std::uint8_t abortReason = 0U);
 
     /// Emits a ReceiveFailed for a transfer that never got a session.
     void failAnnouncement(const J1939Id& id,
