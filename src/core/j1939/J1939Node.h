@@ -36,6 +36,7 @@
 #include "core/database/DecodedSignal.h"
 #include "core/j1939/J1939AddressTable.h"
 #include "core/j1939/J1939Diagnostics.h"
+#include "core/j1939/J1939Network.h"
 #include "core/j1939/J1939Transport.h"
 #include "core/pipeline/PipelineNode.h"
 
@@ -82,6 +83,11 @@ public:
     void finish() override;
 
     [[nodiscard]] std::vector<NodeStatistic> statistics() const override;
+
+    /// Where to hand the view of the bus a panel reads, or nullptr in a
+    /// headless build - in which case the block keeps everything to itself and
+    /// nothing is copied. Borrowed; it outlives this node.
+    void setNetwork(J1939Network* network) noexcept { m_network = network; }
 
     /// How the SPN field of a trouble code should be read. See
     /// J1939Diagnostics.h - the wrong convention produces a number that looks
@@ -143,6 +149,13 @@ private:
     J1939Transport m_transport;
     J1939AddressTable m_addresses;
     J1939SpnReading m_spnReading{J1939SpnReading::Version4};
+
+    J1939Network* m_network{nullptr};
+
+    /// Something a panel would show changed during this pass. A steady bus
+    /// sends the same messages for an hour and changes nothing after the first
+    /// second, so this is false almost always and the hand-over costs nothing.
+    bool m_networkDirty{false};
 
     /// Latest per ECU, in address order. DM1 and DM2 are kept apart.
     std::vector<J1939Diagnostic> m_diagnostics;

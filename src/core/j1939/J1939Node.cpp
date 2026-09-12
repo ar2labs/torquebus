@@ -157,6 +157,7 @@ void J1939Node::process(NodeContext& context)
                 message.has_value()) {
                 ++m_diagnosticMessages;
                 recordDiagnostic(std::move(*message));
+                m_networkDirty = true;
             }
 
             // A DM1 may also be described in the database, and somebody who
@@ -191,6 +192,7 @@ void J1939Node::process(NodeContext& context)
                 message.has_value()) {
                 ++m_diagnosticMessages;
                 recordDiagnostic(std::move(*message));
+                m_networkDirty = true;
             }
         }
 
@@ -205,8 +207,21 @@ void J1939Node::process(NodeContext& context)
                             count);
     }
 
+    // Anything the address table noticed - a claim, a contest, an ECU heard
+    // from for the first time - is a change a panel would want to show.
+    m_networkDirty = m_networkDirty || !m_addresses.events().empty();
+
     m_transport.clearEvents();
     m_addresses.clearEvents();
+
+    if (m_networkDirty && m_network != nullptr) {
+        // One lock and one set of copies per pass, never per frame. See
+        // J1939Network.h for why that distinction is the whole design.
+        m_network->publish({m_addresses.nodes().begin(), m_addresses.nodes().end()},
+                           {m_addresses.defeated().begin(), m_addresses.defeated().end()},
+                           m_diagnostics);
+        m_networkDirty = false;
+    }
 
     if (count == 0) {
         return;
