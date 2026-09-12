@@ -11,6 +11,7 @@
 #include "core/pipeline/nodes/FrameNodes.h"
 #include "core/transmit/TransmitListNode.h"
 #include "core/scripting/LuaEcuNode.h"
+#include "core/j1939/J1939Node.h"
 #include "core/scripting/LuaTestNode.h"
 #include "core/simulation/RestBusNode.h"
 #include "core/diagnostics/DiagnosticEvent.h"
@@ -871,6 +872,73 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                             database->messageCount());
 
             out = std::make_unique<DbcDecoderNode>(std::move(database), label);
+            return Result::ok();
+        });
+
+    catalog.registerType(
+        NodeTypeInfo{
+            .typeName = "j1939.decoder",
+            .displayName = "J1939",
+            .category = "Transforms",
+            .description = "Reassembles J1939 transport, decodes by PGN, and watches "
+                           "who is on the bus.",
+            .inputs = {PortDescriptor{"frames", PortType::Frames}},
+            .outputs = {PortDescriptor{"signals", PortType::Signals}},
+            .parameters =
+                {
+                    ParameterDescriptor{.name = "database",
+                                        .displayName = "Database",
+                                        .type = ParameterValue::Type::Text,
+                                        .required = false,
+                                        .description = "Path to a J1939 .dbc file. Matched "
+                                                       "by PGN, so a database written for "
+                                                       "one source address reads a bench "
+                                                       "where the ECU answers from "
+                                                       "another."},
+                    ParameterDescriptor{
+                        .name = "assembleSpn",
+                        .displayName = "Assemble the SPN",
+                        .type = ParameterValue::Type::Boolean,
+                        .required = false,
+                        .description = "On, the SPN of a trouble code is assembled the way "
+                                       "the current standard packs it. Off, no SPN is "
+                                       "produced and the four raw bytes stand - which is "
+                                       "what a bus whose ECUs use an older packing needs, "
+                                       "because a number read under the wrong convention "
+                                       "still looks like an SPN."},
+                },
+        },
+        [](const NodeParameters& parameters, const NodeBuildContext& context,
+           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
+            const std::string path = resolvePath(context, parameters.text("database", ""));
+
+            std::shared_ptr<CanDatabase> database;
+            std::string label = "J1939";
+
+            // Like the DBC decoder: no database builds a block that decodes
+            // nothing rather than refusing to compile, so a canvas can be
+            // assembled in any order. Everything else this block does -
+            // reassembly, the address table, trouble codes - works without one.
+            if (!path.empty()) {
+                database = std::make_shared<CanDatabase>();
+                if (Result result = DbcParser::parseFile(path, *database); result.failed()) {
+                    return Result::error(result.code(),
+                                         std::format("Node '{}': {}", nodeId,
+                                                     result.message()));
+                }
+
+                label = std::format("J1939 - {} ({} messages)",
+                                    path.substr(path.find_last_of("/\\") + 1),
+                                    database->messageCount());
+            }
+
+            auto node = std::make_unique<J1939Node>(std::move(database), std::move(label));
+
+            node->setSpnReading(parameters.boolean("assembleSpn", true)
+                                    ? J1939SpnReading::Version4
+                                    : J1939SpnReading::RawOnly);
+
+            out = std::move(node);
             return Result::ok();
         });
 

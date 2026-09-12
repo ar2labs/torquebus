@@ -54,7 +54,7 @@ namespace torquebus {
 inline constexpr std::uint8_t kJ1939MaxNodeAddress = 253U;
 
 /// One address, and what has been seen of whoever is using it.
-struct J1939Node final {
+struct J1939NetworkNode final {
     std::uint8_t address{0U};
 
     /// The NAME that claimed this address, when a claim was seen.
@@ -128,7 +128,7 @@ public:
     /// Every address seen, in ascending order - which is also the order a panel
     /// wants, and the reason these are kept in a sorted vector rather than a
     /// map the caller would have to copy out of.
-    [[nodiscard]] std::span<const J1939Node> nodes() const noexcept { return m_nodes; }
+    [[nodiscard]] std::span<const J1939NetworkNode> nodes() const noexcept { return m_nodes; }
 
     /// The ECUs that announced they could not get an address. Kept apart from
     /// the table on purpose: 254 is not a seat, and listing them as occupants
@@ -138,7 +138,7 @@ public:
         return m_defeated;
     }
 
-    [[nodiscard]] const J1939Node* find(std::uint8_t address) const noexcept;
+    [[nodiscard]] const J1939NetworkNode* find(std::uint8_t address) const noexcept;
 
     [[nodiscard]] std::span<const J1939NetworkEvent> events() const noexcept
     {
@@ -152,12 +152,12 @@ public:
     void reset();
 
 private:
-    [[nodiscard]] J1939Node& nodeFor(std::uint8_t address, std::uint64_t nowNs);
+    [[nodiscard]] J1939NetworkNode& nodeFor(std::uint8_t address, std::uint64_t nowNs);
 
     void onClaim(std::uint8_t address, const J1939Name& name, std::uint64_t nowNs);
     void onCannotClaim(const J1939Name& name, std::uint64_t nowNs);
 
-    std::vector<J1939Node> m_nodes;
+    std::vector<J1939NetworkNode> m_nodes;
     std::vector<J1939Defeated> m_defeated;
     std::vector<J1939NetworkEvent> m_events;
 };
