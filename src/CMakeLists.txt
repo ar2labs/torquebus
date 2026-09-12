@@ -307,6 +307,8 @@ qt_add_library(torquebus_ui STATIC
     ui/scripting/ScriptEditorPanel.cpp
     ui/testing/TestPanel.h
     ui/testing/TestPanel.cpp
+    ui/j1939/J1939NetworkPanel.h
+    ui/j1939/J1939NetworkPanel.cpp
     ui/dashboard/DashboardPanel.h
     ui/dashboard/DashboardPanel.cpp
     ui/dashboard/DashboardWidgetEditor.h
