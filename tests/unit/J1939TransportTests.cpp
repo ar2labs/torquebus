@@ -17,6 +17,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
+#include <string_view>
 #include <algorithm>
 #include <numeric>
 #include <vector>
@@ -325,13 +326,47 @@ TEST_CASE("A sender that gives up ends the transfer", "[j1939][transport]")
     J1939Transport transport;
     transport.onFrame(requestToSend(21U, 3U, kEngine, kTester), 0U);
     transport.onFrame(dataFrame(1U, countingPayload(7U), kEngine, kTester), 1000U);
-    transport.onFrame(connectionFrame(J1939TransportControl::Abort, kCarried, 0U, 0U,
+
+    // Byte 1 of a Conn Abort is the reason. connectionFrame puts `size` there,
+    // so 3 is "a timeout occurred" - J1939-21 Table 6.
+    transport.onFrame(connectionFrame(J1939TransportControl::Abort, kCarried, 3U, 0U,
                                       kEngine, kTester),
                       2000U);
 
     REQUIRE(transport.events().size() == 1U);
     CHECK(transport.events()[0].error == J1939TransportError::AbortedByPeer);
+    CHECK(transport.events()[0].abortReason == 3U);
     CHECK(transport.openSessions() == 0U);
+}
+
+TEST_CASE("The three abort reasons the standard defines are the three it decodes",
+          "[j1939][transport]")
+{
+    // J1939-21 Table 6 gives meanings to 1, 2 and 3, reserves 4 to 250 for SAE,
+    // and leaves 251 to 255 to J1939-71. Saying which range an undefined code
+    // falls in tells somebody where to look; saying more would be putting words
+    // in an ECU mouth.
+    CHECK(j1939AbortReasonText(1U).find("as many connections") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(2U).find("another task") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(3U).find("timeout") != std::string_view::npos);
+
+    CHECK(j1939AbortReasonText(4U).find("reserved") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(250U).find("reserved") != std::string_view::npos);
+
+    CHECK(j1939AbortReasonText(251U).find("J1939-71") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(255U).find("J1939-71") != std::string_view::npos);
+
+    // And the raw byte travels alongside the words, because most of the range
+    // is reserved and a reserved code somebody really sends is worth seeing
+    // exactly as it arrived.
+    J1939Transport transport;
+    transport.onFrame(requestToSend(21U, 3U, kEngine, kTester), 0U);
+    transport.onFrame(connectionFrame(J1939TransportControl::Abort, kCarried, 200U, 0U,
+                                      kEngine, kTester),
+                      1000U);
+
+    REQUIRE(transport.events().size() == 1U);
+    CHECK(transport.events()[0].abortReason == 200U);
 }
 
 TEST_CASE("A transfer that simply stops is ended by the clock",
