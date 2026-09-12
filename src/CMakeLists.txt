@@ -70,6 +70,9 @@ add_library(torquebus_core STATIC
     core/isotp/IsoTpTypes.cpp
     core/isotp/IsoTpConnection.h
     core/isotp/IsoTpConnection.cpp
+
+    core/j1939/J1939Id.h
+    core/j1939/J1939Id.cpp
     core/log/TraceLog.h
     core/log/TraceLog.cpp
     core/log/LogNodes.h
