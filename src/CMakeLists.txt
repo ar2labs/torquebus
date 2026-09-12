@@ -77,6 +77,8 @@ add_library(torquebus_core STATIC
     core/j1939/J1939Name.cpp
     core/j1939/J1939Transport.h
     core/j1939/J1939Transport.cpp
+    core/j1939/J1939AddressTable.h
+    core/j1939/J1939AddressTable.cpp
     core/log/TraceLog.h
     core/log/TraceLog.cpp
     core/log/LogNodes.h
