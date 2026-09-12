@@ -938,6 +938,10 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                     ? J1939SpnReading::Version4
                                     : J1939SpnReading::RawOnly);
 
+            // Null in a headless build, and the block then keeps its view of
+            // the bus to itself rather than copying it for nobody.
+            node->setNetwork(context.j1939Network);
+
             out = std::move(node);
             return Result::ok();
         });

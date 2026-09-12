@@ -40,6 +40,7 @@ namespace torquebus {
 
 class CanChannel;
 class ScriptLibrary;
+class J1939Network;
 class SystemVariables;
 class TestReport;
 class TraceStore;
@@ -97,6 +98,13 @@ struct NodeBuildContext final {
     /// Borrowed, and it outlives the graph deliberately: a setpoint somebody
     /// dialled in before Start is still there afterwards. See SystemVariables.h.
     SystemVariables* variables{nullptr};
+
+    /// Where the J1939 block hands its view of the bus to a panel, or nullptr.
+    ///
+    /// Borrowed, and it outlives the graph for the same reason the test report
+    /// does: the block dies at Stop, and what it found out about the bus is
+    /// most worth reading afterwards. See J1939Network.h.
+    J1939Network* j1939Network{nullptr};
 
     /// Where a test sequence's verdict goes, or nullptr for a graph nobody is
     /// showing a report for.

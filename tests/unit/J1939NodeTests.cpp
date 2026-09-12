@@ -406,3 +406,110 @@ TEST_CASE("The block is in the catalog and builds without a database",
     REQUIRE(node != nullptr);
     CHECK(node->typeName() == "j1939.decoder");
 }
+
+TEST_CASE("Nothing published is not the same as nobody on the bus",
+          "[j1939][block]")
+{
+    // A measurement that has not started and a bus with no traffic look alike
+    // in an empty table. The revision tells them apart, and a panel has to say
+    // which one it is showing.
+    J1939Network network;
+
+    CHECK(network.revision() == 0U);
+    CHECK(network.snapshot().nodes.empty());
+    CHECK(network.snapshot().revision == 0U);
+}
+
+TEST_CASE("The block hands its view over when the bus changes",
+          "[j1939][block]")
+{
+    J1939Network network;
+
+    J1939Node node{nullptr, "J1939"};
+    node.setNetwork(&network);
+    REQUIRE(node.prepare(64U).succeeded());
+
+    Driver driver{node};
+    const std::array<CanFrame, 1> first{
+        frameOf(j1939Identifier(kTemperature, kEngine), {60U, 0U, 0U, 0U, 0U, 0U, 0U, 0U})};
+
+    driver.run(first);
+
+    const std::uint64_t afterFirst = network.revision();
+    CHECK(afterFirst > 0U);
+
+    const J1939NetworkSnapshot snapshot = network.snapshot();
+    REQUIRE(snapshot.nodes.size() == 1U);
+    CHECK(snapshot.nodes[0].address == kEngine);
+    CHECK(snapshot.revision == afterFirst);
+
+    // A second ECU is a change, so it is handed over.
+    const std::array<CanFrame, 1> second{
+        frameOf(j1939Identifier(kTemperature, kOtherEngine), {60U, 0U, 0U, 0U, 0U, 0U, 0U, 0U})};
+    driver.run(second);
+
+    CHECK(network.revision() > afterFirst);
+    CHECK(network.snapshot().nodes.size() == 2U);
+}
+
+TEST_CASE("A steady bus is not copied over and over", "[j1939][block]")
+{
+    // The same ECUs sending the same messages for an hour change nothing after
+    // the first second. Copying the table every pass anyway would be an
+    // allocation per batch bought for no reason at all.
+    J1939Network network;
+
+    J1939Node node{nullptr, "J1939"};
+    node.setNetwork(&network);
+    REQUIRE(node.prepare(64U).succeeded());
+
+    Driver driver{node};
+    const std::array<CanFrame, 1> frames{
+        frameOf(j1939Identifier(kTemperature, kEngine), {60U, 0U, 0U, 0U, 0U, 0U, 0U, 0U})};
+
+    driver.run(frames);
+    const std::uint64_t settled = network.revision();
+
+    for (int pass = 0; pass < 10; ++pass) {
+        driver.run(frames);
+    }
+
+    CHECK(network.revision() == settled);
+}
+
+TEST_CASE("A fault reaches the panel side of the hand-over", "[j1939][block]")
+{
+    J1939Network network;
+
+    J1939Node node{nullptr, "J1939"};
+    node.setNetwork(&network);
+    REQUIRE(node.prepare(64U).succeeded());
+
+    Driver driver{node};
+    const std::array<CanFrame, 1> frames{
+        frameOf(j1939Identifier(kPgnDm1, kEngine),
+                {0x40U, 0x00U, 100U, 0U, 1U, 5U, 0xFFU, 0xFFU})};
+
+    driver.run(frames);
+
+    const J1939NetworkSnapshot snapshot = network.snapshot();
+    REQUIRE(snapshot.diagnostics.size() == 1U);
+    REQUIRE(snapshot.diagnostics[0].faults.size() == 1U);
+    CHECK(snapshot.diagnostics[0].faults[0].spn == 100U);
+}
+
+TEST_CASE("Clearing for a new measurement is a change a panel notices",
+          "[j1939][block]")
+{
+    // Not a reset to zero: a panel watching for movement would miss a clear
+    // that put the counter back where it already was, and go on showing the
+    // previous run's bus.
+    J1939Network network;
+    network.publish({J1939NetworkNode{}}, {}, {});
+
+    const std::uint64_t before = network.revision();
+    network.clear();
+
+    CHECK(network.revision() > before);
+    CHECK(network.snapshot().nodes.empty());
+}

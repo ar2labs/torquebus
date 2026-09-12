@@ -41,6 +41,7 @@
 #include "core/diagnostics/DiagnosticSession.h"
 #include "core/dashboard/SystemVariables.h"
 #include "core/scripting/ScriptLibrary.h"
+#include "core/j1939/J1939Network.h"
 #include "core/testing/TestReport.h"
 #include "core/log/ReplayControl.h"
 #include "core/log/TraceLog.h"
@@ -316,6 +317,17 @@ public:
     [[nodiscard]] SystemVariables& variables() noexcept { return m_variables; }
     [[nodiscard]] const SystemVariables& variables() const noexcept { return m_variables; }
 
+    /// What the J1939 block has learned about the bus.
+    ///
+    /// Owned here rather than by the block, like the test report and for the
+    /// same reason: the block dies with the graph at Stop, and "who was on this
+    /// bus" is a question somebody asks after the run as often as during it.
+    [[nodiscard]] J1939Network& j1939Network() noexcept { return m_j1939Network; }
+    [[nodiscard]] const J1939Network& j1939Network() const noexcept
+    {
+        return m_j1939Network;
+    }
+
     /// What the running test sequence has found.
     ///
     /// Owned here rather than by the node, so a panel can go on showing the
@@ -403,6 +415,7 @@ private:
     DiagnosticSession m_diagnostics;
     ScriptLibrary m_scriptLibrary;
     TestReport m_testReport;
+    J1939Network m_j1939Network;
     SystemVariables m_variables;
 
     mutable std::mutex m_sinksMutex;

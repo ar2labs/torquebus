@@ -346,6 +346,12 @@ void CanEngine::setGraphDescription(GraphDescription description,
         // "this graph has none".
         context.testReport = &m_testReport;
 
+        // Cleared here, unlike the test report: the membership of a bus is a
+        // fact about the run that is starting, and last run's ECUs sitting in
+        // the panel while this one fills in would be read as this one's.
+        m_j1939Network.clear();
+        context.j1939Network = &m_j1939Network;
+
         // Deliberately not cleared here, unlike the script library: the values
         // are the state of the simulated vehicle, and Start is not a reason to
         // forget what somebody set.
