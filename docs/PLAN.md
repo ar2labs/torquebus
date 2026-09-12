@@ -1862,6 +1862,24 @@ virtual.**
 
 Versão: **0.16.0 -> 0.17.0**.
 
+--- O que isto prova, e o que não prova -------------------------------------
+
+Que o SDK saiu da imagem é verificável e foi verificado: `dumpbin /DEPENDENTS`
+sobre o executável não encontra canlib32 nem Qt SerialBus, e sobre os dois
+plugins encontra cada um no seu. Essa era a afirmação da seção 31 e ela agora é
+um fato mensurável em vez de uma intenção.
+
+Que a costura de plugin funciona é provado pelos testes do carregador, que
+carregam bibliotecas de verdade - inclusive erradas de propósito - e depois
+encontram no catálogo o tipo que uma delas registrou.
+
+O que **não** está provado aqui é o caminho com hardware de verdade: os dois
+plugins de vendor foram construídos e carregados, mas abrir um canal Kvaser
+exige uma Kvaser. Os testes de etiqueta `hardware` continuam sendo a rede para
+isso, e continuam fora da execução padrão.
+
+**v0.17 fechada.**
+
 ---
 
 # v0.18+ — expansão
@@ -2077,7 +2095,7 @@ Critérios para o marco TorqueBus Studio 1.0:
 
 ✓ Dashboards
 
-  Plugin system  (v0.17)
+✓ Plugin system
 ```
 
 Nesse ponto já não estamos falando de um visualizador CAN.

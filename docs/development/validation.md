@@ -121,6 +121,7 @@ because each pins something that was got wrong once:
 | `[uds][dtc]` | A trouble code shown as a raw number instead of P0128, and - worse - codes invented out of a response that is not a DTC list |
 | `[isotp][graph]`, `[isotp][validate]` | A request typed into a block never reaching the bus, a periodic request repeating when it was asked once, half a hex byte accepted at Start instead of refused on the canvas |
 | `[isotp]` | The failures of ISO 15765-2, which are all silences: a sequence number that does not wrap at sixteen, STmin's microsecond range read as milliseconds, a block size ignored, an unpadded frame an ECU will not answer, a four-gigabyte length field taken at its word |
+| `[plugins]` | Every way a plugin can fail to load ends the same way on screen - a backend that is not in the list - so each case checks that the reason names something a person can act on: a build key that does not match shown beside the one that would, a library that is not a plugin named rather than passed over, and one plugin throwing without costing the others |
 | `[j1939]` | The four J1939 failures that produce a plausible answer instead of an error: a PGN built by zeroing the wrong byte, so it matches nothing and the bus looks silent; a transport session patched over a lost packet, which reassembles and decodes and lies; an extended transfer whose offset window was ignored, which comes out the right length with its middle in the wrong place; and an SPN assembled under a packing its sender did not use, which is still a number that looks like an SPN |
 | `[restbus]` | The two silent failures of a rest bus: sending an ECU's own messages back at it because it was on the bench, and inventing a cycle time for a message the database declares none for. Both look like a busy trace and neither shows up as an error |
 | `[dashboard]` | A dashboard that opens and shows nothing: a widget bound to nothing, a gauge whose range cannot be swept, a slider bound to a CAN signal it cannot write (which moves under the mouse and changes nothing on the bus), a widget kind that does not survive the round trip through the project file |
@@ -1061,6 +1062,43 @@ mostly that the tool refuses to invent things.
 
 **Watch for:** the panel before any measurement has run. It must say that
 nothing has been seen yet, not show an empty table that reads as an empty bus.
+
+---
+
+## 5u. Plugins
+
+The point of this one is that nothing fails silently. Every check below is a
+failure that would otherwise show up as a backend simply missing.
+
+1. Start with the `plugins` directory beside the executable as the build left
+   it. **Tools > Plugins** lists the two vendor drivers as loaded, with their
+   versions. **Hardware Configuration** offers Kvaser and PEAK alongside the
+   virtual bus, exactly as it did when they were compiled in.
+2. **Take the directory away** - rename it. TorqueBus still starts, still builds
+   a graph, and still runs a measurement against the virtual bus. Tools >
+   Plugins says in words that no plugins were found, rather than showing an
+   empty table that reads like a bug. This is the case that matters most: the
+   first thing somebody downloads must work without any vendor software.
+3. **Put something that is not a plugin in there** - any DLL. It is listed as
+   refused, named, with the reason that it does not export the entry point. Not
+   skipped: a file nobody mentions is a file nobody will ever ask about.
+4. **A plugin built by another toolchain.** If you have a Release plugin and a
+   Debug build, put them together. The refusal shows both build keys, and the
+   difference between them names the fix. The host key is at the bottom of the
+   dialog to hand to whoever built the plugin.
+5. Watch the **Output panel at startup**. Every line the dialog shows was
+   printed there first, as it happened - plugins load before the window exists,
+   so those lines are kept and printed once there is somewhere to print them.
+6. With a Kvaser or PEAK driver **not** installed on the machine, the plugin for
+   it is refused with the operating system's own message. That is a different
+   sentence from the one a plugin built without the SDK produces, and they are
+   two different problems: one is "install the driver", the other is "this build
+   was made without the headers".
+
+**Watch for:** the vendor SDKs in the application image. `dumpbin /DEPENDENTS`
+on TorqueBusStudio.exe must not name canlib32 or Qt6SerialBus; the same command
+on each plugin must name its own. That separation is the whole reason these two
+moved out, and it is the one thing here that a person cannot see by looking.
 
 ---
 
