@@ -33,6 +33,7 @@ add_executable(torquebus_unit_tests
     J1939AddressTableTests.cpp
     J1939DiagnosticsTests.cpp
     J1939NodeTests.cpp
+    PluginLoaderTests.cpp
     DashboardTests.cpp
     RestBusTests.cpp
     LuaBusAndFaultTests.cpp
@@ -54,10 +55,19 @@ add_executable(torquebus_unit_tests
 target_link_libraries(torquebus_unit_tests
     PRIVATE torquebus::core
             torquebus::drivers
+            torquebus::plugin_host
             torquebus::services
             torquebus::theme
             torquebus::warnings
             Catch2::Catch2WithMain
+)
+
+# The loader tests load real libraries, so those have to exist before the tests
+# run - and the path comes from the build rather than being guessed here.
+add_dependencies(torquebus_unit_tests ${TORQUEBUS_TEST_PLUGIN_TARGETS})
+
+target_compile_definitions(torquebus_unit_tests
+    PRIVATE TORQUEBUS_TEST_PLUGIN_DIR="${TORQUEBUS_TEST_PLUGIN_DIR}"
 )
 
 find_package(Threads REQUIRED)
