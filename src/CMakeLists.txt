@@ -430,6 +430,7 @@ qt_add_executable(TorqueBusStudio
 
 target_link_libraries(TorqueBusStudio
     PRIVATE torquebus::ui
+            torquebus::plugin_host
             torquebus::warnings
 )
 

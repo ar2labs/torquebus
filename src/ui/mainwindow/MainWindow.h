@@ -63,7 +63,19 @@ class MainWindow final : public DockMainWindowBase {
     Q_OBJECT
 
 public:
-    MainWindow(services::SettingsStore& settings, ThemeManager& themes);
+    /// `catalog` is borrowed and must outlive the window: it belongs to the
+    /// ApplicationContext, which is where plugins registered into it.
+    MainWindow(services::SettingsStore& settings,
+               ThemeManager& themes,
+               NodeCatalog& catalog);
+
+    /// Puts a line in the Output panel from outside the window.
+    ///
+    /// For what happened before this window existed - plugin loading, above
+    /// all. Those lines each explain a backend or a block that is not going to
+    /// be in a list, and a person who never sees them goes looking for a
+    /// hardware fault instead.
+    void report(const QString& text, bool isError);
     ~MainWindow() override;
 
     /// Opens a project, reporting failure in the Output panel.
@@ -206,7 +218,7 @@ private:
     // Owned by the window because it is the project's, not the canvas's: the
     // description outlives the panel, so closing the canvas does not discard
     // the pipeline, and the engine keeps building from it.
-    NodeCatalog m_catalog{NodeCatalog::withBuiltinTypes()};
+    NodeCatalog& m_catalog;
 
     /// The transmit list, owned here for the same reason the pipeline is: it is
     /// the project's, it outlives the panel that edits it, and the engine

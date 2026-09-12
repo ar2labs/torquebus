@@ -188,10 +188,13 @@ QFrame* createStatusSeparator()
 
 } // namespace
 
-MainWindow::MainWindow(services::SettingsStore& settings, ThemeManager& themes)
+MainWindow::MainWindow(services::SettingsStore& settings,
+                       ThemeManager& themes,
+                       NodeCatalog& catalog)
     : DockMainWindowBase{QStringLiteral("torquebus.mainwindow")}
     , m_settings{settings}
     , m_themes{themes}
+    , m_catalog{catalog}
     , m_recentProjects{settings}
     , m_hardware{settings}
     , m_workspaces{settings}
@@ -227,10 +230,24 @@ MainWindow::MainWindow(services::SettingsStore& settings, ThemeManager& themes)
     m_output->appendInfo(tr("Press Start (F5) to go bus-on."));
 }
 
+void MainWindow::report(const QString& text, bool isError)
+{
+    if (m_output == nullptr) {
+        return;
+    }
+
+    if (isError) {
+        m_output->appendError(text);
+    } else {
+        m_output->appendInfo(text);
+    }
+}
+
 MainWindow::~MainWindow()
 {
-    // m_pipeline and m_catalog are members of this window, and the canvas holds
-    // a QtNodes scene built on top of them. Members are destroyed before
+    // m_pipeline is a member of this window and m_catalog is borrowed from the
+    // ApplicationContext, which outlives it. The canvas holds a QtNodes scene
+    // built on top of both. Members are destroyed before
     // ~QWidget deletes the child widgets, so by the time the canvas goes the
     // description it is built on has already gone.
     //
