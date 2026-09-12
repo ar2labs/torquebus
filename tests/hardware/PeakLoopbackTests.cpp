@@ -21,7 +21,7 @@
 // on a machine with no PEAK software still goes green.
 
 #include "core/can/CanFrame.h"
-#include "drivers/peak/PeakCanBackend.h"
+#include "plugins/driver-peak/PeakCanBackend.h"
 
 #include <catch2/catch_test_macros.hpp>
 

@@ -16,6 +16,7 @@
 #include "core/dashboard/DashboardDescription.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
+#include "plugins/host/PluginLoader.h"
 #include "core/transmit/TransmitList.h"
 #include "services/HardwareProfile.h"
 #include "services/RecentProjects.h"
@@ -67,7 +68,8 @@ public:
     /// ApplicationContext, which is where plugins registered into it.
     MainWindow(services::SettingsStore& settings,
                ThemeManager& themes,
-               NodeCatalog& catalog);
+               NodeCatalog& catalog,
+               const plugins::PluginLoader& pluginLoader);
 
     /// Puts a line in the Output panel from outside the window.
     ///
@@ -220,6 +222,10 @@ private:
     // the pipeline, and the engine keeps building from it.
     NodeCatalog& m_catalog;
 
+    /// Read only when the Plugins dialog opens. Loading finished before this
+    /// window existed and nothing adds to it afterwards.
+    const plugins::PluginLoader& m_pluginLoader;
+
     /// The transmit list, owned here for the same reason the pipeline is: it is
     /// the project's, it outlives the panel that edits it, and the engine
     /// borrows it rather than copying it - so a row changed mid-measurement
@@ -304,6 +310,7 @@ private:
     QAction* m_actionResetLayout{nullptr};
     QAction* m_actionInspectChrome{nullptr};
     QAction* m_actionEditDashboard{nullptr};
+    QAction* m_actionPlugins{nullptr};
     QAction* m_actionAbout{nullptr};
     QAction* m_actionAboutQt{nullptr};
 

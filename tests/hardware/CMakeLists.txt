@@ -9,8 +9,13 @@ add_executable(torquebus_hardware_tests
     PeakLoopbackTests.cpp
 )
 
+# The vendor backends are plugin libraries now, and these tests construct them
+# directly - which is how they were written and how they should stay. Linking
+# the static halves gives them that without the application linking either.
 target_link_libraries(torquebus_hardware_tests
     PRIVATE torquebus::drivers
+            torquebus::driver_kvaser
+            torquebus::driver_peak
             torquebus::warnings
             Catch2::Catch2WithMain
 )

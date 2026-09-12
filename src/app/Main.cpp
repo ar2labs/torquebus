@@ -69,7 +69,7 @@ int main(int argc, char* argv[])
     torquebus::ui::configureDockingSystem();
 
     torquebus::ui::MainWindow window{context.settings(), context.themes(),
-                                     context.catalog()};
+                                     context.catalog(), context.pluginLoader()};
     window.show();
 
     // Plugins were loaded before this window existed, which is the only order

@@ -162,16 +162,16 @@ set(TORQUEBUS_DRIVER_SOURCES
     drivers/virtual/VirtualCanBackend.h
     drivers/virtual/VirtualCanBackend.cpp
 
-    # Always compiled, with or without the SDK: without it the .cpp builds a
-    # stub that reports itself unavailable, so the registry, the Hardware
-    # Manager and the tests are identical in both builds.
-    drivers/kvaser/KvaserCanBackend.h
-    drivers/kvaser/KvaserCanBackend.cpp
-
-    # Same arrangement, different route to it: without Qt SerialBus the .cpp
-    # builds the stub instead of the peakcan-backed implementation.
-    drivers/peak/PeakCanBackend.h
-    drivers/peak/PeakCanBackend.cpp
+    # The virtual backend and nothing else.
+    #
+    # Kvaser and PEAK used to be here, and moving them out is what PLAN.md
+    # section 31 actually asked for: while they were linked into this library,
+    # the application image carried a dependency on CANlib and on Qt SerialBus.
+    # They live in src/plugins now and are loaded rather than linked.
+    #
+    # What stays is the one backend that needs nothing installed - so an
+    # application with no plugins at all still opens, builds a graph and runs a
+    # measurement.
 )
 
 add_library(torquebus_drivers STATIC ${TORQUEBUS_DRIVER_SOURCES})
@@ -184,18 +184,7 @@ target_link_libraries(torquebus_drivers
     PRIVATE torquebus::warnings
 )
 
-if(TORQUEBUS_HAVE_KVASER)
-    target_include_directories(torquebus_drivers PRIVATE "${KVASER_CANLIB_INCLUDE_DIR}")
-    target_link_libraries(torquebus_drivers PRIVATE "${KVASER_CANLIB_LIBRARY}")
-    target_compile_definitions(torquebus_drivers PRIVATE TORQUEBUS_HAVE_KVASER=1)
-endif()
 
-if(TORQUEBUS_HAVE_PEAK)
-    # PCAN-Basic is reached through the Qt SerialBus peakcan plugin, which
-    # loads PCANBasic.dll at runtime - nothing is linked statically.
-    target_link_libraries(torquebus_drivers PRIVATE Qt6::SerialBus)
-    target_compile_definitions(torquebus_drivers PRIVATE TORQUEBUS_HAVE_PEAK=1)
-endif()
 
 set_target_properties(torquebus_drivers PROPERTIES FOLDER "Libraries")
 
@@ -352,6 +341,8 @@ qt_add_library(torquebus_ui STATIC
     ui/testing/TestPanel.cpp
     ui/j1939/J1939NetworkPanel.h
     ui/j1939/J1939NetworkPanel.cpp
+    ui/plugins/PluginsDialog.h
+    ui/plugins/PluginsDialog.cpp
     ui/dashboard/DashboardPanel.h
     ui/dashboard/DashboardPanel.cpp
     ui/dashboard/DashboardWidgetEditor.h
@@ -405,6 +396,7 @@ target_include_directories(torquebus_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
 target_link_libraries(torquebus_ui
     PUBLIC  torquebus::core
+            torquebus::plugin_host
             torquebus::drivers
             torquebus::services
             torquebus::theme
@@ -433,6 +425,16 @@ target_link_libraries(TorqueBusStudio
             torquebus::plugin_host
             torquebus::warnings
 )
+
+# ---------------------------------------------------------------------------
+# The vendor plugins.
+#
+# After the application target, because each adds itself as a dependency of it:
+# nothing links them, and without that they would simply never be built.
+# ---------------------------------------------------------------------------
+
+add_subdirectory(plugins/driver-kvaser)
+add_subdirectory(plugins/driver-peak)
 
 target_compile_definitions(TorqueBusStudio
     PRIVATE TORQUEBUS_VERSION="${PROJECT_VERSION}"

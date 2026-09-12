@@ -17,6 +17,7 @@
 #include "ui/dashboard/DashboardWidgetEditor.h"
 #include "ui/scripting/ScriptEditorPanel.h"
 #include "ui/j1939/J1939NetworkPanel.h"
+#include "ui/plugins/PluginsDialog.h"
 #include "ui/testing/TestPanel.h"
 #include "ui/graph/GraphPanel.h"
 #include "ui/hardware/HardwareDialog.h"
@@ -190,11 +191,13 @@ QFrame* createStatusSeparator()
 
 MainWindow::MainWindow(services::SettingsStore& settings,
                        ThemeManager& themes,
-                       NodeCatalog& catalog)
+                       NodeCatalog& catalog,
+                       const plugins::PluginLoader& pluginLoader)
     : DockMainWindowBase{QStringLiteral("torquebus.mainwindow")}
     , m_settings{settings}
     , m_themes{themes}
     , m_catalog{catalog}
+    , m_pluginLoader{pluginLoader}
     , m_recentProjects{settings}
     , m_hardware{settings}
     , m_workspaces{settings}
@@ -736,6 +739,19 @@ void MainWindow::createActions()
         }
     });
 
+    // What loaded and what did not. In Tools rather than Help, because it is
+    // where somebody goes after a backend is missing from Hardware
+    // Configuration - a question about this installation, not about the
+    // program.
+    m_actionPlugins = new QAction(tr("&Plugins..."), this);
+    m_actionPlugins->setToolTip(
+        tr("Which plugins loaded, which were refused, and why."));
+
+    connect(m_actionPlugins, &QAction::triggered, this, [this] {
+        PluginsDialog dialog{m_pluginLoader, this};
+        dialog.exec();
+    });
+
     // Everything whose module has not landed yet reports honestly instead of
     // doing nothing when clicked.
     connect(m_actionReplay, &QAction::triggered, this, &MainWindow::onNotImplemented);
@@ -815,6 +831,7 @@ void MainWindow::createMenus()
     diagnosticsMenu->addAction(m_j1939Dock->toggleAction());
 
     QMenu* toolsMenu = bar->addMenu(tr("&Tools"));
+    toolsMenu->addAction(m_actionPlugins);
     toolsMenu->addAction(m_actionToggleTheme);
     toolsMenu->addSeparator();
     toolsMenu->addAction(m_actionPreferences);
