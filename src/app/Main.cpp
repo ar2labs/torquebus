@@ -68,8 +68,17 @@ int main(int argc, char* argv[])
     // the first dock widget is created.
     torquebus::ui::configureDockingSystem();
 
-    torquebus::ui::MainWindow window{context.settings(), context.themes()};
+    torquebus::ui::MainWindow window{context.settings(), context.themes(),
+                                     context.catalog()};
     window.show();
+
+    // Plugins were loaded before this window existed, which is the only order
+    // that works: their backends and blocks have to be registered before
+    // anything reads either list. So what they said is printed now, into the
+    // first panel there has been to print it into.
+    for (const auto& message : context.pluginMessages()) {
+        window.report(message.text, message.isError);
+    }
 
     // The positional argument has been advertised in --help since v0.1 and
     // ignored for just as long. Opened after show() so that a failure reports

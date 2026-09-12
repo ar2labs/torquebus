@@ -6,11 +6,15 @@
 #include "app/ApplicationContext.h"
 
 #include "drivers/api/CanBackendRegistry.h"
+#include "plugins/host/PluginApi.h"
 #include "services/SettingsStore.h"
 #include "ui/theme/AccentColor.h"
 #include "ui/theme/ThemeManager.h"
 
+#include <QCoreApplication>
 #include <QtGlobal>
+
+#include <filesystem>
 
 namespace torquebus::app {
 
@@ -60,6 +64,32 @@ void ApplicationContext::initialize()
     // Backends announce themselves once, here, so that any window - including
     // a test harness window - sees the same set of interfaces.
     CanBackendRegistry::instance().registerBuiltins();
+
+    // After the built-ins, so that a plugin registering over one is doing it
+    // deliberately and last, rather than winning a race.
+    loadPlugins();
+}
+
+void ApplicationContext::loadPlugins()
+{
+    plugins::PluginHost host;
+    host.backends = &CanBackendRegistry::instance();
+    host.nodes = &m_catalog;
+
+    // Kept rather than printed: there is no window yet. These are the lines
+    // that explain a backend that will not be in the list, so losing them
+    // would leave somebody looking for a hardware fault.
+    host.log = [this](std::string_view text, bool isError) {
+        m_pluginMessages.push_back(
+            PluginMessage{.text = QString::fromUtf8(text.data(),
+                                                    static_cast<qsizetype>(text.size())),
+                          .isError = isError});
+    };
+
+    const std::filesystem::path executable{
+        QCoreApplication::applicationFilePath().toStdWString()};
+
+    m_plugins.loadFrom(plugins::PluginLoader::directoryFor(executable), host);
 }
 
 } // namespace torquebus::app
