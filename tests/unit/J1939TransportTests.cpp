@@ -17,6 +17,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
+#include <algorithm>
 #include <numeric>
 #include <vector>
 
@@ -89,6 +90,77 @@ constexpr std::uint32_t kCarried = 0x0'FEE3U;
     frame.data[0] = sequence;
     for (std::size_t index = 0U; index < J1939Transport::kBytesPerPacket; ++index) {
         frame.data[index + 1U] = index < payload.size() ? payload[index] : 0xFFU;
+    }
+
+    return frame;
+}
+
+/// An ETP.RTS: the size in four bytes rather than two.
+[[nodiscard]] CanFrame extendedRts(std::uint32_t size,
+                                   std::uint8_t source,
+                                   std::uint8_t destination)
+{
+    CanFrame frame;
+    frame.identifier =
+        j1939Identifier(kPgnExtendedTransportConnection, source, destination, 7U);
+    frame.format = CanFrameFormat::Extended;
+    frame.length = 8;
+    frame.dlc = 8;
+
+    frame.data[0] = static_cast<std::uint8_t>(J1939ExtendedControl::RequestToSend);
+    frame.data[1] = static_cast<std::uint8_t>(size & 0xFFU);
+    frame.data[2] = static_cast<std::uint8_t>((size >> 8U) & 0xFFU);
+    frame.data[3] = static_cast<std::uint8_t>((size >> 16U) & 0xFFU);
+    frame.data[4] = static_cast<std::uint8_t>((size >> 24U) & 0xFFU);
+    frame.data[5] = static_cast<std::uint8_t>(kCarried & 0xFFU);
+    frame.data[6] = static_cast<std::uint8_t>((kCarried >> 8U) & 0xFFU);
+    frame.data[7] = static_cast<std::uint8_t>((kCarried >> 16U) & 0xFFU);
+
+    return frame;
+}
+
+/// An ETP.DPO: how many packets follow, and where in the message they go.
+[[nodiscard]] CanFrame extendedOffset(std::uint32_t packets,
+                                      std::uint32_t offset,
+                                      std::uint8_t source,
+                                      std::uint8_t destination)
+{
+    CanFrame frame;
+    frame.identifier =
+        j1939Identifier(kPgnExtendedTransportConnection, source, destination, 7U);
+    frame.format = CanFrameFormat::Extended;
+    frame.length = 8;
+    frame.dlc = 8;
+
+    frame.data[0] = static_cast<std::uint8_t>(J1939ExtendedControl::DataPacketOffset);
+    frame.data[1] = static_cast<std::uint8_t>(packets);
+    frame.data[2] = static_cast<std::uint8_t>(offset & 0xFFU);
+    frame.data[3] = static_cast<std::uint8_t>((offset >> 8U) & 0xFFU);
+    frame.data[4] = static_cast<std::uint8_t>((offset >> 16U) & 0xFFU);
+    frame.data[5] = static_cast<std::uint8_t>(kCarried & 0xFFU);
+    frame.data[6] = static_cast<std::uint8_t>((kCarried >> 8U) & 0xFFU);
+    frame.data[7] = static_cast<std::uint8_t>((kCarried >> 16U) & 0xFFU);
+
+    return frame;
+}
+
+/// An ETP.DT. The sequence number counts inside the current window.
+[[nodiscard]] CanFrame extendedData(std::uint8_t sequence,
+                                    std::vector<std::uint8_t> seven,
+                                    std::uint8_t source,
+                                    std::uint8_t destination)
+{
+    seven.resize(J1939Transport::kBytesPerPacket, 0xFFU);
+    seven.insert(seven.begin(), sequence);
+
+    CanFrame frame;
+    frame.identifier = j1939Identifier(kPgnExtendedTransportData, source, destination, 7U);
+    frame.format = CanFrameFormat::Extended;
+    frame.length = 8;
+    frame.dlc = 8;
+
+    for (std::size_t index = 0U; index < seven.size() && index < 8U; ++index) {
+        frame.data[index] = seven[index];
     }
 
     return frame;
@@ -337,33 +409,174 @@ TEST_CASE("A negotiated transfer between two other ECUs reassembles too",
     CHECK(event.data == payload);
 }
 
-TEST_CASE("Extended transport is declined out loud, not ignored",
-          "[j1939][transport]")
+TEST_CASE("The extended transport PGNs are the ones the standard gives",
+          "[j1939][transport][etp]")
 {
-    // A message nobody ever mentions looks like a bus that never carried it,
-    // and somebody then goes looking for a wiring fault that is not there.
-    //
-    // The two numbers are stated rather than only used, so that checking them
-    // against J1939-21 is reading one line instead of tracing a constant.
-    CHECK(kPgnExtendedTransportConnection == 52736U);
-    CHECK(kPgnExtendedTransportData == 51712U);
+    // Stated by extension rather than only used. These were wrong once - read
+    // out of memory instead of out of the standard - and because they were
+    // wrong the reassembler never recognised an ETP frame at all, so every one
+    // of them fell through to ordinary decoding. That is exactly the failure
+    // this file exists to prevent, hidden behind a feature that looked done.
+    CHECK(kPgnExtendedTransportConnection == 51200U);
+    CHECK(kPgnExtendedTransportData == 50944U);
 
-    CanFrame frame;
-    frame.identifier = j1939Identifier(kPgnExtendedTransportConnection, kEngine, kTester, 7U);
-    frame.format = CanFrameFormat::Extended;
-    frame.length = 8;
-    frame.dlc = 8;
-    frame.data[0] = 20U;
-    frame.data[5] = static_cast<std::uint8_t>(kCarried & 0xFFU);
-    frame.data[6] = static_cast<std::uint8_t>((kCarried >> 8U) & 0xFFU);
-    frame.data[7] = 0U;
+    // And the TP ones, which were right and stay checked.
+    CHECK(kPgnTransportConnection == 60416U);
+    CHECK(kPgnTransportData == 60160U);
+    CHECK(static_cast<std::uint8_t>(J1939TransportControl::RequestToSend) == 16U);
+    CHECK(static_cast<std::uint8_t>(J1939TransportControl::ClearToSend) == 17U);
+    CHECK(static_cast<std::uint8_t>(J1939TransportControl::EndOfMessageAck) == 19U);
+    CHECK(static_cast<std::uint8_t>(J1939TransportControl::BroadcastAnnounce) == 32U);
+
+    CHECK(static_cast<std::uint8_t>(J1939ExtendedControl::RequestToSend) == 20U);
+    CHECK(static_cast<std::uint8_t>(J1939ExtendedControl::ClearToSend) == 21U);
+    CHECK(static_cast<std::uint8_t>(J1939ExtendedControl::DataPacketOffset) == 22U);
+    CHECK(static_cast<std::uint8_t>(J1939ExtendedControl::EndOfMessageAck) == 23U);
+}
+
+TEST_CASE("An extended message reassembles across its offset windows",
+          "[j1939][transport][etp]")
+{
+    // 1792 bytes is 256 packets - one more than a one-byte sequence number can
+    // count, which is the entire reason ETP exists. The second window is where
+    // a decoder that ignored the offset would start writing over the first.
+    constexpr std::uint32_t kSize = 1792U;
+    const std::vector<std::uint8_t> payload = countingPayload(kSize);
 
     J1939Transport transport;
-    CHECK(transport.onFrame(frame, 0U));
+    REQUIRE(transport.onFrame(extendedRts(kSize, kEngine, kTester), 0U));
+
+    std::uint64_t clock = 1000U;
+    std::uint32_t sent = 0U;
+
+    while (sent < 256U) {
+        const std::uint32_t window = std::min<std::uint32_t>(255U, 256U - sent);
+
+        transport.onFrame(extendedOffset(window, sent, kEngine, kTester), clock++);
+
+        for (std::uint32_t index = 0U; index < window; ++index) {
+            transport.onFrame(extendedData(static_cast<std::uint8_t>(index + 1U),
+                                           slice(payload, sent + index), kEngine, kTester),
+                              clock++);
+        }
+
+        sent += window;
+    }
 
     REQUIRE(transport.events().size() == 1U);
-    CHECK(transport.events()[0].error == J1939TransportError::Unsupported);
-    CHECK(transport.events()[0].pgn == kCarried);
+
+    const J1939TransportEvent& event = transport.events()[0];
+    CHECK(event.kind == J1939TransportEvent::Kind::MessageReceived);
+    CHECK(event.extended);
+    CHECK_FALSE(event.broadcast);
+    CHECK(event.pgn == kCarried);
+    CHECK(event.data.size() == kSize);
+    CHECK(event.data == payload);
+    CHECK(transport.openSessions() == 0U);
+}
+
+TEST_CASE("An extended sequence number restarts inside every window",
+          "[j1939][transport][etp]")
+{
+    // Packet 256 arrives as sequence 1 with an offset of 255. Read without the
+    // offset it is the first packet of the message, and the transfer quietly
+    // overwrites its own beginning.
+    constexpr std::uint32_t kSize = 1792U;
+    const std::vector<std::uint8_t> payload = countingPayload(kSize);
+
+    J1939Transport transport;
+    transport.onFrame(extendedRts(kSize, kEngine, kTester), 0U);
+    transport.onFrame(extendedOffset(255U, 0U, kEngine, kTester), 1U);
+
+    for (std::uint32_t index = 0U; index < 255U; ++index) {
+        transport.onFrame(extendedData(static_cast<std::uint8_t>(index + 1U),
+                                       slice(payload, index), kEngine, kTester),
+                          2U + index);
+    }
+
+    CHECK(transport.events().empty());
+
+    transport.onFrame(extendedOffset(1U, 255U, kEngine, kTester), 300U);
+    transport.onFrame(extendedData(1U, slice(payload, 255U), kEngine, kTester), 301U);
+
+    REQUIRE(transport.events().size() == 1U);
+    CHECK(transport.events()[0].data == payload);
+}
+
+TEST_CASE("An offset that jumps forward is a hole, and is refused",
+          "[j1939][transport][etp]")
+{
+    // The sender skipping a stretch it believes was delivered. Accepting it
+    // would leave a gap that reassembles into a message nothing downstream can
+    // tell apart from a measured one.
+    constexpr std::uint32_t kSize = 1792U;
+    const std::vector<std::uint8_t> payload = countingPayload(kSize);
+
+    J1939Transport transport;
+    transport.onFrame(extendedRts(kSize, kEngine, kTester), 0U);
+    transport.onFrame(extendedOffset(255U, 0U, kEngine, kTester), 1U);
+    transport.onFrame(extendedData(1U, slice(payload, 0U), kEngine, kTester), 2U);
+
+    // The message is one packet in; an offset of 100 skips 99 of them.
+    transport.onFrame(extendedOffset(100U, 100U, kEngine, kTester), 3U);
+
+    REQUIRE(transport.events().size() == 1U);
+    CHECK(transport.events()[0].error == J1939TransportError::SequenceGap);
+    CHECK(transport.events()[0].packetsReceived == 1U);
+    CHECK(transport.openSessions() == 0U);
+}
+
+TEST_CASE("Extended data before any offset has nowhere to go",
+          "[j1939][transport][etp]")
+{
+    // Assuming the first window would put these bytes at the start of the
+    // message and silently misplace every window after it.
+    constexpr std::uint32_t kSize = 1792U;
+
+    J1939Transport transport;
+    transport.onFrame(extendedRts(kSize, kEngine, kTester), 0U);
+    transport.onFrame(extendedData(1U, countingPayload(7U), kEngine, kTester), 1U);
+
+    REQUIRE(transport.events().size() == 1U);
+    CHECK(transport.events()[0].error == J1939TransportError::MissingPacketOffset);
+    CHECK(transport.openSessions() == 0U);
+}
+
+TEST_CASE("Neither transport takes in the other laundry",
+          "[j1939][transport][etp]")
+{
+    J1939Transport transport;
+
+    // Anything the first protocol can carry belongs to it. An extended
+    // announcement below the line is a sender with the two confused.
+    transport.onFrame(extendedRts(1785U, kEngine, kTester), 0U);
+    REQUIRE(transport.events().size() == 1U);
+    CHECK(transport.events()[0].error == J1939TransportError::SizeOutOfRange);
+    CHECK(transport.events()[0].extended);
+
+    // And the first size above it is accepted.
+    transport.clearEvents();
+    transport.onFrame(extendedRts(1786U, kEngine, kTester), 1U);
+    CHECK(transport.events().empty());
+    CHECK(transport.openSessions() == 1U);
+}
+
+TEST_CASE("A size no ECU means is refused rather than allocated",
+          "[j1939][transport][etp]")
+{
+    // The protocol allows 117,440,505 bytes. That is a number every fuzzer
+    // tries and no ECU on a bench means, and honouring it would turn a
+    // four-byte field into an allocation somebody else chose.
+    J1939Transport transport;
+
+    transport.onFrame(
+        extendedRts(static_cast<std::uint32_t>(J1939Transport::kMaximumExtendedMessage) + 1U,
+                    kEngine, kTester),
+        0U);
+
+    REQUIRE(transport.events().size() == 1U);
+    CHECK(transport.events()[0].error == J1939TransportError::SizeOutOfRange);
+    CHECK(transport.openSessions() == 0U);
 }
 
 TEST_CASE("Data with no announcement is left alone", "[j1939][transport]")

@@ -1649,10 +1649,30 @@ Uma segunda sessão da mesma origem abandona a primeira, que é o que a norma di
 também o único comportamento que não vaza buffer numa bancada onde alguém está
 resetando uma ECU repetidamente.
 
-**ETP fica fora da v0.16.** Acima de 1785 bytes é outro par de PGNs e outra
-máquina de estados, e é raro fora de transferência de arquivo e calibração.
-Ficar fora é uma decisão, não um esquecimento: o bloco **reconhece** um
-`TP.CM/ETP.CM` que não trata e diz que não trata, em vez de ignorar em silêncio.
+**ETP entrou.** Acima de 1785 bytes é outro par de PGNs - 51200 e 50944 - e a
+diferença estrutural é uma só: o número de sequência de um pacote tem um byte e
+só conta até 255, então o ETP move uma **janela de deslocamento** (DPO) ao longo
+da mensagem e os números contam dentro dela.
+
+Isto começou fora do escopo, e a razão escrita aqui era a raridade. A razão real
+era a necessidade de validar os formatos diretamente contra a especificação oficial,
+evitando constantes definidas sem verificação normativa. As duas constantes de PGN foram
+escritas de memória mesmo assim e **estavam ambas erradas** - e o efeito não foi
+um aviso faltando, foi pior: com as PGNs erradas o reassemblador não reconhecia
+quadro de ETP nenhum, então todos caíam na decodificação comum. Um ETP.DT
+decodificado como mensagem são sete bytes de carga alheia sob um número de
+sequência, que é exatamente a falha contra a qual este bloco foi projetado,
+escondida atrás de uma funcionalidade que parecia pronta.
+
+O limite: o protocolo permite 117.440.505 bytes, que é número que todo fuzzer
+tenta e nenhuma ECU de bancada quer dizer. O teto aqui é o mesmo que o
+IsoTpConnection põe na mesma pergunta - uma imagem de firmware - e um anúncio
+acima dele é recusado com o tamanho por extenso, em vez de virar uma alocação
+escolhida por outra pessoa.
+
+Uma janela que pula para a frente é recusada como buraco, pela mesma regra do
+resto do arquivo: é o remetente pulando um trecho que acredita entregue, e
+aceitar deixaria uma lacuna que remonta.
 
 --- Address claiming, e por que a ferramenta fica calada --------------------
 
@@ -1719,12 +1739,11 @@ Versão: **0.15.0 -> 0.16.0**.
 
 --- O que ficou de fora, e continua de fora ---------------------------------
 
-Três lacunas deliberadas, cada uma porque a alternativa era embarcar um número
+Duas lacunas deliberadas, cada uma porque a alternativa era embarcar um número
 ou um rótulo que pareceria certo:
 
 * **Os empacotamentos antigos do SPN.** Um código que declara o outro
   empacotamento não recebe SPN nenhum; os quatro bytes crus ficam no lugar.
-* **ETP**, reconhecido e recusado em voz alta.
 * **Tabelas de função e de fabricante.** Funções acima de 127 dependem do grupo
   industrial e do sistema veicular; a lista de fabricantes tem uns dois mil
   itens e cresce todo ano. Pertencem a um arquivo de dados corrigível sem

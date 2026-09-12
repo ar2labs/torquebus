@@ -17,10 +17,17 @@
 //   * **BAM** broadcast - announced and then poured out, no handshake, at least
 //     50 ms between packets. Nobody acknowledges anything, and nobody can ask
 //     for a packet again.
+//   * **ETP** the same idea again for messages too long for the first one (PGNs
+//     51200 and 50944). A calibration or a firmware image, not a measurement.
 //
-// A message is 9..1785 bytes: 255 packets of seven. Eight or fewer does not use
-// transport at all, and a declared size outside that range is a malformed
-// announcement rather than a very small or very large message.
+// A TP message is 9..1785 bytes: 255 packets of seven, which is all a one-byte
+// sequence number can count. ETP moves a **data packet offset** along the
+// message and lets the sequence numbers count inside that window, which is how
+// a transfer reaches past 1785 - and is the only structural difference between
+// the two protocols.
+//
+// A declared size outside the range of the protocol that announced it is a
+// malformed announcement rather than a very small or very large message.
 //
 // --- This reassembles; it does not negotiate ---------------------------------
 //
@@ -53,20 +60,32 @@
 
 namespace torquebus {
 
-/// Extended transport, connection management. 52736.
-///
-/// Recognised and declined; see J1939TransportError::Unsupported.
-inline constexpr std::uint32_t kPgnExtendedTransportConnection = 0x0'CE00U;
+/// Extended transport, connection management. 51200.
+inline constexpr std::uint32_t kPgnExtendedTransportConnection = 0x0'C800U;
 
-/// Extended transport, data transfer. 51712.
-inline constexpr std::uint32_t kPgnExtendedTransportData = 0x0'CA00U;
+/// Extended transport, data transfer. 50944.
+inline constexpr std::uint32_t kPgnExtendedTransportData = 0x0'C700U;
 
-/// The TP.CM control byte values this file acts on.
+/// The TP.CM control byte values, as J1939-21 Figure 14 gives them.
 enum class J1939TransportControl : std::uint8_t {
     RequestToSend = 16U,
     ClearToSend = 17U,
     EndOfMessageAck = 19U,
     BroadcastAnnounce = 32U,
+    Abort = 255U,
+};
+
+/// The ETP.CM control byte values.
+///
+/// DPO has no equivalent in TP and is the whole reason ETP exists: the sequence
+/// number in a data frame is one byte, so it can only count to 255. DPO moves a
+/// window along the message and the sequence numbers count inside it, which is
+/// how a transfer reaches past 1785 bytes.
+enum class J1939ExtendedControl : std::uint8_t {
+    RequestToSend = 20U,
+    ClearToSend = 21U,
+    DataPacketOffset = 22U,
+    EndOfMessageAck = 23U,
     Abort = 255U,
 };
 
@@ -89,7 +108,8 @@ enum class J1939TransportError : std::uint8_t {
     /// new announcement is the one that means something.
     Superseded,
 
-    /// The declared size is not 9..1785 bytes.
+    /// The declared size is outside what the announced protocol carries:
+    /// 9..1785 for TP, 1786..kMaximumExtendedMessage for ETP.
     SizeOutOfRange,
 
     /// The declared packet count does not match the declared size. One of the
@@ -99,9 +119,14 @@ enum class J1939TransportError : std::uint8_t {
     /// The sender gave up, with a Conn Abort.
     AbortedByPeer,
 
-    /// Extended transport, or another transport this build does not implement.
-    /// Reported rather than ignored: a message that is never mentioned looks
-    /// like a bus that never carried it.
+    /// A data packet arrived for an extended transfer before any offset was
+    /// declared. Without one there is nowhere in the message to put it, and
+    /// assuming the first window would silently misplace every later one.
+    MissingPacketOffset,
+
+    /// The announced protocol is one this build does not implement. Reported
+    /// rather than ignored: a message that is never mentioned looks like a bus
+    /// that never carried it.
     Unsupported,
 };
 
@@ -129,14 +154,20 @@ struct J1939TransportEvent final {
     /// Arrived by BAM rather than by a negotiated transfer.
     bool broadcast{false};
 
+    /// Carried by the extended protocol. Worth showing: an ETP transfer is a
+    /// firmware image or a calibration, and it takes seconds rather than
+    /// milliseconds.
+    bool extended{false};
+
     /// The reassembled message, for MessageReceived only.
     std::vector<std::uint8_t> data;
 
     /// How far a failed transfer had got. Worth showing: "9 of 20 packets"
     /// names a bus that is dropping traffic, and "0 of 20" names one that never
     /// started.
-    std::uint8_t packetsReceived{0U};
-    std::uint8_t packetsExpected{0U};
+    /// Wide enough for ETP, where a message can run to millions of packets.
+    std::uint32_t packetsReceived{0U};
+    std::uint32_t packetsExpected{0U};
 
     /// On the same clock the caller passes in.
     std::uint64_t timestampNs{0U};
@@ -153,8 +184,23 @@ public:
     /// Shortest message that uses transport at all. Eight bytes fit in a frame.
     static constexpr std::size_t kMinimumMessage = 9U;
 
-    /// 255 packets of seven bytes.
+    /// 255 packets of seven bytes: everything a one-byte sequence can count.
     static constexpr std::size_t kMaximumMessage = 1785U;
+
+    /// Shortest message ETP carries. Anything this protocol could hold is TP's
+    /// job, and an ETP announcement below the line is a sender that has the two
+    /// protocols confused.
+    static constexpr std::size_t kMinimumExtendedMessage = kMaximumMessage + 1U;
+
+    /// Longest extended message this build will assemble.
+    ///
+    /// The protocol allows 117,440,505 bytes - a 24-bit packet count times
+    /// seven - which is a number no ECU on a bench means and every fuzzer
+    /// tries. This is a firmware image, which is the largest thing anybody
+    /// legitimately sends, and it is the same ceiling IsoTpConnection puts on
+    /// the same question. An announcement above it is refused with its size
+    /// named, rather than turned into an allocation somebody else chose.
+    static constexpr std::size_t kMaximumExtendedMessage = 16U * 1024U * 1024U;
 
     /// Bytes of payload in each data packet; the first is the sequence number.
     static constexpr std::size_t kBytesPerPacket = 7U;
@@ -199,20 +245,32 @@ private:
         std::uint8_t sourceAddress{0U};
         std::uint8_t destinationAddress{kJ1939GlobalAddress};
         bool broadcast{false};
+        bool extended{false};
 
-        std::uint16_t totalSize{0U};
-        std::uint8_t totalPackets{0U};
+        std::uint32_t totalSize{0U};
+        std::uint32_t totalPackets{0U};
 
-        /// The packet number expected next, 1-based as the standard numbers it.
-        std::uint8_t nextSequence{1U};
+        /// Absolute index of the packet expected next, counting from zero.
+        ///
+        /// Absolute rather than the sequence number on the wire, because an ETP
+        /// sequence number restarts at one inside every offset window. Keeping
+        /// the absolute index means TP and ETP take the same path through
+        /// onDataTransfer, and the only difference is how the index is worked
+        /// out from the frame.
+        std::uint32_t nextPacket{0U};
+
+        /// The offset the last DPO declared, in packets. Always zero for TP,
+        /// which has no such message.
+        std::uint32_t packetOffset{0U};
+
+        /// An ETP transfer has had a DPO. Data before the first one has nowhere
+        /// to go.
+        bool offsetDeclared{false};
 
         std::vector<std::uint8_t> data;
         std::uint64_t lastFrameNs{0U};
 
-        [[nodiscard]] std::uint8_t packetsReceived() const noexcept
-        {
-            return static_cast<std::uint8_t>(nextSequence - 1U);
-        }
+        [[nodiscard]] std::uint32_t packetsReceived() const noexcept { return nextPacket; }
     };
 
     /// Source address in the high byte, destination in the low one.
@@ -227,11 +285,22 @@ private:
                                 const J1939Id& id,
                                 std::uint64_t nowNs);
 
-    void onDataTransfer(const CanFrame& frame, const J1939Id& id, std::uint64_t nowNs);
+    void onExtendedConnection(const CanFrame& frame,
+                              const J1939Id& id,
+                              std::uint64_t nowNs);
+
+    /// `packet` is the absolute index, already worked out for the protocol the
+    /// frame belongs to.
+    void onDataTransfer(const J1939Id& id,
+                        const CanFrame& frame,
+                        std::uint32_t packet,
+                        std::uint64_t nowNs);
 
     void beginSession(const CanFrame& frame,
                       const J1939Id& id,
                       bool broadcast,
+                      bool extended,
+                      std::uint32_t size,
                       std::uint64_t nowNs);
 
     /// Emits a ReceiveFailed for `session` and forgets it.
@@ -241,7 +310,7 @@ private:
     void failAnnouncement(const J1939Id& id,
                           std::uint32_t pgn,
                           J1939TransportError error,
-                          std::uint8_t expectedPackets,
+                          std::uint32_t expectedPackets,
                           std::uint64_t nowNs);
 
     std::map<Key, Session> m_sessions;
