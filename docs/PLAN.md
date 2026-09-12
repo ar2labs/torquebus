@@ -1758,7 +1758,113 @@ e transmissão aqui é opt-in explícito.
 
 ---
 
-# v0.17+ — expansão
+# v0.17 — Plugins
+
+O último item da seção 35, e o que a seção 29 mandava fazer cedo. As duas
+costuras já existem e dizem isso no próprio cabeçalho: `CanBackendRegistry`
+promete que "o carregador de plugins registrará backends de fora da árvore
+através desta mesma chamada", e `NodeCatalog::registerType` diz que um plugin
+pode substituir um tipo embutido. Falta o carregador.
+
+E, junto com ele, o que a seção 31 realmente pede: **os dois backends
+proprietários saem do binário.** Hoje `torquebus_drivers` linka CANlib e
+Qt6::SerialBus diretamente; enquanto isso for verdade, a distribuição GPL carrega
+uma dependência de SDK proprietário na própria imagem. Como plugin, o que toca
+CANlib é *carregado* e não linkado, e quem não tem o driver instalado
+simplesmente não tem aquele plugin.
+
+--- O que atravessa a fronteira, e por que isso é a decisão toda -------------
+
+`ICanBackend` usa `std::function`, `std::span`, `std::string_view` e `Result`.
+Isso é **ABI C++**, não C, e ABI C++ não é estável entre compiladores nem entre
+versões de biblioteca padrão. Há dois caminhos, e o barato é o errado:
+
+* Reescrever a interface em C puro — estável em qualquer lugar, e transforma
+  cada chamada numa tradução à mão, para sempre, do lado de dentro e do lado de
+  fora.
+* Manter o C++ e **recusar carregar** qualquer plugin que não tenha sido
+  construído com o mesmo compilador, o mesmo Qt e a mesma versão de ABI.
+
+O segundo, porque a seção 1 já congelou MSVC x64 e este é um aplicativo de
+desktop de plataforma única, não uma biblioteca. A ABI C++ custa uma regra
+declarada; a ABI C custaria uma camada de tradução em toda chamada de toda
+funcionalidade futura.
+
+A regra fica no formato de uma **chave de build** que o plugin exporta e o
+carregador compara byte a byte: versão da ABI do TorqueBus, identificação do
+compilador, versão do Qt. Diferiu, o plugin não é carregado, e **o motivo aparece
+escrito com o nome do arquivo**. Um plugin que some em silêncio é um backend que
+não aparece na lista, e a pessoa vai conferir o cabo.
+
+Só o ponto de entrada é `extern "C"` — um símbolo com nome fixo que devolve o
+descritor. C++ decora nomes de forma diferente entre compiladores, e um
+carregador que não acha o símbolo não consegue nem dizer por quê.
+
+--- O que um plugin pode fazer ----------------------------------------------
+
+Registrar **backends** e **tipos de bloco**, que são exatamente as duas costuras
+que já existem. Nada mais, por enquanto: painéis são Qt e widgets, e uma ABI de
+widget é uma promessa muito maior que uma de nó.
+
+Um plugin recebe o registro e o catálogo e chama as mesmas funções que o código
+embutido chama. Não há uma segunda API para quem vem de fora — se houvesse, ela
+seria a que apodrece, porque ninguém de dentro a usa.
+
+--- O que o carregador recusa fazer -----------------------------------------
+
+**Não carrega de qualquer lugar.** Só do diretório `plugins` ao lado do
+executável. Carregar DLL do diretório de trabalho ou do PATH é o jeito clássico
+de transformar "abrir um projeto" em "executar o que estava na pasta".
+
+**Um plugin que falha não derruba o aplicativo, e não some.** Falha ao abrir,
+símbolo ausente, chave de build diferente, exceção durante o registro: cada um
+vira uma linha no painel Output com o nome do arquivo e o motivo. Carregar
+plugins é o tipo de coisa cujo erro normalmente aparece como ausência, e
+ausência não se diagnostica.
+
+**Um plugin não substitui um embutido por acidente.** Registrar por cima é
+permitido de propósito — é como se depura um backend — mas é anunciado, não
+silencioso.
+
+--- O que fica embutido -----------------------------------------------------
+
+O backend **virtual**. Um aplicativo com zero plugins tem de abrir, montar um
+grafo e rodar uma medição contra o barramento virtual - senão a primeira
+experiência de quem baixa depende de ter o SDK certo instalado.
+
+Os blocos também ficam embutidos. A seção 29 lista protocol-j1939 e
+protocol-uds como plugins, e isso fica para quando houver um segundo consumidor
+da ABI de bloco que prove que ela está certa. Uma ABI publicada sem nenhum
+usuário de fora é uma suposição com número de versão.
+
+--- Kvaser e PEAK como plugins ----------------------------------------------
+
+Cada um vira uma DLL construída só quando o SDK está presente — que é a mesma
+condição que o CMake já testa hoje. O que muda é que a ausência deixa de ser um
+`#if` dentro do binário e passa a ser um arquivo que não existe.
+
+O PEAK linka `Qt6::SerialBus`, então aquele plugin carrega Qt. Isso não é um
+problema: o aplicativo já carrega Qt, e a chave de build garante que é o mesmo.
+
+E a tela que a seção 31 pediu: uma lista dos plugins encontrados, dos que foram
+recusados e por quê, e para os backends proprietários a diferença entre "não
+instalado" e "instalado e falhou ao carregar" — que são dois problemas
+diferentes com duas soluções diferentes.
+
+--- Testes ------------------------------------------------------------------
+
+`[plugins]` — a chave de build recusada com um motivo legível; um símbolo de
+entrada ausente relatado por nome em vez de ignorado; um plugin que levanta
+exceção durante o registro não levando o resto junto; um caminho fora do
+diretório de plugins recusado; e a prova que importa de verdade: **o aplicativo
+sem plugin nenhum ainda abre, monta um grafo e roda contra o barramento
+virtual.**
+
+Versão: **0.16.0 -> 0.17.0**.
+
+---
+
+# v0.18+ — expansão
 
 Depois
 
@@ -1966,11 +2072,12 @@ Critérios para o marco TorqueBus Studio 1.0:
 ✓ Projects
 ✓ Workspaces
 
-✓ Python
+✓ Lua            (Python saiu na v0.13: duas linguagens embarcadas seriam
+                  duas APIs a manter e duas sandboxes a auditar)
 
 ✓ Dashboards
 
-✓ Plugin system
+  Plugin system  (v0.17)
 ```
 
 Nesse ponto já não estamos falando de um visualizador CAN.
