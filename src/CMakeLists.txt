@@ -200,6 +200,49 @@ endif()
 set_target_properties(torquebus_drivers PROPERTIES FOLDER "Libraries")
 
 # ---------------------------------------------------------------------------
+# torquebus_plugin_host - finding plugins, checking them, and letting them in
+#
+# It sits above both registries because that is what it hands a plugin: the
+# backend registry and the node catalogue, the same two a built-in registers
+# through. There is no second API for outsiders - if there were, it would be
+# the one that rots.
+#
+# PluginApi.h is the one header an out-of-tree plugin includes, which is why
+# both dependencies are PUBLIC: a plugin gets them by including it.
+# ---------------------------------------------------------------------------
+
+add_library(torquebus_plugin_host STATIC
+    plugins/host/PluginApi.h
+    plugins/host/PluginLoader.h
+    plugins/host/PluginLoader.cpp
+)
+
+add_library(torquebus::plugin_host ALIAS torquebus_plugin_host)
+
+target_include_directories(torquebus_plugin_host PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+
+target_link_libraries(torquebus_plugin_host
+    PUBLIC  torquebus::core
+            torquebus::drivers
+    PRIVATE torquebus::warnings
+)
+
+set_target_properties(torquebus_plugin_host PROPERTIES FOLDER "Libraries")
+
+# An interface target for plugins themselves to link: the API header and the
+# two libraries behind it, without the loader. A plugin that linked the loader
+# would carry a second copy of it.
+add_library(torquebus_plugin_api INTERFACE)
+add_library(torquebus::plugin_api ALIAS torquebus_plugin_api)
+
+target_include_directories(torquebus_plugin_api INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}")
+
+target_link_libraries(torquebus_plugin_api
+    INTERFACE torquebus::core
+              torquebus::drivers
+)
+
+# ---------------------------------------------------------------------------
 # torquebus_services - application services (settings, projects, workspaces)
 # ---------------------------------------------------------------------------
 
