@@ -134,6 +134,10 @@ private:
     /// for the worst case and process() never resizes.
     std::vector<DecodedSignal> m_buffer;
 
+    /// Which signals the message being decoded carries. A member so that asking
+    /// costs nothing per frame: see CanMessage::signalsIn.
+    std::vector<const CanSignal*> m_present;
+
     std::uint64_t m_decoded{0};
     std::uint64_t m_unknown{0};
     std::uint64_t m_emitted{0};
