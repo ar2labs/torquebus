@@ -74,7 +74,7 @@ TEST_CASE("A claim seats an ECU at an address", "[j1939][network]")
 
     REQUIRE(table.nodes().size() == 1U);
 
-    const J1939Node& node = table.nodes()[0];
+    const J1939NetworkNode& node = table.nodes()[0];
     CHECK(node.address == kEngine);
     CHECK(node.claimSeen);
     REQUIRE(node.name.has_value());

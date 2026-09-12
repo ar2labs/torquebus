@@ -47,7 +47,7 @@ bool J1939AddressTable::onFrame(const CanFrame& frame, std::uint64_t nowNs)
         return true;
     }
 
-    J1939Node& node = nodeFor(id->sourceAddress, nowNs);
+    J1939NetworkNode& node = nodeFor(id->sourceAddress, nowNs);
     const bool firstTraffic = !node.trafficSeen;
 
     node.trafficSeen = true;
@@ -66,10 +66,10 @@ bool J1939AddressTable::onFrame(const CanFrame& frame, std::uint64_t nowNs)
     return true;
 }
 
-J1939Node& J1939AddressTable::nodeFor(std::uint8_t address, std::uint64_t nowNs)
+J1939NetworkNode& J1939AddressTable::nodeFor(std::uint8_t address, std::uint64_t nowNs)
 {
     const auto position = std::lower_bound(m_nodes.begin(), m_nodes.end(), address,
-                                           [](const J1939Node& node, std::uint8_t wanted) {
+                                           [](const J1939NetworkNode& node, std::uint8_t wanted) {
                                                return node.address < wanted;
                                            });
 
@@ -77,7 +77,7 @@ J1939Node& J1939AddressTable::nodeFor(std::uint8_t address, std::uint64_t nowNs)
         return *position;
     }
 
-    J1939Node node;
+    J1939NetworkNode node;
     node.address = address;
     node.firstSeenNs = nowNs;
     node.lastSeenNs = nowNs;
@@ -91,7 +91,7 @@ void J1939AddressTable::onClaim(std::uint8_t address,
                                 const J1939Name& name,
                                 std::uint64_t nowNs)
 {
-    J1939Node& node = nodeFor(address, nowNs);
+    J1939NetworkNode& node = nodeFor(address, nowNs);
 
     node.lastSeenNs = nowNs;
     ++node.framesSeen;
@@ -179,10 +179,10 @@ void J1939AddressTable::onCannotClaim(const J1939Name& name, std::uint64_t nowNs
     m_events.push_back(std::move(event));
 }
 
-const J1939Node* J1939AddressTable::find(std::uint8_t address) const noexcept
+const J1939NetworkNode* J1939AddressTable::find(std::uint8_t address) const noexcept
 {
     const auto position = std::lower_bound(m_nodes.begin(), m_nodes.end(), address,
-                                           [](const J1939Node& node, std::uint8_t wanted) {
+                                           [](const J1939NetworkNode& node, std::uint8_t wanted) {
                                                return node.address < wanted;
                                            });
 
