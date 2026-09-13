@@ -40,6 +40,7 @@ class QTreeWidget;
 
 namespace torquebus {
 class J1939Network;
+class J1939NameTables;
 struct J1939NetworkSnapshot;
 }
 
@@ -53,6 +54,11 @@ public:
 
     /// The bus this panel shows. Not owned; must outlive the panel.
     void setNetwork(J1939Network* network);
+
+    /// The words behind the numbers in a NAME, or nullptr for numbers only.
+    /// Not owned; must outlive the panel. See J1939NameTables.h for why a
+    /// machine can legitimately have none.
+    void setNameTables(const J1939NameTables* tables);
 
 private Q_SLOTS:
     /// Asks the revision counter whether anything moved, and rebuilds only when
@@ -69,6 +75,7 @@ private:
     void updateSummary(const J1939NetworkSnapshot& snapshot);
 
     J1939Network* m_network{nullptr};
+    const J1939NameTables* m_names{nullptr};
 
     QLabel* m_summary{nullptr};
     QTreeWidget* m_nodes{nullptr};

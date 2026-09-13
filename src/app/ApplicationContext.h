@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include "core/j1939/J1939NameTables.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "plugins/host/PluginLoader.h"
 
@@ -39,13 +40,13 @@ public:
     ApplicationContext(const ApplicationContext&) = delete;
     ApplicationContext& operator=(const ApplicationContext&) = delete;
 
-    /// Something a plugin, or the loader, said while plugins were being loaded.
+    /// Something said while the program was starting, before there was a
+    /// window to say it in.
     ///
-    /// Kept rather than printed, because loading happens before there is a
-    /// window to print into - and these are exactly the lines that must not be
-    /// lost: every one of them explains a backend or a block that is not going
-    /// to be in the list.
-    struct PluginMessage final {
+    /// Kept rather than printed, and these are exactly the lines that must not
+    /// be lost: each one explains a backend, a block or a name that is not
+    /// going to be where somebody looks for it.
+    struct StartupMessage final {
         QString text;
         bool isError{false};
     };
@@ -67,15 +68,26 @@ public:
         return m_plugins;
     }
 
-    /// What happened while plugins were loading, for a window to print once it
-    /// has somewhere to print it.
-    [[nodiscard]] std::span<const PluginMessage> pluginMessages() const noexcept
+    /// The words behind the numbers in a J1939 NAME, when this machine has a
+    /// file of them. Empty is the ordinary case and not a fault - see
+    /// J1939NameTables.h for why the data is not shipped.
+    [[nodiscard]] const J1939NameTables& j1939Names() const noexcept
     {
-        return m_pluginMessages;
+        return m_j1939Names;
+    }
+
+    /// What happened while starting, for a window to print once it has
+    /// somewhere to print it.
+    [[nodiscard]] std::span<const StartupMessage> startupMessages() const noexcept
+    {
+        return m_startupMessages;
     }
 
 private:
     void loadPlugins();
+    void loadNameTables();
+
+    void say(const QString& text, bool isError);
 
     std::unique_ptr<services::SettingsStore> m_settings;
     std::unique_ptr<ui::ThemeManager> m_themes;
@@ -83,7 +95,9 @@ private:
     NodeCatalog m_catalog{NodeCatalog::withBuiltinTypes()};
 
     plugins::PluginLoader m_plugins;
-    std::vector<PluginMessage> m_pluginMessages;
+    J1939NameTables m_j1939Names;
+
+    std::vector<StartupMessage> m_startupMessages;
 };
 
 } // namespace torquebus::app

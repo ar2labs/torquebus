@@ -16,6 +16,7 @@
 #include "core/dashboard/DashboardDescription.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
+#include "core/j1939/J1939NameTables.h"
 #include "plugins/host/PluginLoader.h"
 #include "core/transmit/TransmitList.h"
 #include "services/HardwareProfile.h"
@@ -69,7 +70,8 @@ public:
     MainWindow(services::SettingsStore& settings,
                ThemeManager& themes,
                NodeCatalog& catalog,
-               const plugins::PluginLoader& pluginLoader);
+               const plugins::PluginLoader& pluginLoader,
+               const J1939NameTables& j1939Names);
 
     /// Puts a line in the Output panel from outside the window.
     ///
@@ -221,6 +223,10 @@ private:
     // description outlives the panel, so closing the canvas does not discard
     // the pipeline, and the engine keeps building from it.
     NodeCatalog& m_catalog;
+
+    /// The words behind a J1939 NAME. Borrowed from the ApplicationContext,
+    /// which outlives this window, and empty on a machine with no file.
+    const J1939NameTables& m_j1939Names;
 
     /// Read only when the Plugins dialog opens. Loading finished before this
     /// window existed and nothing adds to it afterwards.

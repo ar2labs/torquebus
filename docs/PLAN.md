@@ -1766,13 +1766,21 @@ Versão: **0.15.0 -> 0.16.0**.
 
 --- O que ficou de fora, e continua de fora ---------------------------------
 
-Uma lacuna deliberada, porque a alternativa era embarcar um rótulo que pareceria
-certo:
+Uma coisa deliberadamente fora do repositório, e não é uma lacuna de
+funcionalidade:
 
-* **Tabelas de função e de fabricante.** Funções acima de 127 dependem do grupo
-  industrial e do sistema veicular; a lista de fabricantes tem uns dois mil
-  itens e cresce todo ano. Pertencem a um arquivo de dados corrigível sem
-  recompilar. O grupo industrial, que são oito valores fixos, está nomeado.
+* **Os dados das tabelas de função e de fabricante.** O mecanismo existe -
+  `J1939NameTables` lê um arquivo e o painel mostra as palavras ao lado dos
+  números. Os dados não vêm juntos, e isso é decisão e não pendência: eles são
+  do Digital Annex da SAE, que é produto licenciado, e despejá-los num
+  repositório GPL seria redistribuí-lo. `tools/j1939-names.py` converte a
+  planilha de quem tem licença, na máquina de quem tem licença, e o
+  `.gitignore` impede o resultado de voltar.
+
+  A razão técnica original continua valendo e é independente
+  dessa: funções acima de 127 dependem do grupo industrial e do sistema
+  veicular, e a lista de fabricantes cresce todo ano. Compilada, estaria errada
+  no mês seguinte ao lançamento.
 
 E uma questão de procedência, que vale escrever porque muda o que confiar:
 

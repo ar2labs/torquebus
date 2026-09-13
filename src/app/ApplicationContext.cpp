@@ -15,6 +15,8 @@
 #include <QtGlobal>
 
 #include <filesystem>
+#include <string>
+#include <string_view>
 
 namespace torquebus::app {
 
@@ -68,6 +70,39 @@ void ApplicationContext::initialize()
     // After the built-ins, so that a plugin registering over one is doing it
     // deliberately and last, rather than winning a race.
     loadPlugins();
+
+    loadNameTables();
+}
+
+void ApplicationContext::say(const QString& text, bool isError)
+{
+    m_startupMessages.push_back(StartupMessage{.text = text, .isError = isError});
+}
+
+void ApplicationContext::loadNameTables()
+{
+    const std::filesystem::path file =
+        std::filesystem::path{QCoreApplication::applicationFilePath().toStdWString()}
+            .parent_path()
+        / "data" / "j1939-names.csv";
+
+    if (const Result result = m_j1939Names.loadFile(file); result.failed()) {
+        // A file that is there and wrong is worth a line. A file that is not
+        // there is the ordinary case and says nothing.
+        const std::string_view message = result.message();
+        say(QString::fromUtf8(message.data(), static_cast<qsizetype>(message.size())), true);
+        return;
+    }
+
+    if (m_j1939Names.empty()) {
+        return;
+    }
+
+    say(QStringLiteral("J1939 names: %1 functions, %2 manufacturers from %3")
+            .arg(m_j1939Names.functionCount())
+            .arg(m_j1939Names.manufacturerCount())
+            .arg(QString::fromStdString(m_j1939Names.sourcePath())),
+        false);
 }
 
 void ApplicationContext::loadPlugins()
@@ -80,10 +115,7 @@ void ApplicationContext::loadPlugins()
     // that explain a backend that will not be in the list, so losing them
     // would leave somebody looking for a hardware fault.
     host.log = [this](std::string_view text, bool isError) {
-        m_pluginMessages.push_back(
-            PluginMessage{.text = QString::fromUtf8(text.data(),
-                                                    static_cast<qsizetype>(text.size())),
-                          .isError = isError});
+        say(QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size())), isError);
     };
 
     const std::filesystem::path executable{

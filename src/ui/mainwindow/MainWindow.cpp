@@ -192,12 +192,14 @@ QFrame* createStatusSeparator()
 MainWindow::MainWindow(services::SettingsStore& settings,
                        ThemeManager& themes,
                        NodeCatalog& catalog,
-                       const plugins::PluginLoader& pluginLoader)
+                       const plugins::PluginLoader& pluginLoader,
+                       const J1939NameTables& j1939Names)
     : DockMainWindowBase{QStringLiteral("torquebus.mainwindow")}
     , m_settings{settings}
     , m_themes{themes}
     , m_catalog{catalog}
     , m_pluginLoader{pluginLoader}
+    , m_j1939Names{j1939Names}
     , m_recentProjects{settings}
     , m_hardware{settings}
     , m_workspaces{settings}
@@ -543,6 +545,7 @@ void MainWindow::createPanels()
     // the same reason the test report does - "what was on this machine" is
     // asked after a run as often as during one.
     m_j1939Panel = new J1939NetworkPanel;
+    m_j1939Panel->setNameTables(&m_j1939Names);
     m_j1939Panel->setNetwork(&m_controller->engine().j1939Network());
 
     m_j1939Dock = createDockWidget(dockName(kDockJ1939), tr("J1939 Network"), m_j1939Panel,
