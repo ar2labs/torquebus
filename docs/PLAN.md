@@ -1792,10 +1792,23 @@ E uma questão de procedência, que vale escrever porque muda o que confiar:
   DM22 que limpa "SPN 1208, FMI 3" carrega `00 97 03`, e ler aquilo com o bit
   mais significativo primeiro dá 1208 exatamente.
 * As duas PGNs de ETP foram conferidas contra o **Digital Annex**.
-* O **comportamento** do ETP continua apoiado na implementação do kernel Linux,
-  porque a ISO 11783-3 não está aqui. É a única coisa nesta versão sem lastro
-  normativo, está dito no cabeçalho do arquivo, e está afirmada por extenso nos
-  testes.
+* O **comportamento** do ETP não tem lastro normativo aqui, porque a
+  ISO 11783-3 não está no projeto. Foi conferido contra **duas** implementações
+  independentes que a têm - o kernel Linux (`net/can/j1939`), de propósito
+  geral, e o AgIsoStack++, escrito especificamente para ISOBUS - e as duas
+  concordam em tudo: PGNs, os quatro bytes de controle, o deslocamento de 24
+  bits nos bytes 2 a 4 do DPO, o índice absoluto sendo deslocamento mais
+  sequência, e os limites de 1785 e 117.440.505 bytes. Duas implementações
+  concordando não é uma norma, e por isso cada valor está afirmado por extenso
+  nos testes.
+* Os **tempos** do transporte vieram da J1939-21 direto: Tr 200, Th 500,
+  T1 750, T2 1250, T3 1250, T4 1050 ms. Ler a alínea (a) da seção 5.10.2 -
+  "um intervalo maior que T1 **após o recebimento do último pacote**" - mostrou
+  um defeito: o código aplicava T1 também entre o anúncio e o primeiro pacote,
+  onde não há pacote nenhum de onde contar, e relatava timeout numa
+  transferência legal que estava esperando um handshake entre duas outras ECUs.
+  Agora uma sessão negociada tem T3 até o primeiro pacote e T1 depois; uma
+  difusão, que não tem handshake, tem T1 desde o começo.
 
 E uma que é decisão de postura e não lacuna: **reivindicar endereço**. A tabela
 observa e não tem como transmitir. Um Request for Address Claimed - que
