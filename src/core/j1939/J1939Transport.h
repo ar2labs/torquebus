@@ -78,12 +78,19 @@ namespace torquebus {
 // 50944 as ETP.DT and 51200 as ETP.CM, and both were checked there.
 //
 // The *behaviour* behind them - the control bytes, the offset window, the
-// four-byte size - belongs to **ISO 11783-3**, the ISOBUS data link layer.
-// This project does not have that document, so those specifics rest on the
-// Linux kernel implementation (net/can/j1939), which has run against real
-// machines for years. Every one of them is stated by extension in
-// J1939TransportTests, so checking them against a copy of ISO 11783-3 is
-// reading one screen.
+// four-byte size - belongs to **ISO 11783-3**, the ISOBUS data link layer,
+// which this project does not have a copy of. Those specifics were instead
+// cross-checked against two independent implementations that do:
+//
+//   * the Linux kernel (net/can/j1939), general purpose, years on real buses;
+//   * AgIsoStack++ (Open-Agriculture), written for ISOBUS specifically.
+//
+// They agree on every value: the PGNs, the four control bytes, the 24-bit
+// offset in bytes 2 to 4 of a DPO, the absolute packet index being the offset
+// plus the sequence number, the 1785-byte floor and the 117,440,505-byte
+// ceiling. Two independent implementations agreeing is not a standard, and
+// every one of those values is stated by extension in J1939TransportTests, so
+// checking them against a copy of ISO 11783-3 is reading one screen.
 //
 // This is not a footnote about paperwork. ISOBUS is agricultural, which is
 // exactly the fleet this milestone is for, and knowing that ETP arrives from
@@ -323,8 +330,21 @@ public:
     /// Bytes of payload in each data packet; the first is the sequence number.
     static constexpr std::size_t kBytesPerPacket = 7U;
 
-    /// T1: longest gap between data packets before the receiver gives up.
+    /// T1, from J1939-21 section 5.10.2: the longest gap **after receipt of the
+    /// last packet when more were expected**.
+    ///
+    /// That wording is the whole reason there are two timeouts here. T1 starts
+    /// when a packet arrives, so it has nothing to say about the stretch
+    /// between an announcement and the first packet - and applying it there
+    /// reports a timeout on a transfer that is still perfectly legal.
     static constexpr std::uint64_t kPacketTimeoutNs = 750ULL * 1000ULL * 1000ULL;
+
+    /// T3, the same section: how long a sender waits for a CTS after its RTS.
+    ///
+    /// Used here as the patience for the gap between a negotiated announcement
+    /// and the first data packet, because that gap contains a handshake this
+    /// bystander is not part of and cannot hurry.
+    static constexpr std::uint64_t kHandshakeTimeoutNs = 1250ULL * 1000ULL * 1000ULL;
 
     /// Offers a frame that arrived on the bus.
     ///

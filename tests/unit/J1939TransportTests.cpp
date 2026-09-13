@@ -425,6 +425,65 @@ TEST_CASE("An abort says which end gave up", "[j1939][transport]")
     CHECK(transport.events()[0].abortRole == J1939AbortRole::Unspecified);
 }
 
+TEST_CASE("A negotiated transfer is given the handshake time before its first packet",
+          "[j1939][transport]")
+{
+    // J1939-21 5.10.2(a): T1 is "a gap of more than T1 after receipt of the last
+    // packet". Before the first packet there is nothing for it to count from -
+    // the sender is waiting on a CTS from the other ECU, and T3 is what the
+    // standard gives it for that. Applying T1 there reports a timeout on a
+    // transfer that is still perfectly legal.
+    constexpr std::uint64_t kT1 = J1939Transport::kPacketTimeoutNs;
+    constexpr std::uint64_t kT3 = J1939Transport::kHandshakeTimeoutNs;
+
+    J1939Transport transport;
+    transport.onFrame(requestToSend(21U, 3U, kEngine, kTester), 0U);
+
+    // Past T1 and still waiting. This is the case that used to be reported.
+    transport.poll(kT1 + 1U);
+    CHECK(transport.events().empty());
+    CHECK(transport.openSessions() == 1U);
+
+    // The first packet arrives late but in time, and from here T1 applies.
+    transport.onFrame(dataFrame(1U, countingPayload(7U), kEngine, kTester), kT1 + 2U);
+    CHECK(transport.events().empty());
+
+    transport.poll(kT1 + 2U + kT1 + 1U);
+    REQUIRE(transport.events().size() == 1U);
+    CHECK(transport.events()[0].error == J1939TransportError::Timeout);
+    CHECK(transport.events()[0].packetsReceived == 1U);
+
+    // And a transfer nobody ever answers does end, at T3.
+    J1939Transport silent;
+    silent.onFrame(requestToSend(21U, 3U, kEngine, kTester), 0U);
+
+    silent.poll(kT3);
+    CHECK(silent.events().empty());
+
+    silent.poll(kT3 + 1U);
+    REQUIRE(silent.events().size() == 1U);
+    CHECK(silent.events()[0].packetsReceived == 0U);
+}
+
+TEST_CASE("A broadcast gets no extra patience, because it has no handshake",
+          "[j1939][transport]")
+{
+    // Nobody answers a BAM - the packets follow the announcement directly - so
+    // there is no negotiation to wait through and T1 applies from the start.
+    constexpr std::uint64_t kT1 = J1939Transport::kPacketTimeoutNs;
+
+    J1939Transport transport;
+    transport.onFrame(bam(21U, 3U, kEngine), 0U);
+
+    transport.poll(kT1);
+    CHECK(transport.events().empty());
+
+    transport.poll(kT1 + 1U);
+    REQUIRE(transport.events().size() == 1U);
+    CHECK(transport.events()[0].error == J1939TransportError::Timeout);
+    CHECK(transport.events()[0].broadcast);
+}
+
 TEST_CASE("A transfer that simply stops is ended by the clock",
           "[j1939][transport]")
 {

@@ -395,8 +395,17 @@ void J1939Transport::onDataTransfer(const J1939Id& id,
 void J1939Transport::poll(std::uint64_t nowNs)
 {
     for (auto it = m_sessions.begin(); it != m_sessions.end();) {
-        if (nowNs >= it->second.lastFrameNs
-            && nowNs - it->second.lastFrameNs > kPacketTimeoutNs) {
+        // T1 counts from a packet, so before the first one there is nothing for
+        // it to count from. A negotiated transfer is waiting on a handshake
+        // between two other ECUs at that point, and T3 is what the standard
+        // gives the sender to wait for it. A broadcast has no handshake - the
+        // packets follow the announcement directly - so T1 applies from the
+        // start and a dead BAM is reported half a second sooner.
+        const bool started = it->second.packetsReceived() > 0U;
+        const std::uint64_t patience =
+            (started || it->second.broadcast) ? kPacketTimeoutNs : kHandshakeTimeoutNs;
+
+        if (nowNs >= it->second.lastFrameNs && nowNs - it->second.lastFrameNs > patience) {
             // fail() does not erase, so that this loop owns the iterator.
             J1939TransportEvent event;
             event.kind = J1939TransportEvent::Kind::ReceiveFailed;
