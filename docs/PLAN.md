@@ -1792,15 +1792,24 @@ E uma questão de procedência, que vale escrever porque muda o que confiar:
   DM22 que limpa "SPN 1208, FMI 3" carrega `00 97 03`, e ler aquilo com o bit
   mais significativo primeiro dá 1208 exatamente.
 * As duas PGNs de ETP foram conferidas contra o **Digital Annex**.
-* O **comportamento** do ETP não tem lastro normativo aqui, porque a
-  ISO 11783-3 não está no projeto. Foi conferido contra **duas** implementações
-  independentes que a têm - o kernel Linux (`net/can/j1939`), de propósito
-  geral, e o AgIsoStack++, escrito especificamente para ISOBUS - e as duas
-  concordam em tudo: PGNs, os quatro bytes de controle, o deslocamento de 24
-  bits nos bytes 2 a 4 do DPO, o índice absoluto sendo deslocamento mais
-  sequência, e os limites de 1785 e 117.440.505 bytes. Duas implementações
-  concordando não é uma norma, e por isso cada valor está afirmado por extenso
-  nos testes.
+* O **comportamento** do ETP veio da **ISO 11783-3:2018** seção 5.11, lida
+  diretamente. Tudo conferiu - PGNs, os cinco bytes de controle, o campo de
+  tamanho de quatro bytes com a faixa 1786 a 117.440.505, o deslocamento de 24
+  bits nos bytes 3 a 5 do DPO, e a aritmética que a 5.11.5.5 escreve como
+  "número de sequência real = sequência do ETP.DT + deslocamento do
+  ETP.CM_DPO".
+
+  Duas coisas a leitura **mudou** em vez de confirmar, e valem mais que as
+  dezenas que confirmou:
+
+  - **O ETP tem tabela própria de motivos de abort** (Tabela 9). Nove valores
+    significam o mesmo nas duas e aí divergem: o 9 é "tamanho maior que 1785
+    bytes" no TP e "pacote de deslocamento inesperado" no ETP, e de 10 a 15 só
+    existem no ETP. O código usava a tabela do TP para os dois - o que dá uma
+    frase gramatical, plausível, e sobre outro defeito.
+  - **Um abort de ETP não carrega papel de quem abortou**: os bytes 3 a 5 são
+    reservados pela ISO. Reportar `Unspecified` ali era o certo, e agora é o
+    certo com a norma atrás em vez de por cautela.
 * Os **tempos** do transporte vieram da J1939-21 direto: Tr 200, Th 500,
   T1 750, T2 1250, T3 1250, T4 1050 ms. Ler a alínea (a) da seção 5.10.2 -
   "um intervalo maior que T1 **após o recebimento do último pacote**" - mostrou

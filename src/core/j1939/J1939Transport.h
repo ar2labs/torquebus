@@ -75,22 +75,20 @@ namespace torquebus {
 // rather than a different document.
 //
 // What is SAE is the two PGN *numbers*: the J1939 Digital Annex registers
-// 50944 as ETP.DT and 51200 as ETP.CM, and both were checked there.
+// 50944 as ETP.DT and 51200 as ETP.CM.
 //
-// The *behaviour* behind them - the control bytes, the offset window, the
-// four-byte size - belongs to **ISO 11783-3**, the ISOBUS data link layer,
-// which this project does not have a copy of. Those specifics were instead
-// cross-checked against two independent implementations that do:
+// The *behaviour* behind them is **ISO 11783-3:2018**, the ISOBUS data link
+// layer, section 5.11 - and it has been read. Everything here matches it:
+// the PGNs, the five control bytes, the four-byte size field with its
+// 1786..117,440,505 range, the 24-bit offset in bytes 3 to 5 of a DPO, and
+// the arithmetic, which 5.11.5.5 states as
 //
-//   * the Linux kernel (net/can/j1939), general purpose, years on real buses;
-//   * AgIsoStack++ (Open-Agriculture), written for ISOBUS specifically.
+//     actual sequence number = ETP.DT sequence + ETP.CM_DPO offset
 //
-// They agree on every value: the PGNs, the four control bytes, the 24-bit
-// offset in bytes 2 to 4 of a DPO, the absolute packet index being the offset
-// plus the sequence number, the 1785-byte floor and the 117,440,505-byte
-// ceiling. Two independent implementations agreeing is not a standard, and
-// every one of those values is stated by extension in J1939TransportTests, so
-// checking them against a copy of ISO 11783-3 is reading one screen.
+// (this file keeps a zero-based index, which is that minus one).
+//
+// Two things that reading it changed rather than confirmed are marked where
+// they happen: the abort reasons below, and the timeouts further down.
 //
 // This is not a footnote about paperwork. ISOBUS is agricultural, which is
 // exactly the fleet this milestone is for, and knowing that ETP arrives from
@@ -199,8 +197,49 @@ enum class J1939AbortRole : std::uint8_t {
 /// The role in words.
 [[nodiscard]] std::string_view j1939AbortRoleText(J1939AbortRole role) noexcept;
 
+/// Why an **extended** sender gave up, as ISO 11783-3:2018 Table 9 defines it.
+///
+/// The two tables are not the same, which is the trap. Nine of the values mean
+/// the same thing in both, and then they diverge: 9 is "total message size is
+/// greater than 1785 bytes" for TP and "unexpected EDPO packet" for ETP, and
+/// everything from 10 to 15 exists only here. Reading an extended abort with
+/// the ordinary table gives a sentence that is grammatical, plausible and about
+/// a different fault.
+enum class J1939ExtendedAbortReason : std::uint8_t {
+    None = 0U,
+    AlreadyBusy = 1U,
+    ResourcesNeeded = 2U,
+    Timeout = 3U,
+    UnexpectedClearToSend = 4U,
+    RetransmitLimitReached = 5U,
+    UnexpectedDataPacket = 6U,
+    BadSequenceNumber = 7U,
+    DuplicateSequenceNumber = 8U,
+
+    /// From here down, nothing the ordinary transport can say.
+    UnexpectedOffsetPacket = 9U,
+    BadOffsetPgn = 10U,
+    OffsetPacketCountAboveClearToSend = 11U,
+    BadOffset = 12U,
+
+    /// The standard marks this deprecated and says to use 250.
+    Deprecated = 13U,
+
+    BadClearToSendPgn = 14U,
+    ClearToSendExceedsMessage = 15U,
+
+    /// Any other reason.
+    NotListed = 250U,
+};
+
 /// The abort reason in words, or a description of the range it falls in.
-[[nodiscard]] std::string_view j1939AbortReasonText(std::uint8_t reason) noexcept;
+///
+/// `extended` picks the table, and it is not defaulted on purpose: the same
+/// byte means different things in the two protocols, and a call site that had
+/// not thought about which one it was holding would get the wrong sentence
+/// silently.
+[[nodiscard]] std::string_view j1939AbortReasonText(std::uint8_t reason,
+                                                    bool extended) noexcept;
 
 /// Why a transfer ended without a message.
 enum class J1939TransportError : std::uint8_t {
