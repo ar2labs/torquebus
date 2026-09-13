@@ -65,24 +65,53 @@ std::string_view j1939AbortReasonText(std::uint8_t reason) noexcept
 {
     switch (static_cast<J1939AbortReason>(reason)) {
     case J1939AbortReason::AlreadyBusy:
-        return "already in as many connections as it can manage";
+        return "it is already in as many connections as it can manage";
     case J1939AbortReason::ResourcesNeeded:
         return "its resources were needed for another task";
     case J1939AbortReason::Timeout:
         return "a timeout closed the session";
+    case J1939AbortReason::UnexpectedClearToSend:
+        return "a CTS arrived while data transfer was already in progress";
+    case J1939AbortReason::RetransmitLimitReached:
+        return "the retransmit request limit was reached";
+    case J1939AbortReason::UnexpectedDataPacket:
+        return "an unexpected data packet arrived";
+    case J1939AbortReason::BadSequenceNumber:
+        return "a bad sequence number it could not recover from";
+    case J1939AbortReason::DuplicateSequenceNumber:
+        return "a duplicate sequence number it could not recover from";
+    case J1939AbortReason::SizeTooLarge:
+        return "the announced size was greater than 1785 bytes";
+    case J1939AbortReason::NotListed:
+        return "a reason the standard has no code for";
     case J1939AbortReason::None:
         break;
     }
 
-    // The standard defines three. Saying which range the rest falls in is
-    // useful - it tells somebody whether to look in J1939-71 or to conclude
-    // that an ECU is sending something no standard has assigned - and saying
-    // more than that would be inventing it.
+    // Saying which range the rest falls in tells somebody where to look -
+    // J1939-71, or nowhere, in which case an ECU is sending a code nobody
+    // assigned. Saying more than that would be inventing it.
     if (reason >= 251U) {
         return "a reason J1939-71 defines";
     }
 
     return "a reason reserved for SAE assignment";
+}
+
+std::string_view j1939AbortRoleText(J1939AbortRole role) noexcept
+{
+    switch (role) {
+    case J1939AbortRole::Originator:
+        return "the sender of the data";
+    case J1939AbortRole::Responder:
+        return "the receiver of the data";
+    case J1939AbortRole::Reserved:
+        return "an end the standard has not defined";
+    case J1939AbortRole::Unspecified:
+        break;
+    }
+
+    return "an end that did not say which it was";
 }
 
 bool J1939Transport::onFrame(const CanFrame& frame, std::uint64_t nowNs)
@@ -164,8 +193,13 @@ void J1939Transport::onConnectionManagement(const CanFrame& frame,
     case J1939TransportControl::Abort: {
         const auto existing = m_sessions.find(keyFor(id.sourceAddress, id.destinationAddress()));
         if (existing != m_sessions.end()) {
-            // Byte 1 is the reason. J1939-21 Table 6.
-            fail(existing->second, J1939TransportError::AbortedByPeer, nowNs, frame.data[1]);
+            // Byte 2 of the message is the reason and byte 3 carries the role
+            // in its low two bits - J1939-21 Figure 14 and Table 6, counting
+            // the control byte as byte 1.
+            const auto role = static_cast<J1939AbortRole>(frame.data[2] & 0x03U);
+
+            fail(existing->second, J1939TransportError::AbortedByPeer, nowNs,
+                 frame.data[1], role);
         }
         return;
     }
@@ -222,6 +256,9 @@ void J1939Transport::onExtendedConnection(const CanFrame& frame,
     case J1939ExtendedControl::Abort: {
         const auto existing = m_sessions.find(keyFor(id.sourceAddress, id.destinationAddress()));
         if (existing != m_sessions.end()) {
+            // No role: the layout of an extended abort belongs to ISO 11783-3,
+            // which this project has not read. Reading J1939-21's byte here
+            // would be a guess wearing the clothes of a fact.
             fail(existing->second, J1939TransportError::AbortedByPeer, nowNs, frame.data[1]);
         }
         return;
@@ -386,12 +423,14 @@ void J1939Transport::poll(std::uint64_t nowNs)
 void J1939Transport::fail(const Session& session,
                           J1939TransportError error,
                           std::uint64_t nowNs,
-                          std::uint8_t abortReason)
+                          std::uint8_t abortReason,
+                          J1939AbortRole abortRole)
 {
     J1939TransportEvent event;
     event.kind = J1939TransportEvent::Kind::ReceiveFailed;
     event.error = error;
     event.abortReason = abortReason;
+    event.abortRole = abortRole;
     event.pgn = session.pgn;
     event.sourceAddress = session.sourceAddress;
     event.destinationAddress = session.destinationAddress;

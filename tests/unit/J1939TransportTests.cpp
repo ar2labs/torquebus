@@ -339,19 +339,30 @@ TEST_CASE("A sender that gives up ends the transfer", "[j1939][transport]")
     CHECK(transport.openSessions() == 0U);
 }
 
-TEST_CASE("The three abort reasons the standard defines are the three it decodes",
+TEST_CASE("Every abort reason the standard defines is decoded",
           "[j1939][transport]")
 {
-    // J1939-21 Table 6 gives meanings to 1, 2 and 3, reserves 4 to 250 for SAE,
-    // and leaves 251 to 255 to J1939-71. Saying which range an undefined code
-    // falls in tells somebody where to look; saying more would be putting words
-    // in an ECU mouth.
+    // J1939-21 MAY2022 Table 6. Six of these nine did not exist in the revision
+    // this file was first written against, and were being reported as
+    // "reserved" - wrong in the worst way available here, because four of them
+    // name a specific defect in the transfer that just failed.
     CHECK(j1939AbortReasonText(1U).find("as many connections") != std::string_view::npos);
     CHECK(j1939AbortReasonText(2U).find("another task") != std::string_view::npos);
     CHECK(j1939AbortReasonText(3U).find("timeout") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(4U).find("CTS") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(5U).find("retransmit") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(6U).find("unexpected data packet") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(7U).find("bad sequence") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(8U).find("duplicate sequence") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(9U).find("1785") != std::string_view::npos);
 
-    CHECK(j1939AbortReasonText(4U).find("reserved") != std::string_view::npos);
-    CHECK(j1939AbortReasonText(250U).find("reserved") != std::string_view::npos);
+    // 250 is not "reserved": the standard sets it aside for a reason that is
+    // not in the table, which is a different statement from a code nobody
+    // assigned.
+    CHECK(j1939AbortReasonText(250U).find("no code for") != std::string_view::npos);
+
+    CHECK(j1939AbortReasonText(10U).find("reserved") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(249U).find("reserved") != std::string_view::npos);
 
     CHECK(j1939AbortReasonText(251U).find("J1939-71") != std::string_view::npos);
     CHECK(j1939AbortReasonText(255U).find("J1939-71") != std::string_view::npos);
@@ -367,6 +378,51 @@ TEST_CASE("The three abort reasons the standard defines are the three it decodes
 
     REQUIRE(transport.events().size() == 1U);
     CHECK(transport.events()[0].abortReason == 200U);
+}
+
+TEST_CASE("An abort says which end gave up", "[j1939][transport]")
+{
+    // A timeout reported by the receiver and a timeout reported by the sender
+    // are the same word for two different faults, and the reason code cannot
+    // tell them apart. Byte 3 can.
+    //
+    // connectionFrame puts `size` in bytes 2-3, so a size of 0x0103 leaves
+    // reason = 3 (timeout) and role byte = 1 (the responder).
+    J1939Transport transport;
+    transport.onFrame(requestToSend(21U, 3U, kEngine, kTester), 0U);
+    transport.onFrame(connectionFrame(J1939TransportControl::Abort, kCarried, 0x0103U, 0U,
+                                      kEngine, kTester),
+                      1000U);
+
+    REQUIRE(transport.events().size() == 1U);
+    CHECK(transport.events()[0].abortReason == 3U);
+    CHECK(transport.events()[0].abortRole == J1939AbortRole::Responder);
+    CHECK(j1939AbortRoleText(J1939AbortRole::Responder).find("receiver")
+          != std::string_view::npos);
+    CHECK(j1939AbortRoleText(J1939AbortRole::Originator).find("sender")
+          != std::string_view::npos);
+
+    // An extended abort reports no role at all. The layout of one belongs to
+    // ISO 11783-3, which this project has not read, and reading J1939-21 byte
+    // there would be a guess wearing the clothes of a fact.
+    transport.clearEvents();
+    transport.onFrame(extendedRts(1792U, kEngine, kTester), 2000U);
+
+    CanFrame abort;
+    abort.identifier =
+        j1939Identifier(kPgnExtendedTransportConnection, kEngine, kTester, 7U);
+    abort.format = CanFrameFormat::Extended;
+    abort.length = 8;
+    abort.dlc = 8;
+    abort.data[0] = static_cast<std::uint8_t>(J1939ExtendedControl::Abort);
+    abort.data[1] = 3U;
+    abort.data[2] = 1U;
+
+    transport.onFrame(abort, 3000U);
+
+    REQUIRE(transport.events().size() == 1U);
+    CHECK(transport.events()[0].abortReason == 3U);
+    CHECK(transport.events()[0].abortRole == J1939AbortRole::Unspecified);
 }
 
 TEST_CASE("A transfer that simply stops is ended by the clock",
