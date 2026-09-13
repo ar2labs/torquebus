@@ -61,8 +61,71 @@ constexpr std::uint8_t kDataBytes = 8U;
 
 } // namespace
 
-std::string_view j1939AbortReasonText(std::uint8_t reason) noexcept
+namespace {
+
+/// ISO 11783-3:2018 Table 9. Only the values that differ from the ordinary
+/// table, plus the ones that exist only here.
+[[nodiscard]] std::string_view extendedAbortReasonText(std::uint8_t reason) noexcept
 {
+    switch (static_cast<J1939ExtendedAbortReason>(reason)) {
+    case J1939ExtendedAbortReason::AlreadyBusy:
+        return "it is already in as many connections as it can manage";
+    case J1939ExtendedAbortReason::ResourcesNeeded:
+        return "its resources were needed for another task";
+    case J1939ExtendedAbortReason::Timeout:
+        return "a timeout closed the session";
+    case J1939ExtendedAbortReason::UnexpectedClearToSend:
+        return "a CTS arrived while data transfer was already in progress";
+    case J1939ExtendedAbortReason::RetransmitLimitReached:
+        return "the retransmit request limit was reached";
+    case J1939ExtendedAbortReason::UnexpectedDataPacket:
+        return "an unexpected data packet arrived";
+    case J1939ExtendedAbortReason::BadSequenceNumber:
+        return "a bad sequence number it could not recover from";
+    case J1939ExtendedAbortReason::DuplicateSequenceNumber:
+        return "a duplicate sequence number it could not recover from";
+    case J1939ExtendedAbortReason::UnexpectedOffsetPacket:
+        return "an unexpected offset packet arrived";
+    case J1939ExtendedAbortReason::BadOffsetPgn:
+        return "the offset packet named the wrong PGN";
+    case J1939ExtendedAbortReason::OffsetPacketCountAboveClearToSend:
+        return "the offset declared more packets than the CTS allowed";
+    case J1939ExtendedAbortReason::BadOffset:
+        return "the offset itself was wrong";
+    case J1939ExtendedAbortReason::Deprecated:
+        return "a reason the standard deprecated in favour of 250";
+    case J1939ExtendedAbortReason::BadClearToSendPgn:
+        return "the CTS named the wrong PGN";
+    case J1939ExtendedAbortReason::ClearToSendExceedsMessage:
+        return "the CTS asked for more packets than the message holds";
+    case J1939ExtendedAbortReason::NotListed:
+        return "a reason the standard has no code for";
+    case J1939ExtendedAbortReason::None:
+        break;
+    }
+
+    // 251 to 255 belong to ISO 11783-7 here rather than to J1939-71. Same
+    // shape of answer, different document to open.
+    //
+    // The prose above Table 9 says to use 254 for a reason that is not listed
+    // while the table itself says 250, and row 13 says 250 too. Two of three
+    // say 250, so 250 is what this treats as the catch-all - and a 254 falls
+    // into the reserved range below, which is honest about not knowing.
+    if (reason >= 251U) {
+        return "a reason ISO 11783-7 defines";
+    }
+
+    return "a reason reserved for future assignment";
+}
+
+} // namespace
+
+std::string_view j1939AbortReasonText(std::uint8_t reason, bool extended) noexcept
+{
+    if (extended) {
+        return extendedAbortReasonText(reason);
+    }
+
     switch (static_cast<J1939AbortReason>(reason)) {
     case J1939AbortReason::AlreadyBusy:
         return "it is already in as many connections as it can manage";

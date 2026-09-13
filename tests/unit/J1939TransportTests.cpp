@@ -346,26 +346,26 @@ TEST_CASE("Every abort reason the standard defines is decoded",
     // this file was first written against, and were being reported as
     // "reserved" - wrong in the worst way available here, because four of them
     // name a specific defect in the transfer that just failed.
-    CHECK(j1939AbortReasonText(1U).find("as many connections") != std::string_view::npos);
-    CHECK(j1939AbortReasonText(2U).find("another task") != std::string_view::npos);
-    CHECK(j1939AbortReasonText(3U).find("timeout") != std::string_view::npos);
-    CHECK(j1939AbortReasonText(4U).find("CTS") != std::string_view::npos);
-    CHECK(j1939AbortReasonText(5U).find("retransmit") != std::string_view::npos);
-    CHECK(j1939AbortReasonText(6U).find("unexpected data packet") != std::string_view::npos);
-    CHECK(j1939AbortReasonText(7U).find("bad sequence") != std::string_view::npos);
-    CHECK(j1939AbortReasonText(8U).find("duplicate sequence") != std::string_view::npos);
-    CHECK(j1939AbortReasonText(9U).find("1785") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(1U, false).find("as many connections") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(2U, false).find("another task") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(3U, false).find("timeout") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(4U, false).find("CTS") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(5U, false).find("retransmit") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(6U, false).find("unexpected data packet") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(7U, false).find("bad sequence") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(8U, false).find("duplicate sequence") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(9U, false).find("1785") != std::string_view::npos);
 
     // 250 is not "reserved": the standard sets it aside for a reason that is
     // not in the table, which is a different statement from a code nobody
     // assigned.
-    CHECK(j1939AbortReasonText(250U).find("no code for") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(250U, false).find("no code for") != std::string_view::npos);
 
-    CHECK(j1939AbortReasonText(10U).find("reserved") != std::string_view::npos);
-    CHECK(j1939AbortReasonText(249U).find("reserved") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(10U, false).find("reserved") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(249U, false).find("reserved") != std::string_view::npos);
 
-    CHECK(j1939AbortReasonText(251U).find("J1939-71") != std::string_view::npos);
-    CHECK(j1939AbortReasonText(255U).find("J1939-71") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(251U, false).find("J1939-71") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(255U, false).find("J1939-71") != std::string_view::npos);
 
     // And the raw byte travels alongside the words, because most of the range
     // is reserved and a reserved code somebody really sends is worth seeing
@@ -378,6 +378,44 @@ TEST_CASE("Every abort reason the standard defines is decoded",
 
     REQUIRE(transport.events().size() == 1U);
     CHECK(transport.events()[0].abortReason == 200U);
+}
+
+TEST_CASE("The extended transport has its own abort reasons",
+          "[j1939][transport][etp]")
+{
+    // ISO 11783-3:2018 Table 9 against J1939-21 Table 6. Nine values mean the
+    // same thing in both and then they diverge, which is the trap: reading an
+    // extended abort with the ordinary table gives a sentence that is
+    // grammatical, plausible, and about a different fault.
+    //
+    // Value 9 is where it starts.
+    CHECK(j1939AbortReasonText(9U, false).find("1785") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(9U, true).find("offset packet") != std::string_view::npos);
+
+    // And 10 to 15 exist only for the extended protocol. Under the ordinary
+    // table every one of them is "reserved".
+    for (const std::uint8_t reason : {std::uint8_t{10U}, std::uint8_t{11U},
+                                     std::uint8_t{12U}, std::uint8_t{13U},
+                                     std::uint8_t{14U}, std::uint8_t{15U}}) {
+        CHECK(j1939AbortReasonText(reason, false).find("reserved") != std::string_view::npos);
+        CHECK(j1939AbortReasonText(reason, true).find("reserved") == std::string_view::npos);
+    }
+
+    CHECK(j1939AbortReasonText(10U, true).find("PGN") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(11U, true).find("more packets") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(15U, true).find("more packets") != std::string_view::npos);
+
+    // The first nine agree, which is why the trap is a trap.
+    for (const std::uint8_t reason : {std::uint8_t{1U}, std::uint8_t{2U},
+                                     std::uint8_t{3U}, std::uint8_t{4U},
+                                     std::uint8_t{5U}, std::uint8_t{6U},
+                                     std::uint8_t{7U}, std::uint8_t{8U}}) {
+        CHECK(j1939AbortReasonText(reason, false) == j1939AbortReasonText(reason, true));
+    }
+
+    // And the high range points at a different document on each side.
+    CHECK(j1939AbortReasonText(252U, false).find("J1939-71") != std::string_view::npos);
+    CHECK(j1939AbortReasonText(252U, true).find("11783-7") != std::string_view::npos);
 }
 
 TEST_CASE("An abort says which end gave up", "[j1939][transport]")
