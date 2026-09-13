@@ -48,8 +48,15 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 
-# The J1939 NAME tables are generated from the SAE Digital Annex, which is
-# licensed and not redistributable. tools/j1939-names.py writes this on the
-# machine that holds the licence; it must not come back here.
+# The repository has Python tooling now.
+__pycache__/
+*.pyc
+
+# The J1939 manufacturer table is built from the SAE Digital Annex or from the
+# public ISO 11783 registry. Neither is ours to redistribute, so the file that
+# holds it stays on the machine that built it.
+#
+# Note what is NOT ignored: data/j1939-names-functions.csv. That one is derived
+# from AgIsoStack++ under the MIT licence and does ship - see its header.
 data/j1939-names.csv
 **/data/j1939-names.csv

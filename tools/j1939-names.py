@@ -4,33 +4,43 @@
 # TorqueBus Studio
 # Copyright (C) TorqueBus contributors
 #
-# Turns CSV exported from the SAE J1939 Digital Annex into the name table
-# TorqueBus reads.
+# Builds the J1939 NAME tables TorqueBus reads.
 #
-# --- Why this is a script and not a data file in the repository -------------
+# --- Which half ships, and why ----------------------------------------------
 #
-# The Digital Annex is a licensed commercial product of SAE International.
-# Shipping its contents inside a GPL repository would be redistributing it,
-# whatever that repository says about its own licence. So TorqueBus ships this
-# converter and no data, and somebody who holds a licence runs it against their
-# own copy, on their own machine, and keeps the result there.
+# **Function names ship with TorqueBus.** They are generated from AgIsoStack++,
+# which is MIT licensed and therefore ours to pass on with its notice attached.
+# `data/j1939-names-functions.csv` in this repository is the output of
 #
-# --- What to feed it --------------------------------------------------------
+#   python tools/j1939-names.py --agisostack can_NAME.hpp \
+#       --out data/j1939-names-functions.csv
 #
-# The Digital Annex is distributed as a spreadsheet. Export these tabs to CSV -
-# any spreadsheet program will, with File > Save As - and point this at them:
+# and is regenerated the same way when AgIsoStack moves.
+#
+# **Manufacturer names do not.** That registry is the SAE J1939 Digital Annex,
+# a licensed commercial product; the public copy at isobus.net states no licence
+# either. Shipping it would be redistributing somebody else's database on an
+# assumption - so this builds that half on the machine of whoever wants it.
+#
+# --- Building the manufacturer table ----------------------------------------
+#
+# From a licensed Digital Annex, which is distributed as a spreadsheet. Export
+# the tabs to CSV - any spreadsheet program will, with File > Save As:
 #
 #   --manufacturers   the "Manufacturer Codes" tab            (Table B10)
 #   --functions       the global NAME functions tab           (Table B11)
 #   --ig-functions    the industry-group specific one         (Table B12)
 #   --industry        the "Industry Groups" tab               (Table B1)
 #
-# All four are optional; give it whichever you have. Then:
+# Or from the public ISO 11783 registry, which needs nothing but a connection:
 #
-#   python tools/j1939-names.py --manufacturers mfr.csv --functions fn.csv \
-#       --ig-functions igfn.csv --out data/j1939-names.csv
+#   --isobus-net
 #
-# and put the result in a `data` directory beside TorqueBusStudio.exe.
+# Then put the result beside TorqueBusStudio.exe as `data/j1939-names.csv`.
+# TorqueBus loads the shipped functions first and yours on top, so a full
+# Digital Annex table corrects the partial one rather than sitting beside it:
+#
+#   python tools/j1939-names.py --isobus-net --out data/j1939-names.csv
 #
 # --- It refuses rather than guesses -----------------------------------------
 #
@@ -195,6 +205,206 @@ def convert_industry(path, out):
     return written
 
 
+def convert_agisostack(path, out):
+    """The Function enum from AgIsoStack++ (MIT), with its section comments.
+
+    The comments carry what the enum cannot: a function number at or above 128
+    means different things in different industry groups, and the enum has the
+    same number several times over. So the block headings are the key, and a
+    block whose heading does not give both an industry group and a device class
+    is **refused** rather than guessed at - the same rule the file format
+    itself enforces.
+    """
+    industry_group = None
+    device_class = None
+    in_common = False
+    in_enum = False
+
+    written = 0
+    skipped = []
+
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            stripped = line.strip()
+
+            if "enum class Function" in stripped:
+                in_enum = True
+                continue
+
+            if not in_enum:
+                continue
+
+            if stripped.startswith("};"):
+                break
+
+            if stripped.startswith("//"):
+                comment = stripped.lstrip("/ ").strip()
+                lowered = comment.lower()
+
+                if "common function" in lowered:
+                    in_common, industry_group, device_class = True, None, None
+                    continue
+
+                in_common = False
+
+                # A banner - "******** Marine (Industry Group 4) ********" -
+                # sets the industry group for everything under it. The
+                # sub-block headings below it usually name only a device class,
+                # so the group has to be sticky or every one of them is lost.
+                named_group = _number_after(lowered, "industry group")
+                if named_group is not None:
+                    industry_group = named_group
+
+                # The device class is not sticky. A heading that names none -
+                # "Propulsion Systems" - is a block this script cannot place,
+                # and carrying the previous class into it would file its
+                # functions under the wrong device entirely.
+                device_class = _number_after(lowered, "device class")
+                continue
+
+            if "=" not in stripped:
+                continue
+
+            name, _, rest = stripped.partition("=")
+            value = whole_number(rest.split(",")[0])
+            if value is None:
+                continue
+
+            label = _spaced(name.strip())
+
+            if in_common:
+                if value < 128:
+                    out.append("function,%d,%s" % (value, label))
+                    written += 1
+                else:
+                    # In the industry-group-independent block and yet above the
+                    # line where the number stops being independent. Something
+                    # is off in the source, and a bare number here would answer
+                    # the same for every machine.
+                    skipped.append("%s = %d (in the common block, but >= 128)" % (label, value))
+                continue
+
+            if industry_group is None or device_class is None:
+                skipped.append("%s = %d (its block names no industry group and device class)"
+                               % (label, value))
+                continue
+
+            out.append("function,%d/%d/%d,%s" % (industry_group, device_class, value, label))
+            written += 1
+
+    return written, skipped
+
+
+def _number_after(text, phrase):
+    """The first number following `phrase`, or None."""
+    where = text.find(phrase)
+    if where < 0:
+        return None
+
+    digits = ""
+    for character in text[where + len(phrase):]:
+        if character.isdigit():
+            digits += character
+        elif digits:
+            break
+
+    return int(digits) if digits else None
+
+
+def _spaced(identifier):
+    """TaskController -> Task Controller. Left alone if it is already words."""
+    out = []
+    for index, character in enumerate(identifier):
+        if index and character.isupper() and not identifier[index - 1].isupper():
+            out.append(" ")
+        out.append(character)
+
+    return "".join(out)
+
+
+def fetch_isobus_net(out):
+    """The manufacturer registry published at isobus.net.
+
+    That page is the official ISO 11783 registry, maintained by VDMA, and it is
+    public - which is what makes resolving a code possible at all. It states no
+    licence, so this fetches it onto the machine that asked and nothing more.
+    Whether the result may be passed on to anybody else is a question for
+    whoever reads their terms, and this script does not answer it.
+
+    One request per page, paced, because a registry is a courtesy and hammering
+    it is how courtesies end.
+    """
+    import time
+    import urllib.request
+
+    base = "https://www.isobus.net/isobus/manufacturerCode"
+    written = 0
+    page = 0
+
+    print("  fetching from %s" % base)
+
+    while True:
+        url = base if page == 0 else "%s?page=%d" % (base, page)
+
+        try:
+            request = urllib.request.Request(
+                url, headers={"User-Agent": "TorqueBus j1939-names.py"}
+            )
+            with urllib.request.urlopen(request, timeout=30) as response:
+                html = response.read().decode("utf-8", errors="replace")
+        except Exception as problem:
+            if page == 0:
+                die("could not reach %s: %s" % (url, problem))
+            break
+
+        found = _rows_from_html(html)
+        if not found:
+            break
+
+        for code, name in found:
+            out.append("manufacturer,%d,%s" % (code, name))
+            written += 1
+
+        page += 1
+        if page > 40:
+            # A registry of this size is about 17 pages. Forty is a stop that
+            # exists so a change in the page shape cannot turn this into a loop
+            # that keeps asking somebody else server for ever.
+            print("  stopping at 40 pages", file=sys.stderr)
+            break
+
+        time.sleep(1.0)
+
+    return written
+
+
+def _rows_from_html(html):
+    """(code, name) pairs from a registry page, or an empty list."""
+    import html as html_module
+    import re
+
+    rows = []
+
+    for cells in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S | re.I):
+        values = [
+            html_module.unescape(re.sub(r"<[^>]+>", " ", cell)).strip()
+            for cell in re.findall(r"<td[^>]*>(.*?)</td>", cells, re.S | re.I)
+        ]
+
+        if len(values) < 2:
+            continue
+
+        code = whole_number(values[0])
+        name = " ".join(values[1].split())
+
+        if code is None or not name or not 0 <= code <= 2047:
+            continue
+
+        rows.append((code, name))
+
+    return rows
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Convert SAE J1939 Digital Annex CSV exports into the "
@@ -204,27 +414,73 @@ def main():
     parser.add_argument("--functions", help="CSV of the global NAME Functions tab")
     parser.add_argument("--ig-functions", help="CSV of the IG specific NAME Functions tab")
     parser.add_argument("--industry", help="CSV of the Industry Groups tab")
+    parser.add_argument(
+        "--agisostack",
+        help="can_NAME.hpp from AgIsoStack++ (MIT), as the source of function names",
+    )
+    parser.add_argument(
+        "--isobus-net",
+        action="store_true",
+        help="fetch manufacturer codes from the public registry at isobus.net",
+    )
     parser.add_argument("--out", required=True, help="where to write the table")
 
     arguments = parser.parse_args()
 
     if not any(
         [arguments.manufacturers, arguments.functions, arguments.ig_functions,
-         arguments.industry]
+         arguments.industry, arguments.agisostack, arguments.isobus_net]
     ):
-        die("nothing to convert - pass at least one of the four inputs")
+        die("nothing to convert - pass at least one input")
 
-    lines = [
-        "# J1939 NAME tables for TorqueBus.",
-        "#",
-        "# Generated by tools/j1939-names.py from the SAE J1939 Digital Annex.",
-        "# The Digital Annex is licensed by SAE International; this file contains",
-        "# its data and is not redistributable. Keep it on the machine that has",
-        "# the licence.",
-        "",
-    ]
+    from_annex = any([arguments.manufacturers, arguments.functions,
+                      arguments.ig_functions, arguments.industry])
+
+    lines = ["# J1939 NAME tables for TorqueBus.", "#",
+             "# Generated by tools/j1939-names.py. Do not edit by hand; edit the",
+             "# sources and run it again.", "#"]
+
+    if arguments.agisostack:
+        lines += [
+            "# Function names derived from AgIsoStack++ by Open-Agriculture,",
+            "# which is MIT licensed:",
+            "#",
+            "#   Copyright (c) Open-Agriculture contributors",
+            "#   https://github.com/Open-Agriculture/AgIsoStack-plus-plus",
+            "#",
+            "# Permission is hereby granted, free of charge, to any person obtaining",
+            "# a copy of this software and associated documentation files, to deal",
+            "# in the Software without restriction. The MIT licence text travels",
+            "# with this notice; see the project above for the full terms.",
+            "#",
+        ]
+
+    if arguments.isobus_net:
+        lines += [
+            "# Manufacturer names fetched from the public ISO 11783 registry at",
+            "# isobus.net, maintained by VDMA. That page states no licence. This",
+            "# file was built on this machine for use on it; passing it on is a",
+            "# question for whoever reads their terms.",
+            "#",
+        ]
+
+    if from_annex:
+        lines += [
+            "# Some of this came from the SAE J1939 Digital Annex, which is licensed",
+            "# by SAE International. A file containing its data is NOT",
+            "# redistributable - keep it on the machine that holds the licence.",
+            "#",
+        ]
+
+    lines.append("")
 
     counts = []
+    refused = []
+
+    if arguments.agisostack:
+        many, skipped = convert_agisostack(arguments.agisostack, lines)
+        counts.append(("functions from AgIsoStack", many))
+        refused.extend(skipped)
 
     if arguments.industry:
         counts.append(("industry groups", convert_industry(arguments.industry, lines)))
@@ -238,12 +494,37 @@ def main():
         counts.append(
             ("manufacturers", convert_manufacturers(arguments.manufacturers, lines))
         )
+    if arguments.isobus_net:
+        counts.append(("manufacturers from isobus.net", fetch_isobus_net(lines)))
+
+    if refused:
+        # Written into the file, not only printed. Somebody opening it in a year
+        # should be able to see that it is partial without re-running anything,
+        # and know that a fuller one is a Digital Annex licence away.
+        note = [
+            "# This table is NOT complete. %d entries were left out because their"
+            % len(refused),
+            "# source did not say which industry group and vehicle system they",
+            "# belong to, and a function number at or above 128 means different",
+            "# things in different ones. Run tools/j1939-names.py against a",
+            "# licensed SAE Digital Annex for a full table; it will override this.",
+            "#",
+        ]
+        lines[5:5] = note
 
     with open(arguments.out, "w", encoding="utf-8", newline="\n") as handle:
         handle.write("\n".join(lines) + "\n")
 
     for what, many in counts:
         print("  %-30s %d" % (what, many))
+
+    if refused:
+        # Named rather than counted. Each of these is a function somebody will
+        # look for and not find, and the reason is in the source rather than
+        # here.
+        print("\nrefused %d entries whose industry group could not be read:" % len(refused))
+        for entry in refused:
+            print("  %s" % entry)
 
     print("\nwrote %s" % arguments.out)
 

@@ -1769,18 +1769,24 @@ Versão: **0.15.0 -> 0.16.0**.
 Uma coisa deliberadamente fora do repositório, e não é uma lacuna de
 funcionalidade:
 
-* **Os dados das tabelas de função e de fabricante.** O mecanismo existe -
-  `J1939NameTables` lê um arquivo e o painel mostra as palavras ao lado dos
-  números. Os dados não vêm juntos, e isso é decisão e não pendência: eles são
-  do Digital Annex da SAE, que é produto licenciado, e despejá-los num
-  repositório GPL seria redistribuí-lo. `tools/j1939-names.py` converte a
-  planilha de quem tem licença, na máquina de quem tem licença, e o
-  `.gitignore` impede o resultado de voltar.
+* **Os nomes de fabricante.** As **funções** passaram a vir junto: são
+  derivadas do AgIsoStack++, que é MIT e portanto nosso para repassar com o
+  aviso de licença anexado. `data/j1939-names-functions.csv` cobre a faixa
+  independente de grupo inteira mais as específicas cuja origem nomeia o grupo
+  sem ambiguidade, e o arquivo diz no topo quantas ficaram de fora e por quê.
+
+  Os fabricantes não vêm. Aquele registro é o Digital Annex da SAE, produto
+  licenciado, e a cópia pública no isobus.net não declara licença nenhuma -
+  embarcar 1672 linhas num repositório GPL seria redistribuir banco de dados
+  alheio por suposição. `tools/j1939-names.py` monta essa metade na máquina de
+  quem quiser, da planilha licenciada ou do registro público, e o `.gitignore`
+  impede o resultado de voltar.
 
   A razão técnica original continua valendo e é independente
-  dessa: funções acima de 127 dependem do grupo industrial e do sistema
-  veicular, e a lista de fabricantes cresce todo ano. Compilada, estaria errada
-  no mês seguinte ao lançamento.
+  dessa: a lista de fabricantes cresce todo ano, e compilada estaria errada no
+  mês seguinte ao lançamento. É por isso que o arquivo do usuário é carregado
+  **por cima** do embarcado, e não ao lado: uma tabela mais nova tem de poder
+  corrigir a nossa.
 
 E uma questão de procedência, que vale escrever porque muda o que confiar:
 

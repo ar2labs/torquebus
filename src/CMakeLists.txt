@@ -429,6 +429,25 @@ target_link_libraries(TorqueBusStudio
 )
 
 # ---------------------------------------------------------------------------
+# Data files that ship beside the executable.
+#
+# Right now that is the J1939 function names, derived from AgIsoStack++ under
+# its MIT licence. Copied rather than generated: the generator needs a source
+# this build does not have, and a table that regenerated itself at build time
+# would change under people who never asked it to.
+#
+# Deliberately not here: the manufacturer table. See J1939NameTables.h.
+# ---------------------------------------------------------------------------
+
+add_custom_command(TARGET TorqueBusStudio POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/data"
+            "$<TARGET_FILE_DIR:TorqueBusStudio>/data"
+    COMMENT "Copying data files beside the executable"
+    VERBATIM
+)
+
+# ---------------------------------------------------------------------------
 # The vendor plugins.
 #
 # After the application target, because each adds itself as a dependency of it:
