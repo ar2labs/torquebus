@@ -51,6 +51,11 @@ Result J1939NameTables::load(std::string_view text)
 {
     clear();
 
+    return merge(text);
+}
+
+Result J1939NameTables::merge(std::string_view text)
+{
     std::istringstream stream{std::string{text}};
     std::string line;
     std::size_t number = 0;
@@ -171,6 +176,11 @@ Result J1939NameTables::loadFile(const std::filesystem::path& path)
 {
     clear();
 
+    return mergeFile(path);
+}
+
+Result J1939NameTables::mergeFile(const std::filesystem::path& path)
+{
     std::error_code ignored;
     if (!std::filesystem::exists(path, ignored)) {
         // Not an error. It is what a machine without a licensed copy of the
@@ -188,13 +198,15 @@ Result J1939NameTables::loadFile(const std::filesystem::path& path)
     std::ostringstream buffer;
     buffer << file.rdbuf();
 
-    if (Result result = load(buffer.str()); result.failed()) {
+    if (Result result = merge(buffer.str()); result.failed()) {
         // The line number is in the message already; the file name is what
         // turns it into something somebody can open.
         return Result::error(result.code(),
                              std::format("{}: {}", path.string(), result.message()));
     }
 
+    // The most recent file that actually had something in it, which is the one
+    // somebody wants named when they ask where a name came from.
     m_sourcePath = path.string();
     return Result::ok();
 }

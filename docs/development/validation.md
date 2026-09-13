@@ -1063,13 +1063,18 @@ mostly that the tool refuses to invent things.
     right length with its middle in the wrong order, which decodes into numbers
     that look measured.
 
-12. **The NAME tables**, if you hold a licence to the SAE Digital Annex. Run
-    `tools/j1939-names.py` against CSV exported from its spreadsheet tabs, put
-    the result in a `data` directory beside the executable, and restart. The
-    NAME column changes from bare numbers to names beside the numbers, and the
-    Output panel says how many of each it read. Without the file, everything
-    still works and every number is still shown - which is the state a fresh
-    download is in, and it must not look broken.
+12. **The NAME tables.** Out of the box the NAME column already reads
+    "Engine (0)" rather than "0": the function table ships. The manufacturer is
+    still a bare number, and the Output panel says so at startup with the one
+    command that fixes it - a message that exists because a number where a
+    company name should be is not self-explanatory.
+
+    Run `python tools/j1939-names.py --isobus-net --out data/j1939-names.csv`,
+    put it beside the executable, restart: the manufacturer becomes a name too.
+    With a licensed Digital Annex, the same tool against its spreadsheet tabs
+    produces a fuller table, and it **overrides** the shipped one rather than
+    sitting beside it - check that a function whose name differs between the two
+    shows the Annex spelling.
 
 **Watch for:** the panel before any measurement has run. It must say that
 nothing has been seen yet, not show an empty table that reads as an empty bus.

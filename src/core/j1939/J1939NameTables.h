@@ -11,26 +11,33 @@
 //
 // --- Why this is a file and not a table in the source -----------------------
 //
-// Two reasons, and the second is the one that decides it.
+// Correctness over time, and licensing. They point the same way.
 //
-// The first is correctness over time. Function numbers 0 to 127 are industry
-// group independent, but 128 to 255 mean different things depending on the
-// industry group *and* the vehicle system - the same number is one device on a
-// tractor and another on a boat. The manufacturer list is a registry of roughly
-// two thousand entries that gains more every year. Compiled in, it is wrong the
-// month after release and stays wrong until somebody rebuilds.
+// Function numbers 0 to 127 are industry group independent, but 128 to 255 mean
+// different things depending on the industry group *and* the vehicle system -
+// the same number is one device on a tractor and another on a boat. The
+// manufacturer list is a registry of roughly two thousand entries that gains
+// more every year. Compiled in, either one is wrong the month after release and
+// stays wrong until somebody rebuilds.
 //
-// The second is that **this data is not ours to ship.** It lives in the SAE
-// J1939 Digital Annex, which is a licensed commercial product. Extracting it
-// into a GPL repository would be redistributing it, whatever the repository
-// says about its own licence. So TorqueBus ships the *mechanism* and no data,
-// and somebody who has a licence to the Digital Annex converts their own copy
-// on their own machine. See tools/j1939-names.py and the format below.
+// --- What ships, and what does not ------------------------------------------
 //
-// A build with no file is not a broken build: every number is still shown, and
-// the panel says "function 3" instead of "Transmission". That is worse and it
-// is honest, which is the trade this file is here to make available rather than
-// to make for anybody.
+// **Function names ship.** They are derived from AgIsoStack++, which is MIT
+// licensed and therefore ours to pass on with its notice attached. The file is
+// `data/j1939-names-functions.csv` beside the executable, and it covers the
+// whole industry-group-independent range plus the industry-specific entries
+// whose source names an industry group unambiguously. It is not complete, and
+// the file says so at the top rather than leaving somebody to discover it.
+//
+// **Manufacturer names do not.** That registry is the SAE J1939 Digital Annex,
+// a licensed commercial product; the public copy at isobus.net states no licence
+// either. Shipping 1672 rows of it in a GPL repository would be redistributing
+// somebody else's database on an assumption. So TorqueBus ships the mechanism,
+// and tools/j1939-names.py builds that half on the machine of whoever wants it -
+// from their own Digital Annex, or from the public registry.
+//
+// A build with neither file is not a broken build: every number is still shown,
+// and the panel says "function 3" instead of "Transmission". Worse, and honest.
 //
 // --- The format -------------------------------------------------------------
 //
@@ -71,10 +78,20 @@ public:
     /// questions and not others, and nobody can tell which.
     [[nodiscard]] Result load(std::string_view text);
 
-    /// Reads a file. A path that does not exist is **not** an error - it is
-    /// what a machine with no licensed copy of the Digital Annex looks like,
-    /// and the program works without one.
+    /// Reads a file, replacing whatever was loaded before.
+    ///
+    /// A path that does not exist is **not** an error - it is what a machine
+    /// without one looks like, and the program works without any.
     [[nodiscard]] Result loadFile(const std::filesystem::path& path);
+
+    /// Reads a file on top of what is already loaded.
+    ///
+    /// Later entries win, which is the whole point: TorqueBus ships a table of
+    /// function names and somebody with a licensed Digital Annex generates a
+    /// fuller one, and theirs has to be able to correct ours rather than sit
+    /// beside it. An entry the second file does not mention keeps the value
+    /// the first gave it.
+    [[nodiscard]] Result mergeFile(const std::filesystem::path& path);
 
     /// The name of an industry group, when the file gives one.
     [[nodiscard]] std::optional<std::string_view> industryGroup(
@@ -114,6 +131,9 @@ public:
     void clear();
 
 private:
+    /// Reads `text` on top of what is loaded. load() is this plus a clear().
+    [[nodiscard]] Result merge(std::string_view text);
+
     /// Industry-group-independent functions are keyed on the number alone;
     /// the dependent ones on all three, packed.
     [[nodiscard]] static std::uint32_t functionKey(std::uint8_t group,

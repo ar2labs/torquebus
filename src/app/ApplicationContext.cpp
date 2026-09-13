@@ -81,16 +81,31 @@ void ApplicationContext::say(const QString& text, bool isError)
 
 void ApplicationContext::loadNameTables()
 {
-    const std::filesystem::path file =
+    const std::filesystem::path data =
         std::filesystem::path{QCoreApplication::applicationFilePath().toStdWString()}
             .parent_path()
-        / "data" / "j1939-names.csv";
+        / "data";
 
-    if (const Result result = m_j1939Names.loadFile(file); result.failed()) {
+    const auto complain = [this](const Result& result) {
         // A file that is there and wrong is worth a line. A file that is not
         // there is the ordinary case and says nothing.
         const std::string_view message = result.message();
         say(QString::fromUtf8(message.data(), static_cast<qsizetype>(message.size())), true);
+    };
+
+    // The table this build ships: function names, from AgIsoStack++ under MIT.
+    if (const Result result = m_j1939Names.loadFile(data / "j1939-names-functions.csv");
+        result.failed()) {
+        complain(result);
+        return;
+    }
+
+    // And whatever the person running this generated for themselves, on top.
+    // Later entries win, so their Digital Annex corrects ours rather than
+    // sitting beside it.
+    if (const Result result = m_j1939Names.mergeFile(data / "j1939-names.csv");
+        result.failed()) {
+        complain(result);
         return;
     }
 
@@ -98,11 +113,19 @@ void ApplicationContext::loadNameTables()
         return;
     }
 
-    say(QStringLiteral("J1939 names: %1 functions, %2 manufacturers from %3")
+    say(QStringLiteral("J1939 names: %1 functions, %2 manufacturers")
             .arg(m_j1939Names.functionCount())
-            .arg(m_j1939Names.manufacturerCount())
-            .arg(QString::fromStdString(m_j1939Names.sourcePath())),
+            .arg(m_j1939Names.manufacturerCount()),
         false);
+
+    if (m_j1939Names.manufacturerCount() == 0U) {
+        // Said once, at startup, because the panel showing a bare number where
+        // a company name should be is not self-explanatory - and the fix is one
+        // command that most people do not know exists.
+        say(QStringLiteral("J1939 manufacturer names are not installed. "
+                           "tools/j1939-names.py builds that table; see its header."),
+            false);
+    }
 }
 
 void ApplicationContext::loadPlugins()
