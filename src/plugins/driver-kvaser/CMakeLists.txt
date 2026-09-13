@@ -62,5 +62,16 @@ foreach(configuration ${CMAKE_CONFIGURATION_TYPES})
     )
 endforeach()
 
+# Into the installed tree too, in the same directory the loader looks in.
+#
+# Without this the packaged build has no hardware support at all: moving the
+# vendor backends out of the executable (PLAN.md section 31) means a release
+# that copies only the executable copies nothing that can open a Kvaser. The
+# .lib import library is deliberately left behind - nothing links a plugin.
+install(TARGETS torquebus_plugin_kvaser
+    LIBRARY DESTINATION plugins COMPONENT torquebus
+    RUNTIME DESTINATION plugins COMPONENT torquebus
+)
+
 # The application does not link this, but it is useless without it being built.
 add_dependencies(TorqueBusStudio torquebus_plugin_kvaser)

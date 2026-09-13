@@ -46,12 +46,21 @@ jobs:
         working-directory: build
         run: ctest --output-on-failure --label-exclude hardware
 
+      # --component torquebus, not a plain install: the FetchContent
+      # dependencies install themselves otherwise. LICENSE and README arrive
+      # through the install rules, so they cannot be forgotten here.
       - name: Package
         run: |
-          cmake --install build --prefix dist
+          cmake --install build --prefix dist --component torquebus
           windeployqt --release --no-translations dist/TorqueBusStudio.exe
-          Copy-Item LICENSE dist/LICENSE.txt
-          Copy-Item README.md dist/README.md
+
+      # Before the zip, not after: a release that is missing the vendor plugins
+      # should never become a download.
+      - name: Check the package
+        run: pwsh tools/check-package.ps1 -Path dist
+
+      - name: Compress
+        run: |
           Compress-Archive -Path dist/* -DestinationPath "TorqueBus-Studio-${{ github.ref_name }}-win64.zip"
 
       - name: Publish release

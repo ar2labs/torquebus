@@ -79,11 +79,21 @@ jobs:
         working-directory: build
         run: ctest --output-on-failure --label-regex integration
 
+      # --component torquebus, not a plain install: KDDockWidgets and QtNodes
+      # come in through FetchContent, so their install rules are ours to run,
+      # and a plain install writes their headers and CMake config into what is
+      # supposed to be an application.
       - name: Package
         if: matrix.build_type == 'Release'
         run: |
-          cmake --install build --prefix dist
+          cmake --install build --prefix dist --component torquebus
           windeployqt --release --no-translations --no-system-d3d-compiler dist/TorqueBusStudio.exe
+
+      # The artifact is what people download, so it is what gets checked. The
+      # build being green says nothing about whether the plugins were copied.
+      - name: Check the package
+        if: matrix.build_type == 'Release'
+        run: pwsh tools/check-package.ps1 -Path dist
 
       - name: Upload build
         if: matrix.build_type == 'Release'

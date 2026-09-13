@@ -2114,6 +2114,48 @@ TorqueBus-Studio-v0.5.0-win64.exe
 GitHub Release
 ```
 
+## O pacote também é verificado, e por um motivo concreto
+
+A v0.17 tirou Kvaser e PEAK de dentro do executável, que era o objetivo da
+seção 31 — e **ninguém avisou as regras de instalação**. Durante três marcos o
+`install()` copiava só o executável. O build ficava verde, os 631 testes
+passavam, o zip era produzido, e o único sintoma seria uma lista de interfaces
+vazia numa máquina com a interface ligada. Ausência é o modo de falha de
+empacotamento, e ausência não se anuncia.
+
+Havia um segundo defeito no mesmo lugar, em sentido oposto: KDDockWidgets e
+QtNodes entram por `FetchContent`, então as regras de instalação **deles** são
+nossas para executar. Um `cmake --install` comum escrevia 139 cabeçalhos, duas
+bibliotecas de importação e quatro arquivos de configuração CMake de SDK alheio
+dentro do que deveria ser um aplicativo para usuário final.
+
+As duas coisas se resolvem juntas: tudo que é nosso vai no componente
+`torquebus`, e o empacotamento pede esse componente pelo nome. Não é
+`EXCLUDE_FROM_ALL` — aquilo exclui alvos do build, não regras de instalação de
+uma instalação.
+
+E `tools/check-package.ps1` olha o diretório antes de ele virar zip:
+
+```text
+tem de estar             não pode estar
+─────────────────────    ─────────────────────────────
+TorqueBusStudio.exe      data/j1939-names.csv  (licenciado)
+plugins/*-kvaser.dll     include/              (SDK alheio)
+plugins/*-peak.dll       lib/cmake/            (idem)
+data/…-functions.csv     canlib32.dll          (proprietário)
+Qt6Core, Qt6Widgets      PCANBasic.dll         (proprietário)
+platforms/qwindows.dll
+LICENSE.txt
+```
+
+As recusas importam tanto quanto as exigências. A do meio é de licença e não de
+tamanho: `install(DIRECTORY data/)` levaria junto a tabela de fabricantes que o
+próprio `tools/j1939-names.py` manda escrever num diretório chamado `data` — o
+`.gitignore` a mantém fora do repositório, e só isto a mantém fora de um
+release. E a LICENSE passou a vir das regras de instalação em vez de uma linha
+do workflow: cumprir a GPL é propriedade do que entregamos, não uma etapa que
+alguém lembra de manter.
+
 ---
 
 # 34. Regras arquiteturais congeladas
