@@ -6,7 +6,7 @@ Closes #
 
 ## Milestone
 
-<!-- Which roadmap milestone does this belong to? See PLAN.md / README. -->
+<!-- Which roadmap milestone does this belong to? See docs/PLAN.md / README. -->
 
 ## Architecture checklist
 
