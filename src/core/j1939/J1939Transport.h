@@ -61,19 +61,33 @@
 
 namespace torquebus {
 
-// --- Where these numbers came from -----------------------------------------
+// --- Where these numbers came from, and the surprise in it -----------------
 //
-// The classic transport values below - the two PGNs, the five control bytes,
-// the layout of a BAM and the abort reasons - were read out of SAE J1939-21
-// REV APR 2001 itself, section 5.10.3 and Table 6.
+// The classic transport - the two PGNs, the five control bytes, the layout of
+// every message and Table 6 - is SAE J1939-21 MAY2022, section 5.10 and
+// Figures 13 and 14, read directly.
 //
-// The extended transport values were not. That revision predates ETP, and the
-// revision that introduced it is not one this project has a copy of. They come
-// instead from the Linux kernel implementation (net/can/j1939), which is code
-// that has been run against real buses for years, corroborated by published
-// technical references. That is strong, and it is not the standard - so every
-// one of them is stated by extension in J1939TransportTests, where checking a
-// copy of the current J1939-21 against them is reading one screen.
+// **The extended transport is not in J1939-21 at all.** Not in the 2022
+// revision, not under that name or any other: section 5.10 ends at TP.DT, and
+// the control byte ranges say in as many words that 20 to 31 are "Reserved for
+// SAE Assignment" - which is precisely the range ETP uses. That was worth
+// finding out, because until somebody looks it reads like a gap in this file
+// rather than a different document.
+//
+// What is SAE is the two PGN *numbers*: the J1939 Digital Annex registers
+// 50944 as ETP.DT and 51200 as ETP.CM, and both were checked there.
+//
+// The *behaviour* behind them - the control bytes, the offset window, the
+// four-byte size - belongs to **ISO 11783-3**, the ISOBUS data link layer.
+// This project does not have that document, so those specifics rest on the
+// Linux kernel implementation (net/can/j1939), which has run against real
+// machines for years. Every one of them is stated by extension in
+// J1939TransportTests, so checking them against a copy of ISO 11783-3 is
+// reading one screen.
+//
+// This is not a footnote about paperwork. ISOBUS is agricultural, which is
+// exactly the fleet this milestone is for, and knowing that ETP arrives from
+// there tells somebody debugging a tractor which standard to open.
 
 /// Extended transport, connection management. 51200.
 inline constexpr std::uint32_t kPgnExtendedTransportConnection = 0x0'C800U;
@@ -104,18 +118,24 @@ enum class J1939ExtendedControl : std::uint8_t {
     Abort = 255U,
 };
 
-/// Why a sender gave up, as SAE J1939-21 Table 6 defines it.
+/// Why a sender gave up, as SAE J1939-21 MAY2022 Table 6 defines it.
 ///
-/// Only three values are given a meaning there. Four to 250 are reserved for
-/// SAE assignment and 251 to 255 are left to J1939-71, so this decodes what the
-/// standard decodes and reports the rest as the number it was - inventing a
-/// sentence for a reserved code would be putting words in an ECU's mouth.
+/// Nine values have meanings, 10 to 249 are reserved for SAE, 250 means "a
+/// reason that is not in the table", and 251 to 255 are left to J1939-71. This
+/// decodes what the standard decodes and reports the rest as the number it was
+/// - inventing a sentence for a reserved code would be putting words in the
+/// mouth of an ECU.
+///
+/// Six of these did not exist in the revision this file was first written
+/// against, and were being reported as "reserved for SAE assignment" - which
+/// was wrong in the worst way available here, because four of the six name a
+/// specific defect in the transfer that just failed.
 enum class J1939AbortReason : std::uint8_t {
-    /// Not an abort, or none was carried.
+    /// Reserved by the standard; also what a frame that carried no reason
+    /// leaves behind.
     None = 0U,
 
-    /// Already in one or more connection managed sessions and cannot support
-    /// another.
+    /// Already in as many connection managed sessions as it can support.
     AlreadyBusy = 1U,
 
     /// System resources were needed for another task.
@@ -123,7 +143,54 @@ enum class J1939AbortReason : std::uint8_t {
 
     /// A timeout occurred and this is the abort that closes the session.
     Timeout = 3U,
+
+    /// A CTS arrived while data transfer was already in progress.
+    UnexpectedClearToSend = 4U,
+
+    /// The maximum retransmit request limit was reached.
+    RetransmitLimitReached = 5U,
+
+    /// A data transfer packet arrived that was not expected.
+    UnexpectedDataPacket = 6U,
+
+    /// Bad sequence number, and the software cannot recover.
+    BadSequenceNumber = 7U,
+
+    /// Duplicate sequence number, and the software cannot recover.
+    DuplicateSequenceNumber = 8U,
+
+    /// The announced total message size was greater than 1785 bytes.
+    SizeTooLarge = 9U,
+
+    /// A reason the sender could not find in the table. The standard reserves
+    /// this value for exactly that, which is more useful than it looks: it
+    /// distinguishes "something else went wrong" from a code nobody assigned.
+    NotListed = 250U,
 };
+
+/// Who sent the abort, from bits 1-2 of byte 3 of a TP.Conn_Abort.
+///
+/// Added to J1939-21 after the revision this file was first written against.
+/// It answers a question the reason code does not: a timeout reported by the
+/// receiver and a timeout reported by the sender are the same word for two
+/// different faults, and which end gave up says which end to look at.
+enum class J1939AbortRole : std::uint8_t {
+    /// The Controller Application that sent the RTS.
+    Originator = 0U,
+
+    /// The Controller Application that sent the CTS.
+    Responder = 1U,
+
+    /// Reserved for assignment by SAE.
+    Reserved = 2U,
+
+    /// The sender did not say. The standard marks this "not recommended for
+    /// new implementations", so seeing it is itself worth knowing.
+    Unspecified = 3U,
+};
+
+/// The role in words.
+[[nodiscard]] std::string_view j1939AbortRoleText(J1939AbortRole role) noexcept;
 
 /// The abort reason in words, or a description of the range it falls in.
 [[nodiscard]] std::string_view j1939AbortReasonText(std::uint8_t reason) noexcept;
@@ -203,6 +270,12 @@ struct J1939TransportEvent final {
     /// because most of the range is reserved and a reserved code somebody is
     /// really sending is worth seeing exactly as it arrived.
     std::uint8_t abortReason{0U};
+
+    /// Which end gave up. Only a TP abort carries this - the layout is
+    /// J1939-21's, and the extended protocol belongs to another standard this
+    /// project has not read - so an ETP abort reports Unspecified rather than
+    /// a guess dressed up as a fact.
+    J1939AbortRole abortRole{J1939AbortRole::Unspecified};
 
     /// The reassembled message, for MessageReceived only.
     std::vector<std::uint8_t> data;
@@ -352,7 +425,8 @@ private:
     void fail(const Session& session,
               J1939TransportError error,
               std::uint64_t nowNs,
-              std::uint8_t abortReason = 0U);
+              std::uint8_t abortReason = 0U,
+              J1939AbortRole abortRole = J1939AbortRole::Unspecified);
 
     /// Emits a ReceiveFailed for a transfer that never got a session.
     void failAnnouncement(const J1939Id& id,

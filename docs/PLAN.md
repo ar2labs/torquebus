@@ -1649,10 +1649,27 @@ Uma segunda sessão da mesma origem abandona a primeira, que é o que a norma di
 também o único comportamento que não vaza buffer numa bancada onde alguém está
 resetando uma ECU repetidamente.
 
-**ETP entrou.** Acima de 1785 bytes é outro par de PGNs - 51200 e 50944 - e a
-diferença estrutural é uma só: o número de sequência de um pacote tem um byte e
-só conta até 255, então o ETP move uma **janela de deslocamento** (DPO) ao longo
-da mensagem e os números contam dentro dela.
+**ETP entrou - e não é J1939-21.** Esta foi a descoberta mais útil da leitura da
+norma, e não estava no roteiro.
+
+A J1939-21 **MAY2022** não tem transporte estendido. A seção 5.10 termina em
+TP.DT, e a faixa de bytes de controle diz por extenso que **20 a 31 são
+reservados para atribuição pela SAE** - exatamente a faixa que o ETP usa. Até
+alguém abrir o documento, a ausência lê-se como lacuna deste projeto em vez de
+outro documento.
+
+O que é SAE são os dois **números**: o Digital Annex registra 50944 como ETP.DT
+e 51200 como ETP.CM, e os dois foram conferidos lá. O **comportamento** por trás
+deles - bytes de controle, janela de deslocamento, tamanho de quatro bytes -
+pertence à **ISO 11783-3**, a camada de enlace do ISOBUS.
+
+Isso não é detalhe de papelada. ISOBUS é agrícola, que é exatamente a frota para
+a qual este marco existe, e saber que o ETP chega de lá diz a quem está
+depurando um trator qual norma abrir.
+
+A diferença estrutural entre os dois transportes é uma só: o número de sequência
+de um pacote tem um byte e só conta até 255, então o ETP move uma **janela de
+deslocamento** (DPO) ao longo da mensagem e os números contam dentro dela.
 
 Isto começou fora do escopo, e a razão escrita aqui era a raridade. A razão real
 era a necessidade de validar os formatos diretamente contra a especificação oficial,
@@ -1743,11 +1760,19 @@ Duas lacunas deliberadas, cada uma porque a alternativa era embarcar um número
 ou um rótulo que pareceria certo:
 
 * **Os empacotamentos antigos do SPN.** Um código que declara o outro
-  empacotamento não recebe SPN nenhum; os quatro bytes crus ficam no lugar.
+  empacotamento não recebe SPN nenhum; os quatro bytes crus ficam no lugar. A
+  definição está na J1939-73, que este projeto não tem.
 * **Tabelas de função e de fabricante.** Funções acima de 127 dependem do grupo
   industrial e do sistema veicular; a lista de fabricantes tem uns dois mil
   itens e cresce todo ano. Pertencem a um arquivo de dados corrigível sem
   recompilar. O grupo industrial, que são oito valores fixos, está nomeado.
+
+E uma questão de procedência, que vale escrever porque muda o que confiar: o TP
+clássico inteiro foi conferido contra a **J1939-21 MAY2022** lida diretamente -
+PGNs, os cinco bytes de controle, o formato de cada mensagem, e a Tabela 6. As
+duas PGNs de ETP foram conferidas contra o **Digital Annex**. O comportamento do
+ETP continua apoiado na implementação do kernel Linux, porque a ISO 11783-3 não
+está aqui; está dito no cabeçalho do arquivo e afirmado por extenso nos testes.
 
 E uma que é decisão de postura e não lacuna: **reivindicar endereço**. A tabela
 observa e não tem como transmitir. Um Request for Address Claimed - que
