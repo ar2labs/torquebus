@@ -1138,6 +1138,37 @@ physical adapter.
 
 ---
 
+## 7. The package, not the build tree
+
+What people download is the zip, and a build tree that works proves nothing
+about one. This step exists because the two diverged silently for three
+milestones: v0.17 moved the vendor backends into plugins and the install rules
+were never told, so a release would have carried no Kvaser and no PEAK support
+at all, with an empty interface list as the only symptom.
+
+```bat
+cmake --install build\windows-msvc-release --prefix dist --component torquebus
+windeployqt --release --no-translations dist\TorqueBusStudio.exe
+powershell -ExecutionPolicy Bypass -File tools\check-package.ps1 -Path dist
+```
+
+`--component torquebus` is not optional. Without it, KDDockWidgets and QtNodes
+run their own install rules and write their headers and CMake config into the
+package.
+
+The checker names every missing or forbidden path and exits non-zero, and CI
+runs it on every release build. Then run the packaged executable **from `dist`,
+not from the build tree** - it must start with no Qt on `PATH`. Confirm in the
+Output panel that both plugins were found, and that the J1939 names loaded; the
+network panel should read `Engine (0)` rather than `0`.
+
+A stronger check than reading the panel, if you want one: with the application
+running, list its loaded modules and look for `plugins\torquebus-driver-*.dll`
+under the `dist` path. That is the loader having actually loaded them, rather
+than a line saying it did.
+
+---
+
 ## General validation notes
 
 - **A green suite on one toolchain does not mean undefined behaviour is absent.** MSVC's debug runtime fills freed memory with `0xDD`, which immediately catches dangling pointers that might pass by coincidence on another allocator.

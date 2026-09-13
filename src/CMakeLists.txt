@@ -468,7 +468,47 @@ set_target_properties(TorqueBusStudio PROPERTIES
     FOLDER "Applications"
 )
 
+# --- What goes into a package, and what emphatically does not --------------
+#
+# Everything TorqueBus installs is in the `torquebus` component, and the
+# packaging step asks for that component by name. The reason is that
+# KDDockWidgets and QtNodes arrive through FetchContent, which means their own
+# install() rules are ours to run: a plain `cmake --install` writes 139 headers,
+# two import libraries and four CMake config files of somebody else's SDK into
+# what is supposed to be an application for end users.
+#
+# A named component is the version-independent way to say "only mine".
+# EXCLUDE_FROM_ALL would not do it - it excludes targets from the build, not
+# install rules from the install.
+
 install(TARGETS TorqueBusStudio
-    RUNTIME DESTINATION .
-    BUNDLE  DESTINATION .
+    RUNTIME DESTINATION . COMPONENT torquebus
+    BUNDLE  DESTINATION . COMPONENT torquebus
+)
+
+# The same data directory the build tree gets, for the same reason: a packaged
+# build with no name table shows bare numbers where a function name belongs,
+# and nothing about that looks like a missing file.
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/data/"
+    DESTINATION data COMPONENT torquebus
+
+    # Except that one. j1939-names.csv is the manufacturer table, built from a
+    # licensed Digital Annex or from a registry that grants no licence, and it
+    # is not ours to put in a package. .gitignore keeps it out of the repository;
+    # this keeps it out of a release built on a machine where somebody generated
+    # it - which is a likely machine, because tools/j1939-names.py tells people
+    # to write it to a directory named data.
+    PATTERN "j1939-names.csv" EXCLUDE
+)
+
+# The licence travels with the binary, and it does so from here rather than
+# from a line in a packaging workflow: GPLv3 compliance is a property of the
+# thing we hand people, not a step somebody remembers to keep.
+install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
+    DESTINATION . COMPONENT torquebus
+    RENAME LICENSE.txt
+)
+
+install(FILES "${CMAKE_SOURCE_DIR}/README.md"
+    DESTINATION . COMPONENT torquebus
 )
