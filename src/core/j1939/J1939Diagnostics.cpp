@@ -75,18 +75,49 @@ std::optional<J1939Diagnostic> j1939DecodeDiagnostic(std::uint32_t pgn,
         dtc.conversionMethod = (code[3] & 0x80U) != 0U;
         dtc.occurrenceCount = static_cast<std::uint8_t>(code[3] & 0x7FU);
 
-        if (reading == J1939SpnReading::Version4 && !dtc.conversionMethod) {
-            // The current packing: low byte first, and the top three bits of
-            // the SPN in the top three bits of the third byte.
-            dtc.spn = static_cast<std::uint32_t>(code[0])
-                      | (static_cast<std::uint32_t>(code[1]) << 8U)
-                      | (static_cast<std::uint32_t>(code[2] & 0xE0U) << 11U);
-            dtc.spnAssembled = true;
-        }
+        // Version 4: Intel across all 19 bits, the top three in the top three
+        // bits of the third byte. Also what version 3 looks like on the wire.
+        const auto intelSpn = [&code]() noexcept {
+            return static_cast<std::uint32_t>(code[0])
+                   | (static_cast<std::uint32_t>(code[1]) << 8U)
+                   | (static_cast<std::uint32_t>(code[2] & 0xE0U) << 11U);
+        };
 
-        // Otherwise the SPN stays unassembled and raw holds the answer. Either
-        // the sender declared a packing this build does not implement, or the
-        // caller asked for no assembly at all.
+        if (reading != J1939SpnReading::RawOnly && !dtc.conversionMethod) {
+            // A cleared conversion bit is version 4 and is not ambiguous, so it
+            // is assembled whatever legacy packing was declared for the rest.
+            dtc.spn = intelSpn();
+            dtc.spnAssembled = true;
+        } else if (dtc.conversionMethod) {
+            switch (reading) {
+            case J1939SpnReading::Version1:
+                // Most significant bit first.
+                dtc.spn = (static_cast<std::uint32_t>(code[0]) << 11U)
+                          | (static_cast<std::uint32_t>(code[1]) << 3U)
+                          | (static_cast<std::uint32_t>(code[2]) >> 5U);
+                dtc.spnAssembled = true;
+                break;
+
+            case J1939SpnReading::Version2:
+                // Intel for the top 16 bits; the low three sit beside the FMI.
+                dtc.spn = (static_cast<std::uint32_t>(code[1]) << 11U)
+                          | (static_cast<std::uint32_t>(code[0]) << 3U)
+                          | (static_cast<std::uint32_t>(code[2]) >> 5U);
+                dtc.spnAssembled = true;
+                break;
+
+            case J1939SpnReading::Version3:
+                dtc.spn = intelSpn();
+                dtc.spnAssembled = true;
+                break;
+
+            case J1939SpnReading::Version4:
+            case J1939SpnReading::RawOnly:
+                // Nothing was declared for the legacy packing, so this code
+                // could be any of three and the raw bytes are the answer.
+                break;
+            }
+        }
 
         if (isNoFaultPlaceholder(dtc, code)) {
             // The ECU is saying it is healthy. Reporting this as a fault would

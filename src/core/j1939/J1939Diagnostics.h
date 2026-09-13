@@ -23,20 +23,36 @@
 //
 // --- The SPN conversion, declared and not guessed ----------------------------
 //
-// The SPN field has been packed more than one way over the life of the
-// standard, and each DTC carries a bit saying which way its sender used. Read
-// under the wrong convention the bits still produce a number, and the number
-// still looks like an SPN - which is the worst kind of wrong, because nothing
-// about it invites checking.
+// SAE J1939-73 AUG2022, section 5.7.1.14. The SPN field has been packed four
+// ways over the life of the standard, and the conversion bit in a code says
+// only which *half* of that history its sender belongs to:
 //
-// So: this build assembles the current packing, the one a cleared conversion
-// bit means. When a code says it used the other one, the SPN is **not
-// assembled at all** and the four raw bytes stand in its place. That is a
-// deliberate gap rather than a missing feature - implementing a packing from
-// memory is how a confident wrong number gets shipped - and the raw bytes are
-// carried on every code regardless, because somebody who knows the ECU reads
-// the right convention out of them in a second and nobody reads anything out of
-// a number that was already converted wrongly.
+//   * **0** - version 4, the current packing. Unambiguous.
+//   * **1** - version 1, 2 **or** 3, and the wire does not say which.
+//
+// That is the whole difficulty, and it is not one better code can remove. A
+// code with the bit set could be any of three packings, each of which produces
+// a different number from the same bytes - and every one of those numbers looks
+// like an SPN. Guessing would be the worst kind of wrong, because nothing about
+// the result invites checking.
+//
+// So the reading is **declared**. Somebody who knows the bus says which legacy
+// packing its ECUs use, and only then is a code with the bit set assembled. A
+// code with the bit clear is version 4 whatever the setting says, because it is
+// not ambiguous. And when nothing is declared, no number is produced at all.
+//
+// The four, as 5.7.1.14 defines them:
+//
+//   1. The SPN sent most significant bit first.
+//   2. Intel format for the most significant 16 bits, with the 3 least
+//      significant of the 19 packed in with the FMI.
+//   3. Intel format for all 19 bits.
+//   4. The same as 3, announced with the conversion bit cleared - so versions 3
+//      and 4 are the same bytes and differ only in what the sender claims.
+//
+// The raw four bytes are carried on every code regardless of any of this,
+// because somebody who knows the ECU reads the right convention out of them in
+// a second and nobody reads anything out of a number converted wrongly.
 
 #pragma once
 
@@ -79,15 +95,29 @@ struct J1939Lamps final {
     J1939LampState protect{J1939LampState::NotAvailable};
 };
 
-/// How this build should read the SPN field.
+/// How a code that declares the legacy packing should be read.
+///
+/// A code with the conversion bit clear is version 4 under every one of these:
+/// it is unambiguous, and reading it any other way would be choosing to be
+/// wrong. The choice only ever applies to codes that declare the old packing.
 enum class J1939SpnReading : std::uint8_t {
-    /// Assemble the current packing, which a cleared conversion bit declares.
-    /// A code declaring the other packing is left unassembled.
+    /// Nothing is declared, so a code with the conversion bit set gets no
+    /// number. The default, and the only setting under which this build never
+    /// produces an SPN that might be a different SPN.
     Version4,
 
-    /// Assemble nothing; carry the raw bytes only. For a bus whose ECUs use a
-    /// packing this build does not implement, where a number would be worse
-    /// than no number.
+    /// Most significant bit first.
+    Version1,
+
+    /// Intel for the top 16 bits, with the low 3 packed in beside the FMI.
+    Version2,
+
+    /// Intel for all 19 bits - the same layout as version 4, from a sender that
+    /// sets the conversion bit anyway.
+    Version3,
+
+    /// Assemble nothing at all, not even an unambiguous code. For reading a bus
+    /// whose bytes are being checked by hand.
     RawOnly,
 };
 

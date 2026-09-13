@@ -896,16 +896,20 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                                        "where the ECU answers from "
                                                        "another."},
                     ParameterDescriptor{
-                        .name = "assembleSpn",
-                        .displayName = "Assemble the SPN",
-                        .type = ParameterValue::Type::Boolean,
+                        .name = "spnReading",
+                        .displayName = "Legacy SPN packing",
+                        .type = ParameterValue::Type::Text,
                         .required = false,
-                        .description = "On, the SPN of a trouble code is assembled the way "
-                                       "the current standard packs it. Off, no SPN is "
-                                       "produced and the four raw bytes stand - which is "
-                                       "what a bus whose ECUs use an older packing needs, "
-                                       "because a number read under the wrong convention "
-                                       "still looks like an SPN."},
+                        .description = "What to do with a trouble code whose conversion "
+                                       "bit says it used one of the three packings from "
+                                       "before 1996. Empty or version4: leave it "
+                                       "unassembled, because the wire does not say which "
+                                       "of the three it is and every guess looks like a "
+                                       "real SPN. version1, version2 or version3: read it "
+                                       "that way, for a bus somebody knows. raw: assemble "
+                                       "nothing at all. A code whose bit is clear is "
+                                       "version 4 under every setting - it is not "
+                                       "ambiguous."},
                 },
         },
         [](const NodeParameters& parameters, const NodeBuildContext& context,
@@ -934,9 +938,29 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
 
             auto node = std::make_unique<J1939Node>(std::move(database), std::move(label));
 
-            node->setSpnReading(parameters.boolean("assembleSpn", true)
-                                    ? J1939SpnReading::Version4
-                                    : J1939SpnReading::RawOnly);
+            const std::string spnReading = parameters.text("spnReading", "");
+
+            // An unrecognised word is refused rather than quietly treated as
+            // the default: somebody who typed "v1" meant something, and a
+            // silent fallback would hand them version 4 numbers that look
+            // exactly as convincing as the ones they asked for.
+            if (spnReading.empty() || spnReading == "version4") {
+                node->setSpnReading(J1939SpnReading::Version4);
+            } else if (spnReading == "version1") {
+                node->setSpnReading(J1939SpnReading::Version1);
+            } else if (spnReading == "version2") {
+                node->setSpnReading(J1939SpnReading::Version2);
+            } else if (spnReading == "version3") {
+                node->setSpnReading(J1939SpnReading::Version3);
+            } else if (spnReading == "raw") {
+                node->setSpnReading(J1939SpnReading::RawOnly);
+            } else {
+                return Result::error(
+                    ErrorCode::InvalidArgument,
+                    std::format("Node '{}': '{}' is not a legacy SPN packing. Use "
+                                "version1, version2, version3, version4 or raw",
+                                nodeId, spnReading));
+            }
 
             // Null in a headless build, and the block then keeps its view of
             // the bus to itself rather than copying it for nobody.

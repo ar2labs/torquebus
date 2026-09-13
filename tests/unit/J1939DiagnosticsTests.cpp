@@ -16,6 +16,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 using namespace torquebus;
@@ -145,6 +146,80 @@ TEST_CASE("A code declaring the other packing gets no number at all",
     // And the bytes are there, exactly as they arrived.
     CHECK(fault.raw[0] == 100U);
     CHECK(fault.raw[3] == (0x80U | 5U));
+}
+
+TEST_CASE("The three legacy packings are read the way the standard defines them",
+          "[j1939][dm]")
+{
+    // J1939-73 AUG2022 section 5.7.1.14. A conversion bit of one means the SPN
+    // is in version 1, 2 or 3 format and the wire does not say which - so the
+    // same three bytes are three different SPNs, and each of them looks real.
+    //
+    // The bytes here are from the standard own worked example: DM22 clearing
+    // "SPN 1208, FMI 3" carries 00 97 03, and reading it most significant bit
+    // first gives 1208 exactly. That is version 1, and it is what pins this
+    // case to the document rather than to an implementation.
+    const std::vector<std::uint8_t> payload =
+        payloadOf(0x00U, 0x00U, {{0x00U, 0x97U, 0x03U | 0x00U, 0x80U | 1U}});
+
+    const auto spnUnder = [&payload](J1939SpnReading reading) -> std::optional<std::uint32_t> {
+        const std::optional<J1939Diagnostic> message =
+            j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, reading, 1000U);
+
+        if (!message.has_value() || message->faults.size() != 1U
+            || !message->faults[0].spnAssembled) {
+            return std::nullopt;
+        }
+
+        return message->faults[0].spn;
+    };
+
+    // Version 1: most significant bit first. The standard own example.
+    CHECK(spnUnder(J1939SpnReading::Version1) == 1208U);
+
+    // Version 2: Intel for the top 16 bits, the low three beside the FMI.
+    CHECK(spnUnder(J1939SpnReading::Version2) == ((0x97U << 11U) | (0x00U << 3U)));
+
+    // Version 3: Intel across all 19 bits - the same layout version 4 uses.
+    CHECK(spnUnder(J1939SpnReading::Version3) == (0x00U | (0x97U << 8U)));
+
+    // Three readings, three different numbers, one set of bytes. That is why
+    // guessing is not allowed and why nothing is declared by default.
+    CHECK(spnUnder(J1939SpnReading::Version1) != spnUnder(J1939SpnReading::Version2));
+    CHECK(spnUnder(J1939SpnReading::Version2) != spnUnder(J1939SpnReading::Version3));
+
+    // And with nothing declared, no number at all.
+    CHECK_FALSE(spnUnder(J1939SpnReading::Version4).has_value());
+}
+
+TEST_CASE("A code that is not ambiguous is read whatever was declared",
+          "[j1939][dm]")
+{
+    // A cleared conversion bit is version 4 and can only be version 4. Reading
+    // it as a legacy packing because somebody declared one for the codes that
+    // need it would be choosing to be wrong about a code that was clear.
+    const std::vector<std::uint8_t> payload =
+        payloadOf(0x00U, 0x00U, {dtcBytes(100U, 1U, 5U, false)});
+
+    for (const J1939SpnReading reading :
+         {J1939SpnReading::Version1, J1939SpnReading::Version2, J1939SpnReading::Version3,
+          J1939SpnReading::Version4}) {
+        const std::optional<J1939Diagnostic> message =
+            j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, reading, 1000U);
+
+        REQUIRE(message.has_value());
+        REQUIRE(message->faults.size() == 1U);
+        CHECK(message->faults[0].spnAssembled);
+        CHECK(message->faults[0].spn == 100U);
+    }
+
+    // Except raw, which is the setting for reading bytes by hand.
+    const std::optional<J1939Diagnostic> raw =
+        j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::RawOnly, 1000U);
+
+    REQUIRE(raw.has_value());
+    REQUIRE(raw->faults.size() == 1U);
+    CHECK_FALSE(raw->faults[0].spnAssembled);
 }
 
 TEST_CASE("Asking for no assembly still reports the fault", "[j1939][dm]")
