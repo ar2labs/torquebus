@@ -21,7 +21,7 @@ body:
     id: milestone
     attributes:
       label: Related roadmap milestone
-      description: See PLAN.md. Leave blank if unsure.
+      description: See docs/PLAN.md. Leave blank if unsure.
       placeholder: "v0.7 - DBC"
 
   - type: textarea
