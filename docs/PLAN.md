@@ -1172,15 +1172,66 @@ Diagnostic Service Editor
 
 ---
 
-# 28. Python
+# 28. Scripting — Lua 5.5
 
-Depois
+> **Revisado.** Este plano congelou Python. A revisão o substitui inteiramente
+> por **Lua 5.5.0**: blocos de ECU, nó de script, automação de teste e
+> relatórios. Uma linguagem embarcada só significa um binding para manter, uma
+> API para documentar e uma linguagem para o usuário aprender — e o `cansim` já
+> provou o desenho.
 
-```text
-Python Console
+**Versão congelada: Lua 5.5.0**, compilada do fonte junto com o projeto. Não
+usamos a `liblua.a` pré-compilada de nenhuma máquina: o CI precisa reproduzir o
+build em qualquer lugar, e uma biblioteca binária num caminho local é
+exatamente o tipo de dependência que funciona só na máquina de quem escreveu.
+
+O contrato vem direto do `cansim`, que já roda com 20 ECUs:
+
+```lua
+-- Um bloco de ECU no canvas é um script com este ciclo de vida.
+function on_enable()          -- inicialização
+function on_disable()         -- limpeza
+function on_timer()           -- execução periódica
+function on_message(frame)    -- tratamento de mensagem recebida
 ```
 
-API conceitualmente
+com a API já existente: `emit`, `set_timer`, `enable_node`, `disable_node`,
+`get_time_us`, `log_message`, `set_bitrate`, `get_can_status`.
+
+Cada bloco no canvas é um desses scripts, com portas visíveis e configuração
+por formulário. Montar uma rede CAN de ECUs simuladas deixa de ser editar um
+JSON e passa a ser desenhar.
+
+## Compatibilidade: três scripts precisam de migração
+
+Auditando os 20 scripts do `cansim` contra o Lua 5.5, três usam funções que
+**não existem mais**:
+
+| Script | Chamada | Removida em | Substituta |
+|---|---|---|---|
+| `ecu_motor.lua`, `ecu_lift.lua`, `ecu_vehicle.lua` | `math.frexp` | 5.4 | `string.pack("<f", x)` |
+| `ecu_motor.lua` | `math.ldexp` | 5.4 | idem |
+| `ecu_motor.lua` | `unpack` global | 5.2 | `table.unpack` |
+
+Elas só reaparecem com `LUA_COMPAT_5_3` / `LUA_COMPAT_5_1`, e o Makefile do
+`cansim` não define nenhum dos dois — ou seja, esses três scripts falham com
+*"attempt to call a nil value"* no momento em que `float_to_bytes` roda.
+
+**Decisão: Lua 5.5 limpo, sem flags de compatibilidade, e os três scripts
+migram.** O motivo é que os scripts mais novos do próprio `cansim` — `node1`,
+`node3`, `signal_generator` — já usam `string.pack("<f", x)`, que faz em uma
+linha o que o `float_to_bytes` faz em vinte. A migração segue uma direção que
+você já tomou na prática; carregar flags de compatibilidade para sempre daria
+uma superfície de script com formato de 5.3 num mundo 5.5, e todo autor de
+script futuro herdaria isso.
+
+## Automação de teste, também em Lua
+
+```text
+Lua Console
+```
+
+Para automação de teste, processamento offline e relatórios. API conceitualmente
 
 ```python
 can1 = torquebus.channel(CAN1)

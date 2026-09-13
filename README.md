@@ -6,12 +6,17 @@ An open source platform for analysing, simulating, diagnosing and automating
 automotive networks — a community alternative to TSMaster, CANalyzer/CANoe and
 PCAN-Explorer.
 
-> **Status: v0.6 — the visual canvas.** Connect an interface, press Start, read
-> the bus: the trace holds **1,000,000 frames** and fills itself, with no wiring
-> to do first. Beyond that, the Pipeline panel is where you draw one — blocks
-> and wires, edited straight into the project. Simulated ECUs are Lua scripts
-> that live on that pipeline as nodes, at ~260 ns per frame, so dozens fit on a
-> bus that carries 4,000 frames/s.
+> **Status: v0.17 — the vendor SDKs leave the binary.** Kvaser and PEAK are
+> plugins now, loaded from a `plugins` directory beside the executable, so a GPL
+> build carries no proprietary SDK in its own image and a machine without the
+> driver is simply a machine with one fewer file.
+>
+> Connect an interface, press Start, read the bus: the trace holds **1,000,000
+> frames** and fills itself, with no wiring to do first. Beyond that, the
+> Pipeline panel is where you draw one — blocks and wires, edited straight into
+> the project. Simulated ECUs are Lua scripts that live on that pipeline as
+> nodes, at ~260 ns per frame, so dozens fit on a bus that carries 4,000
+> frames/s.
 
 ---
 
@@ -33,6 +38,12 @@ visual identity, an open architecture and a GPLv3 licence.
 - **Built for throughput.** 190k+ frames/s with no loss, enforced by a test on
   every pull request rather than claimed afterwards.
 - **Recording outlives the UI.** Close the Trace panel; the log keeps writing.
+- **Protocols above the frame.** ISO-TP and UDS, and J1939/ISOBUS with address
+  claiming, transport (BAM, RTS/CTS, ETP) and DM1/DM2 — checked line by line
+  against SAE J1939-21, J1939-73 and ISO 11783-3 rather than against memory.
+- **Extensible without a fork.** A plugin registers backends and pipeline block
+  types through the same calls the built-in code uses. There is no second API
+  for outsiders, because the second API is the one that rots.
 
 ---
 
@@ -51,9 +62,16 @@ The Qt version is an exact pin, not a minimum: KDDockWidgets uses Qt's private
 modules, which tie the binary to the Qt build it was compiled against.
 
 **Hardware is optional.** The built-in virtual bus runs the whole application
-with no adapter attached. Kvaser needs CANlib and PEAK needs PCAN-Basic; without
-them those backends still build and simply report themselves unavailable. Vendor
-SDKs are never bundled.
+with no adapter attached — a build with zero plugins still opens, builds a graph
+and runs a measurement.
+
+Kvaser and PEAK arrive as plugins beside the executable. Each is built whenever
+its SDK is present and is *loaded*, never linked, so the application binary
+depends on neither: `dumpbin /DEPENDENTS` on `TorqueBusStudio.exe` finds no
+`canlib32.dll` and no Qt SerialBus. Vendor SDKs are never bundled — they come
+from the driver you install. A plugin that is refused says so by name in the
+Output panel, because the ordinary symptom of a plugin problem is an empty list
+and an empty list diagnoses nothing.
 
 ---
 
@@ -163,7 +181,8 @@ not own it, and a headless run needs no GUI at all.
 
 ```
 src/core/       vendor-neutral, Qt-free domain model
-src/drivers/    ICanBackend and one implementation per vendor
+src/drivers/    ICanBackend and the built-in virtual bus
+src/plugins/    the loader, the plugin ABI, and the vendor backends
 src/services/   settings, projects, workspaces
 src/ui/         widgets, theming, docking
 tests/          unit / integration / hardware
@@ -186,24 +205,32 @@ incompatible API generation — but the debt is real and worth naming.
 | v0.1 | Foundation: shell, docking, themes, driver API, virtual bus | done |
 | v0.2 | CAN core: engine, channels, queues, filtering, statistics | done |
 | v0.3 | Kvaser CANlib backend | done |
-| v0.4 | Pipeline graph: executor, typed ports, compiled topology | done |
-| v0.5 | CAN Trace, the first real consumer node | done |
-| v0.7 | Lua ECU blocks | done |
-| v0.6 | QtNodes canvas — the graph becomes visible and editable | done |
-| **v0.8** | DBC decoder node, `Signals` port | **next** |
-| v0.9 | PEAK-System and SocketCAN backends | |
-| v0.10 | Transmit and Graph nodes | |
-| v0.11 | J1939 and **ISOBUS** (ISO 11783) | |
-| v0.12 | Logger and Playback (`.tblog`, ASC, CSV) | |
-| v0.13 | Workspaces; the `.tbsproj` already carries the pipeline | |
-| v0.14 | ISO-TP and UDS, `Events` port | |
-| v0.15 | Dashboard Designer (QML) | |
-| v0.16 | Lua automation: headless runner, test scripting, reports | |
-| v0.17+ | LIN, XCP/CCP, A2L, ARXML, DoIP, FlexRay | |
+| v0.4 | CAN Trace, on the pipeline graph beneath it | done |
+| v0.5 | PEAK-System backend | done |
+| v0.6 | Transmit, and the QtNodes canvas | done |
+| v0.7 | DBC decoder node, `Signals` port | done |
+| v0.8 | Graph and Statistics | done |
+| v0.9 | Logger and Playback (`.tblog`, ASC, CSV) | done |
+| v0.10 | Projects and workspaces | done |
+| v0.11 | ISO-TP | done |
+| v0.12 | UDS and the Diagnostic Console | done |
+| v0.13 | Lua: simulated ECUs, test sequences, headless runs | done |
+| v0.14 | Dashboard Designer | done |
+| v0.15 | Bus simulation: the rest of it | done |
+| v0.16 | J1939 and ISOBUS | done |
+| **v0.17** | **Plugin system; Kvaser and PEAK leave the binary** | **done** |
+| v0.18+ | LIN, XCP/CCP, A2L, ARXML, DoIP, FlexRay, Linux | |
 
-v0.7 was built before v0.6 deliberately: the Lua engine could be measured, and
-it meant the canvas would edit a graph that already ran rather than being the
-only way to find out whether it ran. The full plan is in [`PLAN.md`](PLAN.md).
+The numbers are the plan's, not a build order: the canvas and the Lua engine
+were both built earlier than their milestone, deliberately — the Lua engine
+because it could be measured, and it meant the canvas would edit a graph that
+already ran rather than being the only way to find out whether it ran.
+
+Everything the v1.0 list asks for is now in (`docs/PLAN.md`, section 35). What
+stands between here and 1.0 is not a feature: it is validation against real
+hardware, which no amount of virtual bus substitutes for.
+
+The full plan is in [`docs/PLAN.md`](docs/PLAN.md).
 
 ---
 
