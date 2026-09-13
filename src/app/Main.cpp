@@ -69,14 +69,15 @@ int main(int argc, char* argv[])
     torquebus::ui::configureDockingSystem();
 
     torquebus::ui::MainWindow window{context.settings(), context.themes(),
-                                     context.catalog(), context.pluginLoader()};
+                                     context.catalog(), context.pluginLoader(),
+                                     context.j1939Names()};
     window.show();
 
-    // Plugins were loaded before this window existed, which is the only order
-    // that works: their backends and blocks have to be registered before
-    // anything reads either list. So what they said is printed now, into the
-    // first panel there has been to print it into.
-    for (const auto& message : context.pluginMessages()) {
+    // All of this happened before the window existed, which is the only order
+    // that works: backends and blocks have to be registered before anything
+    // reads either list. So what was said is printed now, into the first panel
+    // there has been to print it into.
+    for (const auto& message : context.startupMessages()) {
         window.report(message.text, message.isError);
     }
 

@@ -5,6 +5,7 @@
 
 #include "ui/j1939/J1939NetworkPanel.h"
 
+#include "core/j1939/J1939NameTables.h"
 #include "core/j1939/J1939Network.h"
 #include "ui/theme/ThemeManager.h"
 
@@ -15,6 +16,7 @@
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
+#include <optional>
 #include <string_view>
 
 namespace torquebus::ui {
@@ -66,13 +68,43 @@ enum Column : int {
                                       0, 'f', 3);
 }
 
-/// The identity of an ECU in one line: manufacturer and serial are what make a
-/// NAME unique, so they are what the row shows.
-[[nodiscard]] QString nameText(const J1939Name& name)
+/// A number, or the word for it when this machine has one.
+///
+/// The number stays either way. A row that showed only "Transmission" would be
+/// unusable the moment somebody needs to compare it against a database, and the
+/// number is what they would then go looking for.
+[[nodiscard]] QString named(std::optional<std::string_view> word, std::uint32_t number)
 {
-    return QObject::tr("Mfr %1, function %2, serial %3")
-        .arg(name.manufacturerCode)
-        .arg(name.function)
+    if (!word.has_value()) {
+        return QString::number(number);
+    }
+
+    return QStringLiteral("%1 (%2)")
+        .arg(QString::fromUtf8(word->data(), static_cast<qsizetype>(word->size())))
+        .arg(number);
+}
+
+/// The identity of an ECU in one line.
+///
+/// Manufacturer and serial are what make a NAME unique, and the function is
+/// what somebody is usually scanning for - so all three, with words wherever
+/// this machine has a table to supply them.
+[[nodiscard]] QString nameText(const J1939Name& name, const J1939NameTables* tables)
+{
+    const auto lookup = [tables](auto&& getter) -> std::optional<std::string_view> {
+        return tables != nullptr ? getter(*tables) : std::nullopt;
+    };
+
+    const QString function = named(
+        lookup([&name](const J1939NameTables& t) { return t.function(name); }),
+        name.function);
+
+    const QString manufacturer = named(
+        lookup([&name](const J1939NameTables& t) { return t.manufacturer(name.manufacturerCode); }),
+        name.manufacturerCode);
+
+    return QObject::tr("%1, mfr %2, serial %3")
+        .arg(function, manufacturer)
         .arg(name.identityNumber);
 }
 
@@ -178,6 +210,11 @@ void J1939NetworkPanel::buildUi()
     layout->addWidget(m_nodes, 1);
 }
 
+void J1939NetworkPanel::setNameTables(const J1939NameTables* tables)
+{
+    m_names = tables;
+}
+
 void J1939NetworkPanel::setNetwork(J1939Network* network)
 {
     m_network = network;
@@ -227,7 +264,7 @@ void J1939NetworkPanel::rebuild(const J1939NetworkSnapshot& snapshot)
                          .arg(elapsedText(node.firstSeenNs), elapsedText(node.lastSeenNs)));
 
         if (node.name.has_value()) {
-            row->setText(ColumnName, nameText(*node.name));
+            row->setText(ColumnName, nameText(*node.name, m_names));
             row->setText(ColumnState, tr("claimed"));
 
             // The industry group decides what the vehicle system and a function
@@ -286,7 +323,7 @@ void J1939NetworkPanel::rebuild(const J1939NetworkSnapshot& snapshot)
     for (const J1939Defeated& entry : snapshot.defeated) {
         auto* row = new QTreeWidgetItem(m_nodes);
         row->setText(ColumnAddress, tr("none"));
-        row->setText(ColumnName, nameText(entry.name));
+        row->setText(ColumnName, nameText(entry.name, m_names));
         row->setText(ColumnState, tr("no address"));
         row->setForeground(ColumnState, theme.warning);
         row->setText(ColumnDetail,

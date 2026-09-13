@@ -1063,8 +1063,20 @@ mostly that the tool refuses to invent things.
     right length with its middle in the wrong order, which decodes into numbers
     that look measured.
 
+12. **The NAME tables**, if you hold a licence to the SAE Digital Annex. Run
+    `tools/j1939-names.py` against CSV exported from its spreadsheet tabs, put
+    the result in a `data` directory beside the executable, and restart. The
+    NAME column changes from bare numbers to names beside the numbers, and the
+    Output panel says how many of each it read. Without the file, everything
+    still works and every number is still shown - which is the state a fresh
+    download is in, and it must not look broken.
+
 **Watch for:** the panel before any measurement has run. It must say that
 nothing has been seen yet, not show an empty table that reads as an empty bus.
+
+**And watch for:** `data/j1939-names.csv` appearing in `git status`. It holds
+licensed SAE data and the `.gitignore` is there to keep it out; if it ever
+shows up, something has gone wrong with that guard rather than with the file.
 
 ---
 

@@ -32,6 +32,7 @@ add_executable(torquebus_unit_tests
     J1939TransportTests.cpp
     J1939AddressTableTests.cpp
     J1939DiagnosticsTests.cpp
+    J1939NameTablesTests.cpp
     J1939NodeTests.cpp
     PluginLoaderTests.cpp
     DashboardTests.cpp

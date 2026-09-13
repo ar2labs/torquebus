@@ -47,3 +47,9 @@ CMakeSettings.json
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# The J1939 NAME tables are generated from the SAE Digital Annex, which is
+# licensed and not redistributable. tools/j1939-names.py writes this on the
+# machine that holds the licence; it must not come back here.
+data/j1939-names.csv
+**/data/j1939-names.csv
