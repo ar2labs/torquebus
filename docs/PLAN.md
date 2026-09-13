@@ -1719,13 +1719,23 @@ Duas recusas:
 falha de SPN 0 e FMI 0 em qualquer ferramenta que não trate o caso. Aparece como
 "sem falhas ativas", que é o que a mensagem significa.
 
-**A conversão do SPN é declarada, não adivinhada.** O campo foi codificado de
-três formas ao longo da vida da norma, e um fabricante que usa a antiga produz
-números plausíveis e errados sob a leitura nova — o pior tipo de erro, porque
-o resultado parece um SPN. A leitura é uma configuração do bloco, e os quatro
-bytes crus aparecem ao lado do SPN interpretado, sempre. Quem conhece a ECU
-reconhece a conversão certa em um segundo olhando os bytes; ninguém reconhece
-nada olhando um número já convertido errado.
+**A conversão do SPN é declarada, não adivinhada.** A J1939-73 seção 5.7.1.14
+define **quatro** empacotamentos, e o bit de conversão num código diz só a que
+metade da história o remetente pertence: zero é a versão 4, inequívoca; um é
+versão 1, 2 **ou** 3, e o fio não diz qual.
+
+Essa é a dificuldade inteira, e não é do tipo que código melhor resolve. Os
+mesmos três bytes sob as três leituras dão três números diferentes, e todos
+parecem um SPN.
+
+Então: quem conhece o barramento **declara** qual empacotamento antigo as ECUs
+dele usam, e só então um código com o bit ligado é montado. Um código com o bit
+desligado é versão 4 sob qualquer configuração, porque não é ambíguo. E sem nada
+declarado, número nenhum é produzido.
+
+Os quatro bytes crus aparecem ao lado do SPN interpretado, sempre. Quem conhece
+a ECU reconhece a conversão certa em um segundo olhando os bytes; ninguém
+reconhece nada olhando um número já convertido errado.
 
 Mais de um DTC ativo não cabe em oito bytes, então DM1 real chega por BAM. DM1
 depende do transporte, e o transporte é o que tem de estar pronto antes.
@@ -1756,23 +1766,28 @@ Versão: **0.15.0 -> 0.16.0**.
 
 --- O que ficou de fora, e continua de fora ---------------------------------
 
-Duas lacunas deliberadas, cada uma porque a alternativa era embarcar um número
-ou um rótulo que pareceria certo:
+Uma lacuna deliberada, porque a alternativa era embarcar um rótulo que pareceria
+certo:
 
-* **Os empacotamentos antigos do SPN.** Um código que declara o outro
-  empacotamento não recebe SPN nenhum; os quatro bytes crus ficam no lugar. A
-  definição está na J1939-73, que este projeto não tem.
 * **Tabelas de função e de fabricante.** Funções acima de 127 dependem do grupo
   industrial e do sistema veicular; a lista de fabricantes tem uns dois mil
   itens e cresce todo ano. Pertencem a um arquivo de dados corrigível sem
   recompilar. O grupo industrial, que são oito valores fixos, está nomeado.
 
-E uma questão de procedência, que vale escrever porque muda o que confiar: o TP
-clássico inteiro foi conferido contra a **J1939-21 MAY2022** lida diretamente -
-PGNs, os cinco bytes de controle, o formato de cada mensagem, e a Tabela 6. As
-duas PGNs de ETP foram conferidas contra o **Digital Annex**. O comportamento do
-ETP continua apoiado na implementação do kernel Linux, porque a ISO 11783-3 não
-está aqui; está dito no cabeçalho do arquivo e afirmado por extenso nos testes.
+E uma questão de procedência, que vale escrever porque muda o que confiar:
+
+* O TP clássico inteiro foi conferido contra a **J1939-21 MAY2022** lida
+  diretamente - PGNs, os cinco bytes de controle, o formato de cada mensagem, a
+  Tabela 6 e o papel de quem aborta.
+* Os quatro empacotamentos do SPN vêm da **J1939-73 AUG2022** seção 5.7.1.14. A
+  versão 1 está fixada nos testes pelo exemplo trabalhado da própria norma: o
+  DM22 que limpa "SPN 1208, FMI 3" carrega `00 97 03`, e ler aquilo com o bit
+  mais significativo primeiro dá 1208 exatamente.
+* As duas PGNs de ETP foram conferidas contra o **Digital Annex**.
+* O **comportamento** do ETP continua apoiado na implementação do kernel Linux,
+  porque a ISO 11783-3 não está aqui. É a única coisa nesta versão sem lastro
+  normativo, está dito no cabeçalho do arquivo, e está afirmada por extenso nos
+  testes.
 
 E uma que é decisão de postura e não lacuna: **reivindicar endereço**. A tabela
 observa e não tem como transmitir. Um Request for Address Claimed - que

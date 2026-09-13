@@ -1042,10 +1042,13 @@ mostly that the tool refuses to invent things.
 7. A DM1 from a healthy ECU shows *none* in green, not a fault numbered zero.
    Every working ECU on the bus sending SPN 0 / FMI 0 is what a tool that does
    not know about the placeholder looks like.
-8. Turn **Assemble the SPN** off in the block's settings. The faults stay, with
-   FMI and occurrence count, and each shows its four raw bytes instead of an SPN.
-   Turn it back on: a code whose sender declared the other packing still shows
-   bytes rather than a number.
+8. **The SPN packing.** Leave **Legacy SPN packing** empty and find a code whose
+   conversion bit is set - it shows its four raw bytes and no number, because
+   the bit means "version 1, 2 or 3" and the wire does not say which. Set the
+   field to the version that bus actually uses and the number appears. Set it to
+   a different one and a *different* number appears, which is the whole reason
+   it is not guessed. Codes whose bit is clear read the same under every
+   setting; they are not ambiguous.
 9. Power two ECUs configured for the same address at once. The panel shows the
    contest, and the row keeps the lower NAME. Whether the loser actually stops
    transmitting from that address is the thing worth watching.
