@@ -63,20 +63,35 @@ jobs:
         run: |
           Compress-Archive -Path dist/* -DestinationPath "TorqueBus-Studio-${{ github.ref_name }}-win64.zip"
 
+      # The notes come from CHANGELOG.md, not from commit subjects.
+      # generate_release_notes produces an accurate list and a useless one: the
+      # subjects in this repository are full sentences, several describing a bug
+      # found rather than a feature shipped, and somebody looking at a download
+      # wants to know what the build does. This step fails the release when the
+      # tag has no section, which is the right moment to notice.
+      - name: Release notes from the changelog
+        run: |
+          pwsh -File tools/release-notes.ps1 -Version "${{ github.ref_name }}" > changelog-section.md
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+          $preamble = @(
+            "Windows 11 x64 build. The virtual backend works with no driver installed",
+            "at all; for real hardware you need the vendor's own driver:",
+            "",
+            "- Kvaser: Kvaser drivers + CANlib",
+            "- PEAK-System: PCAN-Basic (PCANBasic.dll) + device driver",
+            "",
+            "Licensed under the GNU General Public License v3.0 or later.",
+            "",
+            "---",
+            ""
+          )
+
+          Set-Content -Path release-body.md -Value $preamble -Encoding utf8
+          Add-Content -Path release-body.md -Value (Get-Content changelog-section.md) -Encoding utf8
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: TorqueBus-Studio-${{ github.ref_name }}-win64.zip
-          generate_release_notes: true
-          body: |
-            TorqueBus Studio ${{ github.ref_name }}
-
-            Windows 11 x64 build. Requires the vendor drivers for the interfaces
-            you intend to use:
-
-            - Kvaser: Kvaser drivers + CANlib
-            - PEAK-System: PCAN-Basic (PCANBasic.dll) + device driver
-
-            The virtual backend works with no driver installed at all.
-
-            Licensed under the GNU General Public License v3.0 or later.
+          body_path: release-body.md
