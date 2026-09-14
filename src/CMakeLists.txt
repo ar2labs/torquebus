@@ -479,6 +479,31 @@ set_target_properties(TorqueBusStudio PROPERTIES
 # EXCLUDE_FROM_ALL would not do it - it excludes targets from the build, not
 # install rules from the install.
 
+# ---------------------------------------------------------------------------
+# The layering rules, checked rather than trusted.
+#
+# ARCHITECTURE.md section 1 freezes these. They are here, at the bottom of the
+# file, because every target they talk about has to exist first.
+# ---------------------------------------------------------------------------
+
+torquebus_forbid_link(torquebus_core
+    RULE "rule 3: the core does not depend on widgets - it must stay linkable into a headless logger, a CLI and a test binary"
+    DENY Qt6::Widgets Qt6::Gui Qt6::Core KDAB::kddockwidgets QtNodes::QtNodes
+)
+
+torquebus_forbid_link(torquebus_drivers
+    RULE "rule 2: no driver knows the UI exists - a backend is a translation layer, not a feature"
+    DENY Qt6::Widgets Qt6::Gui KDAB::kddockwidgets QtNodes::QtNodes torquebus::ui
+)
+
+# Rule 1 from the other side: the UI reaches hardware through the registry, so
+# no concrete backend may be linked into it. The vendor backends are plugins
+# now, which is what makes this checkable at all.
+torquebus_forbid_link(torquebus_ui
+    RULE "rule 1: no UI code talks to hardware directly"
+    DENY torquebus::driver_kvaser torquebus::driver_peak
+)
+
 install(TARGETS TorqueBusStudio
     RUNTIME DESTINATION . COMPONENT torquebus
     BUNDLE  DESTINATION . COMPONENT torquebus
