@@ -23,12 +23,28 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
+/// The instant this translation unit was loaded, which is as close to process
+/// start as a file-scope object gets.
+///
+/// It is here and not inside the function on purpose. A function-local static
+/// is initialised on the *first call*, so the first frame a process ever
+/// timestamps would be measured from a point a few nanoseconds earlier - and on
+/// a clock whose tick is coarser than that gap, the answer is exactly 0. That
+/// looked like a timestamp that had never been applied, and an integration test
+/// caught it as one, intermittently, depending on which frame happened to be
+/// first. Anchoring the origin at load time makes every frame's timestamp the
+/// thing the name claims: nanoseconds since the process started.
+///
+/// Ordered dynamic initialisation guarantees this is ready before anything in
+/// this file runs, and nothing here runs before main.
+const Clock::time_point kProcessOrigin = Clock::now();
+
 /// Nanoseconds since the process started. Stands in for the hardware timestamp
 /// a real device would provide.
 [[nodiscard]] std::uint64_t monotonicNanoseconds()
 {
-    static const Clock::time_point origin = Clock::now();
-    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - origin);
+    const auto elapsed =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - kProcessOrigin);
     return static_cast<std::uint64_t>(elapsed.count());
 }
 
