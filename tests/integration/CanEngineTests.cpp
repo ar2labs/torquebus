@@ -496,6 +496,72 @@ TEST_CASE("The engine sustains 100k frames per second without loss",
     CHECK(achievedRate > 100'000.0);
 }
 
+TEST_CASE("The engine has headroom above the rate it is required to sustain",
+          "[engine][throughput]")
+{
+    // The test above answers "does it meet the requirement". This one answers
+    // "by how much", and the two are different questions.
+    //
+    // It exists because the number in the README had no source. The required
+    // rate is throttled by the generator, so the figure that test reports is
+    // the generator's setting and not a ceiling - reading it as one is how a
+    // ceiling gets claimed that nobody measured. Here the generator is told to
+    // go as fast as it can and the pipeline is what limits the result.
+    //
+    // The floor is deliberately no higher than the requirement: this is a
+    // measurement, and a measurement that fails the build on a loaded CI
+    // runner is a measurement nobody keeps. The number to read is the printed
+    // one, compared against the same line from another build.
+    constexpr std::uint64_t kTargetFrames = 2'000'000;
+
+    SinkRecorder recorder;
+
+    VirtualTrafficPattern traffic;
+    traffic.framesPerSecond = 100'000'000;  // unreachable on purpose: no throttle
+    traffic.totalFrames = kTargetFrames;
+    traffic.messageCount = 64;
+
+    auto backend = std::make_unique<VirtualCanBackend>();
+    backend->setTrafficPattern(traffic);
+    VirtualCanBackend* backendPtr = backend.get();
+
+    CanEngine::Configuration configuration;
+    configuration.dispatchInterval = 2ms;
+    configuration.maximumBatchSize = 8192;
+
+    CanEngine engine{configuration};
+
+    REQUIRE(engine.addChannel(std::move(backend), configFor("virtual:0")).succeeded());
+    engine.addFrameSink(recorder.sink());
+
+    const auto started = std::chrono::steady_clock::now();
+
+    REQUIRE(engine.start().succeeded());
+    REQUIRE(backendPtr->waitForTrafficCompletion(60s));
+    REQUIRE(recorder.waitFor(kTargetFrames, 30s));
+
+    engine.stop();
+
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started);
+
+    const CanStatisticsSnapshot snapshot = engine.channel(0)->statistics();
+
+    const double achievedRate =
+        static_cast<double>(recorder.count()) / (static_cast<double>(elapsed.count()) / 1000.0);
+
+    WARN("engine throughput: " << static_cast<std::uint64_t>(achievedRate)
+                               << " frames/s  (" << recorder.count() << " frames in "
+                               << elapsed.count() << " ms, " << snapshot.droppedFrames
+                               << " dropped)");
+
+    // Zero loss is not a measurement, it is the contract, and it holds at
+    // whatever rate the machine reaches.
+    CHECK(snapshot.droppedFrames == 0);
+    CHECK(recorder.count() >= kTargetFrames);
+    CHECK(achievedRate > 100'000.0);
+}
+
 TEST_CASE("The engine runs its work through the graph, not around it",
           "[engine][pipeline]")
 {
