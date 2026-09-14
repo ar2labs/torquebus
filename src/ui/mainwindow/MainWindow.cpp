@@ -21,7 +21,6 @@
 #include "ui/testing/TestPanel.h"
 #include "ui/graph/GraphPanel.h"
 #include "ui/hardware/HardwareDialog.h"
-#include "ui/mainwindow/PlaceholderPanel.h"
 #include "ui/output/OutputPanel.h"
 #include "ui/playback/PlaybackPanel.h"
 #include "ui/preferences/PreferencesDialog.h"

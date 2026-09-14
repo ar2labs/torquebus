@@ -313,8 +313,6 @@ qt_add_library(torquebus_ui STATIC
     ui/common/AnimatedToolButton.cpp
     ui/mainwindow/MainWindow.h
     ui/mainwindow/MainWindow.cpp
-    ui/mainwindow/PlaceholderPanel.h
-    ui/mainwindow/PlaceholderPanel.cpp
     ui/project/ProjectExplorerPanel.h
     ui/project/ProjectExplorerPanel.cpp
     ui/properties/NodePropertiesEditor.h
