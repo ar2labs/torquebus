@@ -382,79 +382,87 @@ E separadamente
 
 # 10. Estrutura do repositório
 
-Eu começaria desta forma
+Isto era uma intenção, escrita antes da primeira linha de código, e virou a
+estrutura real com três desvios que vale nomear em vez de deixar o leitor
+descobrir sozinho. Esta é a árvore **de hoje**:
 
 ```text
 torquebus-studio
 │
 ├── .github
-│   ├── workflows
+│   ├── workflows              (ci.yml, release.yml)
 │   ├── ISSUE_TEMPLATE
 │   └── PULL_REQUEST_TEMPLATE.md
 │
 ├── cmake
+├── data                       (tabela de nomes J1939 que vai junto)
 │
 ├── docs
-│   ├── architecture
-│   ├── development
-│   ├── protocols
-│   └── screenshots
+│   ├── development            (getting-started, testing, validation, …)
+│   ├── ARCHITECTURE.md
+│   └── PLAN.md
 │
 ├── resources
 │   ├── icons
-│   ├── themes
-│   └── fonts
+│   └── themes
 │
 ├── src
+│   ├── app                    (Main.cpp, ApplicationContext.cpp)
 │   │
-│   ├── app
-│   │   ├── Main.cpp
-│   │   ├── Application.cpp
-│   │   └── ApplicationContext.cpp
-│   │
-│   ├── core
-│   │   ├── can
-│   │   ├── logging
-│   │   ├── database
-│   │   ├── diagnostics
-│   │   ├── scripting
-│   │   └── project
+│   ├── core                   (sem Qt, sem vendor)
+│   │   ├── can       database    isotp      j1939
+│   │   ├── log       pipeline    plot       scripting
+│   │   ├── dashboard simulation  testing    trace
+│   │   ├── transmit  diagnostics
+│   │   └── pipeline/nodes
 │   │
 │   ├── drivers
-│   │   ├── api
-│   │   ├── kvaser
-│   │   ├── peak
-│   │   └── virtual
+│   │   ├── api                (ICanBackend)
+│   │   └── virtual            (o único embutido)
+│   │
+│   ├── plugins
+│   │   ├── host               (ABI e carregador)
+│   │   ├── driver-kvaser
+│   │   └── driver-peak
 │   │
 │   ├── services
 │   │
-│   ├── ui
-│   │   ├── mainwindow
-│   │   ├── trace
-│   │   ├── transmit
-│   │   ├── graph
-│   │   ├── hardware
-│   │   ├── project
-│   │   ├── properties
-│   │   └── diagnostics
-│   │
-│   └── plugins
+│   └── ui
+│       ├── mainwindow  canvas     trace      transmit
+│       ├── graph       hardware   project    properties
+│       ├── diagnostics dashboard  database   engine
+│       ├── j1939       output     playback   plugins
+│       ├── preferences scripting  statistics testing
+│       ├── theme       common
 │
 ├── tests
-│   ├── unit
-│   ├── integration
-│   └── hardware
+│   ├── unit                   integration    hardware
 │
 ├── examples
+│   ├── databases              projects       scripts
 │
-├── third_party
+├── third_party                (Lua 5.5.0, compilado do fonte)
 │
-├── CMakeLists.txt
-├── LICENSE
-├── README.md
-├── CONTRIBUTING.md
-└── CODE_OF_CONDUCT.md
+├── tools                      (prompt de build, j1939-names.py, check-package.ps1)
+│
+├── CMakeLists.txt   CMakePresets.json
+├── LICENSE          README.md
+├── CONTRIBUTING.md  CODE_OF_CONDUCT.md
 ```
+
+Os três desvios:
+
+* **`core/logging` e `core/project` nunca existiram.** O primeiro virou
+  `core/log`; o segundo virou `services`, porque projeto e workspace são estado
+  do aplicativo e não domínio do barramento.
+* **`drivers/kvaser` e `drivers/peak` saíram de `drivers`** na v0.17 e viraram
+  plugins. `drivers` guarda a interface e o barramento virtual — o que todo
+  build tem.
+* **`docs/architecture`, `docs/protocols`, `docs/screenshots` e
+  `resources/fonts` foram reservados e nunca preenchidos.** Ficaram anos como
+  diretórios vazios com um `.gitkeep` dentro, prometendo uma organização que a
+  documentação não seguiu: arquitetura é um arquivo, e protocolo é assunto de
+  `docs/development`. Removidos.
 
 ---
 
