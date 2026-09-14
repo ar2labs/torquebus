@@ -16,21 +16,41 @@ refactor.
 
 | # | Rule | Why it exists | Enforced by |
 |---|------|---------------|-------------|
-| 1 | No UI code talks to hardware directly. | A panel that opens a channel cannot be tested, reused or driven by a script. | Review; `torquebus_ui` reaches drivers only through the registry. |
-| 2 | No driver knows the UI exists. | A backend is a translation layer, not a feature. | `torquebus_drivers` does not link `Qt6::Widgets`. |
-| 3 | The core does not depend on widgets. | The core must be linkable into a headless logger, a CLI and a test binary. | `torquebus_core` links neither `Qt6::Widgets` nor `Qt6::Gui`. |
+| 1 | No UI code talks to hardware directly. | A panel that opens a channel cannot be tested, reused or driven by a script. | `torquebus_forbid_link` at configure time: `torquebus_ui` may not reach a concrete backend. |
+| 2 | No driver knows the UI exists. | A backend is a translation layer, not a feature. | `torquebus_forbid_link` at configure time: `torquebus_drivers` may not reach widgets, the docking library or the UI. |
+| 3 | The core does not depend on widgets. | The core must be linkable into a headless logger, a CLI and a test binary. | `torquebus_forbid_link` at configure time: `torquebus_core` may not reach Qt at all, widgets included. |
 | 4 | `CanFrame` is vendor-independent. | Otherwise every new backend leaks into every consumer of a frame. | `core/can/CanFrame.h` includes nothing but the C++ standard library. |
 | 5 | A received frame never becomes a `QObject`. | At 100k frames/s, one allocation and one signal emission per frame is the whole CPU budget. | `static_assert(std::is_trivially_copyable_v<CanFrame>)`; `CanFrameTests.cpp`. |
 | 6 | The UI never blocks waiting for hardware. | A bus-off adapter must not freeze the window. | Backends deliver through callbacks on their own threads. |
 | 7 | Logging never depends on the UI. | Closing the Trace panel must not stop a recording. | Logging engine owns its own thread and writer. |
 | 8 | Protocols never depend on specific hardware. | ISO-TP and UDS must run over Kvaser, PEAK, a replayed log or a simulated ECU without changing. | Protocol layers consume `CanFrame`, not backends. |
 | 9 | Hardware is discovered by capability, not by brand. | `if (driver == PCAN)` scattered through the code is how a tool becomes unmaintainable. | `CanCapabilities`, queried at enumeration. |
-| 10 | Anything that can grow gets an API boundary. | Drivers, databases, protocols and scripting are all third-party extension points. | `ICanBackend`, `IDatabaseParser`, the plugin directory. |
+| 10 | Anything that can grow gets an API boundary. | Drivers, databases, protocols and scripting are all third-party extension points. | `ICanBackend` and `CanBackendRegistry`; `NodeCatalog::registerType`; the plugin ABI and loader in `src/plugins/host`. The database parser is the deliberate exception - see below. |
 | 11 | Every data path is an edge in the pipeline graph. | Two ways for data to reach a panel means two things to keep in sync, and they diverge. The graph is not a view of the pipeline; it *is* the pipeline. | `PipelineGraph` owns every source, transform and sink. |
 | 12 | Nodes exchange batches, never single frames. | A graph walked once per frame, with a virtual call per edge, cannot hold 100k frames/s. Batching is what makes a visual pipeline affordable at bus speed. | The throughput test runs through the graph, not around it. |
 
 Rules 11 and 12 were added when the pipeline graph replaced the fixed
 sink list. The first ten are unchanged.
+
+**Rules 1, 2 and 3 are checked by the build, not by review.** They used to say
+"review" and describe a link property nobody verified - and a layering violation
+is exactly the kind of thing that does not look wrong in a diff. One
+`target_link_libraries` line, it compiles, every test passes, and the core is no
+longer linkable into a headless binary. `cmake/TorqueBusLayering.cmake` walks
+what each library links, transitively, and fails the configure naming the chain.
+Transitively is the point: adding `Qt6::Widgets` to the core is the obvious
+mistake, but linking something that itself pulls in `Qt6::Widgets` has the same
+effect one level further down, where nobody looks.
+
+**Rule 10 has one open boundary, on purpose.** This table used to name an
+`IDatabaseParser` that has never existed - a promise in the contract with no
+code behind it, which is worse than an admitted gap because nobody goes looking
+for it. `DbcParser::parse` is still a free-standing function filling a
+`CanDatabase`, and it stays that way until there is a second format to extract
+an interface *from*: an abstraction pulled out of one implementation is a guess
+about what the second one needs. The reasoning is in
+[`development/databases.md`](development/databases.md); what changed here is
+that the table no longer claims the boundary is already drawn.
 
 ---
 
@@ -479,12 +499,20 @@ Virtual 1* — so the assertions are green before any vendor SDK is involved.
   at apply time, so Dark and Light cannot drift apart structurally.
 - **Icons:** one monochrome SVG set, tinted at load time from the active theme.
 
-### Placeholder panels
+### Placeholder panels (retired)
 
-Panels whose module has not shipped yet exist in the layout from v0.1 as
-`PlaceholderPanel`s. This is deliberate: docking, workspaces and layout
-persistence are exercised against the final set of panels from the first
-commit, so a saved workspace stays valid as each real module lands in place.
+From v0.1 every panel existed in the layout from the first commit, real or not;
+the ones whose module had not shipped were `PlaceholderPanel`s carrying the
+milestone that would fill them in. The point was never the panel - it was that
+docking, workspaces and layout persistence got exercised against the *final* set
+of panels from day one, so a saved workspace stayed valid as each real module
+landed in its place rather than being invalidated by every milestone.
+
+It worked, and it is over: the last placeholder was replaced by its real widget,
+and the class was removed once nothing constructed it. Recorded here because the
+decision is worth keeping even though the code is not - a project that fills its
+layout as it goes pays for it in dead workspaces, and this is how that was
+avoided.
 
 ---
 
