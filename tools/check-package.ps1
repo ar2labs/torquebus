@@ -75,6 +75,8 @@ Require-Path "platforms/qwindows.dll" `
     "the Qt platform plugin; without it the application exits at startup"
 
 Require-Path "LICENSE.txt" "GPLv3 requires the licence text to travel with the binary"
+Require-Path "CHANGELOG.md" `
+    "what changed, for somebody holding a build and wondering which one it is"
 
 # --- What must not be ------------------------------------------------------
 

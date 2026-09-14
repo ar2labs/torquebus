@@ -233,7 +233,9 @@ Everything the v1.0 list asks for is now in (`docs/PLAN.md`, section 35). What
 stands between here and 1.0 is not a feature: it is validation against real
 hardware, which no amount of virtual bus substitutes for.
 
-The full plan is in [`docs/PLAN.md`](docs/PLAN.md).
+The full plan is in [`docs/PLAN.md`](docs/PLAN.md), and what each milestone
+actually brought is in [`CHANGELOG.md`](CHANGELOG.md) — including the things
+that turned out to be broken, which is the half a roadmap never records.
 
 ---
 

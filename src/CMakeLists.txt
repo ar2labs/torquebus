@@ -533,5 +533,6 @@ install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
 )
 
 install(FILES "${CMAKE_SOURCE_DIR}/README.md"
+              "${CMAKE_SOURCE_DIR}/CHANGELOG.md"
     DESTINATION . COMPONENT torquebus
 )
