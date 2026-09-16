@@ -312,6 +312,30 @@ The Ninja presets now pin `CMAKE_LINKER` to `link` for the same reason they pin
 `cl` — but a pin only applies to a directory being configured for the first
 time, so it does not rescue a cache that already holds the wrong value.
 
+**`ar.exe: invalid option -- /`, while linking a static library** — the same
+problem one tool further along, and it hid for longer. `CMAKE_AR` is what builds
+a static library, it is cached separately from both the compiler and the linker,
+and it was not pinned until this was hit. An embedded GNU toolchain on `PATH`
+supplies an `ar.exe`, CMake finds it, and then hands it MSVC's `/nologo` and
+`/out:`.
+
+It fails later than the linker problem, which is what makes it confusing: the
+archiver only runs when a static library actually needs rebuilding. A build
+directory can be green for days — every incremental build reusing the `.lib`
+that was already there — and then break on the first change that touches a
+vendored source. Almost everything here is a static library, so this is the
+expensive one to get wrong.
+
+The presets pin `CMAKE_AR` to `lib` now. Check what a directory actually has
+before blaming anything else:
+
+```powershell
+findstr /C:"CMAKE_AR:" build\windows-msvc-strict\CMakeCache.txt
+```
+
+If it does not say `lib`, delete the directory. Reconfiguring keeps the cached
+value.
+
 **`Target "kddockwidgets" links to Qt6::WidgetsPrivate but the target was not
 found`** — you are on a build tree configured before this was fixed. KDDockWidgets
 links Qt's private targets without requesting them, so TorqueBus requests them

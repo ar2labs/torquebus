@@ -11,6 +11,7 @@ UseTab: Never
 
 AccessModifierOffset: -4
 AlignAfterOpenBracket: Align
+AlignOperands: Align
 AllowShortFunctionsOnASingleLine: Inline
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
@@ -33,6 +34,7 @@ BraceWrapping:
 BreakConstructorInitializers: BeforeComma
 ConstructorInitializerIndentWidth: 4
 Cpp11BracedListStyle: true
+SpaceBeforeCpp11BracedList: false
 FixNamespaceComments: true
 IncludeBlocks: Preserve
 IndentCaseLabels: false

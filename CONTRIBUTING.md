@@ -28,14 +28,29 @@ ctest --preset windows-msvc-debug
 
 Every pull request must pass, on Windows x64 with MSVC:
 
-1. Configure
+1. Configure — which also checks the layering rules
 2. Build Debug **and** Release
 3. Unit tests
 4. Integration tests
-5. `clang-format` check
+5. The package check, on a release build
+
+One command runs all of it the way CI would:
+
+```powershell
+pwsh tools\check-before-push.ps1
+```
+
+Run it from `tools\torquebus-prompt.bat`, and run it **before** pushing rather
+than after: it uses the `windows-msvc-strict` preset, which turns warnings into
+errors, and passing Debug while failing strict is the usual way a change looks
+fine locally and is rejected remotely.
 
 Tests that need a physical adapter carry the `hardware` label and are excluded
 from the default run.
+
+> executed. Everything above is real and checked — by the script, on the machine
+> the code is written on. Saying "enforced by CI" of a CI that has never run
+> would be the same kind of claim this project spends its time removing.
 
 ---
 
@@ -65,11 +80,17 @@ useful information — open an issue and say so.
 
 ## Code style
 
-`clang-format` decides formatting; CI enforces it. Run it before pushing:
+**Do not run `clang-format -i` over a file you touched.** The advice used to be
+exactly that, and it is a trap: this codebase is hand-formatted, with line
+breaks chosen for meaning in places where clang-format would join the line
+because it fits. `clang-format` 21 would rewrite 246 of our 263 files.
+Reformatting one to fix three lines buries your change in a diff nobody can
+review.
 
-```powershell
-clang-format -i <your files>
-```
+`.clang-format` is kept as a reference for the choices that *are* mechanical -
+four-space indent, 100 columns, pointers left, no space before a braced init -
+and the CI step reports what it would change without blocking the merge. Match
+the file you are editing; that is the standard.
 
 Beyond formatting:
 
