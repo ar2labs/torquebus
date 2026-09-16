@@ -48,6 +48,19 @@ against what it does, which turned up more than expected.
 - **`signalsIn` allocated once per frame**, against the pipeline's own rule that
   `process()` must not allocate. Now fills a caller-owned buffer: +14% decode
   throughput, with a test that would notice if it came back.
+- **The CI had never run, and three of its parts were broken.** There is no
+  git remote, so no workflow in `.github/` has ever executed — and the
+  workflows trigger on `main` while the branch here is `master`, so they would
+  not have run even with one. The formatting step globbed 27 vendored Lua
+  headers, which are someone else's C and can never match our config. The
+  "static analysis" step ran `echo` behind `continue-on-error`: a check that
+  could not fail because it checked nothing. `tools/check-before-push.ps1` now
+  runs the same gates where the code actually is.
+- **`CMAKE_AR` was not pinned, and a GNU archiver on `PATH` won.** The presets
+  pinned the compiler and the linker against exactly this — an embedded
+  toolchain's `ar.exe` taking MSVC flags — and missed the archiver, which fails
+  later still: it only runs when a static library needs rebuilding, and almost
+  everything here is a static library.
 
 ### Added
 
@@ -72,9 +85,9 @@ against what it does, which turned up more than expected.
 
 - **The README's throughput figure now has a source.** It claimed 190k
   frames/s; that number appears nowhere else in the repository and no
-  measurement was cited. The requirement asserted on every pull request is
-  150,000 frames/s with zero loss; unthrottled, the same rig measures ~600,000
-  frames/s on an i7-11700K, printed by the test itself.
+  measurement was cited. The asserted requirement is 150,000 frames/s with zero
+  loss; unthrottled, the same rig measures ~600,000 frames/s on an i7-11700K,
+  printed by the test itself.
 - **One `PLAN.md`.** There were two — the one at the root stopped at v0.6 and
   the README linked to it, which is where the roadmap drift came from. Neither
   was a superset, so section 28 was ported across before the stale copy went.

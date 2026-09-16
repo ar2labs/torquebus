@@ -30,7 +30,7 @@
     {
       "name": "windows-msvc-debug",
       "displayName": "Windows x64 - MSVC - Ninja - Debug",
-      "description": "Faster builds, but needs the MSVC environment: run tools/torquebus-prompt.bat, or an 'x64 Native Tools Command Prompt for VS 2022'. The compiler and linker are pinned to cl and link on purpose - otherwise CMake takes whatever comes first on PATH, and an LLVM or an embedded GNU toolchain wins silently. The linker matters as much as the compiler and is easier to miss, because it fails later and looks unrelated: cl compiles CMake's test file, then GNU ld gets MSVC flags and reports 'cannot find /nologo'. Note that CMAKE_LINKER is cached separately from the compiler, so a build directory configured once with a GNU toolchain keeps the GNU linker even after the compiler is re-detected as MSVC - delete the directory rather than reconfiguring it. PLAN.md section 1 froze MSVC x64.",
+      "description": "Faster builds, but needs the MSVC environment: run tools/torquebus-prompt.bat, or an 'x64 Native Tools Command Prompt for VS 2022'. The compiler and linker are pinned to cl and link on purpose - otherwise CMake takes whatever comes first on PATH, and an LLVM or an embedded GNU toolchain wins silently. The linker matters as much as the compiler and is easier to miss, because it fails later and looks unrelated: cl compiles CMake's test file, then GNU ld gets MSVC flags and reports 'cannot find /nologo'. CMAKE_AR is pinned for the same reason and was missed for longer, because it fails even later: the archiver only runs when a static library actually needs rebuilding, so a directory can be green for days and then hand /nologo and /out: to a GNU ar that answers 'invalid option -- /'. Almost everything here is a static library, which makes it the most expensive one to get wrong. Note that these are cached separately from the compiler, so a build directory configured once with a GNU toolchain keeps the GNU tool even after the compiler is re-detected as MSVC - delete the directory rather than reconfiguring it. PLAN.md section 1 froze MSVC x64.",
       "inherits": "base",
       "generator": "Ninja",
       "architecture": { "value": "x64", "strategy": "external" },
@@ -38,7 +38,8 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_C_COMPILER": "cl",
         "CMAKE_CXX_COMPILER": "cl",
-        "CMAKE_LINKER": "link"
+        "CMAKE_LINKER": "link",
+        "CMAKE_AR": "lib"
       }
     },
     {

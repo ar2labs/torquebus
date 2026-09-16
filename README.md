@@ -36,10 +36,10 @@ visual identity, an open architecture and a GPLv3 licence.
 - **Vendor-neutral core.** One frame type, one driver interface. Kvaser, PEAK
   and every future adapter are implementations, not special cases.
 - **Built for throughput.** The pipeline carries **150,000 frames/s with zero
-  loss**, and that is a requirement asserted on every pull request rather than a
-  number quoted afterwards. Unthrottled, the same test rig measures **~600,000
-  frames/s** on an i7-11700K, still with nothing dropped — printed by the test
-  itself, so the figure has a source you can re-run.
+  loss**, and that is asserted by a test rather than quoted afterwards.
+  Unthrottled, the same rig measures **~600,000 frames/s** on an i7-11700K,
+  still with nothing dropped — printed by the test itself, so the figure has a
+  source you can re-run: `pwsh tools/check-before-push.ps1`.
 - **Recording outlives the UI.** Close the Trace panel; the log keeps writing.
 - **Protocols above the frame.** ISO-TP and UDS, and J1939/ISOBUS with address
   claiming, transport (BAM, RTS/CTS, ETP) and DM1/DM2 — checked line by line
