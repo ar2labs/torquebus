@@ -4,6 +4,7 @@ add_executable(torquebus_unit_tests
     AccentColorTests.cpp
     CanFrameTests.cpp
     ThreadGuardTests.cpp
+    ShippedNameTableTests.cpp
     CanSignalEncodeTests.cpp
     LuaSignalTests.cpp
     NodePathTests.cpp
@@ -81,6 +82,12 @@ set_target_properties(torquebus_unit_tests PROPERTIES FOLDER "Tests")
 target_compile_definitions(torquebus_unit_tests
     PRIVATE TORQUEBUS_EXAMPLE_SCRIPT_DIR="${CMAKE_SOURCE_DIR}/examples/scripts"
             TORQUEBUS_EXAMPLE_PROJECT_DIR="${CMAKE_SOURCE_DIR}/examples/projects"
+
+            # The data directory in the source tree, not the copy beside the
+            # executable: the test is about the file that goes into the package,
+            # and checking the copy would pass even if the original were broken
+            # and the copy stale.
+            TORQUEBUS_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
 )
 
 # The Qt this build was configured against, prepended to each test's PATH, plus
