@@ -3,11 +3,13 @@
 // TorqueBus Studio
 // Copyright (C) TorqueBus contributors
 
+#include "core/ThreadGuard.h"
 #include "drivers/virtual/VirtualCanBackend.h"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <condition_variable>
 #include <deque>
 #include <format>
@@ -337,7 +339,10 @@ Result VirtualCanBackend::start()
 
     // The receive thread is what makes this backend a faithful stand-in for
     // real hardware: the frame handler is never called on the caller's thread.
-    m_impl->receiveThread = std::thread{[this, inbox, handler] {
+    m_impl->receiveThread = std::thread{guardThread(
+        "the virtual receive thread",
+        [this](std::string_view reason) { reportThreadStopped(reason); },
+        [this, inbox, handler] {
         std::vector<CanFrame> batch;
         batch.reserve(kMaximumDeliveryBatch);
 
@@ -363,10 +368,13 @@ Result VirtualCanBackend::start()
             }
             m_impl->delivered.fetch_add(batch.size(), std::memory_order_relaxed);
         }
-    }};
+    })};
 
     if (traffic.framesPerSecond > 0) {
-        m_impl->generatorThread = std::thread{[this, traffic, bus] {
+        m_impl->generatorThread = std::thread{guardThread(
+            "the virtual traffic generator",
+            [this](std::string_view reason) { reportThreadStopped(reason); },
+            [this, traffic, bus] {
             const auto period = std::chrono::nanoseconds{1'000'000'000ULL / traffic.framesPerSecond};
             Clock::time_point next = Clock::now();
 
@@ -414,7 +422,7 @@ Result VirtualCanBackend::start()
             }
 
             m_impl->trafficDone.store(true, std::memory_order_release);
-        }};
+        })};
     }
 
     return Result::ok();
@@ -538,6 +546,31 @@ void VirtualCanBackend::setFrameHandler(FrameHandler handler)
 {
     const std::lock_guard lock{m_impl->mutex};
     m_impl->frameHandler = std::move(handler);
+}
+
+void VirtualCanBackend::reportThreadStopped(std::string_view reason)
+{
+    StatusHandler handler;
+    CanBusStatus status;
+
+    {
+        const std::lock_guard lock{m_impl->mutex};
+        m_impl->running.store(false, std::memory_order_release);
+        m_impl->busStatus.state = CanBusState::Offline;
+        status = m_impl->busStatus;
+        handler = m_impl->statusHandler;
+    }
+
+    // Outside the lock, like every other fan-out here.
+    if (handler) {
+        handler(status);
+    }
+
+    // The reason is not thrown away: without it the only evidence is a channel
+    // that went quiet, which is what a pulled cable looks like too.
+    std::fputs("TorqueBus: ", stderr);
+    std::fwrite(reason.data(), 1, reason.size(), stderr);
+    std::fputc('\n', stderr);
 }
 
 void VirtualCanBackend::setStatusHandler(StatusHandler handler)

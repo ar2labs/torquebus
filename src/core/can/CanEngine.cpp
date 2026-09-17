@@ -5,6 +5,8 @@
 
 #include "core/can/CanEngine.h"
 
+#include "core/ThreadGuard.h"
+
 #include "core/pipeline/nodes/FrameNodes.h"
 #include "core/transmit/TransmitListNode.h"
 #include "core/trace/TraceSinkNode.h"
@@ -187,7 +189,20 @@ Result CanEngine::start()
 
     m_deliveredFrames.store(0, std::memory_order_relaxed);
     m_running.store(true, std::memory_order_release);
-    m_thread = std::thread{[this] { dispatchLoop(); }};
+    // Guarded, because this thread runs the graph - and the graph runs Lua
+    // scripts, database decoders and node types a plugin registered. An
+    // exception from any of those used to end the process rather than the
+    // measurement.
+    m_thread = std::thread{[this] {
+        runWithoutEscaping(
+            "the dispatch loop", [this] { dispatchLoop(); },
+            [this](std::string_view reason) {
+                // Stopped first, reported second: whoever reads the message
+                // should not find a measurement that claims to still be running.
+                m_running.store(false, std::memory_order_release);
+                reportToLogSinks(reason, true);
+            });
+    }};
 
     return Result::ok();
 }
@@ -363,13 +378,7 @@ void CanEngine::setGraphDescription(GraphDescription description,
         context.transmitList = m_transmitList;
         context.channel = [this](std::uint8_t index) { return channel(index); };
         context.log = [this](const std::string& text, bool isError) {
-            // Copied under the lock and called outside it, like every other
-            // fan-out here: a sink that blocks must not be holding the mutex
-            // that the next node needs in order to log.
-            const auto sinks = copySinks(m_sinksMutex, m_logSinks);
-            for (const LogSink& sink : sinks) {
-                sink(text, isError);
-            }
+            reportToLogSinks(text, isError);
         };
 
         return description.build(catalog, context, graph);
@@ -593,6 +602,19 @@ SinkId CanEngine::addFrameSink(FrameSink sink)
     const SinkId id = m_nextSinkId++;
     m_frameSinks.push_back({id, std::move(sink)});
     return id;
+}
+
+void CanEngine::reportToLogSinks(std::string_view text, bool isError) const
+{
+    // Copied under the lock and called outside it, like every other fan-out
+    // here: a sink that blocks must not be holding the mutex that the next node
+    // needs in order to log.
+    const auto sinks = copySinks(m_sinksMutex, m_logSinks);
+    const std::string message{text};
+
+    for (const LogSink& sink : sinks) {
+        sink(message, isError);
+    }
 }
 
 void CanEngine::removeFrameSink(SinkId id)

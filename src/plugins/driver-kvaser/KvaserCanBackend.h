@@ -63,6 +63,13 @@ public:
     [[nodiscard]] static bool isCompiledIn() noexcept;
 
 private:
+    /// Called when a worker thread ends because something was thrown out of it.
+    ///
+    /// The channel really has stopped delivering, so it says Offline - the same
+    /// thing it would say for an unplugged adapter, which is the honest answer
+    /// and the one the rest of the application already knows how to show.
+    void reportThreadStopped(std::string_view reason);
+
     struct Impl;
     std::unique_ptr<Impl> m_impl;
 };

@@ -3,6 +3,7 @@
 add_executable(torquebus_unit_tests
     AccentColorTests.cpp
     CanFrameTests.cpp
+    ThreadGuardTests.cpp
     CanSignalEncodeTests.cpp
     LuaSignalTests.cpp
     NodePathTests.cpp

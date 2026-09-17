@@ -3,6 +3,21 @@
 # Enforces, mechanically, the parts of docs/ARCHITECTURE.md a compiler cannot:
 # no owning raw pointers in new code, no implicit conversions on the frame
 # pipeline, no accidental copies of large structures.
+#
+# This file was written early and did not run until much later - CI never
+# executed, and the "static analysis" step in it was an echo. The first real
+# run, with clang-tidy 21 over all 95 of our translation units, found the
+# defect that src/core/ThreadGuard.h now covers: four thread entry points and
+# two destructors from which an exception could escape, every one of them a
+# std::terminate rather than an error.
+#
+# To run it:
+#
+#   clang-tidy -p build/windows-msvc-strict --quiet #       --extra-arg=-Wno-unused-command-line-argument <file.cpp>
+#
+# The extra argument is needed because the compilation database carries MSVC's
+# /Zc:preprocessor, which clang accepts and does not use; without it every file
+# reports an error before any check runs.
 
 Checks: >
   -*,
@@ -12,6 +27,12 @@ Checks: >
   cppcoreguidelines-slicing,
   cppcoreguidelines-virtual-class-destructor,
   misc-*,
+  # Off, and not as a matter of taste: it postdates this file, and it wants
+  # every symbol's header included directly - 45,000 findings on the first run,
+  # of which the interesting ones were none. It is also wrong often enough to
+  # cost more than it returns, reporting symbols that do arrive through a header
+  # this file includes on purpose.
+  -misc-include-cleaner,
   -misc-non-private-member-variables-in-classes,
   -misc-no-recursion,
   modernize-*,

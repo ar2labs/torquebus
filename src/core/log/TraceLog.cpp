@@ -116,7 +116,16 @@ void applyFlags(CanFrame& frame, std::uint8_t flags)
 
 TraceLogWriter::~TraceLogWriter()
 {
-    close();
+    // Nothing escapes a destructor. close() flushes, flushing formats and
+    // allocates, and an allocation that fails while the stack is already
+    // unwinding calls terminate - taking the application down at the exact
+    // moment it was trying to finish writing somebody's measurement.
+    try {
+        close();
+    } catch (...) {
+        // There is no caller left to tell, and the file is closed either way
+        // when the stream is destroyed.
+    }
 }
 
 Result TraceLogWriter::open(const std::string& path, std::uint64_t startWallClockUs)
