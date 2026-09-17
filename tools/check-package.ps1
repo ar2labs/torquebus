@@ -69,8 +69,48 @@ Require-Path "plugins/torquebus-driver-peak.dll" `
 Require-Path "data/j1939-names-functions.csv" `
     "J1939 function names; without it the network panel shows bare numbers"
 
-Require-Path "Qt6Core.dll"    "windeployqt did not run, or ran against the wrong executable"
-Require-Path "Qt6Widgets.dll" "windeployqt did not run, or ran against the wrong executable"
+# --- Does the executable have what it imports? ------------------------------
+#
+# Asking by name was not enough, and the way it failed is worth keeping. This
+# used to require "Qt6Core.dll", which a package can contain while still being
+# unrunnable: a Debug build imports Qt6Cored.dll, and `windeployqt --release`
+# deploys the release set beside it. Qt6Core.dll is present, the check passes,
+# and the application stops at startup with "Qt6Guid.dll was not found".
+#
+# So the question is not whether a file with a familiar name is there. It is
+# whether every DLL the binary actually imports can be found in the package -
+# which is what the loader will ask, and the only question worth answering.
+
+$imports = @()
+$dumpbin = Get-Command "dumpbin.exe" -ErrorAction SilentlyContinue
+
+if ($dumpbin) {
+    $exe = Join-Path $Path "TorqueBusStudio.exe"
+
+    if (Test-Path -LiteralPath $exe) {
+        $imports = @(& $dumpbin.Source /DEPENDENTS $exe 2>$null |
+            Select-String -Pattern '^\s+(\S+\.dll)$' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value })
+    }
+}
+
+if ($imports.Count -eq 0) {
+    # No dumpbin means no MSVC environment. Worth saying rather than silently
+    # checking less than the message implies.
+    Write-Host "  skipped  import check (dumpbin not on PATH)" -ForegroundColor DarkGray
+
+    Require-Path "Qt6Core.dll"    "windeployqt did not run, or ran against the wrong executable"
+    Require-Path "Qt6Widgets.dll" "windeployqt did not run, or ran against the wrong executable"
+} else {
+    # System DLLs come from Windows, not from us.
+    $ours = $imports | Where-Object {
+        $_ -notmatch '^(api-ms-|KERNEL32|USER32|SHELL32|ADVAPI32|ole32|OLEAUT32|WS2_32|dwmapi|d3d|dxgi|dxguid|VCRUNTIME|MSVCP|ucrtbase|WINMM|IMM32|NETAPI32|VERSION|CRYPT32|bcrypt|SETUPAPI|USERENV|MPR|UxTheme|COMDLG32|GDI32)'
+    }
+
+    foreach ($dll in $ours) {
+        Require-Path $dll "TorqueBusStudio.exe imports it; without it the application does not start"
+    }
+}
 Require-Path "platforms/qwindows.dll" `
     "the Qt platform plugin; without it the application exits at startup"
 

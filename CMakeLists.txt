@@ -115,6 +115,7 @@ endif()
 include(TorqueBusCompilerWarnings)
 include(TorqueBusDependencies)
 include(TorqueBusLayering)
+include(TorqueBusTestEnvironment)
 
 # --------------------------------------------------------------------------
 # Project targets

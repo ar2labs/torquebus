@@ -29,13 +29,21 @@ concurrency:
 
 jobs:
   build:
-    name: Windows x64 (${{ matrix.build_type }})
+    name: Windows x64 (${{ matrix.preset }})
     runs-on: windows-2022
 
+    # The presets, by name, and not a build type passed on the command line.
+    # This job used to configure with -DCMAKE_BUILD_TYPE=Release, which produced
+    # a configuration no preset produces and therefore one no developer can
+    # reproduce: windows-msvc-release is RelWithDebInfo, so CI was testing a
+    # build nobody else had. Worse, bypassing the presets meant bypassing the
+    # toolchain pins in them - CMAKE_C_COMPILER, CMAKE_LINKER and CMAKE_AR are
+    # pinned precisely so a stray toolchain on PATH cannot win, and this job
+    # was getting none of that protection.
     strategy:
       fail-fast: false
       matrix:
-        build_type: [Debug, Release]
+        preset: [windows-msvc-debug, windows-msvc-release]
 
     steps:
       - uses: actions/checkout@v4
@@ -62,25 +70,24 @@ jobs:
       - name: Cache fetched dependencies
         uses: actions/cache@v4
         with:
-          path: build/_deps
-          key: deps-${{ runner.os }}-${{ matrix.build_type }}-${{ hashFiles('cmake/TorqueBusDependencies.cmake') }}
+          path: build/${{ matrix.preset }}/_deps
+          key: deps-${{ runner.os }}-${{ matrix.preset }}-${{ hashFiles('cmake/TorqueBusDependencies.cmake') }}
 
+      # Warnings as errors on both, which the presets leave to
+      # windows-msvc-strict: a warning is a warning in whichever configuration
+      # finds it, and Release finds ones Debug does not.
       - name: Configure
-        run: >
-          cmake -S . -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-          -DTORQUEBUS_BUILD_TESTS=ON
-          -DTORQUEBUS_WARNINGS_AS_ERRORS=ON
+        run: cmake --preset ${{ matrix.preset }} -DTORQUEBUS_WARNINGS_AS_ERRORS=ON
 
       - name: Build
-        run: cmake --build build --parallel
+        run: cmake --build --preset ${{ matrix.preset }}
 
       - name: Unit tests
-        working-directory: build
+        working-directory: build/${{ matrix.preset }}
         run: ctest --output-on-failure --label-exclude integration --label-exclude hardware
 
       - name: Integration tests
-        working-directory: build
+        working-directory: build/${{ matrix.preset }}
         run: ctest --output-on-failure --label-regex integration
 
       # --component torquebus, not a plain install: KDDockWidgets and QtNodes
@@ -88,19 +95,19 @@ jobs:
       # and a plain install writes their headers and CMake config into what is
       # supposed to be an application.
       - name: Package
-        if: matrix.build_type == 'Release'
+        if: matrix.preset == 'windows-msvc-release'
         run: |
-          cmake --install build --prefix dist --component torquebus
+          cmake --install build/${{ matrix.preset }} --prefix dist --component torquebus
           windeployqt --release --no-translations --no-system-d3d-compiler dist/TorqueBusStudio.exe
 
       # The artifact is what people download, so it is what gets checked. The
       # build being green says nothing about whether the plugins were copied.
       - name: Check the package
-        if: matrix.build_type == 'Release'
+        if: matrix.preset == 'windows-msvc-release'
         run: pwsh tools/check-package.ps1 -Path dist
 
       - name: Upload build
-        if: matrix.build_type == 'Release'
+        if: matrix.preset == 'windows-msvc-release'
         uses: actions/upload-artifact@v4
         with:
           name: TorqueBus-Studio-win64

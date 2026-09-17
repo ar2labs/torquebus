@@ -37,13 +37,17 @@ jobs:
 
       - uses: lukka/get-cmake@latest
 
+      # The preset by name, so that what ships is the configuration developers
+      # build and test. Passing -DCMAKE_BUILD_TYPE=Release here produced a
+      # fourth configuration nobody had - and skipped the toolchain pins the
+      # presets carry.
       - name: Configure and build
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DTORQUEBUS_BUILD_TESTS=ON
-          cmake --build build --parallel
+          cmake --preset windows-msvc-release -DTORQUEBUS_WARNINGS_AS_ERRORS=ON
+          cmake --build --preset windows-msvc-release
 
       - name: Test
-        working-directory: build
+        working-directory: build/windows-msvc-release
         run: ctest --output-on-failure --label-exclude hardware
 
       # --component torquebus, not a plain install: the FetchContent
@@ -51,7 +55,7 @@ jobs:
       # through the install rules, so they cannot be forgotten here.
       - name: Package
         run: |
-          cmake --install build --prefix dist --component torquebus
+          cmake --install build/windows-msvc-release --prefix dist --component torquebus
           windeployqt --release --no-translations dist/TorqueBusStudio.exe
 
       # Before the zip, not after: a release that is missing the vendor plugins

@@ -37,9 +37,11 @@ visual identity, an open architecture and a GPLv3 licence.
   and every future adapter are implementations, not special cases.
 - **Built for throughput.** The pipeline carries **150,000 frames/s with zero
   loss**, and that is asserted by a test rather than quoted afterwards.
-  Unthrottled, the same rig measures **~600,000 frames/s** on an i7-11700K,
-  still with nothing dropped — printed by the test itself, so the figure has a
-  source you can re-run: `pwsh tools/check-before-push.ps1`.
+  Unthrottled, an optimised build delivers **~2,100,000 frames/s** on an
+  i7-11700K — and drops what will not fit, because the queues are bounded on
+  purpose and say how much they discarded. Both numbers are printed by the
+  tests that measure them, in the configuration named: `cmake --build --preset
+  windows-msvc-release`, then `ctest -R throughput`.
 - **Recording outlives the UI.** Close the Trace panel; the log keeps writing.
 - **Protocols above the frame.** ISO-TP and UDS, and J1939/ISOBUS with address
   claiming, transport (BAM, RTS/CTS, ETP) and DM1/DM2 — checked line by line
