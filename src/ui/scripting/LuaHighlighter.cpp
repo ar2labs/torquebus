@@ -170,8 +170,11 @@ void LuaHighlighter::highlightBlock(const QString& text)
             break;
         }
 
-        start = static_cast<int>(text.indexOf(m_longCommentStart,
-                                              static_cast<qsizetype>(start + length)));
+        // Widened before the addition, not after. Casting the sum says the
+        // width was considered while still doing the arithmetic in int - which
+        // is the one place it could go wrong.
+        start = static_cast<int>(text.indexOf(
+            m_longCommentStart, static_cast<qsizetype>(start) + static_cast<qsizetype>(length)));
     }
 }
 
