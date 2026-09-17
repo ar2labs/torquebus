@@ -124,7 +124,7 @@ void PlaybackPanel::buildUi()
     row->setContentsMargins(0, 0, 0, 0);
     row->setSpacing(4);
 
-    const auto button = [this, &icon](const char* iconName, const QString& tip) {
+    const auto button = [&icon](const char* iconName, const QString& tip) {
         auto* control = new QToolButton;
         control->setIcon(icon(iconName));
         control->setToolTip(tip);
