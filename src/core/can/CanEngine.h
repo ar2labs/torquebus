@@ -57,6 +57,7 @@
 #include <mutex>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <thread>
 #include <vector>
@@ -370,6 +371,12 @@ public:
 
 private:
     void dispatchLoop();
+
+    /// Fans a line out to every registered log sink.
+    ///
+    /// Takes a string_view because one of its callers is the thread guard,
+    /// which has to be able to report without allocating.
+    void reportToLogSinks(std::string_view text, bool isError) const;
     std::size_t dispatchPass();
     void publishStatistics(std::uint64_t elapsedNs);
 

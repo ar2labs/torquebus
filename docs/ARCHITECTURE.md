@@ -453,6 +453,28 @@ The frame handler is invoked from the backend's receive thread. It must not
 block, must not allocate on the hot path, and must not touch a widget. It hands
 the batch to a queue and returns.
 
+**Nothing throws out of a thread body, and nothing throws out of a destructor.**
+Both call `std::terminate`: not a dialog, not a stopped measurement, but the
+process gone with no message and nothing flushed to the recording that was in
+progress. `src/core/ThreadGuard.h` wraps all four entry points - the dispatch
+loop and one receive thread per backend - and the two destructors that flush to
+disk.
+
+The dispatch loop is why this matters more than it looks. It walks the graph,
+which means it runs Lua ECU scripts, database decoders and node types
+registered by a plugin this repository has never seen. The plugin loader
+already survives an exception thrown during registration; it would have been an
+odd place to stop being careful, because a plugin's node throwing at frame
+40,000 took the whole application with it.
+
+The guard is a net, not a strategy: code that can fail in a way somebody should
+act on returns a `Result`. This is for the rest, and for the ones nobody
+thought of. On catching, the engine stops the measurement and logs; a backend
+reports itself `Offline`, which is the honest answer and the one the rest of
+the application already knows how to show.
+
+Found by the first run of `clang-tidy` (`bugprone-exception-escape`), which had
+never executed before - see `.clang-tidy`.
 ### Proprietary SDKs
 
 Vendor SDKs are never committed (`PLAN.md` section 31). The build detects them;

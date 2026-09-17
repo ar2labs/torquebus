@@ -83,7 +83,16 @@ std::string_view extensionFor(TraceExporter::Format format) noexcept
 
 TraceExporter::~TraceExporter()
 {
-    static_cast<void>(close());
+    // Nothing escapes a destructor. close() flushes, flushing formats and
+    // allocates, and an allocation that fails while the stack is already
+    // unwinding calls terminate - taking the application down at the exact
+    // moment it was trying to finish writing somebody's measurement.
+    try {
+        static_cast<void>(close());
+    } catch (...) {
+        // There is no caller left to tell, and the file is closed either way
+        // when the stream is destroyed.
+    }
 }
 
 Result TraceExporter::open(const std::string& path,

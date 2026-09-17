@@ -5,12 +5,14 @@
 //
 // The only translation unit in TorqueBus that includes canlib.h.
 
+#include "core/ThreadGuard.h"
 #include "plugins/driver-kvaser/KvaserCanBackend.h"
 
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <format>
 #include <mutex>
 #include <string>
@@ -416,7 +418,10 @@ Result KvaserCanBackend::start()
 
     m_impl->running.store(true, std::memory_order_release);
 
-    m_impl->receiveThread = std::thread{[this, handle, handler, applicationChannel] {
+    m_impl->receiveThread = std::thread{guardThread(
+        "the Kvaser receive thread",
+        [this](std::string_view reason) { reportThreadStopped(reason); },
+        [this, handle, handler, applicationChannel] {
         std::vector<CanFrame> batch;
         batch.reserve(kBatchSize);
 
@@ -487,7 +492,7 @@ Result KvaserCanBackend::start()
         }
 
         flush();
-    }};
+    })};
 
     return Result::ok();
 }
@@ -648,6 +653,32 @@ void KvaserCanBackend::setFrameHandler(FrameHandler handler)
     m_impl->frameHandler = std::move(handler);
 }
 
+void KvaserCanBackend::reportThreadStopped(std::string_view reason)
+{
+    StatusHandler handler;
+    CanBusStatus status;
+
+    {
+        const std::lock_guard lock{m_impl->mutex};
+        m_impl->running.store(false, std::memory_order_release);
+        m_impl->state.store(CanBusState::Offline, std::memory_order_relaxed);
+        status.state = CanBusState::Offline;
+        status.hardwareOverruns = m_impl->hardwareOverruns.load(std::memory_order_relaxed);
+        handler = m_impl->statusHandler;
+    }
+
+    // Outside the lock, like every other fan-out here.
+    if (handler) {
+        handler(status);
+    }
+
+    // The reason is not thrown away: without it the only evidence is a channel
+    // that went quiet, which is what a pulled cable looks like too.
+    std::fputs("TorqueBus: ", stderr);
+    std::fwrite(reason.data(), 1, reason.size(), stderr);
+    std::fputc('\n', stderr);
+}
+
 void KvaserCanBackend::setStatusHandler(StatusHandler handler)
 {
     const std::lock_guard lock{m_impl->mutex};
@@ -702,6 +733,11 @@ CanCapabilities KvaserCanBackend::capabilities() const { return m_impl->capabili
 
 void KvaserCanBackend::setFrameHandler(FrameHandler) {}
 void KvaserCanBackend::setStatusHandler(StatusHandler) {}
+
+// The stub has no threads to guard, but the declaration is unconditional and a
+// missing definition is a link error rather than a compile one - found later,
+// and only by whoever builds without the SDK.
+void KvaserCanBackend::reportThreadStopped(std::string_view) {}
 
 #endif // TORQUEBUS_HAVE_KVASER
 

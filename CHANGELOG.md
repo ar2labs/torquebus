@@ -56,6 +56,13 @@ against what it does, which turned up more than expected.
   "static analysis" step ran `echo` behind `continue-on-error`: a check that
   could not fail because it checked nothing. `tools/check-before-push.ps1` now
   runs the same gates where the code actually is.
+- **An exception could leave four thread bodies and two destructors**, and
+  every one of those is a `std::terminate` — the process gone with no message
+  and nothing flushed to the recording in progress. The worst was the dispatch
+  loop, which runs Lua scripts, database decoders and node types registered by
+  a plugin: a plugin's node throwing at frame 40,000 took the application with
+  it, even though the loader is careful about exceptions during registration.
+  Found by the first run of `clang-tidy`, which had never executed before.
 - **`CMAKE_AR` was not pinned, and a GNU archiver on `PATH` won.** The presets
   pinned the compiler and the linker against exactly this — an embedded
   toolchain's `ar.exe` taking MSVC flags — and missed the archiver, which fails
@@ -80,6 +87,9 @@ against what it does, which turned up more than expected.
 - **A throughput headroom measurement**, separate from the throughput
   requirement, because "does it meet the requirement" and "by how much" are
   different questions.
+- **`src/core/ThreadGuard.h`**, the net under every thread entry point and every
+  destructor that flushes, with six tests — including the one that would
+  otherwise be embarrassing: a reporter that throws while reporting a crash.
 
 ### Changed
 

@@ -17,6 +17,7 @@ find_package(Threads REQUIRED)
 
 add_library(torquebus_core STATIC
     core/Result.h
+    core/ThreadGuard.h
     core/can/CanFrame.h
     core/can/CanFrame.cpp
     core/can/CanFilter.h
