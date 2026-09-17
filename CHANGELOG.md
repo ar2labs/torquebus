@@ -69,6 +69,28 @@ against what it does, which turned up more than expected.
   later still: it only runs when a static library needs rebuilding, and almost
   everything here is a static library.
 
+- **The tests trusted `PATH` for their Qt, and a wrong one hung them for ever.**
+  Every test binary links Qt, so the loader searches `PATH` — and on the machine
+  this was found on, STM32CubeProgrammer's own Qt 6.10.2 sat ahead of the 6.11.2
+  the binaries were built against. The failure is `STATUS_ENTRYPOINT_NOT_FOUND`,
+  which Windows reports with a *modal dialog*: four test processes waited at zero
+  CPU for twelve minutes with an empty log. The tests now carry the Qt they were
+  built against, and the unit suite — the only one with no timeout — has one.
+- **The pre-push script packaged a Debug build and deployed release Qt onto it**,
+  producing a staging tree whose executable could not start (`Qt6Guid.dll was
+  not found`). `check-package.ps1` passed it, because it asked for `Qt6Core.dll`
+  by name and the release `Qt6Core.dll` was right there. It now reads what the
+  executable actually imports and requires each one; packaging happens from the
+  release preset, because nobody ships a Debug build.
+- **The headroom test demanded zero loss from an unthrottled producer**, which a
+  bounded queue cannot give — the architecture counts `softwareOverruns`
+  precisely because a producer can outrun a consumer. It passed in Debug and
+  failed in RelWithDebInfo, which is the giveaway: it was measuring how the
+  optimiser balanced producer against consumer, not the pipeline.
+- **CI configured without the presets**, so it built a configuration no preset
+  produces (`Release`, where `windows-msvc-release` is `RelWithDebInfo`) and got
+  none of the toolchain pins the presets exist to carry.
+
 ### Added
 
 - **The J1939 function-name table ships.** Derived from AgIsoStack++ under the
@@ -93,11 +115,14 @@ against what it does, which turned up more than expected.
 
 ### Changed
 
-- **The README's throughput figure now has a source.** It claimed 190k
-  frames/s; that number appears nowhere else in the repository and no
-  measurement was cited. The asserted requirement is 150,000 frames/s with zero
-  loss; unthrottled, the same rig measures ~600,000 frames/s on an i7-11700K,
-  printed by the test itself.
+- **The README's throughput figure now has a source, and the right one.** It
+  claimed 190k frames/s — a number that appears nowhere else in the repository,
+  with no measurement cited. The first correction replaced it with ~600,000,
+  which was measured in a **Debug** build and presented without saying so;
+  nobody ships Debug. An optimised build delivers ~2,100,000 frames/s on an
+  i7-11700K, dropping what a bounded queue cannot hold and counting it. The
+  asserted requirement stays separate: 150,000 frames/s with zero loss, at a
+  throttled rate.
 - **One `PLAN.md`.** There were two — the one at the root stopped at v0.6 and
   the README linked to it, which is where the roadmap drift came from. Neither
   was a superset, so section 28 was ported across before the stale copy went.

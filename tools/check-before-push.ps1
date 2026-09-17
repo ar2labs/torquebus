@@ -19,7 +19,8 @@
 # errors, and it is what CI configures; passing Debug and failing strict is the
 # usual way a change looks fine locally and is rejected remotely.
 #
-#   pwsh tools/check-before-push.ps1            # build, tests, formatting
+#   pwsh tools/check-before-push.ps1            # Debug + strict, then the rest
+#   pwsh tools/check-before-push.ps1 -All       # and Release, which is what ships
 #   pwsh tools/check-before-push.ps1 -SkipBuild # only the cheap checks
 #
 # Needs the MSVC and Qt environment: run it from tools\torquebus-prompt.bat, or
@@ -30,6 +31,14 @@ param(
     # Skips configure, build and tests - useful when you have just run them and
     # only want the formatting and packaging opinion.
     [switch] $SkipBuild,
+
+    # Both configurations, which is what CONTRIBUTING.md actually asks for.
+    # Without it this checks windows-msvc-strict only - Debug with warnings as
+    # errors - and Release goes untested. That gap is not theoretical: a test
+    # that passed in Debug failed in RelWithDebInfo the first time anybody ran
+    # it there, because it was measuring how the optimiser balanced a producer
+    # against a consumer rather than measuring the pipeline.
+    [switch] $All,
 
     [string] $Preset = "windows-msvc-strict"
 )
@@ -79,26 +88,30 @@ try {
     # --- 2. Configure, build, test ------------------------------------------
 
     if (-not $SkipBuild) {
-        Write-Heading "Configure ($Preset)"
-
-        # The layering rules in cmake/TorqueBusLayering.cmake fail here, not at
-        # build time, so a configure that succeeds has already checked them.
-        cmake --preset $Preset 2>&1 | Select-Object -Last 12
-        if ($LASTEXITCODE -ne 0) { $failures += "configure failed" }
-
-        if ($failures.Count -eq 0) {
-            Write-Heading "Build"
-            cmake --build --preset $Preset 2>&1 | Select-Object -Last 12
-            if ($LASTEXITCODE -ne 0) { $failures += "build failed" }
+        $presets = @($Preset)
+        if ($All -and $Preset -ne "windows-msvc-release") {
+            $presets += "windows-msvc-release"
         }
 
-        if ($failures.Count -eq 0) {
-            Write-Heading "Tests"
-            Push-Location (Join-Path $root "build/$Preset")
+        foreach ($current in $presets) {
+            Write-Heading "Configure ($current)"
+
+            # The layering rules in cmake/TorqueBusLayering.cmake fail here, not
+            # at build time, so a configure that succeeds has already checked
+            # them.
+            cmake --preset $current 2>&1 | Select-Object -Last 12
+            if ($LASTEXITCODE -ne 0) { $failures += "$current : configure failed"; continue }
+
+            Write-Heading "Build ($current)"
+            cmake --build --preset $current 2>&1 | Select-Object -Last 12
+            if ($LASTEXITCODE -ne 0) { $failures += "$current : build failed"; continue }
+
+            Write-Heading "Tests ($current)"
+            Push-Location (Join-Path $root "build/$current")
             try {
                 ctest --output-on-failure --label-exclude hardware -j 4 2>&1 |
                     Select-Object -Last 10
-                if ($LASTEXITCODE -ne 0) { $failures += "tests failed" }
+                if ($LASTEXITCODE -ne 0) { $failures += "$current : tests failed" }
             } finally {
                 Pop-Location
             }
@@ -155,33 +168,52 @@ try {
 
     # --- 4. The package -----------------------------------------------------
     #
-    # Only when a build just happened, and only as an opinion: the real gate is
-    # in the release workflow. It is here because the packaging defect this
-    # script's neighbours were written for - a release with no vendor plugins -
-    # was invisible in every other check.
+    # From the *release* preset, always, whatever $Preset the gates above used.
+    #
+    # This step used to package whatever had just been built, which by default
+    # is windows-msvc-strict - and that inherits windows-msvc-debug, so it is a
+    # Debug binary importing Qt6Cored.dll, Qt6Guid.dll and Qt6Widgetsd.dll.
+    # Running `windeployqt --release` on it deployed the release Qt beside a
+    # binary that needs the debug one, and the result would not start:
+    # "Qt6Guid.dll was not found". check-package.ps1 passed it anyway, because
+    # it was looking for Qt6Core.dll by name and the release Qt6Core.dll was
+    # right there.
+    #
+    # Packaging a Debug build was never meaningful - nobody ships one - so the
+    # fix is not to teach this step about --debug but to package the thing that
+    # actually ships.
 
     if (-not $SkipBuild -and $failures.Count -eq 0) {
         Write-Heading "Package (advisory)"
 
-        $staging = Join-Path ([System.IO.Path]::GetTempPath()) "torquebus-package-check"
-        if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
+        $packagePreset = "windows-msvc-release"
+        $packageBuild = Join-Path $root "build/$packagePreset"
 
-        cmake --install "build/$Preset" --prefix $staging --component torquebus 2>&1 |
-            Select-Object -Last 3
-
-        if ($LASTEXITCODE -ne 0) {
-            $advisories += "package: install failed"
-        } elseif (Get-Command "windeployqt" -ErrorAction SilentlyContinue) {
-            windeployqt --release --no-translations --no-system-d3d-compiler `
-                (Join-Path $staging "TorqueBusStudio.exe") 2>&1 | Out-Null
-
-            & (Join-Path $PSScriptRoot "check-package.ps1") -Path $staging
-            if ($LASTEXITCODE -ne 0) { $advisories += "package: incomplete" }
+        if (-not (Test-Path $packageBuild)) {
+            Write-Host "  $packagePreset has not been built - skipped" -ForegroundColor DarkGray
+            Write-Host "  (run with -All, or build that preset, to include this)" -ForegroundColor DarkGray
+            $advisories += "package: not checked, no $packagePreset build"
         } else {
-            Write-Host "  windeployqt not found - skipped" -ForegroundColor DarkGray
-        }
+            $staging = Join-Path ([System.IO.Path]::GetTempPath()) "torquebus-package-check"
+            if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
 
-        Remove-Item -Recurse -Force $staging -ErrorAction SilentlyContinue
+            cmake --install $packageBuild --prefix $staging --component torquebus 2>&1 |
+                Select-Object -Last 3
+
+            if ($LASTEXITCODE -ne 0) {
+                $advisories += "package: install failed"
+            } elseif (Get-Command "windeployqt" -ErrorAction SilentlyContinue) {
+                windeployqt --release --no-translations --no-system-d3d-compiler `
+                    (Join-Path $staging "TorqueBusStudio.exe") 2>&1 | Out-Null
+
+                & (Join-Path $PSScriptRoot "check-package.ps1") -Path $staging
+                if ($LASTEXITCODE -ne 0) { $advisories += "package: incomplete" }
+            } else {
+                Write-Host "  windeployqt not found - skipped" -ForegroundColor DarkGray
+            }
+
+            Remove-Item -Recurse -Force $staging -ErrorAction SilentlyContinue
+        }
     }
 
     # --- The verdict --------------------------------------------------------

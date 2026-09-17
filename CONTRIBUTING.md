@@ -37,7 +37,8 @@ Every pull request must pass, on Windows x64 with MSVC:
 One command runs all of it the way CI would:
 
 ```powershell
-pwsh tools\check-before-push.ps1
+pwsh tools\check-before-push.ps1        # Debug, with warnings as errors
+pwsh tools\check-before-push.ps1 -All   # and Release, which is what ships
 ```
 
 Run it from `tools\torquebus-prompt.bat`, and run it **before** pushing rather
