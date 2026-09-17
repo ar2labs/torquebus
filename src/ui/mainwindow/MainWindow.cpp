@@ -197,8 +197,11 @@ MainWindow::MainWindow(services::SettingsStore& settings,
     , m_settings{settings}
     , m_themes{themes}
     , m_catalog{catalog}
-    , m_pluginLoader{pluginLoader}
+    // In declaration order, which is the order they are actually initialised
+    // in. Harmless while both are references bound to parameters; a trap the
+    // moment one of them gains an initialiser that reads the other.
     , m_j1939Names{j1939Names}
+    , m_pluginLoader{pluginLoader}
     , m_recentProjects{settings}
     , m_hardware{settings}
     , m_workspaces{settings}
