@@ -292,7 +292,58 @@ def convert_agisostack(path, out):
             out.append("function,%d/%d/%d,%s" % (industry_group, device_class, value, label))
             written += 1
 
+    written -= _refuse_duplicate_keys(out, skipped)
+
     return written, skipped
+
+
+def _refuse_duplicate_keys(lines, skipped):
+    """Removes every entry whose key another entry also claims. Returns how many.
+
+    A key that two lines answer differently answers neither reliably, and the
+    loader takes the last one - so shipping both means shipping a wrong answer
+    with no sign that it is wrong.
+
+    This is not hypothetical. AgIsoStack's On-Highway section has two blocks
+    whose headings are both "Non-specific system (Device class 0) industry
+    group 1" - the second adds the word "Tractor" in prose and nothing else.
+    On-Highway vehicle system 1 *is* Tractor, so the second block is almost
+    certainly vehicle system 1 and the comment is sloppy. Almost certainly is
+    not good enough: this script refuses a block that names no device class
+    rather than carrying the previous one over, and inferring a class from an
+    adjective would be the same guess wearing a better disguise.
+
+    So both go, and both are listed. Somebody with a Digital Annex gets the
+    right answer from the right source, and their table overrides this one.
+    """
+    import collections
+
+    seen = collections.defaultdict(list)
+
+    for index, line in enumerate(lines):
+        if not line.startswith("function,"):
+            continue
+        _, key, _ = line.split(",", 2)
+        seen[key].append(index)
+
+    doomed = set()
+
+    for key, positions in sorted(seen.items()):
+        if len(positions) < 2:
+            continue
+
+        names = [lines[i].split(",", 2)[2] for i in positions]
+        skipped.append("function %s (claimed by %d entries: %s)"
+                       % (key, len(positions), ", ".join(names)))
+        doomed.update(positions)
+
+    if not doomed:
+        return 0
+
+    for index in sorted(doomed, reverse=True):
+        del lines[index]
+
+    return len(doomed)
 
 
 def _number_after(text, phrase):
@@ -502,12 +553,20 @@ def main():
         # should be able to see that it is partial without re-running anything,
         # and know that a fuller one is a Digital Annex licence away.
         note = [
-            "# This table is NOT complete. %d entries were left out because their"
+            "# This table is NOT complete. %d entries were left out, for two"
             % len(refused),
-            "# source did not say which industry group and vehicle system they",
-            "# belong to, and a function number at or above 128 means different",
-            "# things in different ones. Run tools/j1939-names.py against a",
-            "# licensed SAE Digital Annex for a full table; it will override this.",
+            "# reasons, and neither one is safe to guess past:",
+            "#",
+            "#   * Their block did not say which industry group and vehicle",
+            "#     system they belong to, and a function number at or above 128",
+            "#     means different things in different ones.",
+            "#",
+            "#   * Two entries claimed the same key with different names. One of",
+            "#     them is right and the source does not say which, so neither",
+            "#     ships: a key that answers two things answers neither.",
+            "#",
+            "# Run tools/j1939-names.py against a licensed SAE Digital Annex for a",
+            "# full table; it will override this one.",
             "#",
         ]
         lines[5:5] = note

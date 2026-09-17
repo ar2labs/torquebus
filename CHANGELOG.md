@@ -91,6 +91,16 @@ against what it does, which turned up more than expected.
   produces (`Release`, where `windows-msvc-release` is `RelWithDebInfo`) and got
   none of the toolchain pins the presets exist to carry.
 
+- **Five entries in the shipped J1939 function table answered the wrong name.**
+  AgIsoStack has two On-Highway blocks whose headings both read "Non-specific
+  system (Device class 0) industry group 1" — the second adds the word "Tractor"
+  in prose and nothing else — so functions 128 to 132 appeared twice with
+  different names, and the loader returned whichever came last. The converter
+  now refuses a key that two entries claim, and says which two: one of them is
+  right, the source does not say which, and a key that answers two things
+  answers neither. The table went from 170 entries to 160, and its header now
+  gives both reasons an entry can be left out.
+
 ### Added
 
 - **The J1939 function-name table ships.** Derived from AgIsoStack++ under the
@@ -112,6 +122,11 @@ against what it does, which turned up more than expected.
 - **`src/core/ThreadGuard.h`**, the net under every thread entry point and every
   destructor that flushes, with six tests — including the one that would
   otherwise be embarrassing: a reporter that throws while reporting a crash.
+- **Tests for the name table that actually ships.** The loader had tests against
+  input written for it; the generated file in `data/` that goes into every
+  package had none, and that is where the duplicate keys above were hiding. The
+  packaging check confirms the file is present and says nothing about what is in
+  it.
 
 ### Changed
 
