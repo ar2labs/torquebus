@@ -57,7 +57,6 @@
 #include <QStringList>
 #include <QMenu>
 #include <QMenuBar>
-#include <QMessageBox>
 #include <QStatusBar>
 #include <QStyle>
 #include <QToolBar>
@@ -877,7 +876,7 @@ void MainWindow::createToolBar()
     // the class - so the button is constructed here and bound to the action
     // with setDefaultAction, which carries the icon, label, shortcut, tooltip
     // and enabled state across exactly as addAction would have.
-    const auto addButton = [this, toolBar](QAction* action) {
+    const auto addButton = [toolBar](QAction* action) {
         auto* button = new AnimatedToolButton{action, toolBar};
 
         // Without this the button ignores the toolbar's own setting and shows

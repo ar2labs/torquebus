@@ -60,7 +60,7 @@ bool J1939AddressTable::onFrame(const CanFrame& frame, std::uint64_t nowNs)
         event.address = node.address;
         event.timestampNs = nowNs;
 
-        m_events.push_back(std::move(event));
+        m_events.push_back(event);
     }
 
     return true;
@@ -84,7 +84,7 @@ J1939NetworkNode& J1939AddressTable::nodeFor(std::uint8_t address, std::uint64_t
 
     // Kept sorted by address, which is the order a panel wants and costs
     // nothing to maintain: there are at most 254 of these and they appear once.
-    return *m_nodes.insert(position, std::move(node));
+    return *m_nodes.insert(position, node);
 }
 
 void J1939AddressTable::onClaim(std::uint8_t address,
@@ -106,7 +106,7 @@ void J1939AddressTable::onClaim(std::uint8_t address,
         event.name = name;
         event.timestampNs = nowNs;
 
-        m_events.push_back(std::move(event));
+        m_events.push_back(event);
         return;
     }
 
@@ -128,7 +128,7 @@ void J1939AddressTable::onClaim(std::uint8_t address,
     contest.previousName = previous;
     contest.timestampNs = nowNs;
 
-    m_events.push_back(std::move(contest));
+    m_events.push_back(contest);
 
     if (!name.winsAgainst(previous)) {
         // The arriving NAME is the higher one, so it loses and the seat does
@@ -146,7 +146,7 @@ void J1939AddressTable::onClaim(std::uint8_t address,
     taken.previousName = previous;
     taken.timestampNs = nowNs;
 
-    m_events.push_back(std::move(taken));
+    m_events.push_back(taken);
 }
 
 void J1939AddressTable::onCannotClaim(const J1939Name& name, std::uint64_t nowNs)
@@ -168,7 +168,7 @@ void J1939AddressTable::onCannotClaim(const J1939Name& name, std::uint64_t nowNs
     entry.lastSeenNs = nowNs;
     entry.announcements = 1U;
 
-    m_defeated.push_back(std::move(entry));
+    m_defeated.push_back(entry);
 
     J1939NetworkEvent event;
     event.kind = J1939NetworkEvent::Kind::CannotClaim;
@@ -176,7 +176,7 @@ void J1939AddressTable::onCannotClaim(const J1939Name& name, std::uint64_t nowNs
     event.name = name;
     event.timestampNs = nowNs;
 
-    m_events.push_back(std::move(event));
+    m_events.push_back(event);
 }
 
 const J1939NetworkNode* J1939AddressTable::find(std::uint8_t address) const noexcept

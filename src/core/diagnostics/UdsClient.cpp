@@ -12,8 +12,6 @@
 namespace torquebus {
 namespace {
 
-constexpr std::uint8_t kNegativeResponse = 0x7FU;
-
 [[nodiscard]] std::uint64_t millisecondsToNs(std::uint32_t milliseconds) noexcept
 {
     return static_cast<std::uint64_t>(milliseconds) * 1'000'000ULL;
