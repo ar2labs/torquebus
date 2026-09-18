@@ -106,8 +106,10 @@ The Visual Studio generator finds its own toolchain, and CMake finds Qt at
 `C:\Qt\6.11.2\msvc2022_64` or wherever `QTDIR` points. Slower to build than
 Ninja; immune to whatever is on your `PATH`.
 
-The executable lands in `build/<preset>/bin/`. Run it with `--reset-layout` if a
-panel ends up somewhere unreachable.
+The executable lands in `build/<preset>/bin/`, with the Qt it needs copied
+beside it — so it runs from there with nothing set up, which is the point of the
+preset above. Run it with `--reset-layout` if a panel ends up somewhere
+unreachable.
 
 Build options, CANlib in a custom location, and what to do when something goes
 wrong: [`docs/development/getting-started.md`](docs/development/getting-started.md).

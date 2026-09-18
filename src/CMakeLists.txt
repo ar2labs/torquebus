@@ -505,6 +505,72 @@ torquebus_forbid_link(torquebus_ui
     DENY torquebus::driver_kvaser torquebus::driver_peak
 )
 
+# ---------------------------------------------------------------------------
+# Qt, beside the executable in the build tree
+# ---------------------------------------------------------------------------
+#
+# So that the thing that was just built actually starts.
+#
+# Until this, running TorqueBusStudio.exe out of build/<preset>/bin needed Qt on
+# PATH. Everybody here has it, so nobody noticed - and the README tells a
+# newcomer to build with windows-msvc-vs "from any prompt, with no setup at
+# all", which is true of the build and was not true of the result. What they got
+# was a successful build and a Windows dialog: "Qt6Cored.dll was not found", or
+# worse, the silent one where a *different* Qt earlier on PATH loads and the
+# entry points do not match.
+#
+# Two copies, because they answer different questions.
+#
+# $<TARGET_RUNTIME_DLLS> knows what the executable links - Qt6Core, Qt6Gui,
+# Qt6Widgets, Qt6Svg - and nothing else. It does not know about Qt's plugins,
+# because nothing links them: Qt loads them by path at runtime. A build tree
+# with the DLLs and no platform plugin starts and immediately dies with "could
+# not find or load the Qt platform plugin windows", which reads like a broken Qt
+# installation and is not.
+#
+# The plugin list is short and deliberate. The platform plugin is what makes a
+# window; without the two SVG ones every icon in the application is blank, since
+# the whole icon set is SVG; the style plugin is what stops it looking like
+# Windows 95. Each is guarded, so a Qt built without one is a smaller
+# deployment rather than a configure error.
+
+if(WIN32)
+    add_custom_command(TARGET TorqueBusStudio POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_RUNTIME_DLLS:TorqueBusStudio>"
+                "$<TARGET_FILE_DIR:TorqueBusStudio>"
+        COMMAND_EXPAND_LISTS
+        COMMENT "Copying the Qt runtime beside the executable"
+        VERBATIM
+    )
+
+    # plugin target -> the subdirectory Qt looks for it in
+    set(TORQUEBUS_QT_PLUGINS
+        "Qt6::QWindowsIntegrationPlugin"     platforms
+        "Qt6::QSvgPlugin"                    imageformats
+        "Qt6::QSvgIconPlugin"                iconengines
+        "Qt6::QModernWindowsStylePlugin"     styles
+    )
+
+    while(TORQUEBUS_QT_PLUGINS)
+        list(POP_FRONT TORQUEBUS_QT_PLUGINS _plugin _directory)
+
+        if(NOT TARGET "${_plugin}")
+            continue()
+        endif()
+
+        add_custom_command(TARGET TorqueBusStudio POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                    "$<TARGET_FILE_DIR:TorqueBusStudio>/${_directory}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:${_plugin}>"
+                    "$<TARGET_FILE_DIR:TorqueBusStudio>/${_directory}"
+            COMMENT "Copying ${_plugin} into ${_directory}"
+            VERBATIM
+        )
+    endwhile()
+endif()
+
 install(TARGETS TorqueBusStudio
     RUNTIME DESTINATION . COMPONENT torquebus
     BUNDLE  DESTINATION . COMPONENT torquebus

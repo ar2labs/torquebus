@@ -112,6 +112,13 @@ against what it does, which turned up more than expected.
   evidence (a run still reporting 199 of them) was visible and explained away
   once before it was understood.
 
+- **The built application would not start without Qt on `PATH`.** Running
+  `build/<preset>/bin/TorqueBusStudio.exe` needed a Qt-aware prompt, which
+  everybody here has and a newcomer following the README does not: they get a
+  successful build and a Windows dialog. The Qt runtime and the four plugins Qt
+  loads by path — platform, both SVG ones, the modern style — are now copied
+  beside the executable, so the thing that was just built runs.
+
 ### Added
 
 - **The J1939 function-name table ships.** Derived from AgIsoStack++ under the
