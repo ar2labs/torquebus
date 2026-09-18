@@ -111,7 +111,13 @@ against what it does, which turned up more than expected.
   took the entry after it along. The exclusion silently did nothing, and the
   evidence (a run still reporting 199 of them) was visible and explained away
   once before it was understood.
-
+- **The package shipped a PEAK plugin whose Qt was not in it.** `windeployqt`
+  asks the binary it is given what it needs, and it was given only the
+  executable — which does not link Qt6::SerialBus, that being the point of PEAK
+  being a plugin. So `Qt6SerialBus.dll` never entered the package and the plugin
+  could not load from it. `check-package.ps1` passed it, because its import
+  check read the executable's imports and nothing else; it now reads every
+  binary in the package, which is what found this.
 - **The PEAK plugin could not find Qt, on any machine without Qt on `PATH`.**
   The loader used `LOAD_WITH_ALTERED_SEARCH_PATH`, chosen so a plugin finds a
   vendor SDK sitting beside it — and that flag *replaces* the executable's

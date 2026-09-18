@@ -283,6 +283,27 @@ try {
                 windeployqt --release --no-translations --no-system-d3d-compiler `
                     (Join-Path $staging "TorqueBusStudio.exe") 2>&1 | Out-Null
 
+                # And once per plugin. windeployqt asks the binary it is given
+                # what it needs, and the executable does not link Qt6::SerialBus
+                # - that is the point of PEAK being a plugin. Pointed only at the
+                # executable, it produced a package whose PEAK plugin could not
+                # load, and nothing said so.
+                #
+                # The Kvaser plugin links no Qt at all, so windeployqt refuses it
+                # with "does not seem to be a Qt executable". That is the right
+                # answer and not a failure - so the error preference is lowered
+                # for these calls, which otherwise turn a correct refusal into a
+                # terminating error and take this script with it.
+                & {
+                    $ErrorActionPreference = "Continue"
+                    Get-ChildItem (Join-Path $staging "plugins") -Filter "*.dll" `
+                        -ErrorAction SilentlyContinue |
+                        ForEach-Object {
+                            windeployqt --release --no-translations --no-system-d3d-compiler `
+                                --dir $staging $_.FullName 2>&1 | Out-Null
+                        }
+                }
+
                 & (Join-Path $PSScriptRoot "check-package.ps1") -Path $staging
                 if ($LASTEXITCODE -ne 0) { $advisories += "package: incomplete" }
             } else {

@@ -100,6 +100,20 @@ jobs:
           cmake --install build/${{ matrix.preset }} --prefix dist --component torquebus
           windeployqt --release --no-translations --no-system-d3d-compiler dist/TorqueBusStudio.exe
 
+          # And once per plugin, into the same directory. windeployqt asks the
+          # binary it is given what it needs, and the executable does not link
+          # Qt6::SerialBus - that is the point of PEAK being a plugin. Pointed
+          # only at the executable, it packaged a PEAK plugin whose Qt was not
+          # there, and the plugin could not load.
+          # The Kvaser plugin links no Qt at all, so windeployqt refuses it with
+          # "does not seem to be a Qt executable" - the right answer, and not a
+          # reason to fail the job.
+          $ErrorActionPreference = "Continue"
+          Get-ChildItem dist/plugins/*.dll | ForEach-Object {
+            windeployqt --release --no-translations --no-system-d3d-compiler --dir dist $_.FullName
+          }
+          $global:LASTEXITCODE = 0
+
       # The artifact is what people download, so it is what gets checked. The
       # build being green says nothing about whether the plugins were copied.
       - name: Check the package
