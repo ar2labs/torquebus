@@ -117,6 +117,12 @@ public:
         return m_frames.size();
     }
 
+    [[nodiscard]] std::vector<CanFrame> frames() const
+    {
+        const std::lock_guard lock{m_mutex};
+        return m_frames;
+    }
+
 private:
     mutable std::mutex m_mutex;
     std::vector<CanFrame> m_frames;
@@ -331,6 +337,77 @@ TEST_CASE("sequence_engine.lua declares its test cases", "[integration][examples
     REQUIRE(sequence.prepare(64).succeeded());
 
     CHECK(sequence.declaredCases() > 0);
+}
+
+TEST_CASE("The example databases decode what the example scripts send",
+          "[integration][examples]")
+{
+    // docs/development/databases.md says the shipped databases "match what
+    // examples/scripts puts on the bus", and that pairing is the entire point
+    // of shipping both: import the database while the example runs and the
+    // trace stops being hex. Nothing checked it.
+    //
+    // The check is the claim, made mechanical: run the script, take the
+    // identifiers it actually emitted, and ask the database about each one.
+
+    const auto decodesEverything = [](const char* script,
+                                      const char* databaseName,
+                                      const char* databaseFile) {
+        Outcome outcome;
+        runEcu(script, 250ms, outcome,
+               std::string_view{databaseName} == "none" ? nullptr : databaseName);
+
+        CanDatabase database;
+        const std::filesystem::path path =
+            std::filesystem::path{TORQUEBUS_EXAMPLE_DATABASE_DIR} / databaseFile;
+
+        const Result read = DbcParser::parseFile(path.string(), database);
+        INFO("parsing " << databaseFile << ": " << read.message());
+        REQUIRE(read.succeeded());
+        REQUIRE(database.messageCount() > 0);
+
+        const std::vector<CanFrame> frames = outcome.recorder.frames();
+        REQUIRE_FALSE(frames.empty());
+
+        std::vector<std::uint32_t> undescribed;
+
+        for (const CanFrame& frame : frames) {
+            if (frame.direction != CanDirection::Tx) {
+                continue;
+            }
+            if (database.find(frame) == nullptr) {
+                undescribed.push_back(frame.identifier);
+            }
+        }
+
+        std::sort(undescribed.begin(), undescribed.end());
+        undescribed.erase(std::unique(undescribed.begin(), undescribed.end()),
+                          undescribed.end());
+
+        return undescribed;
+    };
+
+    SECTION("vehicle.dbc describes every frame ecu_vehicle.lua sends")
+    {
+        const std::vector<std::uint32_t> undescribed =
+            decodesEverything("ecu_vehicle.lua", "none", "vehicle.dbc");
+
+        INFO("identifiers with no message in vehicle.dbc: " << undescribed.size());
+        CHECK(undescribed.empty());
+    }
+
+    SECTION("ecu.dbc describes every frame ecu_motor.lua sends")
+    {
+        // The pairing databases.md does not spell out. vehicle.dbc carries 257
+        // and 258, which are ecu_vehicle.lua's; ecu.dbc carries 1 and 255, and
+        // 1 is ecu_motor.lua's module identifier. If this fails, the two files
+        // are not the pair the documentation implies and one of them says so.
+        const std::vector<std::uint32_t> undescribed =
+            decodesEverything("ecu_motor.lua", "none", "ecu.dbc");
+
+        INFO("identifiers with no message in ecu.dbc: " << undescribed.size());
+        CHECK(undescribed.empty());
+    }
 }
 
 TEST_CASE("Every shipped example script is covered here", "[integration][examples]")

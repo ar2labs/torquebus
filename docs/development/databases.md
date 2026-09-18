@@ -211,9 +211,21 @@ happens to be open in a panel.
 
 ## Example databases
 
-`examples/databases/` holds `vehicle.dbc` and `ecu.dbc`, which match what
-`examples/scripts/ecu_vehicle.lua` puts on the bus — so importing `vehicle.dbc`
-while the example project runs turns the trace from hex into km/h and °C.
+`examples/databases/` holds two, and they pair with different scripts:
+
+| Database | Messages | Pairs with |
+|---|---|---|
+| `vehicle.dbc` | 257, 258 | `examples/scripts/ecu_vehicle.lua` |
+| `ecu.dbc` | 1, 255 | `examples/scripts/ecu_motor.lua` |
+
+So importing `vehicle.dbc` while the example project runs turns the trace from
+hex into km/h and °C.
+
+This paragraph used to say both of them matched `ecu_vehicle.lua`, which is
+true of one and not the other — `ecu.dbc` carries identifiers 1 and 255, and
+that script sends 257 and 258. A test now runs each script and asks its
+database about every identifier it actually emitted, so the pairing above is
+checked rather than described.
 
 ---
 

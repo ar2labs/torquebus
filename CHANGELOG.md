@@ -140,6 +140,12 @@ against what it does, which turned up more than expected.
   loads by path — platform, both SVG ones, the modern style — are now copied
   beside the executable, so the thing that was just built runs.
 
+- **`databases.md` paired both example databases with the wrong script.** It
+  said `vehicle.dbc` and `ecu.dbc` both match what `ecu_vehicle.lua` puts on the
+  bus. `vehicle.dbc` does; `ecu.dbc` carries identifiers 1 and 255 and pairs
+  with `ecu_motor.lua`, which is a different example. A test now runs each
+  script and asks its database about every identifier it actually emitted.
+
 ### Added
 
 - **The J1939 function-name table ships.** Derived from AgIsoStack++ under the
