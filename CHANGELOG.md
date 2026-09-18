@@ -98,7 +98,6 @@ against what it does, which turned up more than expected.
   right, the source does not say which, and a key that answers two things
   answers neither. The table went from 170 entries to 160, and its header now
   gives both reasons an entry can be left out.
-
 - **The Visual Studio preset did not build.** `windows-msvc-vs` is the one the
   README calls "start here" and the one meant for somebody who has just cloned
   and has no developer prompt — and it had never been built. MSBuild compiles a

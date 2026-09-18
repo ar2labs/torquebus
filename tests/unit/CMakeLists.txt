@@ -90,17 +90,17 @@ target_compile_definitions(torquebus_unit_tests
             TORQUEBUS_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
 )
 
-# The Qt this build was configured against, prepended to each test's PATH, plus
-# a timeout - so a foreign Qt earlier on PATH fails the test instead of stopping
-# it at a modal dialog nobody is there to dismiss. See the module's header.
-torquebus_test_properties(TORQUEBUS_TEST_PROPERTIES)
+# The Qt this build was configured against, on the DLL search path for both
+# moments the binary runs: the enumeration at build time and the tests under
+# ctest. See the module's header - covering only the second cost a build.
+torquebus_test_dl_paths(TORQUEBUS_TEST_DL_PATHS)
 
 # The timeout is not a performance budget - the slowest of these is well under a
 # second - it is the difference between a hang that fails and a hang that waits.
 # This suite had none, which is why it was the one that sat at zero CPU for
 # twelve minutes.
 catch_discover_tests(torquebus_unit_tests
+    DL_PATHS ${TORQUEBUS_TEST_DL_PATHS}
     PROPERTIES
         TIMEOUT 60
-        ${TORQUEBUS_TEST_PROPERTIES}
 )
