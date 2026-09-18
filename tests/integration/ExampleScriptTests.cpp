@@ -1,0 +1,362 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// TorqueBus Studio
+// Copyright (C) TorqueBus contributors
+//
+// The example scripts, run the way a person following the README runs them.
+//
+// Five scripts ship in `examples/scripts/`. The README points at them, the
+// scripting guide walks through them, and they are the first thing somebody
+// evaluating this tool will open. Until this file, four of the five were never
+// executed by anything: one test loaded `ecu_vehicle.lua` to check a node takes
+// its name from the filename, and stopped there.
+//
+// That gap has a specific shape. The Lua API is ours and it moves - `emit`
+// changed signature once already, and the guide documents three `cansim` calls
+// that no longer exist. A change to it breaks these scripts silently: they are
+// data, the compiler never sees them, and the failure surfaces as a line in the
+// Output panel on the machine of somebody trying the tool for the first time.
+//
+// So each one is loaded and *run*, and each is asked for the thing it exists to
+// demonstrate. Not deeply - this is not a second suite for the Lua engine,
+// which has its own - but enough that a broken example cannot ship.
+
+#include "core/can/CanEngine.h"
+#include "core/database/DbcParser.h"
+#include "core/isotp/IsoTpTypes.h"
+#include "core/pipeline/nodes/FrameNodes.h"
+#include "core/scripting/LuaEcuNode.h"
+#include "core/scripting/LuaTestNode.h"
+#include "core/testing/TestReport.h"
+#include "drivers/virtual/VirtualCanBackend.h"
+
+#include <catch2/catch_test_macros.hpp>
+
+#include <algorithm>
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <memory>
+#include <mutex>
+#include <span>
+#include <sstream>
+#include <string>
+#include <thread>
+#include <vector>
+
+using namespace torquebus;
+using namespace std::chrono_literals;
+
+namespace {
+
+[[nodiscard]] std::filesystem::path scriptPath(const char* name)
+{
+    return std::filesystem::path{TORQUEBUS_EXAMPLE_SCRIPT_DIR} / name;
+}
+
+[[nodiscard]] std::string readScript(const char* name)
+{
+    const std::filesystem::path path = scriptPath(name);
+    REQUIRE(std::filesystem::exists(path));
+
+    std::ifstream file{path, std::ios::binary};
+    REQUIRE(file.is_open());
+
+    std::ostringstream text;
+    text << file.rdbuf();
+    return text.str();
+}
+
+CanChannelConfig quietConfig(const std::string& handle)
+{
+    CanChannelConfig config;
+    config.deviceHandle = handle;
+    config.timing.bitrate = 500'000;
+    return config;
+}
+
+/// The error lines as one string, for a failure message that names them.
+[[nodiscard]] std::string joined(const std::vector<std::string>& lines)
+{
+    std::string text;
+    for (const std::string& line : lines) {
+        if (!text.empty()) {
+            text += " | ";
+        }
+        text += line;
+    }
+    return text;
+}
+
+/// Collects what reached the bus, from the engine thread.
+class Recorder final {
+public:
+    [[nodiscard]] FrameSink sink()
+    {
+        return [this](std::span<const CanFrame> batch) {
+            const std::lock_guard lock{m_mutex};
+            m_frames.insert(m_frames.end(), batch.begin(), batch.end());
+        };
+    }
+
+    [[nodiscard]] std::size_t countWithIdentifier(std::uint32_t identifier) const
+    {
+        const std::lock_guard lock{m_mutex};
+        std::size_t count = 0;
+        for (const CanFrame& item : m_frames) {
+            if (item.identifier == identifier) {
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    [[nodiscard]] std::size_t total() const
+    {
+        const std::lock_guard lock{m_mutex};
+        return m_frames.size();
+    }
+
+private:
+    mutable std::mutex m_mutex;
+    std::vector<CanFrame> m_frames;
+};
+
+/// What one example ECU did when it was run for a moment.
+struct Outcome final {
+    std::uint64_t emitted{};
+    bool faulted{true};
+    Recorder recorder;
+
+    /// Error lines the script produced, which is the half isFaulted() misses.
+    ///
+    /// A node only faults after an error limit, deliberately: an occasional
+    /// error must not kill an ECU. So a script erroring on every single tick
+    /// can still come back not faulted from a short run - which is exactly what
+    /// ecu_vehicle_dbc.lua did here before it was given its database, and what
+    /// this test would have called a pass.
+    std::vector<std::string> errors;
+};
+
+/// Runs an ECU script on a virtual bus for `duration`.
+///
+/// The shape is the one from the scripting guide - the script's emit() reaches a
+/// real channel through the engine's own graph - because running these any other
+/// way would be testing a path no user takes.
+void runEcu(const char* name,
+            std::chrono::milliseconds duration,
+            Outcome& outcome,
+            const char* databaseName = nullptr)
+{
+    const std::string source = readScript(name);
+
+    // Some examples speak signal names rather than bytes, and emit_signal
+    // refuses to guess without a database - the same rule uds_did follows. The
+    // script's own header says which file to point the block at; this points it
+    // at the same one.
+    std::shared_ptr<const CanDatabase> database;
+    if (databaseName != nullptr) {
+        auto parsed = std::make_shared<CanDatabase>();
+        const std::filesystem::path path =
+            std::filesystem::path{TORQUEBUS_EXAMPLE_DATABASE_DIR} / databaseName;
+
+        const Result read = DbcParser::parseFile(path.string(), *parsed);
+        INFO(std::string{read.message()});
+        REQUIRE(read.succeeded());
+
+        database = std::move(parsed);
+    }
+
+    CanEngine engine;
+    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), quietConfig("virtual:0"))
+                .succeeded());
+
+    engine.addFrameSink(outcome.recorder.sink());
+
+    // Collected from the node directly, and not only through the engine's log
+    // sinks. A node gets its log handler from NodeCatalog when it is built from
+    // a GraphDescription, which is how the application does it - a graph
+    // assembled by hand here would silently have none, and every one of these
+    // assertions would then be checking an empty vector. Finding that out was
+    // this test failing with "script errors:" and nothing after the colon.
+    auto collect = [&outcome, errorMutex = std::make_shared<std::mutex>()](
+                       const std::string& text, bool isError) {
+        if (!isError) {
+            return;
+        }
+        const std::lock_guard lock{*errorMutex};
+        outcome.errors.push_back(text);
+    };
+
+    engine.addLogSink(collect);
+
+    LuaEcuNode* ecu = nullptr;
+
+    engine.setGraphBuilder([&engine, &source, name, &ecu, &database, collect](
+                               PipelineGraph& graph, std::span<const NodeId> sources)
+                               -> Result {
+        auto node = std::make_unique<LuaEcuNode>(source, name);
+        node->setLogHandler(collect);
+        if (database) {
+            node->setDatabase(database);
+        }
+        ecu = node.get();
+
+        const NodeId ecuId = graph.addNode(std::move(node));
+        const NodeId transmit =
+            graph.addNode(std::make_unique<ChannelSinkNode>(*engine.channel(0)));
+
+        if (Result result = graph.connect(PortRef{sources[0], 0}, PortRef{ecuId, 0});
+            result.failed()) {
+            return result;
+        }
+        return graph.connect(PortRef{ecuId, 0}, PortRef{transmit, 0});
+    });
+
+    // A script that does not compile, or whose on_enable throws, fails here -
+    // which is the single most useful thing this file checks, because it is the
+    // failure a stale example actually has.
+    REQUIRE(engine.start().succeeded());
+
+    std::this_thread::sleep_for(duration);
+
+    REQUIRE(ecu != nullptr);
+    outcome.emitted = ecu->emittedFrames();
+    outcome.faulted = ecu->isFaulted();
+
+    engine.stop();
+}
+
+} // namespace
+
+TEST_CASE("ecu_vehicle.lua puts speed and temperature on the bus", "[integration][examples]")
+{
+    Outcome outcome;
+    runEcu("ecu_vehicle.lua", 250ms, outcome);
+
+    CHECK_FALSE(outcome.faulted);
+    CHECK(outcome.emitted > 0);
+
+    INFO("script errors: " << joined(outcome.errors));
+    CHECK(outcome.errors.empty());
+
+    // The two identifiers the script's own comments name, and the ones
+    // examples/databases/vehicle.dbc decodes - so this also guards the pairing
+    // the README demonstrates.
+    CHECK(outcome.recorder.countWithIdentifier(0x101U) > 0);
+    CHECK(outcome.recorder.countWithIdentifier(0x102U) > 0);
+}
+
+TEST_CASE("ecu_vehicle_dbc.lua speaks signal names against the shipped database",
+          "[integration][examples]")
+{
+    // The pairing the script exists to demonstrate: it names signals and the
+    // database supplies the identifier, the byte order and the scaling. Run
+    // without one it emits nothing - emit_signal refuses rather than guessing -
+    // which is how this test found out it had to supply the database the
+    // script's header names.
+    Outcome outcome;
+    runEcu("ecu_vehicle_dbc.lua", 250ms, outcome, "vehicle.dbc");
+
+    CHECK_FALSE(outcome.faulted);
+    CHECK(outcome.emitted > 0);
+
+    INFO("script errors: " << joined(outcome.errors));
+    CHECK(outcome.errors.empty());
+
+    // Same identifiers as the hand-packed version, which is the whole claim:
+    // the two scripts put the same thing on the wire.
+    CHECK(outcome.recorder.countWithIdentifier(0x101U) > 0);
+}
+
+TEST_CASE("ecu_motor.lua runs and transmits", "[integration][examples]")
+{
+    // The heaviest of the ported cansim scripts, and the one whose migration
+    // the scripting guide documents: it used math.frexp, which Lua 5.4 removed.
+    // If that migration were ever undone this is where it would show.
+    Outcome outcome;
+    runEcu("ecu_motor.lua", 250ms, outcome);
+
+    CHECK_FALSE(outcome.faulted);
+    CHECK(outcome.emitted > 0);
+
+    INFO("script errors: " << joined(outcome.errors));
+    CHECK(outcome.errors.empty());
+}
+
+TEST_CASE("ecu_uds.lua comes up as a diagnostic server", "[integration][examples]")
+{
+    // This one is not cyclic in the same way - it exists to answer, and a bus
+    // with no tester on it gives it nothing to answer. So the assertion is that
+    // it loaded, enabled, and registered itself as something that answers
+    // diagnostics; the UDS behaviour itself has its own tests.
+    const std::string source = readScript("ecu_uds.lua");
+
+    LuaEcuNode ecu{source, "ecu_uds.lua"};
+
+    // The addresses the script's own header tells the reader to set on the
+    // block: request 0x7E0, response 0x7E8. Without them prepare() fails
+    // naming uds_did, which is deliberate - a block that cannot do what its
+    // script says is refused while somebody is looking at it, rather than
+    // running as a half-ECU nobody can see is wrong.
+    //
+    // Running the example scripts in the test suite verifies that the same
+    // configuration rules apply to shipped examples.
+    IsoTpAddress address;
+    address.receiveId = 0x7E0;
+    address.transmitId = 0x7E8;
+    ecu.enableDiagnostics(address, IsoTpConfig{});
+
+    const Result prepared = ecu.prepare(64);
+    INFO(std::string{prepared.message()});
+    REQUIRE(prepared.succeeded());
+
+    CHECK_FALSE(ecu.isFaulted());
+    CHECK(ecu.answersDiagnostics());
+}
+
+TEST_CASE("sequence_engine.lua declares its test cases", "[integration][examples]")
+{
+    // Not an ECU: a test sequence, which is a different node with a different
+    // vocabulary - test(), expect_frame(). It was the least covered of the five,
+    // because nothing in the suite loads a sequence from a file at all.
+    //
+    // Running it to a verdict would need an engine ECU on the other end to pass
+    // or fail against, which is a fixture this does not need: what breaks when
+    // the API moves is the *loading*, and the count of declared cases is the
+    // cheapest proof that the file was read and understood.
+    const std::string source = readScript("sequence_engine.lua");
+
+    LuaTestNode sequence{source, "sequence_engine.lua"};
+    REQUIRE(sequence.prepare(64).succeeded());
+
+    CHECK(sequence.declaredCases() > 0);
+}
+
+TEST_CASE("Every shipped example script is covered here", "[integration][examples]")
+{
+    // The guard on this file itself. Adding a sixth example and forgetting to
+    // run it would put the project straight back where it was, and nothing else
+    // would notice - which is exactly how four of the five got here.
+    const std::filesystem::path directory{TORQUEBUS_EXAMPLE_SCRIPT_DIR};
+    REQUIRE(std::filesystem::is_directory(directory));
+
+    const std::vector<std::string> covered{
+        "ecu_motor.lua", "ecu_uds.lua", "ecu_vehicle.lua",
+        "ecu_vehicle_dbc.lua", "sequence_engine.lua",
+    };
+
+    std::vector<std::string> found;
+    for (const auto& entry : std::filesystem::directory_iterator{directory}) {
+        if (entry.is_regular_file() && entry.path().extension() == ".lua") {
+            found.push_back(entry.path().filename().string());
+        }
+    }
+
+    for (const std::string& name : found) {
+        INFO("examples/scripts/" << name << " is not run by any test in this file");
+        CHECK(std::find(covered.begin(), covered.end(), name) != covered.end());
+    }
+
+    CHECK(found.size() == covered.size());
+}
