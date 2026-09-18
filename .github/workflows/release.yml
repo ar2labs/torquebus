@@ -58,6 +58,20 @@ jobs:
           cmake --install build/windows-msvc-release --prefix dist --component torquebus
           windeployqt --release --no-translations dist/TorqueBusStudio.exe
 
+          # And once per plugin, into the same directory. windeployqt asks the
+          # binary it is given what it needs, and the executable does not link
+          # Qt6::SerialBus - that is the point of PEAK being a plugin. Pointed
+          # only at the executable, it packaged a PEAK plugin whose Qt was not
+          # there, and the plugin could not load.
+          # The Kvaser plugin links no Qt at all, so windeployqt refuses it with
+          # "does not seem to be a Qt executable" - the right answer, and not a
+          # reason to fail the job.
+          $ErrorActionPreference = "Continue"
+          Get-ChildItem dist/plugins/*.dll | ForEach-Object {
+            windeployqt --release --no-translations --dir dist $_.FullName
+          }
+          $global:LASTEXITCODE = 0
+
       # Before the zip, not after: a release that is missing the vendor plugins
       # should never become a download.
       - name: Check the package
