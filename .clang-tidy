@@ -19,6 +19,19 @@
 # /Zc:preprocessor, which clang accepts and does not use; without it every file
 # reports an error before any check runs.
 
+# A note on -misc-include-cleaner, which is the one exclusion that needs one:
+# it postdates this file, and it wants every symbol's header included directly -
+# 45,000 findings on the first run, of which the interesting ones were none. It
+# is also wrong often enough to cost more than it returns, reporting symbols
+# that do arrive through a header the file includes on purpose.
+#
+# The note lives here and not beside the entry, and that is not a style
+# preference. `Checks:` below is a folded block scalar: everything indented
+# under it is literal text, so a `#` line in there is not a comment - it becomes
+# part of the comma-separated list and takes the entry after it with it. Written
+# that way once, the exclusion silently did nothing and include-cleaner went on
+# reporting. The evidence was a run that still showed 199 of them.
+
 Checks: >
   -*,
   bugprone-*,
@@ -27,11 +40,6 @@ Checks: >
   cppcoreguidelines-slicing,
   cppcoreguidelines-virtual-class-destructor,
   misc-*,
-  # Off, and not as a matter of taste: it postdates this file, and it wants
-  # every symbol's header included directly - 45,000 findings on the first run,
-  # of which the interesting ones were none. It is also wrong often enough to
-  # cost more than it returns, reporting symbols that do arrive through a header
-  # this file includes on purpose.
   -misc-include-cleaner,
   -misc-non-private-member-variables-in-classes,
   -misc-no-recursion,
