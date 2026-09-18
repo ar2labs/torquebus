@@ -68,7 +68,6 @@ against what it does, which turned up more than expected.
   toolchain's `ar.exe` taking MSVC flags — and missed the archiver, which fails
   later still: it only runs when a static library needs rebuilding, and almost
   everything here is a static library.
-
 - **The tests trusted `PATH` for their Qt, and a wrong one hung them for ever.**
   Every test binary links Qt, so the loader searches `PATH` — and on the machine
   this was found on, STM32CubeProgrammer's own Qt 6.10.2 sat ahead of the 6.11.2
@@ -90,7 +89,6 @@ against what it does, which turned up more than expected.
 - **CI configured without the presets**, so it built a configuration no preset
   produces (`Release`, where `windows-msvc-release` is `RelWithDebInfo`) and got
   none of the toolchain pins the presets exist to carry.
-
 - **Five entries in the shipped J1939 function table answered the wrong name.**
   AgIsoStack has two On-Highway blocks whose headings both read "Non-specific
   system (Device class 0) industry group 1" — the second adds the word "Tractor"
@@ -122,6 +120,13 @@ against what it does, which turned up more than expected.
 - **`src/core/ThreadGuard.h`**, the net under every thread entry point and every
   destructor that flushes, with six tests — including the one that would
   otherwise be embarrassing: a reporter that throws while reporting a crash.
+- **Tests that run the example scripts.** Five ship in `examples/scripts/`, the
+  README and the scripting guide point at them, and they are the first thing
+  somebody evaluating the tool opens — and four of the five were executed by
+  nothing. They are data, the compiler never sees them, and the Lua API is ours
+  and moves; a stale example would surface as an error on the machine of
+  somebody trying TorqueBus for the first time. Each is now loaded and run, and
+  the suite refuses to let a sixth example arrive uncovered.
 - **Tests for the name table that actually ships.** The loader had tests against
   input written for it; the generated file in `data/` that goes into every
   package had none, and that is where the duplicate keys above were hiding. The
