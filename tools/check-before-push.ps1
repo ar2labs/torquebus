@@ -21,6 +21,7 @@
 #
 #   pwsh tools/check-before-push.ps1            # Debug + strict, then the rest
 #   pwsh tools/check-before-push.ps1 -All       # and Release, which is what ships
+#   pwsh tools/check-before-push.ps1 -Tidy      # and clang-tidy on what changed
 #   pwsh tools/check-before-push.ps1 -SkipBuild # only the cheap checks
 #
 # Needs the MSVC and Qt environment: run it from tools\torquebus-prompt.bat, or
@@ -39,6 +40,15 @@ param(
     # it there, because it was measuring how the optimiser balanced a producer
     # against a consumer rather than measuring the pipeline.
     [switch] $All,
+
+    # Runs clang-tidy over the files you are about to push.
+    #
+    # Off by default because it is slow - twenty seconds a file, against a
+    # compilation database - and a check that turns a two-minute gate into a
+    # thirty-minute one is a check people stop running. Scoped to changed files
+    # for the same reason: the whole tree is a one-off exercise, and it has been
+    # done (see .clang-tidy, which records what the first run found).
+    [switch] $Tidy,
 
     [string] $Preset = "windows-msvc-strict"
 )
@@ -118,7 +128,74 @@ try {
         }
     }
 
-    # --- 3. Formatting ------------------------------------------------------
+    # --- 3. Static analysis, on request --------------------------------------
+    #
+    # .clang-tidy is a real configuration that went years without running: CI
+    # never executed, and the step that claimed to run it ran `echo`. Its first
+    # actual run found six places an exception could escape a thread or a
+    # destructor, every one of them a std::terminate. That is the kind of thing
+    # worth a switch.
+
+    if ($Tidy) {
+        Write-Heading "Static analysis (advisory)"
+
+        $clangTidy = Get-Command "clang-tidy" -ErrorAction SilentlyContinue
+        $database = Join-Path $root "build/$Preset/compile_commands.json"
+
+        if (-not $clangTidy) {
+            Write-Host "  clang-tidy not found - skipped" -ForegroundColor DarkGray
+        } elseif (-not (Test-Path $database)) {
+            Write-Host "  no compile_commands.json in build/$Preset - configure first" -ForegroundColor DarkGray
+        } else {
+            # What you are about to push: tracked changes plus new files. Not
+            # the whole tree - see the note on the switch.
+            $changed = @(
+                (& git diff --name-only HEAD -- "*.cpp") +
+                (& git ls-files --others --exclude-standard -- "*.cpp")
+            ) | Where-Object { $_ -and $_ -notlike "third_party/*" } | Select-Object -Unique
+
+            if ($changed.Count -eq 0) {
+                Write-Host "  no changed .cpp files" -ForegroundColor DarkGray
+            } else {
+                Write-Host "  $($changed.Count) changed file(s)" -ForegroundColor DarkGray
+
+                $findings = @()
+
+                foreach ($file in $changed) {
+                    if (-not (Test-Path $file)) { continue }
+
+                    # -Wno-unused-command-line-argument because the database
+                    # carries MSVC's /Zc:preprocessor, which clang accepts and
+                    # does not use; without it every file reports an error
+                    # before a single check runs.
+                    $output = & {
+                        $ErrorActionPreference = "Continue"
+                        & clang-tidy -p (Join-Path $root "build/$Preset") --quiet `
+                            --extra-arg=-Wno-unused-command-line-argument $file 2>&1
+                    }
+
+                    $findings += @($output |
+                        ForEach-Object { $_.ToString() } |
+                        Select-String -Pattern ": (warning|error): " |
+                        ForEach-Object { $_.Line })
+                }
+
+                if ($findings.Count -eq 0) {
+                    Write-Host "  clean" -ForegroundColor Green
+                } else {
+                    foreach ($finding in ($findings | Select-Object -First 30)) {
+                        Write-Host "  $finding" -ForegroundColor Yellow
+                    }
+                    if ($findings.Count -gt 30) {
+                        Write-Host "  ... and $($findings.Count - 30) more" -ForegroundColor Yellow
+                    }
+                    $advisories += "clang-tidy: $($findings.Count) finding(s)"
+                }
+            }
+        }
+    }
+
+    # --- 4. Formatting ------------------------------------------------------
     #
     # Advisory, exactly as in CI, and for a reason worth repeating here rather
     # than hiding in a workflow file: this codebase is hand-formatted. Line
@@ -166,7 +243,7 @@ try {
         }
     }
 
-    # --- 4. The package -----------------------------------------------------
+    # --- 5. The package -----------------------------------------------------
     #
     # From the *release* preset, always, whatever $Preset the gates above used.
     #
