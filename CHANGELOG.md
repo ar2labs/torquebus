@@ -99,6 +99,20 @@ against what it does, which turned up more than expected.
   answers neither. The table went from 170 entries to 160, and its header now
   gives both reasons an entry can be left out.
 
+- **The Visual Studio preset did not build.** `windows-msvc-vs` is the one the
+  README calls "start here" and the one meant for somebody who has just cloned
+  and has no developer prompt — and it had never been built. MSBuild compiles a
+  target's translation units in parallel and all of them write the same compiler
+  PDB, which without `/FS` is `error C1041` and a stopped build. Ninja never hit
+  it, because it compiles one file per process; so the preset everybody here
+  uses was fine and the one newcomers are pointed at was not.
+- **`-misc-include-cleaner` was never actually disabled.** The justification was
+  written as `#` lines inside `Checks:`, which is a folded block scalar — inside
+  one, `#` is literal text, so the comment joined the comma-separated list and
+  took the entry after it along. The exclusion silently did nothing, and the
+  evidence (a run still reporting 199 of them) was visible and explained away
+  once before it was understood.
+
 ### Added
 
 - **The J1939 function-name table ships.** Derived from AgIsoStack++ under the
@@ -120,6 +134,10 @@ against what it does, which turned up more than expected.
 - **`src/core/ThreadGuard.h`**, the net under every thread entry point and every
   destructor that flushes, with six tests — including the one that would
   otherwise be embarrassing: a reporter that throws while reporting a crash.
+- **`-Tidy` on the pre-push script**, running clang-tidy over the files a change
+  touches. Scoped rather than whole-tree on purpose: twenty seconds a file turns
+  a two-minute gate into a thirty-minute one, and a gate that long stops being
+  run.
 - **Tests that run the example scripts.** Five ship in `examples/scripts/`, the
   README and the scripting guide point at them, and they are the first thing
   somebody evaluating the tool opens — and four of the five were executed by

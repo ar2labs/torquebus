@@ -109,6 +109,32 @@ endif()
 # docs/development/getting-started.md under Troubleshooting.
 
 # --------------------------------------------------------------------------
+# /FS, for everything, including what FetchContent brings in
+# --------------------------------------------------------------------------
+#
+# The Visual Studio generator builds a target's translation units in parallel,
+# and every one of them writes the same compiler PDB. Without /FS that is
+#
+#   error C1041: cannot open program database '...\QtNodes.pdb';
+#   if multiple CL.EXE write to the same .PDB file, use /FS
+#
+# and the build stops. Ninja never hits it, which is why this went unnoticed:
+# the Ninja presets are what everybody here builds with, and windows-msvc-vs -
+# the one the README calls "start here", the one meant for a contributor who has
+# just cloned and has no developer prompt - had never been built at all.
+#
+# add_compile_options and not a target property, because the target it fails on
+# is QtNodes: FetchContent builds it inside this project, so it inherits
+# directory-level options and nothing else we set can reach it. This has to come
+# before the dependencies are declared for that inheritance to happen.
+#
+# The cost on Ninja builds is nothing measurable - /FS serialises PDB writes,
+# which Ninja was already doing by compiling one file per process.
+if(MSVC)
+    add_compile_options(/FS)
+endif()
+
+# --------------------------------------------------------------------------
 # Dependencies
 # --------------------------------------------------------------------------
 
