@@ -20,7 +20,16 @@ BinPackArguments: false
 BinPackParameters: false
 BreakBeforeBraces: Custom
 BraceWrapping:
-  AfterClass: true
+  # false, against the WebKit default, for the same reason as the operator
+  # above: 102 class definitions here put the brace on the declaration's line
+  # and none put it on the next one. AfterFunction stays true because that one
+  # the code does do - 1152 function bodies open on a line of their own - and
+  # struct, enum and union stay false because they follow the class.
+  #
+  # Counted before reformatting rather than after. Taking WebKit's answer would
+  # have moved 102 braces to a style this codebase never used once, inside a
+  # commit too large to notice it in.
+  AfterClass: false
   AfterControlStatement: false
   AfterEnum: false
   AfterFunction: true
@@ -31,6 +40,21 @@ BraceWrapping:
   BeforeElse: false
   SplitEmptyFunction: false
   SplitEmptyRecord: false
+# WebKit, which this is based on, breaks before *every* binary operator -
+# including assignment, so a wrapped statement reads
+#
+#     const std::uint64_t patience
+#         = (started || broadcast) ? kPacketTimeout : kHandshakeTimeout;
+#
+# This codebase has never once done that. 107 wrapped assignments keep the `=`
+# at the end of the line and none put it at the start, across 69,000 lines -
+# which is not a preference, it is a decision that was made and kept. Inheriting
+# WebKit's answer would have rewritten all 107 in the name of a style nobody
+# here chose.
+#
+# NonAssignment keeps the rest: `&&`, `|`, `+` still lead their continuation
+# line, which is what the code does too.
+BreakBeforeBinaryOperators: NonAssignment
 BreakConstructorInitializers: BeforeComma
 ConstructorInitializerIndentWidth: 4
 Cpp11BracedListStyle: true
