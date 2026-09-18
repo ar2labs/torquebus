@@ -112,6 +112,21 @@ against what it does, which turned up more than expected.
   evidence (a run still reporting 199 of them) was visible and explained away
   once before it was understood.
 
+- **The PEAK plugin could not find Qt, on any machine without Qt on `PATH`.**
+  The loader used `LOAD_WITH_ALTERED_SEARCH_PATH`, chosen so a plugin finds a
+  vendor SDK sitting beside it — and that flag *replaces* the executable's
+  directory rather than adding to it. The shared Qt lives beside the executable,
+  one level up from `plugins`, so the plugin that links Qt6::SerialBus came up
+  with nothing. The interface list showed Kvaser and no PEAK. It now searches
+  both the plugin's directory and the application's, which also drops `PATH`
+  from the search — one fewer way for a foreign DLL to be loaded in place of the
+  intended one.
+- **A Visual Studio build had no Kvaser or PEAK support.** The vendor plugins
+  were sent to `${CMAKE_BINARY_DIR}/bin/plugins`, which is beside the executable
+  under Ninja and is not under a multi-config generator, where the executable
+  lands in `bin/Debug`. The loader looks beside the executable, so the plugins
+  were on disk in a directory nothing reads — the same shape as the release that
+  shipped without them, found the same way: by actually running the thing.
 - **The built application would not start without Qt on `PATH`.** Running
   `build/<preset>/bin/TorqueBusStudio.exe` needed a Qt-aware prompt, which
   everybody here has and a newcomer following the README does not: they get a
