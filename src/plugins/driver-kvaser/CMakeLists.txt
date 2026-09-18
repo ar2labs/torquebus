@@ -45,22 +45,21 @@ target_link_libraries(torquebus_plugin_kvaser
 
 # Beside the executable, in the one directory the loader looks in - so a build
 # tree behaves the same way an installation does.
-set(TORQUEBUS_PLUGIN_OUTPUT "${CMAKE_BINARY_DIR}/bin/plugins")
-
+#
+# Expressed against the executable's own directory rather than a path built from
+# CMAKE_BINARY_DIR, because those are not the same place under every generator.
+# This used to force ${CMAKE_BINARY_DIR}/bin/plugins for every configuration,
+# which is right for Ninja - where the executable is in bin - and wrong for the
+# Visual Studio generator, which puts it in bin/Debug. The loader looks beside
+# the executable, so a VS build had the plugins on disk, in a directory nothing
+# reads, and no Kvaser or PEAK support at all. Exactly the shape of the release
+# that shipped without them.
 set_target_properties(torquebus_plugin_kvaser PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY "${TORQUEBUS_PLUGIN_OUTPUT}"
-    RUNTIME_OUTPUT_DIRECTORY "${TORQUEBUS_PLUGIN_OUTPUT}"
+    LIBRARY_OUTPUT_DIRECTORY "$<TARGET_FILE_DIR:TorqueBusStudio>/plugins"
+    RUNTIME_OUTPUT_DIRECTORY "$<TARGET_FILE_DIR:TorqueBusStudio>/plugins"
     OUTPUT_NAME "torquebus-driver-kvaser"
     FOLDER "Plugins"
 )
-
-foreach(configuration ${CMAKE_CONFIGURATION_TYPES})
-    string(TOUPPER ${configuration} configuration_upper)
-    set_target_properties(torquebus_plugin_kvaser PROPERTIES
-        LIBRARY_OUTPUT_DIRECTORY_${configuration_upper} "${TORQUEBUS_PLUGIN_OUTPUT}"
-        RUNTIME_OUTPUT_DIRECTORY_${configuration_upper} "${TORQUEBUS_PLUGIN_OUTPUT}"
-    )
-endforeach()
 
 # Into the installed tree too, in the same directory the loader looks in.
 #

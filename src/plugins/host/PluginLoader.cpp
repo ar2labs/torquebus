@@ -24,12 +24,34 @@ namespace {
 
 [[nodiscard]] void* openLibrary(const std::filesystem::path& file, std::string& error)
 {
-    // LOAD_WITH_ALTERED_SEARCH_PATH so a plugin finds the DLLs sitting beside
-    // it - a vendor SDK next to the driver that needs it - rather than only
-    // those beside the executable. The path is absolute, which is what that
-    // flag requires and what keeps the search from starting anywhere else.
+    // Two directories, and this used to be one.
+    //
+    // LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR is the plugin's own directory, which is
+    // what the original LOAD_WITH_ALTERED_SEARCH_PATH was chosen for: a vendor
+    // SDK sitting next to the driver that needs it. What that flag also does is
+    // *replace* the executable's directory rather than add to it - and the
+    // shared Qt lives beside the executable, one level up from `plugins`.
+    //
+    // So the PEAK plugin, which links Qt6::SerialBus, could not find it. On a
+    // machine with Qt on PATH that never showed; on one without, the interface
+    // list came up with Kvaser in it and no PEAK. Found by running the
+    // application with a deliberately hostile PATH and reading which modules
+    // the process had actually loaded.
+    //
+    // LOAD_LIBRARY_SEARCH_DEFAULT_DIRS adds the application directory, the
+    // user-added directories and System32 - which is where both vendor runtimes
+    // actually are, because their driver installers put them there.
+    //
+    // What this pair does *not* include is PATH, and that is a gain rather than
+    // a cost: it is one fewer way for a foreign DLL earlier on somebody's PATH
+    // to be loaded in place of the intended one. A vendor SDK that lives only
+    // on PATH and nowhere else now fails to load - and says so by name, with
+    // the reason, which is what the lines below are for.
+    //
+    // The path must be absolute for these flags, which it is.
     HMODULE handle = ::LoadLibraryExW(file.c_str(), nullptr,
-                                      LOAD_WITH_ALTERED_SEARCH_PATH);
+                                      LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR
+                                          | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     if (handle != nullptr) {
         return handle;
     }
