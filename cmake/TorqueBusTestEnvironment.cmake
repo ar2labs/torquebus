@@ -40,14 +40,22 @@
 # and already carried 120 seconds, which is why the hang that started all this
 # was in the unit tests - the only suite with no timeout at all.
 
-# Computes the PROPERTIES to hand to catch_discover_tests, in `out_variable`.
+# Gives `out_variable` the directory to put on the DLL search path.
 #
-# Not applied after the fact: catch_discover_tests does not create the tests at
-# configure time. It writes a script that enumerates the binary's TEST_CASEs
-# when the binary is built, so at configure time the directory's TESTS property
-# is empty and a loop over it sets properties on nothing. The first version of
-# this file did exactly that, said nothing, and the tests went on hanging.
-function(torquebus_test_properties out_variable)
+# Handed to catch_discover_tests as DL_PATHS, which covers *both* moments the
+# binary runs: the enumeration at build time and the tests under ctest. That
+# distinction cost a build. The first version of this set
+# ENVIRONMENT_MODIFICATION on the tests, which fixed ctest and left the
+# enumeration alone - and the enumeration is a run too. Building the Visual
+# Studio preset from a prompt with no Qt on PATH failed there with
+# STATUS_DLL_NOT_FOUND, before a single test had a chance to pass or fail.
+#
+# It also cannot be applied after catch_discover_tests returns: that call does
+# not create the tests at configure time, it writes a script that enumerates the
+# binary's TEST_CASEs when the binary is built. At configure time the
+# directory's TESTS property is empty, so a loop over it sets properties on
+# nothing - which an even earlier version of this file did, silently.
+function(torquebus_test_dl_paths out_variable)
     set("${out_variable}" "" PARENT_SCOPE)
 
     if(NOT WIN32)
@@ -58,7 +66,7 @@ function(torquebus_test_properties out_variable)
     # imported target rather than from a variable that might describe a
     # different installation. Qt6::Core's location is the DLL itself.
     if(NOT TARGET Qt6::Core)
-        message(WARNING "torquebus_test_properties: Qt6::Core not found")
+        message(WARNING "torquebus_test_dl_paths: Qt6::Core not found")
         return()
     endif()
 
@@ -71,15 +79,13 @@ function(torquebus_test_properties out_variable)
     endif()
 
     if(NOT _qt_core_dll)
-        message(WARNING "torquebus_test_properties: no location for Qt6::Core")
+        message(WARNING "torquebus_test_dl_paths: no location for Qt6::Core")
         return()
     endif()
 
     get_filename_component(_qt_bin "${_qt_core_dll}" DIRECTORY)
 
-    set("${out_variable}"
-        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${_qt_bin}"
-        PARENT_SCOPE)
+    set("${out_variable}" "${_qt_bin}" PARENT_SCOPE)
 
     set(TORQUEBUS_TEST_QT_BIN "${_qt_bin}" CACHE INTERNAL "Qt bin prepended to test PATH")
 endfunction()

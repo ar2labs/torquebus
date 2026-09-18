@@ -25,14 +25,14 @@ target_link_libraries(torquebus_hardware_tests PRIVATE Threads::Threads)
 
 set_target_properties(torquebus_hardware_tests PROPERTIES FOLDER "Tests")
 
-# The Qt this build was configured against, prepended to each test's PATH, so a
-# foreign Qt earlier on PATH fails the test instead of stopping it at a modal
-# dialog nobody is there to dismiss. See the module's header.
-torquebus_test_properties(TORQUEBUS_TEST_PROPERTIES)
+# The Qt this build was configured against, on the DLL search path for both
+# moments the binary runs: the enumeration at build time and the tests under
+# ctest. See the module's header - covering only the second cost a build.
+torquebus_test_dl_paths(TORQUEBUS_TEST_DL_PATHS)
 
 catch_discover_tests(torquebus_hardware_tests
+    DL_PATHS ${TORQUEBUS_TEST_DL_PATHS}
     PROPERTIES
-        ${TORQUEBUS_TEST_PROPERTIES}
         LABELS "hardware"
         TIMEOUT 120
 )
