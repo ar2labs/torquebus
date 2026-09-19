@@ -52,7 +52,8 @@ BO_ 258 EngineTemp: 8 ECU
 /// graph it had already destroyed.
 class EcuPass final {
 public:
-    EcuPass(const std::string& script, std::shared_ptr<const CanDatabase> database,
+    EcuPass(const std::string& script,
+            std::shared_ptr<const CanDatabase> database,
             std::vector<CanFrame> incoming = {})
     {
         auto ecuNode = std::make_unique<LuaEcuNode>(script, "test ecu", std::uint8_t{0});
@@ -69,11 +70,10 @@ public:
             }
         });
 
-        const NodeId source =
-            m_graph.addNode(std::make_unique<StaticSource>(std::move(incoming)));
+        const NodeId source = m_graph.addNode(std::make_unique<StaticSource>(std::move(incoming)));
         const NodeId ecu = m_graph.addNode(std::move(ecuNode));
-        const NodeId sink = m_graph.addNode(std::make_unique<FrameSinkNode>(
-            [this](std::span<const CanFrame> frames) {
+        const NodeId sink = m_graph.addNode(
+            std::make_unique<FrameSinkNode>([this](std::span<const CanFrame> frames) {
                 m_produced.insert(m_produced.end(), frames.begin(), frames.end());
             }));
 
@@ -108,13 +108,9 @@ private:
     public:
         explicit StaticSource(std::vector<CanFrame> frames)
             : m_frames{std::move(frames)}
-        {
-        }
+        { }
 
-        [[nodiscard]] std::string_view typeName() const noexcept override
-        {
-            return "test.source";
-        }
+        [[nodiscard]] std::string_view typeName() const noexcept override { return "test.source"; }
         [[nodiscard]] std::string displayName() const override { return "static"; }
         [[nodiscard]] std::span<const PortDescriptor> inputs() const noexcept override
         {
@@ -163,8 +159,7 @@ private:
 
 } // namespace
 
-TEST_CASE("A script naming a signal produces the bytes the database specifies",
-          "[lua][dbc]")
+TEST_CASE("A script naming a signal produces the bytes the database specifies", "[lua][dbc]")
 {
     const EcuPass pass{R"(
 function on_enable()
@@ -204,8 +199,7 @@ end
     CHECK(pass.produced().front().data[2] == 0x05);
 }
 
-TEST_CASE("A misspelled name stops the script; a value out of range does not",
-          "[lua][dbc]")
+TEST_CASE("A misspelled name stops the script; a value out of range does not", "[lua][dbc]")
 {
     // The asymmetry is the whole design. A typo never becomes correct, so the
     // script should stop and say which name was wrong. A value out of range is
@@ -279,8 +273,7 @@ end
     CHECK(pass.log().front().find("85.0") != std::string::npos);
 }
 
-TEST_CASE("decode returns nil for a frame the database does not describe",
-          "[lua][dbc]")
+TEST_CASE("decode returns nil for a frame the database does not describe", "[lua][dbc]")
 {
     // What an ECU on a shared bus does all day: look at everything, act on the
     // few identifiers it owns. Returning nil rather than an empty table lets
@@ -299,8 +292,7 @@ end
     CHECK(pass.log()[1].find("unknown") != std::string::npos);
 }
 
-TEST_CASE("Without a database, decode says nothing and emit_signal says why",
-          "[lua][dbc]")
+TEST_CASE("Without a database, decode says nothing and emit_signal says why", "[lua][dbc]")
 {
     SECTION("decode returns nil rather than failing")
     {

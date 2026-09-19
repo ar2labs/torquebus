@@ -44,8 +44,7 @@ constexpr int kSourceVariable = 2;
 
 } // namespace
 
-DashboardWidgetEditor::DashboardWidgetEditor(DashboardDescription& dashboard,
-                                             QWidget* parent)
+DashboardWidgetEditor::DashboardWidgetEditor(DashboardDescription& dashboard, QWidget* parent)
     : QWidget{parent}
     , m_dashboard{dashboard}
 {
@@ -133,18 +132,14 @@ void DashboardWidgetEditor::buildUi()
     // Every field writes on change. A form that needs a Save button is a form
     // somebody leaves half-applied - and the description is the live one, so
     // there is nothing to commit.
-    connect(m_source, &QComboBox::currentIndexChanged, this,
-            [this](int) { onFieldChanged(); });
+    connect(m_source, &QComboBox::currentIndexChanged, this, [this](int) { onFieldChanged(); });
 
     for (QLineEdit* field : {m_message, m_signal, m_variable, m_title, m_unit}) {
-        connect(field, &QLineEdit::textEdited, this, [this](const QString&) {
-            onFieldChanged();
-        });
+        connect(field, &QLineEdit::textEdited, this, [this](const QString&) { onFieldChanged(); });
     }
 
     for (QDoubleSpinBox* spin : {m_minimum, m_maximum, m_threshold}) {
-        connect(spin, &QDoubleSpinBox::valueChanged, this,
-                [this](double) { onFieldChanged(); });
+        connect(spin, &QDoubleSpinBox::valueChanged, this, [this](double) { onFieldChanged(); });
     }
 
     connect(m_decimals, &QSpinBox::valueChanged, this, [this](int) { onFieldChanged(); });
@@ -238,17 +233,18 @@ void DashboardWidgetEditor::applyVisibility(const DashboardWidget& widget)
     showRow(m_signal, !isLabel && signalBound);
     showRow(m_variable, !isLabel && variableBound);
 
-    showRow(m_unit, !isLabel && widget.kind != DashboardWidgetKind::Lamp
-                        && widget.kind != DashboardWidgetKind::Button
-                        && widget.kind != DashboardWidgetKind::Switch);
+    showRow(m_unit,
+            !isLabel && widget.kind != DashboardWidgetKind::Lamp
+                && widget.kind != DashboardWidgetKind::Button
+                && widget.kind != DashboardWidgetKind::Switch);
 
     const bool needsRange = !isLabel && widget.kind != DashboardWidgetKind::Lamp;
     showRow(m_minimum, needsRange);
     showRow(m_maximum, needsRange);
 
-    showRow(m_threshold, widget.kind == DashboardWidgetKind::Lamp
-                             || widget.kind == DashboardWidgetKind::Switch
-                             || widget.kind == DashboardWidgetKind::Button);
+    showRow(m_threshold,
+            widget.kind == DashboardWidgetKind::Lamp || widget.kind == DashboardWidgetKind::Switch
+                || widget.kind == DashboardWidgetKind::Button);
 
     showRow(m_decimals, !isLabel && widget.kind != DashboardWidgetKind::Lamp);
 
@@ -266,8 +262,7 @@ void DashboardWidgetEditor::applyVisibility(const DashboardWidget& widget)
 
 void DashboardWidgetEditor::onFieldChanged()
 {
-    auto* widget = const_cast<DashboardWidget*>(
-        m_dashboard.find(m_widgetId.toStdString()));
+    auto* widget = const_cast<DashboardWidget*>(m_dashboard.find(m_widgetId.toStdString()));
 
     if (widget == nullptr) {
         return;

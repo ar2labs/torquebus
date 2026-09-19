@@ -39,10 +39,7 @@ public:
     [[nodiscard]] std::string_view typeName() const noexcept override { return "test.source"; }
     [[nodiscard]] std::string displayName() const override { return "Source"; }
 
-    [[nodiscard]] std::span<const PortDescriptor> inputs() const noexcept override
-    {
-        return {};
-    }
+    [[nodiscard]] std::span<const PortDescriptor> inputs() const noexcept override { return {}; }
 
     [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override
     {
@@ -81,10 +78,7 @@ public:
         return kPorts;
     }
 
-    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override
-    {
-        return {};
-    }
+    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override { return {}; }
 
     void process(NodeContext& context) override
     {
@@ -132,8 +126,8 @@ struct Bench final {
         testerAddress.transmitId = 0x7E0;
         testerAddress.receiveId = 0x7E8;
 
-        const NodeId clientId = tester.addNode(std::make_unique<UdsClientNode>(
-            testerAddress, IsoTpConfig{}, UdsTiming{}, &session));
+        const NodeId clientId = tester.addNode(
+            std::make_unique<UdsClientNode>(testerAddress, IsoTpConfig{}, UdsTiming{}, &session));
 
         auto testerOut = std::make_unique<SinkNode>();
         fromTester = testerOut.get();
@@ -151,7 +145,7 @@ struct Bench final {
         auto scripted = std::make_unique<LuaEcuNode>(source, "test.lua");
 
         IsoTpAddress ecuAddress;
-        ecuAddress.receiveId = 0x7E0;   // What the tester transmits.
+        ecuAddress.receiveId = 0x7E0; // What the tester transmits.
         ecuAddress.transmitId = 0x7E8;
 
         scripted->enableDiagnostics(ecuAddress, IsoTpConfig{});
@@ -233,8 +227,7 @@ TEST_CASE("An identifier the script did not declare is refused", "[lua][uds]")
           == static_cast<std::uint8_t>(UdsNegativeResponse::RequestOutOfRange));
 }
 
-TEST_CASE("A script can answer a service the server does not implement",
-          "[lua][uds]")
+TEST_CASE("A script can answer a service the server does not implement", "[lua][uds]")
 {
     // RoutineControl, which UdsServer knows nothing about. Three lines of Lua
     // rather than a change to the C++, which is the whole reason the hook
@@ -310,8 +303,7 @@ TEST_CASE("A script that returns nothing lets the server answer", "[lua][uds]")
     CHECK(exchanges.front().response == Bytes{0x62, 0xF1, 0x90, 'A', 'B', 'C', 'D'});
 }
 
-TEST_CASE("Session and security come from the script's own algorithm",
-          "[lua][uds]")
+TEST_CASE("Session and security come from the script's own algorithm", "[lua][uds]")
 {
     Bench bench{R"(
         function on_enable()
@@ -335,8 +327,7 @@ TEST_CASE("Session and security come from the script's own algorithm",
     std::vector<UdsExchange> exchanges = bench.session.takeExchanges();
     REQUIRE(exchanges.size() == 1);
     CHECK(exchanges.front().negativeResponse
-          == static_cast<std::uint8_t>(
-              UdsNegativeResponse::ServiceNotSupportedInActiveSession));
+          == static_cast<std::uint8_t>(UdsNegativeResponse::ServiceNotSupportedInActiveSession));
 
     // Extended session, then a seed.
     bench.session.postRequest(diagnosticSessionControl(UdsSession::Extended));
@@ -374,8 +365,7 @@ TEST_CASE("Session and security come from the script's own algorithm",
     CHECK(exchanges.front().response == Bytes{0x62, 0x20, 0x01, 0x00, 0x64});
 }
 
-TEST_CASE("A script sees the faults it stored come back as a DTC list",
-          "[lua][uds]")
+TEST_CASE("A script sees the faults it stored come back as a DTC list", "[lua][uds]")
 {
     Bench bench{R"(
         function on_enable()
@@ -390,8 +380,7 @@ TEST_CASE("A script sees the faults it stored come back as a DTC list",
     const std::vector<UdsExchange> exchanges = bench.session.takeExchanges();
     REQUIRE(exchanges.size() == 1);
 
-    const std::vector<DiagnosticTroubleCode> codes =
-        parseDtcResponse(exchanges.front().response);
+    const std::vector<DiagnosticTroubleCode> codes = parseDtcResponse(exchanges.front().response);
 
     REQUIRE(codes.size() == 2);
     CHECK(codes[0].name() == "P0128");
@@ -402,8 +391,7 @@ TEST_CASE("A script sees the faults it stored come back as a DTC list",
     CHECK(codes[1].status == 0x08);
 }
 
-TEST_CASE("A script with no diagnostic addresses has no uds functions",
-          "[lua][uds]")
+TEST_CASE("A script with no diagnostic addresses has no uds functions", "[lua][uds]")
 {
     // An ordinary ECU pays nothing for a layer it does not use - and a script
     // that calls uds_did on one does not quietly do nothing. It fails at

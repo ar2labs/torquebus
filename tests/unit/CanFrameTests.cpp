@@ -106,8 +106,7 @@ TEST_CASE("Identifier validation respects the frame format", "[canframe][identif
     CHECK_FALSE(isValidIdentifier(0x2000'0000, CanFrameFormat::Extended));
 }
 
-TEST_CASE("Identifiers are formatted the way automotive tools print them",
-          "[canframe][format]")
+TEST_CASE("Identifiers are formatted the way automotive tools print them", "[canframe][format]")
 {
     CHECK(toIdentifierString(makeFrame(0x100, CanFrameFormat::Standard, 0)) == "100");
     CHECK(toIdentifierString(makeFrame(0x7, CanFrameFormat::Standard, 0)) == "007");
@@ -128,8 +127,7 @@ TEST_CASE("Payloads are formatted as spaced uppercase hex", "[canframe][format]"
     CHECK(toHexString(frame) == "00 AB FF");
 }
 
-TEST_CASE("Bus load accounting counts overhead, payload and stuffing",
-          "[canframe][statistics]")
+TEST_CASE("Bus load accounting counts overhead, payload and stuffing", "[canframe][statistics]")
 {
     const CanFrame standard = makeFrame(0x100, CanFrameFormat::Standard, 8);
     const CanFrame extended = makeFrame(0x18FF50E5, CanFrameFormat::Extended, 8);

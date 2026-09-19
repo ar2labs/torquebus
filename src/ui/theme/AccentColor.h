@@ -35,16 +35,7 @@
 namespace torquebus::ui {
 
 /// In the order the preferences row shows them.
-enum class AccentColor : int {
-    TorqueBus = 0,
-    Red,
-    Orange,
-    Yellow,
-    Green,
-    Blue,
-    Purple,
-    Pink
-};
+enum class AccentColor : int { TorqueBus = 0, Red, Orange, Yellow, Green, Blue, Purple, Pink };
 
 /// Every accent, in display order. The row in Preferences is built from this,
 /// so adding one here is the only edit a new swatch needs.

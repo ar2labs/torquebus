@@ -3,14 +3,14 @@
 // TorqueBus Studio
 // Copyright (C) TorqueBus contributors
 
-#include "core/ThreadGuard.h"
 #include "drivers/virtual/VirtualCanBackend.h"
+#include "core/ThreadGuard.h"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <cstdio>
 #include <condition_variable>
+#include <cstdio>
 #include <deque>
 #include <format>
 #include <mutex>
@@ -204,7 +204,8 @@ private:
     }
 
     const std::string suffix = handle.substr(prefix.size());
-    if (suffix.empty() || !std::ranges::all_of(suffix, [](char c) { return c >= '0' && c <= '9'; })) {
+    if (suffix.empty()
+        || !std::ranges::all_of(suffix, [](char c) { return c >= '0' && c <= '9'; })) {
         return false;
     }
 
@@ -232,7 +233,7 @@ struct VirtualCanBackend::Impl final {
     std::thread generatorThread;
     std::atomic<bool> running{false};
 
-    std::atomic<std::uint64_t> posted{0};    ///< frames handed to the bus for us
+    std::atomic<std::uint64_t> posted{0}; ///< frames handed to the bus for us
     std::atomic<std::uint64_t> delivered{0}; ///< frames passed to the handler
     std::atomic<bool> trafficDone{false};
 
@@ -241,8 +242,7 @@ struct VirtualCanBackend::Impl final {
 
 VirtualCanBackend::VirtualCanBackend()
     : m_impl{std::make_unique<Impl>()}
-{
-}
+{ }
 
 VirtualCanBackend::~VirtualCanBackend()
 {
@@ -271,9 +271,9 @@ Result VirtualCanBackend::open(const CanChannelConfig& config)
 {
     std::uint32_t channelIndex = 0;
     if (!parseHandle(config.deviceHandle, channelIndex)) {
-        return Result::error(ErrorCode::DeviceNotFound,
-                             std::format("'{}' is not a virtual channel handle",
-                                         config.deviceHandle));
+        return Result::error(
+            ErrorCode::DeviceNotFound,
+            std::format("'{}' is not a virtual channel handle", config.deviceHandle));
     }
 
     if (config.canFdEnabled && !virtualCapabilities().canFd) {
@@ -343,86 +343,88 @@ Result VirtualCanBackend::start()
         "the virtual receive thread",
         [this](std::string_view reason) { reportThreadStopped(reason); },
         [this, inbox, handler] {
-        std::vector<CanFrame> batch;
-        batch.reserve(kMaximumDeliveryBatch);
+            std::vector<CanFrame> batch;
+            batch.reserve(kMaximumDeliveryBatch);
 
-        while (m_impl->running.load(std::memory_order_acquire)) {
-            const std::size_t count = inbox->drain(batch, std::chrono::milliseconds{5});
+            while (m_impl->running.load(std::memory_order_acquire)) {
+                const std::size_t count = inbox->drain(batch, std::chrono::milliseconds{5});
 
-            if (count == 0) {
-                continue;
+                if (count == 0) {
+                    continue;
+                }
+
+                if (handler) {
+                    handler(std::span<const CanFrame>{batch.data(), count});
+                }
+
+                m_impl->delivered.fetch_add(count, std::memory_order_relaxed);
             }
 
-            if (handler) {
-                handler(std::span<const CanFrame>{batch.data(), count});
+            // Final drain: frames posted just before the stop are measurement data
+            // like any other and must still reach the handler.
+            while (inbox->drain(batch, std::chrono::milliseconds{0}) > 0) {
+                if (handler) {
+                    handler(std::span<const CanFrame>{batch.data(), batch.size()});
+                }
+                m_impl->delivered.fetch_add(batch.size(), std::memory_order_relaxed);
             }
-
-            m_impl->delivered.fetch_add(count, std::memory_order_relaxed);
-        }
-
-        // Final drain: frames posted just before the stop are measurement data
-        // like any other and must still reach the handler.
-        while (inbox->drain(batch, std::chrono::milliseconds{0}) > 0) {
-            if (handler) {
-                handler(std::span<const CanFrame>{batch.data(), batch.size()});
-            }
-            m_impl->delivered.fetch_add(batch.size(), std::memory_order_relaxed);
-        }
-    })};
+        })};
 
     if (traffic.framesPerSecond > 0) {
         m_impl->generatorThread = std::thread{guardThread(
             "the virtual traffic generator",
             [this](std::string_view reason) { reportThreadStopped(reason); },
             [this, traffic, bus] {
-            const auto period = std::chrono::nanoseconds{1'000'000'000ULL / traffic.framesPerSecond};
-            Clock::time_point next = Clock::now();
+                const auto period =
+                    std::chrono::nanoseconds{1'000'000'000ULL / traffic.framesPerSecond};
+                Clock::time_point next = Clock::now();
 
-            std::uint64_t produced = 0;
-            std::uint32_t message = 0;
+                std::uint64_t produced = 0;
+                std::uint32_t message = 0;
 
-            while (m_impl->running.load(std::memory_order_acquire)) {
-                if (traffic.totalFrames > 0 && produced >= traffic.totalFrames) {
-                    break;
+                while (m_impl->running.load(std::memory_order_acquire)) {
+                    if (traffic.totalFrames > 0 && produced >= traffic.totalFrames) {
+                        break;
+                    }
+
+                    CanFrame frame;
+                    frame.identifier = traffic.baseIdentifier + message;
+                    frame.format =
+                        traffic.extended ? CanFrameFormat::Extended : CanFrameFormat::Standard;
+                    frame.length = traffic.payloadLength;
+                    frame.dlc = dlcFromPayloadLength(traffic.payloadLength, false);
+                    frame.timestampNs = monotonicNanoseconds();
+
+                    for (std::uint8_t byte = 0; byte < traffic.payloadLength; ++byte) {
+                        frame.data[byte] =
+                            traffic.varyPayload
+                                ? static_cast<std::uint8_t>((produced + byte) & 0xFFU)
+                                : static_cast<std::uint8_t>(byte);
+                    }
+
+                    // Sender id 0 is never assigned to a node, so every attached
+                    // node - including this one - sees generated traffic as Rx.
+                    // That is the truthful shape: the generator stands in for the
+                    // rest of the bus, not for something this application sent.
+                    bus->broadcast(0, frame);
+
+                    ++produced;
+                    message = (message + 1) % std::max(traffic.messageCount, 1U);
+
+                    // Above a few tens of thousands of frames per second, sleeping
+                    // per frame costs more than the frame does. Burst instead and
+                    // let the pacing be approximate - the point is load, not
+                    // metrological accuracy.
+                    next += period;
+                    if (const Clock::time_point now = Clock::now(); next > now) {
+                        std::this_thread::sleep_until(next);
+                    } else if (now - next > std::chrono::milliseconds{50}) {
+                        next = now;
+                    }
                 }
 
-                CanFrame frame;
-                frame.identifier = traffic.baseIdentifier + message;
-                frame.format = traffic.extended ? CanFrameFormat::Extended
-                                                : CanFrameFormat::Standard;
-                frame.length = traffic.payloadLength;
-                frame.dlc = dlcFromPayloadLength(traffic.payloadLength, false);
-                frame.timestampNs = monotonicNanoseconds();
-
-                for (std::uint8_t byte = 0; byte < traffic.payloadLength; ++byte) {
-                    frame.data[byte] = traffic.varyPayload
-                        ? static_cast<std::uint8_t>((produced + byte) & 0xFFU)
-                        : static_cast<std::uint8_t>(byte);
-                }
-
-                // Sender id 0 is never assigned to a node, so every attached
-                // node - including this one - sees generated traffic as Rx.
-                // That is the truthful shape: the generator stands in for the
-                // rest of the bus, not for something this application sent.
-                bus->broadcast(0, frame);
-
-                ++produced;
-                message = (message + 1) % std::max(traffic.messageCount, 1U);
-
-                // Above a few tens of thousands of frames per second, sleeping
-                // per frame costs more than the frame does. Burst instead and
-                // let the pacing be approximate - the point is load, not
-                // metrological accuracy.
-                next += period;
-                if (const Clock::time_point now = Clock::now(); next > now) {
-                    std::this_thread::sleep_until(next);
-                } else if (now - next > std::chrono::milliseconds{50}) {
-                    next = now;
-                }
-            }
-
-            m_impl->trafficDone.store(true, std::memory_order_release);
-        })};
+                m_impl->trafficDone.store(true, std::memory_order_release);
+            })};
     }
 
     return Result::ok();
@@ -499,8 +501,7 @@ Result VirtualCanBackend::transmit(const CanFrame& frame)
                                  "Channel is not started - call start() first");
         }
         if (m_impl->config.listenOnly) {
-            return Result::error(ErrorCode::InvalidState,
-                                 "Channel is in listen-only mode");
+            return Result::error(ErrorCode::InvalidState, "Channel is in listen-only mode");
         }
         if (frame.fd && !m_impl->config.canFdEnabled) {
             return Result::error(ErrorCode::UnsupportedFeature,

@@ -41,9 +41,7 @@ constexpr std::uint8_t kEngine = 0x00U;
 
 /// A whole DM payload: two lamp bytes and then the codes.
 [[nodiscard]] std::vector<std::uint8_t> payloadOf(
-    std::uint8_t lamps,
-    std::uint8_t flash,
-    const std::vector<std::vector<std::uint8_t>>& codes)
+    std::uint8_t lamps, std::uint8_t flash, const std::vector<std::vector<std::uint8_t>>& codes)
 {
     std::vector<std::uint8_t> payload{lamps, flash};
     for (const std::vector<std::uint8_t>& code : codes) {
@@ -61,8 +59,7 @@ constexpr std::uint8_t kEngine = 0x00U;
 
 } // namespace
 
-TEST_CASE("A healthy ECU reports no faults, not a fault numbered zero",
-          "[j1939][dm]")
+TEST_CASE("A healthy ECU reports no faults, not a fault numbered zero", "[j1939][dm]")
 {
     // The standard says a DM1 with nothing active still carries one code, and
     // every byte of it is zero. Any tool that does not know this shows SPN 0
@@ -74,8 +71,8 @@ TEST_CASE("A healthy ECU reports no faults, not a fault numbered zero",
     payload.push_back(0xFFU);
     REQUIRE(payload.size() == 8U);
 
-    const std::optional<J1939Diagnostic> message = j1939DecodeDiagnostic(
-        kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
+    const std::optional<J1939Diagnostic> message =
+        j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
 
     REQUIRE(message.has_value());
     CHECK(message->faults.empty());
@@ -84,11 +81,10 @@ TEST_CASE("A healthy ECU reports no faults, not a fault numbered zero",
 
 TEST_CASE("One fault decodes into its three numbers", "[j1939][dm]")
 {
-    const std::vector<std::uint8_t> payload =
-        payloadOf(0x40U, 0x00U, {dtcBytes(100U, 1U, 5U)});
+    const std::vector<std::uint8_t> payload = payloadOf(0x40U, 0x00U, {dtcBytes(100U, 1U, 5U)});
 
-    const std::optional<J1939Diagnostic> message = j1939DecodeDiagnostic(
-        kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
+    const std::optional<J1939Diagnostic> message =
+        j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
 
     REQUIRE(message.has_value());
     REQUIRE(message->faults.size() == 1U);
@@ -110,8 +106,8 @@ TEST_CASE("An SPN above two bytes keeps its top three bits", "[j1939][dm]")
     const std::vector<std::uint8_t> payload =
         payloadOf(0x00U, 0x00U, {dtcBytes(0x1'FEDCU, 3U, 1U)});
 
-    const std::optional<J1939Diagnostic> message = j1939DecodeDiagnostic(
-        kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
+    const std::optional<J1939Diagnostic> message =
+        j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
 
     REQUIRE(message.has_value());
     REQUIRE(message->faults.size() == 1U);
@@ -119,8 +115,7 @@ TEST_CASE("An SPN above two bytes keeps its top three bits", "[j1939][dm]")
     CHECK(message->faults[0].fmi == 3U);
 }
 
-TEST_CASE("A code declaring the other packing gets no number at all",
-          "[j1939][dm]")
+TEST_CASE("A code declaring the other packing gets no number at all", "[j1939][dm]")
 {
     // Read under the wrong convention the bits still produce something that
     // looks like an SPN, and nothing about it invites checking. So there is no
@@ -129,8 +124,8 @@ TEST_CASE("A code declaring the other packing gets no number at all",
     const std::vector<std::uint8_t> payload =
         payloadOf(0x00U, 0x00U, {dtcBytes(100U, 1U, 5U, true)});
 
-    const std::optional<J1939Diagnostic> message = j1939DecodeDiagnostic(
-        kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
+    const std::optional<J1939Diagnostic> message =
+        j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
 
     REQUIRE(message.has_value());
     REQUIRE(message->faults.size() == 1U);
@@ -148,8 +143,7 @@ TEST_CASE("A code declaring the other packing gets no number at all",
     CHECK(fault.raw[3] == (0x80U | 5U));
 }
 
-TEST_CASE("The three legacy packings are read the way the standard defines them",
-          "[j1939][dm]")
+TEST_CASE("The three legacy packings are read the way the standard defines them", "[j1939][dm]")
 {
     // J1939-73 AUG2022 section 5.7.1.14. A conversion bit of one means the SPN
     // is in version 1, 2 or 3 format and the wire does not say which - so the
@@ -192,8 +186,7 @@ TEST_CASE("The three legacy packings are read the way the standard defines them"
     CHECK_FALSE(spnUnder(J1939SpnReading::Version4).has_value());
 }
 
-TEST_CASE("A code that is not ambiguous is read whatever was declared",
-          "[j1939][dm]")
+TEST_CASE("A code that is not ambiguous is read whatever was declared", "[j1939][dm]")
 {
     // A cleared conversion bit is version 4 and can only be version 4. Reading
     // it as a legacy packing because somebody declared one for the codes that
@@ -201,9 +194,10 @@ TEST_CASE("A code that is not ambiguous is read whatever was declared",
     const std::vector<std::uint8_t> payload =
         payloadOf(0x00U, 0x00U, {dtcBytes(100U, 1U, 5U, false)});
 
-    for (const J1939SpnReading reading :
-         {J1939SpnReading::Version1, J1939SpnReading::Version2, J1939SpnReading::Version3,
-          J1939SpnReading::Version4}) {
+    for (const J1939SpnReading reading : {J1939SpnReading::Version1,
+                                          J1939SpnReading::Version2,
+                                          J1939SpnReading::Version3,
+                                          J1939SpnReading::Version4}) {
         const std::optional<J1939Diagnostic> message =
             j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, reading, 1000U);
 
@@ -226,11 +220,10 @@ TEST_CASE("Asking for no assembly still reports the fault", "[j1939][dm]")
 {
     // For a bus whose ECUs use a packing this build does not implement. The
     // fault is real and must be shown; only the SPN is withheld.
-    const std::vector<std::uint8_t> payload =
-        payloadOf(0x00U, 0x00U, {dtcBytes(100U, 1U, 5U)});
+    const std::vector<std::uint8_t> payload = payloadOf(0x00U, 0x00U, {dtcBytes(100U, 1U, 5U)});
 
-    const std::optional<J1939Diagnostic> message = j1939DecodeDiagnostic(
-        kPgnDm1, kEngine, payload, J1939SpnReading::RawOnly, 1000U);
+    const std::optional<J1939Diagnostic> message =
+        j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::RawOnly, 1000U);
 
     REQUIRE(message.has_value());
     REQUIRE(message->faults.size() == 1U);
@@ -239,19 +232,16 @@ TEST_CASE("Asking for no assembly still reports the fault", "[j1939][dm]")
     CHECK(message->faults[0].raw[0] == 100U);
 }
 
-TEST_CASE("Several faults arrive together, as they do over transport",
-          "[j1939][dm]")
+TEST_CASE("Several faults arrive together, as they do over transport", "[j1939][dm]")
 {
     // More than one active fault does not fit in eight bytes, so this payload
     // comes out of the reassembler - and the decoder cannot tell, which is why
     // it takes a payload and not a frame.
-    const std::vector<std::uint8_t> payload = payloadOf(0x50U, 0x00U,
-                                                        {dtcBytes(100U, 1U, 2U),
-                                                         dtcBytes(110U, 3U, 1U),
-                                                         dtcBytes(190U, 16U, 127U)});
+    const std::vector<std::uint8_t> payload = payloadOf(
+        0x50U, 0x00U, {dtcBytes(100U, 1U, 2U), dtcBytes(110U, 3U, 1U), dtcBytes(190U, 16U, 127U)});
 
-    const std::optional<J1939Diagnostic> message = j1939DecodeDiagnostic(
-        kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
+    const std::optional<J1939Diagnostic> message =
+        j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
 
     REQUIRE(message.has_value());
     REQUIRE(message->faults.size() == 3U);
@@ -268,8 +258,8 @@ TEST_CASE("Padding at the end of a message is not a fault", "[j1939][dm]")
     const std::vector<std::uint8_t> payload =
         payloadOf(0x00U, 0x00U, {dtcBytes(100U, 1U, 1U), {0xFFU, 0xFFU, 0xFFU, 0xFFU}});
 
-    const std::optional<J1939Diagnostic> message = j1939DecodeDiagnostic(
-        kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
+    const std::optional<J1939Diagnostic> message =
+        j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
 
     REQUIRE(message.has_value());
     REQUIRE(message->faults.size() == 1U);
@@ -283,8 +273,8 @@ TEST_CASE("A trailing stub too short to be a code is ignored", "[j1939][dm]")
     payload.push_back(0xFFU);
     payload.push_back(0xFFU);
 
-    const std::optional<J1939Diagnostic> message = j1939DecodeDiagnostic(
-        kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
+    const std::optional<J1939Diagnostic> message =
+        j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
 
     REQUIRE(message.has_value());
     CHECK(message->faults.size() == 1U);
@@ -295,13 +285,12 @@ TEST_CASE("DM2 is what used to be wrong, and says so", "[j1939][dm]")
     // The same bytes mean different things. A panel that mixed them would
     // report a repaired fault as a current one, and send somebody to look for
     // a problem that was already fixed.
-    const std::vector<std::uint8_t> payload =
-        payloadOf(0x00U, 0x00U, {dtcBytes(100U, 1U, 3U)});
+    const std::vector<std::uint8_t> payload = payloadOf(0x00U, 0x00U, {dtcBytes(100U, 1U, 3U)});
 
-    const std::optional<J1939Diagnostic> active = j1939DecodeDiagnostic(
-        kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
-    const std::optional<J1939Diagnostic> previous = j1939DecodeDiagnostic(
-        kPgnDm2, kEngine, payload, J1939SpnReading::Version4, 1000U);
+    const std::optional<J1939Diagnostic> active =
+        j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
+    const std::optional<J1939Diagnostic> previous =
+        j1939DecodeDiagnostic(kPgnDm2, kEngine, payload, J1939SpnReading::Version4, 1000U);
 
     REQUIRE(active.has_value());
     REQUIRE(previous.has_value());
@@ -318,8 +307,8 @@ TEST_CASE("The lamps are four two-bit fields, and two of the values are not on o
     // different statement from a lamp that is dark.
     const std::vector<std::uint8_t> payload = payloadOf(0x6CU, 0x00U, {noFaultCode()});
 
-    const std::optional<J1939Diagnostic> message = j1939DecodeDiagnostic(
-        kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
+    const std::optional<J1939Diagnostic> message =
+        j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
 
     REQUIRE(message.has_value());
     CHECK(message->lamps.malfunction == J1939LampState::On);
@@ -333,11 +322,9 @@ TEST_CASE("The lamps are four two-bit fields, and two of the values are not on o
 
 TEST_CASE("A message that is not DM1 or DM2 is not decoded", "[j1939][dm]")
 {
-    const std::vector<std::uint8_t> payload =
-        payloadOf(0x00U, 0x00U, {dtcBytes(100U, 1U, 1U)});
+    const std::vector<std::uint8_t> payload = payloadOf(0x00U, 0x00U, {dtcBytes(100U, 1U, 1U)});
 
-    CHECK_FALSE(j1939DecodeDiagnostic(0x0'FEE5U, kEngine, payload,
-                                      J1939SpnReading::Version4, 1000U)
+    CHECK_FALSE(j1939DecodeDiagnostic(0x0'FEE5U, kEngine, payload, J1939SpnReading::Version4, 1000U)
                     .has_value());
 
     CHECK(j1939IsDiagnosticPgn(kPgnDm1));
@@ -345,29 +332,26 @@ TEST_CASE("A message that is not DM1 or DM2 is not decoded", "[j1939][dm]")
     CHECK_FALSE(j1939IsDiagnosticPgn(kPgnRequest));
 }
 
-TEST_CASE("A payload too short to hold the lamps is not a message",
-          "[j1939][dm]")
+TEST_CASE("A payload too short to hold the lamps is not a message", "[j1939][dm]")
 {
     const std::vector<std::uint8_t> one{0x00U};
 
-    CHECK_FALSE(j1939DecodeDiagnostic(kPgnDm1, kEngine, one, J1939SpnReading::Version4,
-                                      1000U)
-                    .has_value());
+    CHECK_FALSE(
+        j1939DecodeDiagnostic(kPgnDm1, kEngine, one, J1939SpnReading::Version4, 1000U).has_value());
 
     // Two bytes and nothing else is a legal message with no faults in it - the
     // lamps are the news, and an ECU with a lamp on and no code is a real and
     // annoying thing to meet.
     const std::vector<std::uint8_t> lampsOnly{0x40U, 0x00U};
-    const std::optional<J1939Diagnostic> message = j1939DecodeDiagnostic(
-        kPgnDm1, kEngine, lampsOnly, J1939SpnReading::Version4, 1000U);
+    const std::optional<J1939Diagnostic> message =
+        j1939DecodeDiagnostic(kPgnDm1, kEngine, lampsOnly, J1939SpnReading::Version4, 1000U);
 
     REQUIRE(message.has_value());
     CHECK(message->faults.empty());
     CHECK(message->lamps.malfunction == J1939LampState::On);
 }
 
-TEST_CASE("The occurrence count does not steal the conversion bit",
-          "[j1939][dm]")
+TEST_CASE("The occurrence count does not steal the conversion bit", "[j1939][dm]")
 {
     // Seven bits and one. A count of 127 with the bit clear, and the same count
     // with it set, differ in the one place that decides whether the SPN gets
@@ -377,10 +361,10 @@ TEST_CASE("The occurrence count does not steal the conversion bit",
     const std::vector<std::uint8_t> flagged =
         payloadOf(0x00U, 0x00U, {dtcBytes(100U, 1U, 127U, true)});
 
-    const auto first = j1939DecodeDiagnostic(kPgnDm1, kEngine, plain,
-                                             J1939SpnReading::Version4, 1000U);
-    const auto second = j1939DecodeDiagnostic(kPgnDm1, kEngine, flagged,
-                                              J1939SpnReading::Version4, 1000U);
+    const auto first =
+        j1939DecodeDiagnostic(kPgnDm1, kEngine, plain, J1939SpnReading::Version4, 1000U);
+    const auto second =
+        j1939DecodeDiagnostic(kPgnDm1, kEngine, flagged, J1939SpnReading::Version4, 1000U);
 
     REQUIRE(first.has_value());
     REQUIRE(second.has_value());

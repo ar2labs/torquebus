@@ -29,8 +29,7 @@ public:
         : m_name{std::move(name)}
         , m_inputs{std::move(inputs)}
         , m_outputs{std::move(outputs)}
-    {
-    }
+    { }
 
     [[nodiscard]] std::string_view typeName() const noexcept override { return m_name; }
 
@@ -90,9 +89,8 @@ private:
     std::vector<CanFrame> m_buffer;
 };
 
-std::unique_ptr<TestNode> makeNode(std::string name,
-                                   std::vector<PortDescriptor> inputs,
-                                   std::vector<PortDescriptor> outputs)
+std::unique_ptr<TestNode>
+makeNode(std::string name, std::vector<PortDescriptor> inputs, std::vector<PortDescriptor> outputs)
 {
     return std::make_unique<TestNode>(std::move(name), std::move(inputs), std::move(outputs));
 }
@@ -109,8 +107,7 @@ class FixedSource final : public IPipelineNode {
 public:
     explicit FixedSource(std::span<const CanFrame> frames)
         : m_frames{frames}
-    {
-    }
+    { }
 
     [[nodiscard]] std::string_view typeName() const noexcept override { return "fixed"; }
 
@@ -269,8 +266,7 @@ TEST_CASE("Nodes run in topological order", "[pipeline][order]")
     CHECK(order[2] == "sink");
 }
 
-TEST_CASE("finish() runs in reverse, so consumers tear down first",
-          "[pipeline][lifecycle]")
+TEST_CASE("finish() runs in reverse, so consumers tear down first", "[pipeline][lifecycle]")
 {
     PipelineGraph graph;
 
@@ -294,8 +290,7 @@ TEST_CASE("finish() runs in reverse, so consumers tear down first",
     CHECK(order[1] == "source:finish");
 }
 
-TEST_CASE("Every node is prepared, with the batch size it will see",
-          "[pipeline][lifecycle]")
+TEST_CASE("Every node is prepared, with the batch size it will see", "[pipeline][lifecycle]")
 {
     PipelineGraph graph;
 
@@ -382,8 +377,7 @@ TEST_CASE("An uncompiled graph does nothing rather than misbehaving", "[pipeline
     CHECK(raw->passes == 0);
 }
 
-TEST_CASE("A disconnected input sees an empty batch, not stale data",
-          "[pipeline][data]")
+TEST_CASE("A disconnected input sees an empty batch, not stale data", "[pipeline][data]")
 {
     PipelineGraph graph;
 
@@ -429,8 +423,7 @@ TEST_CASE("Batches flow along the edges", "[pipeline][data]")
     CHECK(received[3].identifier == 0x103);
 }
 
-TEST_CASE("A filter node shapes one branch without affecting the others",
-          "[pipeline][filter]")
+TEST_CASE("A filter node shapes one branch without affecting the others", "[pipeline][filter]")
 {
     // This is what a graph buys over a fixed sink list: "trace everything, but
     // only plot these identifiers" in one picture.
@@ -463,7 +456,7 @@ TEST_CASE("A filter node shapes one branch without affecting the others",
 
     graph.execute();
 
-    CHECK(traced == 4);  // the trace branch is untouched
+    CHECK(traced == 4); // the trace branch is untouched
     CHECK(plotted == 1); // the plot branch sees only 0x102
 }
 

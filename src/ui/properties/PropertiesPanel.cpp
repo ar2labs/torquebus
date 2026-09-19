@@ -75,24 +75,24 @@ void PropertiesPanel::setDevice(const CanDeviceInfo& device)
     const CanCapabilities& caps = device.capabilities;
 
     QVector<Row> rows;
-    rows.append({tr("Name"),     QString::fromStdString(device.name),    true});
-    rows.append({tr("Backend"),  QString::fromStdString(device.backend), false});
-    rows.append({tr("Handle"),   QString::fromStdString(device.handle),  false});
-    rows.append({tr("Channel"),  QString::number(device.channelIndex),   false});
+    rows.append({tr("Name"), QString::fromStdString(device.name), true});
+    rows.append({tr("Backend"), QString::fromStdString(device.backend), false});
+    rows.append({tr("Handle"), QString::fromStdString(device.handle), false});
+    rows.append({tr("Channel"), QString::number(device.channelIndex), false});
 
     if (!device.serialNumber.empty()) {
         rows.append({tr("Serial number"), QString::fromStdString(device.serialNumber), false});
     }
 
     rows.append({tr("Type"), caps.virtualDevice ? tr("Virtual") : tr("Physical"), false});
-    rows.append({tr("CAN"),                yesNo(caps.canClassic),        false});
-    rows.append({tr("CAN FD"),             yesNo(caps.canFd),             false});
-    rows.append({tr("Bit rate switch"),    yesNo(caps.canFdBrs),          false});
-    rows.append({tr("Listen only"),        yesNo(caps.listenOnly),        false});
+    rows.append({tr("CAN"), yesNo(caps.canClassic), false});
+    rows.append({tr("CAN FD"), yesNo(caps.canFd), false});
+    rows.append({tr("Bit rate switch"), yesNo(caps.canFdBrs), false});
+    rows.append({tr("Listen only"), yesNo(caps.listenOnly), false});
     rows.append({tr("Hardware timestamp"), yesNo(caps.hardwareTimestamp), false});
-    rows.append({tr("Error frames"),       yesNo(caps.errorFrames),       false});
-    rows.append({tr("Hardware filters"),   yesNo(caps.hardwareFilters),   false});
-    rows.append({tr("Channels"),           QString::number(caps.maxChannels), false});
+    rows.append({tr("Error frames"), yesNo(caps.errorFrames), false});
+    rows.append({tr("Hardware filters"), yesNo(caps.hardwareFilters), false});
+    rows.append({tr("Channels"), QString::number(caps.maxChannels), false});
 
     setProperties(tr("Channel"), rows);
 }

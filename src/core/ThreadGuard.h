@@ -50,7 +50,7 @@ namespace torquebus {
 /// The reporter's own exceptions are swallowed too. A reporter that throws
 /// while reporting a crash is the same bug one level up, and this is the level
 /// that has to stop.
-template <typename Body, typename Report>
+template<typename Body, typename Report>
 void runWithoutEscaping(std::string_view what, Body&& body, Report&& report) noexcept
 {
     const auto tell = [&report](std::string_view message) noexcept {
@@ -94,7 +94,7 @@ void runWithoutEscaping(std::string_view what, Body&& body, Report&& report) noe
 ///
 ///     m_thread = std::thread{guardThread("the Kvaser receive thread",
 ///                                        reporter, [this] { ...body... })};
-template <typename Report, typename Body>
+template<typename Report, typename Body>
 [[nodiscard]] auto guardThread(std::string_view what, Report report, Body body)
 {
     return [what, body = std::move(body), report = std::move(report)]() noexcept {

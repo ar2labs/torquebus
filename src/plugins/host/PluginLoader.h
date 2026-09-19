@@ -68,8 +68,8 @@ public:
     [[nodiscard]] static std::string_view extension() noexcept;
 
     /// The directory plugins are loaded from: `plugins`, beside `executable`.
-    [[nodiscard]] static std::filesystem::path directoryFor(
-        const std::filesystem::path& executable);
+    [[nodiscard]] static std::filesystem::path
+    directoryFor(const std::filesystem::path& executable);
 
     /// Loads every plugin in `directory`, registering each through `host`.
     ///
@@ -79,16 +79,10 @@ public:
 
     [[nodiscard]] std::span<const LoadedPlugin> loaded() const noexcept { return m_loaded; }
 
-    [[nodiscard]] std::span<const RejectedPlugin> rejected() const noexcept
-    {
-        return m_rejected;
-    }
+    [[nodiscard]] std::span<const RejectedPlugin> rejected() const noexcept { return m_rejected; }
 
     /// The key this host was built with, for a message that has to show both.
-    [[nodiscard]] static std::string_view hostBuildKey() noexcept
-    {
-        return pluginBuildKey();
-    }
+    [[nodiscard]] static std::string_view hostBuildKey() noexcept { return pluginBuildKey(); }
 
 private:
     /// Tries one file. Everything it can go wrong with lands in m_rejected.

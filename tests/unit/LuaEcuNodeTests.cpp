@@ -35,8 +35,7 @@ class FixedSource final : public IPipelineNode {
 public:
     explicit FixedSource(std::vector<CanFrame> frames)
         : m_frames{std::move(frames)}
-    {
-    }
+    { }
 
     [[nodiscard]] std::string_view typeName() const noexcept override { return "test.source"; }
     [[nodiscard]] std::string displayName() const override { return "Fixed source"; }
@@ -97,8 +96,8 @@ private:
     // Format follows the identifier rather than defaulting to Standard: a test
     // helper that silently builds an invalid frame wastes an afternoon, as one
     // already did in this project.
-    result.format = identifier > kMaxStandardIdentifier ? CanFrameFormat::Extended
-                                                        : CanFrameFormat::Standard;
+    result.format =
+        identifier > kMaxStandardIdentifier ? CanFrameFormat::Extended : CanFrameFormat::Standard;
     result.length = static_cast<std::uint8_t>(bytes.size());
     result.dlc = dlcFromPayloadLength(result.length, false);
 
@@ -136,8 +135,8 @@ TEST_CASE("on_enable runs before any frame arrives", "[lua][ecu]")
     REQUIRE(node.prepare(64).succeeded());
 
     PipelineGraph graph;
-    const auto source = graph.addNode(std::make_unique<FixedSource>(
-        std::vector<CanFrame>{frame(0x200, {1})}));
+    const auto source =
+        graph.addNode(std::make_unique<FixedSource>(std::vector<CanFrame>{frame(0x200, {1})}));
     const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
         started = false
         function on_enable() started = true end
@@ -209,9 +208,10 @@ TEST_CASE("emit marks frames as transmitted on the node's channel", "[lua][ecu]"
     // instantiation trace - noise in a warnings-as-errors CI run, and pointing
     // at the wrong file. Naming the type at the call site is also just honest
     // about what the parameter is.
-    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(
-        R"(function on_message() emit(0x7FF, "\1\2") end)", "tx.lua",
-        /*channel=*/std::uint8_t{3}));
+    const auto ecu = graph.addNode(
+        std::make_unique<LuaEcuNode>(R"(function on_message() emit(0x7FF, "\1\2") end)",
+                                     "tx.lua",
+                                     /*channel=*/std::uint8_t{3}));
     const auto sink = graph.addNode(std::make_unique<Collector>());
 
     REQUIRE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
@@ -372,8 +372,8 @@ TEST_CASE("log_message reaches the log handler and is not an error", "[lua][ecu]
     std::vector<std::string> lines;
     bool sawError = false;
 
-    auto ecuNode = std::make_unique<LuaEcuNode>(
-        R"(function on_enable() log_message("ready") end)", "log.lua");
+    auto ecuNode =
+        std::make_unique<LuaEcuNode>(R"(function on_enable() log_message("ready") end)", "log.lua");
     ecuNode->setLogHandler([&](const std::string& text, bool isError) {
         lines.push_back(text);
         sawError = sawError || isError;
@@ -429,9 +429,9 @@ TEST_CASE("get_time_us counts from the start of the measurement", "[lua][ecu]")
     // Small, because prepare() and execute() are microseconds apart. The point
     // is that it is elapsed time and not a Unix epoch, which would be enormous.
     const std::uint32_t microseconds = static_cast<std::uint32_t>(out.data[0])
-        | (static_cast<std::uint32_t>(out.data[1]) << 8)
-        | (static_cast<std::uint32_t>(out.data[2]) << 16)
-        | (static_cast<std::uint32_t>(out.data[3]) << 24);
+                                       | (static_cast<std::uint32_t>(out.data[1]) << 8)
+                                       | (static_cast<std::uint32_t>(out.data[2]) << 16)
+                                       | (static_cast<std::uint32_t>(out.data[3]) << 24);
 
     REQUIRE(microseconds < 5'000'000U);
 }
@@ -445,8 +445,8 @@ TEST_CASE("a script with no on_message is legal and silent", "[lua][ecu]")
 
     const auto source =
         graph.addNode(std::make_unique<FixedSource>(std::vector<CanFrame>{frame(0x001, {0})}));
-    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(
-        R"(function on_enable() set_timer(10) end)", "quiet.lua"));
+    const auto ecu = graph.addNode(
+        std::make_unique<LuaEcuNode>(R"(function on_enable() set_timer(10) end)", "quiet.lua"));
     const auto sink = graph.addNode(std::make_unique<Collector>());
 
     REQUIRE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
@@ -503,8 +503,7 @@ TEST_CASE("on_disable runs when the measurement ends", "[lua][ecu]")
 
     auto ecuNode = std::make_unique<LuaEcuNode>(
         R"(function on_disable() log_message("stopped cleanly") end)", "bye.lua");
-    ecuNode->setLogHandler(
-        [&lines](const std::string& text, bool) { lines.push_back(text); });
+    ecuNode->setLogHandler([&lines](const std::string& text, bool) { lines.push_back(text); });
 
     PipelineGraph graph;
     (void)graph.addNode(std::move(ecuNode));
@@ -532,8 +531,8 @@ TEST_CASE("two ECUs on one bus each keep their own state", "[lua][ecu]")
         end
     )";
 
-    const auto source = graph.addNode(std::make_unique<FixedSource>(
-        std::vector<CanFrame>{frame(0x001, {0}), frame(0x002, {0})}));
+    const auto source = graph.addNode(
+        std::make_unique<FixedSource>(std::vector<CanFrame>{frame(0x001, {0}), frame(0x002, {0})}));
     const auto first = graph.addNode(std::make_unique<LuaEcuNode>(script, "a.lua"));
     const auto second = graph.addNode(std::make_unique<LuaEcuNode>(script, "b.lua"));
     const auto sink = graph.addNode(std::make_unique<Collector>());

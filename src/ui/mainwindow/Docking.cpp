@@ -112,12 +112,11 @@ public:
     /// still runs, so the Group keeps the background and border from
     /// torquebus.qss - which is what the KDDockWidgets--QtWidgets--Group rule
     /// there has been describing all along.
-    [[nodiscard]] KDDockWidgets::Core::View* createGroup(
-        KDDockWidgets::Core::Group* controller,
-        KDDockWidgets::Core::View* parent) const override
+    [[nodiscard]] KDDockWidgets::Core::View*
+    createGroup(KDDockWidgets::Core::Group* controller,
+                KDDockWidgets::Core::View* parent) const override
     {
-        return new StyledGroup{controller,
-                               KDDockWidgets::QtCommon::View_qt::asQWidget(parent)};
+        return new StyledGroup{controller, KDDockWidgets::QtCommon::View_qt::asQWidget(parent)};
     }
 
     /// Substitutes a Separator that actually paints itself.
@@ -127,9 +126,9 @@ public:
     /// QWidget::paintEvent and returns - which draws nothing at all. The bar
     /// was a transparent 5px gap, in both orientations, whatever colour the
     /// style sheet named.
-    [[nodiscard]] KDDockWidgets::Core::View* createSeparator(
-        KDDockWidgets::Core::Separator* controller,
-        KDDockWidgets::Core::View* parent = nullptr) const override
+    [[nodiscard]] KDDockWidgets::Core::View*
+    createSeparator(KDDockWidgets::Core::Separator* controller,
+                    KDDockWidgets::Core::View* parent = nullptr) const override
     {
         return new StyledSeparator{controller, parent};
     }
@@ -139,12 +138,11 @@ public:
     /// It still calls QTabBar's painting first, so every QTabBar rule in
     /// torquebus.qss keeps working; only the marker and the click ripple are
     /// drawn by us.
-    [[nodiscard]] KDDockWidgets::Core::View* createTabBar(
-        KDDockWidgets::Core::TabBar* tabBar,
-        KDDockWidgets::Core::View* parent) const override
+    [[nodiscard]] KDDockWidgets::Core::View*
+    createTabBar(KDDockWidgets::Core::TabBar* tabBar,
+                 KDDockWidgets::Core::View* parent) const override
     {
-        return new StyledTabBar{tabBar,
-                                KDDockWidgets::QtCommon::View_qt::asQWidget(parent)};
+        return new StyledTabBar{tabBar, KDDockWidgets::QtCommon::View_qt::asQWidget(parent)};
     }
 
     [[nodiscard]] QIcon iconForButtonType(KDDockWidgets::TitleBarButtonType type,
@@ -166,18 +164,24 @@ private:
         using Type = KDDockWidgets::TitleBarButtonType;
 
         switch (type) {
-        case Type::Close:      return QStringLiteral("panel-close");
-        case Type::Minimize:   return QStringLiteral("panel-minimize");
-        case Type::Maximize:   return QStringLiteral("panel-maximize");
-        case Type::AutoHide:   return QStringLiteral("panel-autohide");
-        case Type::UnautoHide: return QStringLiteral("panel-unautohide");
+        case Type::Close:
+            return QStringLiteral("panel-close");
+        case Type::Minimize:
+            return QStringLiteral("panel-minimize");
+        case Type::Maximize:
+            return QStringLiteral("panel-maximize");
+        case Type::AutoHide:
+            return QStringLiteral("panel-autohide");
+        case Type::UnautoHide:
+            return QStringLiteral("panel-unautohide");
 
         // Float and Normal are the same affordance seen from either side -
         // "make this a window" and "put it back" - and KDDockWidgets ships one
         // icon for both. We follow suit rather than inventing a distinction the
         // framework does not make.
         case Type::Float:
-        case Type::Normal:     return QStringLiteral("panel-float");
+        case Type::Normal:
+            return QStringLiteral("panel-float");
 
         case Type::AllTitleBarButtonTypes:
             break;
@@ -185,7 +189,6 @@ private:
 
         return {};
     }
-
 };
 
 } // namespace
@@ -376,17 +379,17 @@ QStringList describeDockChrome(DockWidget* dock)
         // The two optional parts are appended rather than given placeholders.
         // `%10` beside a `%1` is ambiguous to read even where Qt resolves it,
         // and this line is read by a human under time pressure.
-        lines.append(QStringLiteral("  %1  name='%2'  %3x%4  win=%5 base=%6 light=%7  ss=%8")
-                         .arg(className,
-                              widget->objectName(),
-                              QString::number(widget->width()),
-                              QString::number(widget->height()),
-                              palette.color(QPalette::Window).name(),
-                              palette.color(QPalette::Base).name(),
-                              palette.color(QPalette::Light).name(),
-                              widget->styleSheet().isEmpty() ? QStringLiteral("-")
-                                                             : QStringLiteral("own"))
-                     + brush + shown);
+        lines.append(
+            QStringLiteral("  %1  name='%2'  %3x%4  win=%5 base=%6 light=%7  ss=%8")
+                .arg(className,
+                     widget->objectName(),
+                     QString::number(widget->width()),
+                     QString::number(widget->height()),
+                     palette.color(QPalette::Window).name(),
+                     palette.color(QPalette::Base).name(),
+                     palette.color(QPalette::Light).name(),
+                     widget->styleSheet().isEmpty() ? QStringLiteral("-") : QStringLiteral("own"))
+            + brush + shown);
     }
 
     return lines;
@@ -406,8 +409,8 @@ void addDockTo(DockMainWindowBase* window,
         return;
     }
 
-    window->addDockWidget(dock, toKddwLocation(location), nullptr,
-                          KDDockWidgets::InitialOption{initialSize});
+    window->addDockWidget(
+        dock, toKddwLocation(location), nullptr, KDDockWidgets::InitialOption{initialSize});
 }
 
 void addDockNextTo(DockMainWindowBase* window,
@@ -428,8 +431,8 @@ void addDockNextTo(DockMainWindowBase* window,
         return;
     }
 
-    window->addDockWidget(dock, toKddwLocation(location), relativeTo,
-                          KDDockWidgets::InitialOption{initialSize});
+    window->addDockWidget(
+        dock, toKddwLocation(location), relativeTo, KDDockWidgets::InitialOption{initialSize});
 }
 
 QByteArray saveDockLayout()
@@ -451,10 +454,14 @@ bool restoreDockLayout(const QByteArray& serialized)
 KDDockWidgets::Location toKddwLocation(DockLocation location)
 {
     switch (location) {
-    case DockLocation::Left:   return KDDockWidgets::Location_OnLeft;
-    case DockLocation::Right:  return KDDockWidgets::Location_OnRight;
-    case DockLocation::Top:    return KDDockWidgets::Location_OnTop;
-    case DockLocation::Bottom: return KDDockWidgets::Location_OnBottom;
+    case DockLocation::Left:
+        return KDDockWidgets::Location_OnLeft;
+    case DockLocation::Right:
+        return KDDockWidgets::Location_OnRight;
+    case DockLocation::Top:
+        return KDDockWidgets::Location_OnTop;
+    case DockLocation::Bottom:
+        return KDDockWidgets::Location_OnBottom;
     }
     return KDDockWidgets::Location_OnRight;
 }

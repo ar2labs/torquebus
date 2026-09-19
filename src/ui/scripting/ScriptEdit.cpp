@@ -33,8 +33,7 @@ public:
     explicit LineNumberArea(ScriptEdit* editor)
         : QWidget{editor}
         , m_editor{editor}
-    {
-    }
+    { }
 
     [[nodiscard]] QSize sizeHint() const override
     {
@@ -67,8 +66,7 @@ ScriptEdit::ScriptEdit(QWidget* parent)
 
     m_lineNumbers = new LineNumberArea(this);
 
-    connect(this, &QPlainTextEdit::blockCountChanged, this,
-            &ScriptEdit::updateLineNumberAreaWidth);
+    connect(this, &QPlainTextEdit::blockCountChanged, this, &ScriptEdit::updateLineNumberAreaWidth);
     connect(this, &QPlainTextEdit::updateRequest, this, &ScriptEdit::updateLineNumberArea);
     connect(this, &QPlainTextEdit::cursorPositionChanged, this, &ScriptEdit::highlightLines);
 
@@ -192,8 +190,7 @@ void ScriptEdit::paintLineNumbers(QPaintEvent* event)
     QTextBlock block = firstVisibleBlock();
     int number = block.blockNumber();
 
-    int top = static_cast<int>(
-        blockBoundingGeometry(block).translated(contentOffset()).top());
+    int top = static_cast<int>(blockBoundingGeometry(block).translated(contentOffset()).top());
     int bottom = top + static_cast<int>(blockBoundingRect(block).height());
 
     const int currentLine = textCursor().blockNumber();
@@ -210,8 +207,11 @@ void ScriptEdit::paintLineNumbers(QPaintEvent* event)
                 painter.setPen(theme.textMuted);
             }
 
-            painter.drawText(0, top, m_lineNumbers->width() - 5,
-                             fontMetrics().height(), Qt::AlignRight | Qt::AlignVCenter,
+            painter.drawText(0,
+                             top,
+                             m_lineNumbers->width() - 5,
+                             fontMetrics().height(),
+                             Qt::AlignRight | Qt::AlignVCenter,
                              QString::number(number + 1));
         }
 

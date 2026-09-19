@@ -96,10 +96,7 @@ struct J1939Id final {
     std::uint8_t sourceAddress{0U};
 
     /// Addressed to one ECU, with PS carrying its address.
-    [[nodiscard]] constexpr bool isPdu1() const noexcept
-    {
-        return pduFormat < kJ1939Pdu2Threshold;
-    }
+    [[nodiscard]] constexpr bool isPdu1() const noexcept { return pduFormat < kJ1939Pdu2Threshold; }
 
     /// Broadcast, with PS carrying a group extension that belongs to the PGN.
     [[nodiscard]] constexpr bool isPdu2() const noexcept { return !isPdu1(); }
@@ -176,11 +173,11 @@ struct J1939Id final {
 /// `destination` is used only when the PGN is PDU1. A PDU2 group is broadcast
 /// by construction and already carries its group extension in the PGN, so there
 /// is nowhere to put a destination and nothing it could mean.
-[[nodiscard]] constexpr std::uint32_t j1939Identifier(
-    std::uint32_t pgn,
-    std::uint8_t source,
-    std::uint8_t destination = kJ1939GlobalAddress,
-    std::uint8_t priority = 6U) noexcept
+[[nodiscard]] constexpr std::uint32_t
+j1939Identifier(std::uint32_t pgn,
+                std::uint8_t source,
+                std::uint8_t destination = kJ1939GlobalAddress,
+                std::uint8_t priority = 6U) noexcept
 {
     J1939Id id;
     id.priority = priority;

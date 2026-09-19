@@ -14,8 +14,7 @@ namespace {
 /// a code. SPN 0x7FFFF with FMI 31 is not a fault anybody reports.
 [[nodiscard]] bool isPadding(std::span<const std::uint8_t> code) noexcept
 {
-    return std::all_of(code.begin(), code.end(),
-                       [](std::uint8_t byte) { return byte == 0xFFU; });
+    return std::all_of(code.begin(), code.end(), [](std::uint8_t byte) { return byte == 0xFFU; });
 }
 
 /// The placeholder a healthy ECU sends: every byte zero.
@@ -78,8 +77,7 @@ std::optional<J1939Diagnostic> j1939DecodeDiagnostic(std::uint32_t pgn,
         // Version 4: Intel across all 19 bits, the top three in the top three
         // bits of the third byte. Also what version 3 looks like on the wire.
         const auto intelSpn = [&code]() noexcept {
-            return static_cast<std::uint32_t>(code[0])
-                   | (static_cast<std::uint32_t>(code[1]) << 8U)
+            return static_cast<std::uint32_t>(code[0]) | (static_cast<std::uint32_t>(code[1]) << 8U)
                    | (static_cast<std::uint32_t>(code[2] & 0xE0U) << 11U);
         };
 

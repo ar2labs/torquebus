@@ -94,8 +94,7 @@ public:
     [[nodiscard]] Result mergeFile(const std::filesystem::path& path);
 
     /// The name of an industry group, when the file gives one.
-    [[nodiscard]] std::optional<std::string_view> industryGroup(
-        std::uint8_t group) const;
+    [[nodiscard]] std::optional<std::string_view> industryGroup(std::uint8_t group) const;
 
     /// The name of a manufacturer, when the file gives one.
     [[nodiscard]] std::optional<std::string_view> manufacturer(std::uint16_t code) const;
@@ -118,10 +117,7 @@ public:
         return m_industryGroups.size();
     }
 
-    [[nodiscard]] std::size_t manufacturerCount() const noexcept
-    {
-        return m_manufacturers.size();
-    }
+    [[nodiscard]] std::size_t manufacturerCount() const noexcept { return m_manufacturers.size(); }
 
     [[nodiscard]] std::size_t functionCount() const noexcept { return m_functions.size(); }
 
@@ -136,9 +132,8 @@ private:
 
     /// Industry-group-independent functions are keyed on the number alone;
     /// the dependent ones on all three, packed.
-    [[nodiscard]] static std::uint32_t functionKey(std::uint8_t group,
-                                                   std::uint8_t vehicleSystem,
-                                                   std::uint8_t function) noexcept
+    [[nodiscard]] static std::uint32_t
+    functionKey(std::uint8_t group, std::uint8_t vehicleSystem, std::uint8_t function) noexcept
     {
         return (static_cast<std::uint32_t>(group) << 16U)
                | (static_cast<std::uint32_t>(vehicleSystem) << 8U) | function;

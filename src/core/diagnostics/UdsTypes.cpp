@@ -21,24 +21,42 @@ constexpr std::uint8_t kSuppressPositiveResponse = 0x80U;
 std::string describeService(std::uint8_t service)
 {
     switch (static_cast<UdsService>(service)) {
-    case UdsService::DiagnosticSessionControl: return "DiagnosticSessionControl";
-    case UdsService::EcuReset: return "ECUReset";
-    case UdsService::ClearDiagnosticInformation: return "ClearDiagnosticInformation";
-    case UdsService::ReadDtcInformation: return "ReadDTCInformation";
-    case UdsService::ReadDataByIdentifier: return "ReadDataByIdentifier";
-    case UdsService::ReadMemoryByAddress: return "ReadMemoryByAddress";
-    case UdsService::SecurityAccess: return "SecurityAccess";
-    case UdsService::CommunicationControl: return "CommunicationControl";
-    case UdsService::WriteDataByIdentifier: return "WriteDataByIdentifier";
-    case UdsService::InputOutputControlByIdentifier: return "InputOutputControlByIdentifier";
-    case UdsService::RoutineControl: return "RoutineControl";
-    case UdsService::RequestDownload: return "RequestDownload";
-    case UdsService::RequestUpload: return "RequestUpload";
-    case UdsService::TransferData: return "TransferData";
-    case UdsService::RequestTransferExit: return "RequestTransferExit";
-    case UdsService::WriteMemoryByAddress: return "WriteMemoryByAddress";
-    case UdsService::TesterPresent: return "TesterPresent";
-    case UdsService::ControlDtcSetting: return "ControlDTCSetting";
+    case UdsService::DiagnosticSessionControl:
+        return "DiagnosticSessionControl";
+    case UdsService::EcuReset:
+        return "ECUReset";
+    case UdsService::ClearDiagnosticInformation:
+        return "ClearDiagnosticInformation";
+    case UdsService::ReadDtcInformation:
+        return "ReadDTCInformation";
+    case UdsService::ReadDataByIdentifier:
+        return "ReadDataByIdentifier";
+    case UdsService::ReadMemoryByAddress:
+        return "ReadMemoryByAddress";
+    case UdsService::SecurityAccess:
+        return "SecurityAccess";
+    case UdsService::CommunicationControl:
+        return "CommunicationControl";
+    case UdsService::WriteDataByIdentifier:
+        return "WriteDataByIdentifier";
+    case UdsService::InputOutputControlByIdentifier:
+        return "InputOutputControlByIdentifier";
+    case UdsService::RoutineControl:
+        return "RoutineControl";
+    case UdsService::RequestDownload:
+        return "RequestDownload";
+    case UdsService::RequestUpload:
+        return "RequestUpload";
+    case UdsService::TransferData:
+        return "TransferData";
+    case UdsService::RequestTransferExit:
+        return "RequestTransferExit";
+    case UdsService::WriteMemoryByAddress:
+        return "WriteMemoryByAddress";
+    case UdsService::TesterPresent:
+        return "TesterPresent";
+    case UdsService::ControlDtcSetting:
+        return "ControlDTCSetting";
     }
 
     // Carried, not refused. A manufacturer-specific service is still a service,
@@ -137,7 +155,7 @@ bool hasSubFunction(std::uint8_t service) noexcept
 bool suppressesResponse(const std::vector<std::uint8_t>& message) noexcept
 {
     return message.size() >= 2 && hasSubFunction(message[0])
-        && (message[1] & kSuppressPositiveResponse) != 0;
+           && (message[1] & kSuppressPositiveResponse) != 0;
 }
 
 bool isNegativeResponse(const std::vector<std::uint8_t>& message) noexcept
@@ -158,10 +176,9 @@ std::vector<std::uint8_t> readDataByIdentifier(std::uint16_t identifier)
 std::vector<std::uint8_t> writeDataByIdentifier(std::uint16_t identifier,
                                                 const std::vector<std::uint8_t>& value)
 {
-    std::vector<std::uint8_t> request{
-        static_cast<std::uint8_t>(UdsService::WriteDataByIdentifier),
-        static_cast<std::uint8_t>((identifier >> 8U) & 0xFFU),
-        static_cast<std::uint8_t>(identifier & 0xFFU)};
+    std::vector<std::uint8_t> request{static_cast<std::uint8_t>(UdsService::WriteDataByIdentifier),
+                                      static_cast<std::uint8_t>((identifier >> 8U) & 0xFFU),
+                                      static_cast<std::uint8_t>(identifier & 0xFFU)};
 
     request.insert(request.end(), value.begin(), value.end());
     return request;
@@ -230,7 +247,9 @@ std::string DiagnosticTroubleCode::name() const
     const char system = kSystems[(high >> 6U) & 0x03U];
     const auto firstDigit = static_cast<unsigned>((high >> 4U) & 0x03U);
 
-    return std::format("{}{}{:01X}{:02X}", system, firstDigit,
+    return std::format("{}{}{:01X}{:02X}",
+                       system,
+                       firstDigit,
                        static_cast<unsigned>(high & 0x0FU),
                        static_cast<unsigned>((code >> 8U) & 0xFFU));
 }
@@ -250,7 +269,7 @@ std::vector<DiagnosticTroubleCode> parseDtcResponse(const std::vector<std::uint8
     for (std::size_t index = 3; index + 3 < response.size(); index += 4) {
         DiagnosticTroubleCode dtc;
         dtc.code = (static_cast<std::uint32_t>(response[index]) << 16U)
-            | (static_cast<std::uint32_t>(response[index + 1]) << 8U) | response[index + 2];
+                   | (static_cast<std::uint32_t>(response[index + 1]) << 8U) | response[index + 2];
         dtc.status = response[index + 3];
 
         codes.push_back(dtc);

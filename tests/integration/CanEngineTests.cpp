@@ -46,8 +46,8 @@ CanFrame frame(std::uint32_t identifier, std::uint8_t length = 8)
 {
     CanFrame result;
     result.identifier = identifier;
-    result.format = identifier > kMaxStandardIdentifier ? CanFrameFormat::Extended
-                                                        : CanFrameFormat::Standard;
+    result.format =
+        identifier > kMaxStandardIdentifier ? CanFrameFormat::Extended : CanFrameFormat::Standard;
     result.dlc = length;
     result.length = length;
     return result;
@@ -122,12 +122,11 @@ TEST_CASE("Channels are assigned sequential application indices", "[engine]")
     std::uint8_t first = 99;
     std::uint8_t second = 99;
 
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(),
-                              configFor("virtual:0"), &first)
+    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:0"), &first)
                 .succeeded());
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(),
-                              configFor("virtual:1"), &second)
-                .succeeded());
+    REQUIRE(
+        engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:1"), &second)
+            .succeeded());
 
     CHECK(first == 0);
     CHECK(second == 1);
@@ -143,13 +142,12 @@ TEST_CASE("Channels cannot be rebound while a measurement runs", "[engine]")
 {
     // Swapping hardware underneath a live trace is never what anyone means.
     CanEngine engine;
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(),
-                              configFor("virtual:0"))
+    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:0"))
                 .succeeded());
     REQUIRE(engine.start().succeeded());
 
-    const Result result = engine.addChannel(std::make_unique<VirtualCanBackend>(),
-                                            configFor("virtual:1"));
+    const Result result =
+        engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:1"));
     CHECK(result.code() == ErrorCode::InvalidState);
     CHECK(engine.channelCount() == 1);
 
@@ -162,11 +160,9 @@ TEST_CASE("A channel that cannot start aborts the whole measurement", "[engine]"
     // worst possible outcome, because the trace looks plausible and is wrong.
     CanEngine engine;
 
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(),
-                              configFor("virtual:0"))
+    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:0"))
                 .succeeded());
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(),
-                              configFor("nonexistent:7"))
+    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("nonexistent:7"))
                 .succeeded());
 
     const Result result = engine.start();
@@ -176,17 +172,14 @@ TEST_CASE("A channel that cannot start aborts the whole measurement", "[engine]"
     CHECK_FALSE(engine.channel(0)->isRunning());
 }
 
-TEST_CASE("Frames travel from one channel to the other through the engine",
-          "[engine][pipeline]")
+TEST_CASE("Frames travel from one channel to the other through the engine", "[engine][pipeline]")
 {
     SinkRecorder recorder;
 
     CanEngine engine;
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(),
-                              configFor("virtual:0"))
+    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:0"))
                 .succeeded());
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(),
-                              configFor("virtual:0"))
+    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:0"))
                 .succeeded());
 
     engine.addFrameSink(recorder.sink());
@@ -250,8 +243,7 @@ TEST_CASE("Filters are applied before frames reach any sink", "[engine][filter]"
     SinkRecorder recorder;
 
     CanEngine engine;
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(),
-                              configFor("virtual:0"))
+    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:0"))
                 .succeeded());
 
     engine.channel(0)->filters().add(CanFilter::acceptIdentifier(0x200));
@@ -280,8 +272,7 @@ TEST_CASE("Filters are applied before frames reach any sink", "[engine][filter]"
 TEST_CASE("Statistics count what actually reached the sinks", "[engine][statistics]")
 {
     CanEngine engine;
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(),
-                              configFor("virtual:0"))
+    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:0"))
                 .succeeded());
 
     SinkRecorder recorder;
@@ -303,8 +294,7 @@ TEST_CASE("Statistics count what actually reached the sinks", "[engine][statisti
     CHECK(engine.deliveredFrames() >= 10);
 }
 
-TEST_CASE("Statistics sinks are called while the measurement runs",
-          "[engine][statistics]")
+TEST_CASE("Statistics sinks are called while the measurement runs", "[engine][statistics]")
 {
     std::atomic<int> updates{0};
     std::atomic<std::size_t> channelsReported{0};
@@ -313,8 +303,7 @@ TEST_CASE("Statistics sinks are called while the measurement runs",
     configuration.statisticsInterval = 20ms;
 
     CanEngine engine{configuration};
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(),
-                              configFor("virtual:0"))
+    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:0"))
                 .succeeded());
 
     engine.addStatisticsSink([&](std::span<const CanStatisticsSnapshot> snapshot) {
@@ -335,8 +324,7 @@ TEST_CASE("A measurement starts from zero every time", "[engine][statistics]")
     // Counters bleeding across runs turn a five-minute test into a
     // misdiagnosis. Starting resets everything.
     CanEngine engine;
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(),
-                              configFor("virtual:0"))
+    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:0"))
                 .succeeded());
 
     SinkRecorder first;
@@ -370,8 +358,7 @@ TEST_CASE("A removed sink stops receiving frames", "[engine][sinks]")
     SinkRecorder removed;
 
     CanEngine engine;
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(),
-                              configFor("virtual:0"))
+    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:0"))
                 .succeeded());
 
     engine.addFrameSink(kept.sink());
@@ -405,8 +392,7 @@ TEST_CASE("Stopping delivers frames still in flight", "[engine][lifecycle]")
     configuration.dispatchInterval = 200ms; // deliberately sluggish
 
     CanEngine engine{configuration};
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(),
-                              configFor("virtual:0"))
+    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:0"))
                 .succeeded());
     engine.addFrameSink(recorder.sink());
 
@@ -427,8 +413,7 @@ TEST_CASE("Stopping delivers frames still in flight", "[engine][lifecycle]")
 TEST_CASE("Transmitting on an unconfigured channel is an error", "[engine]")
 {
     CanEngine engine;
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(),
-                              configFor("virtual:0"))
+    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:0"))
                 .succeeded());
     REQUIRE(engine.start().succeeded());
 
@@ -439,8 +424,7 @@ TEST_CASE("Transmitting on an unconfigured channel is an error", "[engine]")
     engine.stop();
 }
 
-TEST_CASE("The engine sustains 100k frames per second without loss",
-          "[engine][throughput]")
+TEST_CASE("The engine sustains 100k frames per second without loss", "[engine][throughput]")
 {
     // PLAN.md section 17: 100k+ frames/s internally with no loss in the
     // pipeline. This is a requirement, not an aspiration, so it runs on every
@@ -532,7 +516,7 @@ TEST_CASE("The engine has headroom above the rate it is required to sustain",
     SinkRecorder recorder;
 
     VirtualTrafficPattern traffic;
-    traffic.framesPerSecond = 100'000'000;  // unreachable on purpose: no throttle
+    traffic.framesPerSecond = 100'000'000; // unreachable on purpose: no throttle
     traffic.totalFrames = kTargetFrames;
     traffic.messageCount = 64;
 
@@ -577,8 +561,7 @@ TEST_CASE("The engine has headroom above the rate it is required to sustain",
     CHECK(achievedRate > 100'000.0);
 }
 
-TEST_CASE("The engine runs its work through the graph, not around it",
-          "[engine][pipeline]")
+TEST_CASE("The engine runs its work through the graph, not around it", "[engine][pipeline]")
 {
     // Rule #11 made observable: there is no second data path. Starting the
     // engine compiles a graph, and the sinks the caller registered are nodes
@@ -586,8 +569,7 @@ TEST_CASE("The engine runs its work through the graph, not around it",
     SinkRecorder recorder;
 
     CanEngine engine;
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(),
-                              configFor("virtual:0"))
+    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:0"))
                 .succeeded());
     engine.addFrameSink(recorder.sink());
 
@@ -602,7 +584,7 @@ TEST_CASE("The engine runs its work through the graph, not around it",
     // not anyone registered a sink (ARCHITECTURE.md, "The default graph is
     // implicit"). This test predates that and was counting the graph the
     // engine used to build.
-    CHECK(engine.graph().nodeCount() == 3);       // source, frame sink, trace sink
+    CHECK(engine.graph().nodeCount() == 3); // source, frame sink, trace sink
     CHECK(engine.graph().edges().size() == 2);
     CHECK(engine.sourceNode(0) != NodeId::Invalid);
     CHECK(engine.sourceNode(9) == NodeId::Invalid);
@@ -613,8 +595,7 @@ TEST_CASE("The engine runs its work through the graph, not around it",
     engine.stop();
 }
 
-TEST_CASE("Starting rebuilds the graph from the registered sinks",
-          "[engine][pipeline]")
+TEST_CASE("Starting rebuilds the graph from the registered sinks", "[engine][pipeline]")
 {
     // The honest statement of what v0.4 does, and what it does not.
     //
@@ -630,8 +611,7 @@ TEST_CASE("Starting rebuilds the graph from the registered sinks",
     SinkRecorder recorder;
 
     CanEngine engine;
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(),
-                              configFor("virtual:0"))
+    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:0"))
                 .succeeded());
     engine.addFrameSink(recorder.sink());
 

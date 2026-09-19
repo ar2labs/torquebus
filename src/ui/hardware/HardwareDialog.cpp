@@ -83,11 +83,10 @@ HardwareDialog::HardwareDialog(const CanDeviceInfoList& devices,
     // Rows in the order the profile says, which for a machine nobody has
     // arranged is the order they were detected in.
     for (const QString& handle : services::HardwareProfile::arrange(detected, profile.order())) {
-        const auto found = std::find_if(devices.begin(), devices.end(),
-                                        [&handle](const CanDeviceInfo& device) {
-                                            return QString::fromStdString(device.handle)
-                                                == handle;
-                                        });
+        const auto found =
+            std::find_if(devices.begin(), devices.end(), [&handle](const CanDeviceInfo& device) {
+                return QString::fromStdString(device.handle) == handle;
+            });
 
         if (found == devices.end()) {
             continue; // Cannot happen: the order was arranged from these devices.
@@ -143,16 +142,21 @@ void HardwareDialog::buildUi(bool measurementRunning)
     layout->addWidget(m_hint);
 
     m_table = new QTableWidget(0, ColumnCount, this);
-    m_table->setHorizontalHeaderLabels({tr("Use"), tr("Channel"), tr("Interface"), tr("Driver"),
-                                        tr("Bitrate"), tr("CAN FD"), tr("Listen only")});
+    m_table->setHorizontalHeaderLabels({tr("Use"),
+                                        tr("Channel"),
+                                        tr("Interface"),
+                                        tr("Driver"),
+                                        tr("Bitrate"),
+                                        tr("CAN FD"),
+                                        tr("Listen only")});
 
     m_table->verticalHeader()->setVisible(false);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
-    connect(m_table, &QTableWidget::itemSelectionChanged, this,
-            &HardwareDialog::onSelectionChanged);
+    connect(
+        m_table, &QTableWidget::itemSelectionChanged, this, &HardwareDialog::onSelectionChanged);
 
     layout->addWidget(m_table, 1);
 
@@ -237,11 +241,10 @@ void HardwareDialog::fillTable()
 
         QCheckBox* fd = nullptr;
         m_table->setCellWidget(
-            index, ColumnFd,
-            checkBoxCell(row.canFd, !m_readOnly && row.supportsFd, &fd));
+            index, ColumnFd, checkBoxCell(row.canFd, !m_readOnly && row.supportsFd, &fd));
 
-        connect(fd, &QCheckBox::toggled, this,
-                [this, index](bool on) { m_rows[index].canFd = on; });
+        connect(
+            fd, &QCheckBox::toggled, this, [this, index](bool on) { m_rows[index].canFd = on; });
 
         if (!row.supportsFd) {
             fd->setToolTip(tr("This adapter does not do CAN FD."));
@@ -249,11 +252,13 @@ void HardwareDialog::fillTable()
 
         QCheckBox* listenOnly = nullptr;
         m_table->setCellWidget(
-            index, ColumnListenOnly,
+            index,
+            ColumnListenOnly,
             checkBoxCell(row.listenOnly, !m_readOnly && row.supportsListenOnly, &listenOnly));
 
-        connect(listenOnly, &QCheckBox::toggled, this,
-                [this, index](bool on) { m_rows[index].listenOnly = on; });
+        connect(listenOnly, &QCheckBox::toggled, this, [this, index](bool on) {
+            m_rows[index].listenOnly = on;
+        });
 
         if (!row.supportsListenOnly) {
             listenOnly->setToolTip(tr("This driver has no listen-only mode."));

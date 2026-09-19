@@ -113,8 +113,7 @@ public:
 
     NodeParameters(std::initializer_list<std::pair<const std::string, ParameterValue>> values)
         : m_values{values}
-    {
-    }
+    { }
 
     void set(std::string name, ParameterValue value)
     {
@@ -156,9 +155,9 @@ public:
     [[nodiscard]] Result require(const std::string& name, std::string_view nodeId) const
     {
         return contains(name)
-            ? Result::ok()
-            : Result::error(ErrorCode::InvalidArgument,
-                            std::format("Node '{}' needs a value for '{}'", nodeId, name));
+                   ? Result::ok()
+                   : Result::error(ErrorCode::InvalidArgument,
+                                   std::format("Node '{}' needs a value for '{}'", nodeId, name));
     }
 
     [[nodiscard]] const std::map<std::string, ParameterValue>& values() const noexcept

@@ -120,10 +120,7 @@ public:
 
     /// Zeroes everything. Called when a measurement starts, so numbers never
     /// carry over from a previous run.
-    void reset() noexcept
-    {
-        *this = CanStatistics{};
-    }
+    void reset() noexcept { *this = CanStatistics{}; }
 
     [[nodiscard]] CanStatisticsSnapshot snapshot() const noexcept
     {

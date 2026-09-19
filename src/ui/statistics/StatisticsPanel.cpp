@@ -107,8 +107,7 @@ public:
         const QRect area = opt.rect.adjusted(2, 3, -2, -3);
 
         if (percent > 0.0 && area.width() > 0) {
-            const int width =
-                static_cast<int>(std::lround(area.width() * percent / 100.0));
+            const int width = static_cast<int>(std::lround(area.width() * percent / 100.0));
 
             painter->save();
             painter->setPen(Qt::NoPen);
@@ -121,8 +120,7 @@ public:
         painter->setPen(opt.palette.color(opt.state.testFlag(QStyle::State_Selected)
                                               ? QPalette::HighlightedText
                                               : QPalette::Text));
-        painter->drawText(opt.rect.adjusted(4, 0, -6, 0),
-                          Qt::AlignRight | Qt::AlignVCenter, text);
+        painter->drawText(opt.rect.adjusted(4, 0, -6, 0), Qt::AlignRight | Qt::AlignVCenter, text);
         painter->restore();
     }
 
@@ -207,10 +205,18 @@ void StatisticsPanel::buildUi()
 {
     m_channels = new QTableWidget(this);
     m_channels->setColumnCount(ColumnChannelCount);
-    m_channels->setHorizontalHeaderLabels({tr("Channel"), tr("Interface"), tr("State"),
-                                           tr("Rx"), tr("Tx"), tr("Errors"), tr("Filtered"),
-                                           tr("Dropped"), tr("Frames/s"), tr("Load"),
-                                           tr("Peak"), tr("Bitrate")});
+    m_channels->setHorizontalHeaderLabels({tr("Channel"),
+                                           tr("Interface"),
+                                           tr("State"),
+                                           tr("Rx"),
+                                           tr("Tx"),
+                                           tr("Errors"),
+                                           tr("Filtered"),
+                                           tr("Dropped"),
+                                           tr("Frames/s"),
+                                           tr("Load"),
+                                           tr("Peak"),
+                                           tr("Bitrate")});
     m_channels->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_channels->setSelectionMode(QAbstractItemView::SingleSelection);
     m_channels->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -325,8 +331,7 @@ void StatisticsPanel::applyChannels()
         setCell(m_channels, row, ColumnRate, formatRate(status.framesPerSecond), true);
         setCell(m_channels, row, ColumnLoad, formatPercent(status.busLoadPercent), true);
         setCell(m_channels, row, ColumnPeak, formatPercent(status.peakBusLoadPercent), true);
-        setCell(m_channels, row, ColumnBitrate,
-                tr("%1 kbit/s").arg(status.bitrate / 1000), true);
+        setCell(m_channels, row, ColumnBitrate, tr("%1 kbit/s").arg(status.bitrate / 1000), true);
 
         // The bar reads this rather than parsing the text back out of the cell.
         if (QTableWidgetItem* load = m_channels->item(row, ColumnLoad)) {
@@ -405,8 +410,8 @@ void StatisticsPanel::applyNodes()
 void StatisticsPanel::updateStatusLine()
 {
     if (!m_lastNodes.isEmpty()) {
-        m_status->setText(tr("%n pipeline block(s) reporting.", nullptr,
-                             static_cast<int>(m_lastNodes.size())));
+        m_status->setText(
+            tr("%n pipeline block(s) reporting.", nullptr, static_cast<int>(m_lastNodes.size())));
         return;
     }
 
@@ -415,7 +420,8 @@ void StatisticsPanel::updateStatusLine()
         return;
     }
 
-    m_status->setText(tr("%n channel(s). No pipeline blocks are running.", nullptr,
+    m_status->setText(tr("%n channel(s). No pipeline blocks are running.",
+                         nullptr,
                          static_cast<int>(m_lastChannels.size())));
 }
 
@@ -472,8 +478,7 @@ void StatisticsPanel::rebuildTree(const QList<NodeStatus>& nodes)
         // "DBC decoder  (dbc.decoder)" - the name the user gave the block, and
         // the type it is. Both, because a project with three decoders names
         // them and a project with one usually does not.
-        parent->setText(NodeColumnName,
-                        tr("%1  (%2)").arg(node.name, node.typeName));
+        parent->setText(NodeColumnName, tr("%1  (%2)").arg(node.name, node.typeName));
         parent->setData(NodeColumnName, kNodeKeyRole, node.name);
         parent->setFirstColumnSpanned(true);
         parent->setExpanded(true);

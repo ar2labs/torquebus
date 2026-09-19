@@ -25,8 +25,8 @@ namespace {
 
 [[nodiscard]] NodeDescription isotp(NodeParameters parameters)
 {
-    return NodeDescription{.id = "tp", .typeName = "isotp.transport",
-                           .parameters = std::move(parameters)};
+    return NodeDescription{
+        .id = "tp", .typeName = "isotp.transport", .parameters = std::move(parameters)};
 }
 
 } // namespace
@@ -127,8 +127,7 @@ TEST_CASE("Asked once means once", "[isotp][graph]")
     CHECK(store.size() == 1);
 }
 
-TEST_CASE("A block with no request carries only what it is asked to",
-          "[isotp][graph]")
+TEST_CASE("A block with no request carries only what it is asked to", "[isotp][graph]")
 {
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
@@ -151,8 +150,7 @@ TEST_CASE("A block with no request carries only what it is asked to",
     CHECK(store.empty());
 }
 
-TEST_CASE("Half a hex byte is refused while the block is on screen",
-          "[isotp][validate]")
+TEST_CASE("Half a hex byte is refused while the block is on screen", "[isotp][validate]")
 {
     // At validate time, not at Start: the user is looking at the block they
     // just typed into.
@@ -168,8 +166,7 @@ TEST_CASE("Half a hex byte is refused while the block is on screen",
     CHECK(std::string{result.message()}.find("hex") != std::string::npos);
 }
 
-TEST_CASE("A separation time outside the protocol's range is refused",
-          "[isotp][validate]")
+TEST_CASE("A separation time outside the protocol's range is refused", "[isotp][validate]")
 {
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
@@ -183,8 +180,7 @@ TEST_CASE("A separation time outside the protocol's range is refused",
     CHECK(std::string{result.message()}.find("127") != std::string::npos);
 }
 
-TEST_CASE("The transport's ports are typed, so a wrong wire cannot be drawn",
-          "[isotp][graph]")
+TEST_CASE("The transport's ports are typed, so a wrong wire cannot be drawn", "[isotp][graph]")
 {
     // Frames in and out, Events in and out. The graph refuses a signal wire
     // into a transport for the same reason it refuses one into a logger: the

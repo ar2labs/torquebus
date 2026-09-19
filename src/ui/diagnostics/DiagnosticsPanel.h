@@ -50,7 +50,7 @@ class QTableWidget;
 namespace torquebus {
 class DiagnosticSession;
 struct UdsExchange;
-}
+} // namespace torquebus
 
 namespace torquebus::ui {
 
@@ -134,7 +134,6 @@ private:
     /// Whether the transport was last drawn as available, so the controls are
     /// only re-enabled when that actually changed.
     bool m_shownAsActive{false};
-
 };
 
 } // namespace torquebus::ui

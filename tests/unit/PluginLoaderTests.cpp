@@ -74,10 +74,10 @@ struct Harness final {
 
 [[nodiscard]] bool loadedContains(const PluginLoader& loader, std::string_view fragment)
 {
-    return std::any_of(loader.loaded().begin(), loader.loaded().end(),
-                       [fragment](const LoadedPlugin& plugin) {
-                           return plugin.path.find(fragment) != std::string::npos;
-                       });
+    return std::any_of(
+        loader.loaded().begin(), loader.loaded().end(), [fragment](const LoadedPlugin& plugin) {
+            return plugin.path.find(fragment) != std::string::npos;
+        });
 }
 
 /// Loads the whole test plugin directory once.
@@ -91,8 +91,7 @@ struct Harness final {
 
 } // namespace
 
-TEST_CASE("A plugin registers a block the application can then build",
-          "[plugins]")
+TEST_CASE("A plugin registers a block the application can then build", "[plugins]")
 {
     // The seam that matters: a type that came from outside the binary is in the
     // same catalogue as the built-in ones, registered through the same call,
@@ -109,14 +108,13 @@ TEST_CASE("A plugin registers a block the application can then build",
     NodeBuildContext context;
     std::unique_ptr<IPipelineNode> node;
 
-    REQUIRE(harness.nodes.create("test.passthrough", NodeParameters{}, context, "p", node)
-                .succeeded());
+    REQUIRE(
+        harness.nodes.create("test.passthrough", NodeParameters{}, context, "p", node).succeeded());
     REQUIRE(node != nullptr);
     CHECK(node->typeName() == "test.passthrough");
 }
 
-TEST_CASE("A plugin built with another toolchain is refused, and both keys are shown",
-          "[plugins]")
+TEST_CASE("A plugin built with another toolchain is refused, and both keys are shown", "[plugins]")
 {
     // "Incompatible" is not something anybody can act on. The difference
     // between the two strings usually names the fix - a Debug plugin next to a
@@ -128,8 +126,7 @@ TEST_CASE("A plugin built with another toolchain is refused, and both keys are s
     REQUIRE(rejected != nullptr);
 
     CHECK(rejected->reason.find("some-other-compiler") != std::string::npos);
-    CHECK(rejected->reason.find(std::string{PluginLoader::hostBuildKey()})
-          != std::string::npos);
+    CHECK(rejected->reason.find(std::string{PluginLoader::hostBuildKey()}) != std::string::npos);
 
     CHECK_FALSE(loadedContains(loader, "badkey"));
 }
@@ -191,11 +188,10 @@ TEST_CASE("A plugin that declines says why itself", "[plugins]")
     REQUIRE(rejected != nullptr);
     CHECK(rejected->reason.find("declined") != std::string::npos);
 
-    const bool saidSo = std::any_of(harness.errors.begin(), harness.errors.end(),
-                                    [](const std::string& text) {
-                                        return text.find("SDK is not installed")
-                                               != std::string::npos;
-                                    });
+    const bool saidSo =
+        std::any_of(harness.errors.begin(), harness.errors.end(), [](const std::string& text) {
+            return text.find("SDK is not installed") != std::string::npos;
+        });
     CHECK(saidSo);
 }
 
@@ -232,8 +228,7 @@ TEST_CASE("A directory with no plugins is not a failure", "[plugins]")
     CHECK(harness.errors.empty());
 }
 
-TEST_CASE("Plugins are looked for beside the executable and nowhere else",
-          "[plugins]")
+TEST_CASE("Plugins are looked for beside the executable and nowhere else", "[plugins]")
 {
     // Not the working directory, and not PATH. Loading a library from the
     // working directory is how opening a project turns into running whatever

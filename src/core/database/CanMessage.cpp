@@ -12,10 +12,9 @@ namespace torquebus {
 
 const CanSignal* CanMessage::multiplexerSwitch() const noexcept
 {
-    const auto match = std::find_if(signalList.begin(), signalList.end(),
-                                    [](const CanSignal& signal) {
-                                        return signal.isMultiplexer;
-                                    });
+    const auto match = std::find_if(signalList.begin(),
+                                    signalList.end(),
+                                    [](const CanSignal& signal) { return signal.isMultiplexer; });
 
     return match == signalList.end() ? nullptr : &*match;
 }
@@ -82,10 +81,10 @@ CanFrame CanMessage::makeFrame() const noexcept
 
 const CanSignal* CanMessage::findSignal(std::string_view signalName) const noexcept
 {
-    const auto match = std::find_if(signalList.begin(), signalList.end(),
-                                    [signalName](const CanSignal& signal) {
-                                        return signal.name == signalName;
-                                    });
+    const auto match =
+        std::find_if(signalList.begin(), signalList.end(), [signalName](const CanSignal& signal) {
+            return signal.name == signalName;
+        });
 
     return match == signalList.end() ? nullptr : &*match;
 }
@@ -108,8 +107,7 @@ void CanDatabase::addMessage(CanMessage message)
     m_messages.push_back(std::move(message));
 }
 
-const CanMessage* CanDatabase::find(std::uint32_t identifier,
-                                    CanFrameFormat format) const noexcept
+const CanMessage* CanDatabase::find(std::uint32_t identifier, CanFrameFormat format) const noexcept
 {
     const auto match = m_byIdentifier.find(keyFor(identifier, format));
     return match == m_byIdentifier.end() ? nullptr : &m_messages[match->second];
@@ -117,10 +115,10 @@ const CanMessage* CanDatabase::find(std::uint32_t identifier,
 
 const CanMessage* CanDatabase::findByName(std::string_view name) const noexcept
 {
-    const auto match = std::find_if(m_messages.begin(), m_messages.end(),
-                                    [name](const CanMessage& message) {
-                                        return message.name == name;
-                                    });
+    const auto match =
+        std::find_if(m_messages.begin(), m_messages.end(), [name](const CanMessage& message) {
+            return message.name == name;
+        });
 
     return match == m_messages.end() ? nullptr : &*match;
 }

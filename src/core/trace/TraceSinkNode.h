@@ -41,8 +41,7 @@ public:
     explicit TraceSinkNode(TraceStore& store, std::string label = "CAN Trace")
         : m_store{store}
         , m_label{std::move(label)}
-    {
-    }
+    { }
 
     [[nodiscard]] std::string_view typeName() const noexcept override { return "can.trace"; }
     [[nodiscard]] std::string displayName() const override { return m_label; }

@@ -33,8 +33,7 @@ class StaticSource final : public IPipelineNode {
 public:
     explicit StaticSource(std::vector<CanFrame> frames)
         : m_frames{std::move(frames)}
-    {
-    }
+    { }
 
     [[nodiscard]] std::string_view typeName() const noexcept override { return "test.source"; }
     [[nodiscard]] std::string displayName() const override { return "static source"; }
@@ -69,8 +68,8 @@ private:
 }
 
 /// The value reported under `label`, or nothing.
-[[nodiscard]] bool statisticNamed(const IPipelineNode& node, const std::string& label,
-                                  std::uint64_t& out)
+[[nodiscard]] bool
+statisticNamed(const IPipelineNode& node, const std::string& label, std::uint64_t& out)
 {
     for (const NodeStatistic& statistic : node.statistics()) {
         if (statistic.label == label) {
@@ -83,8 +82,7 @@ private:
 
 } // namespace
 
-TEST_CASE("A node reports its counters without anything knowing its type",
-          "[statistics]")
+TEST_CASE("A node reports its counters without anything knowing its type", "[statistics]")
 {
     auto database = std::make_shared<CanDatabase>();
     REQUIRE(DbcParser::parse(R"(
@@ -137,10 +135,10 @@ TEST_CASE("Every node in a graph can be walked by id", "[statistics]")
     // pointers that a recompile would invalidate.
     PipelineGraph graph;
 
-    const NodeId source = graph.addNode(std::make_unique<StaticSource>(
-        std::vector<CanFrame>{frame(0x100)}));
+    const NodeId source =
+        graph.addNode(std::make_unique<StaticSource>(std::vector<CanFrame>{frame(0x100)}));
     const NodeId sink =
-        graph.addNode(std::make_unique<FrameSinkNode>([](std::span<const CanFrame>) {}));
+        graph.addNode(std::make_unique<FrameSinkNode>([](std::span<const CanFrame>) { }));
 
     const std::vector<NodeId> ids = graph.nodeIds();
 
@@ -153,17 +151,16 @@ TEST_CASE("Every node in a graph can be walked by id", "[statistics]")
     }
 }
 
-TEST_CASE("A sink counts what it delivered, and says so in words",
-          "[statistics]")
+TEST_CASE("A sink counts what it delivered, and says so in words", "[statistics]")
 {
     // The label is part of the contract. Ten node types each abbreviating
     // differently is how a table of numbers becomes a table nobody reads.
     PipelineGraph graph;
 
-    const NodeId source = graph.addNode(std::make_unique<StaticSource>(
-        std::vector<CanFrame>{frame(0x100), frame(0x101)}));
+    const NodeId source = graph.addNode(
+        std::make_unique<StaticSource>(std::vector<CanFrame>{frame(0x100), frame(0x101)}));
     const NodeId sink =
-        graph.addNode(std::make_unique<FrameSinkNode>([](std::span<const CanFrame>) {}));
+        graph.addNode(std::make_unique<FrameSinkNode>([](std::span<const CanFrame>) { }));
 
     REQUIRE(graph.connect(PortRef{source, 0}, PortRef{sink, 0}).succeeded());
     REQUIRE(graph.compile().succeeded());

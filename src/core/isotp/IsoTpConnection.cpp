@@ -36,8 +36,7 @@ constexpr std::size_t kShortLengthLimit = 0x0FFFU;
 IsoTpConnection::IsoTpConnection(IsoTpAddress address, IsoTpConfig config)
     : m_address{address}
     , m_config{config}
-{
-}
+{ }
 
 std::size_t IsoTpConnection::capacity(std::size_t pciBytes) const noexcept
 {
@@ -122,8 +121,8 @@ Result IsoTpConnection::send(std::span<const std::uint8_t> payload, std::uint64_
     // protocol byte: seven bytes fit behind one, and anything above that -
     // which only CAN FD can carry in a single frame at all - fits behind two.
     const bool fitsInOneFrame = payload.size() <= 7U
-        ? payload.size() <= capacity(1)
-        : (m_config.canFd && payload.size() <= capacity(2));
+                                    ? payload.size() <= capacity(1)
+                                    : (m_config.canFd && payload.size() <= capacity(2));
 
     if (fitsInOneFrame) {
         CanFrame frame = makeFrame(nowNs);
@@ -136,7 +135,8 @@ Result IsoTpConnection::send(std::span<const std::uint8_t> payload, std::uint64_
             frame.data[used++] = static_cast<std::uint8_t>(payload.size());
         }
 
-        std::copy(payload.begin(), payload.end(), frame.data.begin() + static_cast<std::ptrdiff_t>(used));
+        std::copy(
+            payload.begin(), payload.end(), frame.data.begin() + static_cast<std::ptrdiff_t>(used));
         used += payload.size();
 
         finishFrame(frame, used);
@@ -197,7 +197,8 @@ void IsoTpConnection::sendConsecutiveFrame(std::uint64_t nowNs)
     const std::size_t remaining = m_send.payload.size() - m_send.sent;
     const std::size_t take = std::min(remaining, capacity(1));
 
-    std::copy_n(m_send.payload.begin() + static_cast<std::ptrdiff_t>(m_send.sent), take,
+    std::copy_n(m_send.payload.begin() + static_cast<std::ptrdiff_t>(m_send.sent),
+                take,
                 frame.data.begin() + static_cast<std::ptrdiff_t>(used));
 
     used += take;
@@ -363,8 +364,8 @@ void IsoTpConnection::onFirstFrame(std::span<const std::uint8_t> data, std::uint
         }
 
         length = (static_cast<std::size_t>(data[2]) << 24U)
-            | (static_cast<std::size_t>(data[3]) << 16U)
-            | (static_cast<std::size_t>(data[4]) << 8U) | data[5];
+                 | (static_cast<std::size_t>(data[3]) << 16U)
+                 | (static_cast<std::size_t>(data[4]) << 8U) | data[5];
         start = 6;
     }
 
@@ -416,7 +417,8 @@ void IsoTpConnection::onConsecutiveFrame(std::span<const std::uint8_t> data, std
     const std::size_t remaining = m_receive.expected - m_receive.payload.size();
     const std::size_t take = std::min(remaining, data.size() - 1);
 
-    m_receive.payload.insert(m_receive.payload.end(), data.begin() + 1,
+    m_receive.payload.insert(m_receive.payload.end(),
+                             data.begin() + 1,
                              data.begin() + 1 + static_cast<std::ptrdiff_t>(take));
 
     if (m_receive.payload.size() >= m_receive.expected) {

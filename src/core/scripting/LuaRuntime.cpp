@@ -49,7 +49,6 @@ constexpr luaL_Reg kLibraries[] = {
     {LUA_COLIBNAME, luaopen_coroutine},
 };
 
-
 /// One Lua value, as the type it actually is rather than coerced.
 ///
 /// lua_tostring on a number rewrites the value on the stack in place, which is
@@ -88,8 +87,7 @@ constexpr luaL_Reg kLibraries[] = {
 
 LuaRuntime::LuaRuntime()
     : m_state{luaL_newstate()}
-{
-}
+{ }
 
 LuaRuntime::~LuaRuntime()
 {
@@ -142,8 +140,7 @@ Result LuaRuntime::loadFile(const std::string& path)
 {
     std::ifstream file{path, std::ios::binary};
     if (!file) {
-        return Result::error(ErrorCode::FileNotFound,
-                             std::format("Cannot open script '{}'", path));
+        return Result::error(ErrorCode::FileNotFound, std::format("Cannot open script '{}'", path));
     }
 
     std::ostringstream contents;
@@ -152,8 +149,7 @@ Result LuaRuntime::loadFile(const std::string& path)
     // The chunk name is the file name alone: a full Windows path in every error
     // message pushes the part that matters off the end of the line.
     const std::size_t separator = path.find_last_of("/\\");
-    const std::string name =
-        separator == std::string::npos ? path : path.substr(separator + 1);
+    const std::string name = separator == std::string::npos ? path : path.substr(separator + 1);
 
     return load(contents.str(), name);
 }
@@ -183,9 +179,8 @@ Result LuaRuntime::call(std::string_view name, const std::vector<LuaValue>& argu
     return call(name, arguments, ignored, 0);
 }
 
-Result LuaRuntime::call(std::string_view name,
-                        const std::vector<LuaValue>& arguments,
-                        LuaValue& result)
+Result
+LuaRuntime::call(std::string_view name, const std::vector<LuaValue>& arguments, LuaValue& result)
 {
     result = LuaValue{};
     return call(name, arguments, result, 1);
@@ -211,10 +206,18 @@ Result LuaRuntime::call(std::string_view name,
 
     for (const LuaValue& argument : arguments) {
         switch (argument.type) {
-        case LuaValue::Type::Nil:     lua_pushnil(m_state); break;
-        case LuaValue::Type::Boolean: lua_pushboolean(m_state, argument.boolean ? 1 : 0); break;
-        case LuaValue::Type::Number:  lua_pushnumber(m_state, argument.number); break;
-        case LuaValue::Type::Integer: lua_pushinteger(m_state, argument.integer); break;
+        case LuaValue::Type::Nil:
+            lua_pushnil(m_state);
+            break;
+        case LuaValue::Type::Boolean:
+            lua_pushboolean(m_state, argument.boolean ? 1 : 0);
+            break;
+        case LuaValue::Type::Number:
+            lua_pushnumber(m_state, argument.number);
+            break;
+        case LuaValue::Type::Integer:
+            lua_pushinteger(m_state, argument.integer);
+            break;
         case LuaValue::Type::String:
             lua_pushlstring(m_state, argument.text.data(), argument.text.size());
             break;
@@ -327,10 +330,18 @@ void LuaRuntime::setGlobal(std::string_view name, const LuaValue& value)
     }
 
     switch (value.type) {
-    case LuaValue::Type::Nil:     lua_pushnil(m_state); break;
-    case LuaValue::Type::Boolean: lua_pushboolean(m_state, value.boolean ? 1 : 0); break;
-    case LuaValue::Type::Number:  lua_pushnumber(m_state, value.number); break;
-    case LuaValue::Type::Integer: lua_pushinteger(m_state, value.integer); break;
+    case LuaValue::Type::Nil:
+        lua_pushnil(m_state);
+        break;
+    case LuaValue::Type::Boolean:
+        lua_pushboolean(m_state, value.boolean ? 1 : 0);
+        break;
+    case LuaValue::Type::Number:
+        lua_pushnumber(m_state, value.number);
+        break;
+    case LuaValue::Type::Integer:
+        lua_pushinteger(m_state, value.integer);
+        break;
     case LuaValue::Type::String:
         lua_pushlstring(m_state, value.text.data(), value.text.size());
         break;
@@ -354,10 +365,18 @@ void LuaRuntime::setGlobalTable(std::string_view name,
 
     for (const auto& [key, value] : values) {
         switch (value.type) {
-        case LuaValue::Type::Nil:     lua_pushnil(m_state); break;
-        case LuaValue::Type::Boolean: lua_pushboolean(m_state, value.boolean ? 1 : 0); break;
-        case LuaValue::Type::Number:  lua_pushnumber(m_state, value.number); break;
-        case LuaValue::Type::Integer: lua_pushinteger(m_state, value.integer); break;
+        case LuaValue::Type::Nil:
+            lua_pushnil(m_state);
+            break;
+        case LuaValue::Type::Boolean:
+            lua_pushboolean(m_state, value.boolean ? 1 : 0);
+            break;
+        case LuaValue::Type::Number:
+            lua_pushnumber(m_state, value.number);
+            break;
+        case LuaValue::Type::Integer:
+            lua_pushinteger(m_state, value.integer);
+            break;
         case LuaValue::Type::String:
             lua_pushlstring(m_state, value.text.data(), value.text.size());
             break;

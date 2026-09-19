@@ -64,8 +64,8 @@ enum Column : int {
 
 [[nodiscard]] QString elapsedText(std::uint64_t nanoseconds)
 {
-    return QStringLiteral("%1 s").arg(static_cast<double>(nanoseconds) / 1'000'000'000.0,
-                                      0, 'f', 3);
+    return QStringLiteral("%1 s").arg(
+        static_cast<double>(nanoseconds) / 1'000'000'000.0, 0, 'f', 3);
 }
 
 /// A number, or the word for it when this machine has one.
@@ -96,8 +96,7 @@ enum Column : int {
     };
 
     const QString function = named(
-        lookup([&name](const J1939NameTables& t) { return t.function(name); }),
-        name.function);
+        lookup([&name](const J1939NameTables& t) { return t.function(name); }), name.function);
 
     const QString manufacturer = named(
         lookup([&name](const J1939NameTables& t) { return t.manufacturer(name.manufacturerCode); }),
@@ -129,8 +128,8 @@ enum Column : int {
 
 [[nodiscard]] QString faultText(const J1939Dtc& fault)
 {
-    const QString suffix = QObject::tr("FMI %1, seen %2x").arg(fault.fmi).arg(
-        fault.occurrenceCount);
+    const QString suffix =
+        QObject::tr("FMI %1, seen %2x").arg(fault.fmi).arg(fault.occurrenceCount);
 
     if (fault.spnAssembled) {
         return QObject::tr("SPN %1, %2").arg(fault.spn).arg(suffix);
@@ -185,8 +184,7 @@ void J1939NetworkPanel::buildUi()
 
     m_nodes = new QTreeWidget;
     m_nodes->setColumnCount(ColumnCount);
-    m_nodes->setHeaderLabels({tr("Address"), tr("NAME"), tr("State"), tr("Frames"),
-                              tr("Detail")});
+    m_nodes->setHeaderLabels({tr("Address"), tr("NAME"), tr("State"), tr("Frames"), tr("Detail")});
     m_nodes->setRootIsDecorated(true);
     m_nodes->setUniformRowHeights(true);
     m_nodes->setAlternatingRowColors(true);
@@ -270,9 +268,9 @@ void J1939NetworkPanel::rebuild(const J1939NetworkSnapshot& snapshot)
             // The industry group decides what the vehicle system and a function
             // above 127 mean, so it belongs with the NAME rather than in a
             // column of its own that would be the same word on every row.
-            row->setToolTip(ColumnName,
-                            tr("Industry group: %1")
-                                .arg(industryGroupText(node.name->industryGroup)));
+            row->setToolTip(
+                ColumnName,
+                tr("Industry group: %1").arg(industryGroupText(node.name->industryGroup)));
         } else {
             // Not "unknown": the ECU is there and transmitting, and the only
             // thing missing is a claim this measurement was around to hear.
@@ -375,8 +373,7 @@ void J1939NetworkPanel::updateSummary(const J1939NetworkSnapshot& snapshot)
     }
 
     if (!snapshot.defeated.empty()) {
-        text += tr(", %n with no address", nullptr,
-                   static_cast<int>(snapshot.defeated.size()));
+        text += tr(", %n with no address", nullptr, static_cast<int>(snapshot.defeated.size()));
     }
 
     text += faults > 0 ? tr(" - %1 active fault(s) on %2").arg(faults).arg(withFaults)

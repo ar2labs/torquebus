@@ -28,8 +28,8 @@
 #include "core/Result.h"
 
 #include <cstdint>
-#include <memory>
 #include <map>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -125,9 +125,8 @@ public:
     /// rather be told about. `result` is Nil when the function returned
     /// nothing - which is a meaningful answer in its own right: a handler that
     /// returns nothing has declined, where one that returns false has decided.
-    [[nodiscard]] Result call(std::string_view name,
-                              const std::vector<LuaValue>& arguments,
-                              LuaValue& result);
+    [[nodiscard]] Result
+    call(std::string_view name, const std::vector<LuaValue>& arguments, LuaValue& result);
 
     /// Registers a C function as a global. `userData` is handed back to it.
     /// A function value the script handed over, kept alive by the runtime.

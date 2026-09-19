@@ -29,7 +29,7 @@ class QSpinBox;
 namespace torquebus {
 class DashboardDescription;
 struct DashboardWidget;
-}
+} // namespace torquebus
 
 namespace torquebus::ui {
 
@@ -38,8 +38,7 @@ class DashboardWidgetEditor final : public QWidget {
 
 public:
     /// Not owned; must outlive the editor.
-    explicit DashboardWidgetEditor(DashboardDescription& dashboard,
-                                   QWidget* parent = nullptr);
+    explicit DashboardWidgetEditor(DashboardDescription& dashboard, QWidget* parent = nullptr);
 
     /// Shows one widget's settings. An unknown id shows the placeholder.
     void showWidget(const QString& widgetId);

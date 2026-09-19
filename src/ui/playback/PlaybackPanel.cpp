@@ -10,11 +10,11 @@
 #include "ui/theme/ThemeManager.h"
 
 #include <QComboBox>
-#include <QIcon>
-#include <QSignalBlocker>
 #include <QFontDatabase>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
+#include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QString>
 #include <QTimer>
@@ -212,9 +212,11 @@ void PlaybackPanel::updateAvailability()
 {
     const bool active = m_control != nullptr && m_control->isActive();
 
-    for (QWidget* control : {static_cast<QWidget*>(m_playPause), static_cast<QWidget*>(m_skipBack),
+    for (QWidget* control : {static_cast<QWidget*>(m_playPause),
+                             static_cast<QWidget*>(m_skipBack),
                              static_cast<QWidget*>(m_skipForward),
-                             static_cast<QWidget*>(m_restart), static_cast<QWidget*>(m_speed),
+                             static_cast<QWidget*>(m_restart),
+                             static_cast<QWidget*>(m_speed),
                              static_cast<QWidget*>(m_timeline)}) {
         control->setEnabled(active);
     }
@@ -260,8 +262,7 @@ void PlaybackPanel::refresh()
     m_timeline->setDurationNs(duration);
     m_timeline->setPositionNs(position);
 
-    m_positionLabel->setText(formatTime(position) + QStringLiteral(" / ")
-                             + formatTime(duration));
+    m_positionLabel->setText(formatTime(position) + QStringLiteral(" / ") + formatTime(duration));
 
     const bool paused = m_control->isPaused();
 

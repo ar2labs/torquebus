@@ -5,8 +5,8 @@
 //
 // The only translation unit in TorqueBus that includes canlib.h.
 
-#include "core/ThreadGuard.h"
 #include "plugins/driver-kvaser/KvaserCanBackend.h"
+#include "core/ThreadGuard.h"
 
 #include <algorithm>
 #include <array>
@@ -60,13 +60,19 @@ constexpr unsigned int kTimerScaleMicroseconds = 1;
 [[nodiscard]] ErrorCode toErrorCode(canStatus status)
 {
     switch (status) {
-    case canERR_NOTFOUND:  return ErrorCode::DeviceNotFound;
-    case canERR_NOMSG:     return ErrorCode::Timeout;
-    case canERR_PARAM:     return ErrorCode::InvalidArgument;
+    case canERR_NOTFOUND:
+        return ErrorCode::DeviceNotFound;
+    case canERR_NOMSG:
+        return ErrorCode::Timeout;
+    case canERR_PARAM:
+        return ErrorCode::InvalidArgument;
     case canERR_NOCHANNELS:
-    case canERR_NOCARD:    return ErrorCode::DeviceNotFound;
-    case canERR_TIMEOUT:   return ErrorCode::Timeout;
-    default:               return ErrorCode::Unknown;
+    case canERR_NOCARD:
+        return ErrorCode::DeviceNotFound;
+    case canERR_TIMEOUT:
+        return ErrorCode::Timeout;
+    default:
+        return ErrorCode::Unknown;
     }
 }
 
@@ -89,16 +95,35 @@ constexpr unsigned int kTimerScaleMicroseconds = 1;
 [[nodiscard]] bool toCanlibBitrate(std::uint32_t bitrate, long& out)
 {
     switch (bitrate) {
-    case 1'000'000: out = canBITRATE_1M;   return true;
-    case 500'000:   out = canBITRATE_500K; return true;
-    case 250'000:   out = canBITRATE_250K; return true;
-    case 125'000:   out = canBITRATE_125K; return true;
-    case 100'000:   out = canBITRATE_100K; return true;
-    case 83'000:    out = canBITRATE_83K;  return true;
-    case 62'000:    out = canBITRATE_62K;  return true;
-    case 50'000:    out = canBITRATE_50K;  return true;
-    case 10'000:    out = canBITRATE_10K;  return true;
-    default:        return false;
+    case 1'000'000:
+        out = canBITRATE_1M;
+        return true;
+    case 500'000:
+        out = canBITRATE_500K;
+        return true;
+    case 250'000:
+        out = canBITRATE_250K;
+        return true;
+    case 125'000:
+        out = canBITRATE_125K;
+        return true;
+    case 100'000:
+        out = canBITRATE_100K;
+        return true;
+    case 83'000:
+        out = canBITRATE_83K;
+        return true;
+    case 62'000:
+        out = canBITRATE_62K;
+        return true;
+    case 50'000:
+        out = canBITRATE_50K;
+        return true;
+    case 10'000:
+        out = canBITRATE_10K;
+        return true;
+    default:
+        return false;
     }
 }
 
@@ -106,12 +131,23 @@ constexpr unsigned int kTimerScaleMicroseconds = 1;
 [[nodiscard]] bool toCanlibDataBitrate(std::uint32_t bitrate, long& out)
 {
     switch (bitrate) {
-    case 500'000:   out = canFD_BITRATE_500K_80P; return true;
-    case 1'000'000: out = canFD_BITRATE_1M_80P;   return true;
-    case 2'000'000: out = canFD_BITRATE_2M_80P;   return true;
-    case 4'000'000: out = canFD_BITRATE_4M_80P;   return true;
-    case 8'000'000: out = canFD_BITRATE_8M_80P;   return true;
-    default:        return false;
+    case 500'000:
+        out = canFD_BITRATE_500K_80P;
+        return true;
+    case 1'000'000:
+        out = canFD_BITRATE_1M_80P;
+        return true;
+    case 2'000'000:
+        out = canFD_BITRATE_2M_80P;
+        return true;
+    case 4'000'000:
+        out = canFD_BITRATE_4M_80P;
+        return true;
+    case 8'000'000:
+        out = canFD_BITRATE_8M_80P;
+        return true;
+    default:
+        return false;
     }
 }
 
@@ -124,7 +160,8 @@ constexpr unsigned int kTimerScaleMicroseconds = 1;
     }
 
     const std::string suffix = handle.substr(prefix.size());
-    if (suffix.empty() || !std::ranges::all_of(suffix, [](char c) { return c >= '0' && c <= '9'; })) {
+    if (suffix.empty()
+        || !std::ranges::all_of(suffix, [](char c) { return c >= '0' && c <= '9'; })) {
         return false;
     }
 
@@ -290,9 +327,9 @@ Result KvaserCanBackend::open(const CanChannelConfig& config)
 {
     int channelIndex = 0;
     if (!parseHandle(config.deviceHandle, channelIndex)) {
-        return Result::error(ErrorCode::DeviceNotFound,
-                             std::format("'{}' is not a Kvaser channel handle",
-                                         config.deviceHandle));
+        return Result::error(
+            ErrorCode::DeviceNotFound,
+            std::format("'{}' is not a Kvaser channel handle", config.deviceHandle));
     }
 
     const std::lock_guard lock{m_impl->mutex};
@@ -422,77 +459,77 @@ Result KvaserCanBackend::start()
         "the Kvaser receive thread",
         [this](std::string_view reason) { reportThreadStopped(reason); },
         [this, handle, handler, applicationChannel] {
-        std::vector<CanFrame> batch;
-        batch.reserve(kBatchSize);
+            std::vector<CanFrame> batch;
+            batch.reserve(kBatchSize);
 
-        const auto flush = [&batch, &handler] {
-            if (!batch.empty() && handler) {
-                handler(std::span<const CanFrame>{batch.data(), batch.size()});
-            }
-            batch.clear();
-        };
+            const auto flush = [&batch, &handler] {
+                if (!batch.empty() && handler) {
+                    handler(std::span<const CanFrame>{batch.data(), batch.size()});
+                }
+                batch.clear();
+            };
 
-        while (m_impl->running.load(std::memory_order_acquire)) {
-            long identifier = 0;
-            std::array<std::uint8_t, kMaxCanPayload> data{};
-            unsigned int dlc = 0;
-            unsigned int flags = 0;
-            unsigned long ticks = 0;
+            while (m_impl->running.load(std::memory_order_acquire)) {
+                long identifier = 0;
+                std::array<std::uint8_t, kMaxCanPayload> data{};
+                unsigned int dlc = 0;
+                unsigned int flags = 0;
+                unsigned long ticks = 0;
 
-            const canStatus status = canReadWait(handle, &identifier, data.data(), &dlc, &flags,
-                                                 &ticks, kReadTimeoutMs);
+                const canStatus status = canReadWait(
+                    handle, &identifier, data.data(), &dlc, &flags, &ticks, kReadTimeoutMs);
 
-            if (status == canERR_NOMSG || status == canERR_TIMEOUT) {
-                // Driver ran dry. Deliver what we have rather than holding it
-                // until the batch happens to fill.
-                flush();
-                continue;
-            }
-
-            if (status != canOK) {
-                flush();
-
-                // A read failure is reported once and the loop keeps going: a
-                // transient error must not silently end the measurement.
-                if (m_impl->statusHandler) {
-                    CanBusStatus busStatus;
-                    busStatus.state = m_impl->state.load(std::memory_order_relaxed);
-                    m_impl->statusHandler(busStatus);
+                if (status == canERR_NOMSG || status == canERR_TIMEOUT) {
+                    // Driver ran dry. Deliver what we have rather than holding it
+                    // until the batch happens to fill.
+                    flush();
+                    continue;
                 }
 
-                std::this_thread::sleep_for(std::chrono::milliseconds{1});
-                continue;
+                if (status != canOK) {
+                    flush();
+
+                    // A read failure is reported once and the loop keeps going: a
+                    // transient error must not silently end the measurement.
+                    if (m_impl->statusHandler) {
+                        CanBusStatus busStatus;
+                        busStatus.state = m_impl->state.load(std::memory_order_relaxed);
+                        m_impl->statusHandler(busStatus);
+                    }
+
+                    std::this_thread::sleep_for(std::chrono::milliseconds{1});
+                    continue;
+                }
+
+                CanFrame frame;
+                frame.timestampNs = m_impl->toNanoseconds(ticks);
+                frame.identifier = static_cast<std::uint32_t>(identifier);
+                frame.channel = applicationChannel;
+                frame.format =
+                    (flags & canMSG_EXT) != 0 ? CanFrameFormat::Extended : CanFrameFormat::Standard;
+                frame.fd = (flags & canFDMSG_FDF) != 0;
+                frame.brs = (flags & canFDMSG_BRS) != 0;
+                frame.esi = (flags & canFDMSG_ESI) != 0;
+                frame.rtr = (flags & canMSG_RTR) != 0;
+                frame.error = (flags & canMSG_ERROR_FRAME) != 0;
+
+                // canMSG_TXACK marks the driver echoing back something we sent.
+                frame.direction = (flags & canMSG_TXACK) != 0 ? CanDirection::Tx : CanDirection::Rx;
+
+                frame.dlc = static_cast<std::uint8_t>(std::min<unsigned int>(dlc, 15U));
+                frame.length = static_cast<std::uint8_t>(std::min<std::size_t>(
+                    payloadLengthFromDlc(frame.dlc, frame.fd), kMaxCanPayload));
+                std::copy_n(data.begin(), frame.length, frame.data.begin());
+
+                batch.push_back(frame);
+
+                if (batch.size() >= kBatchSize) {
+                    flush();
+                }
             }
 
-            CanFrame frame;
-            frame.timestampNs = m_impl->toNanoseconds(ticks);
-            frame.identifier = static_cast<std::uint32_t>(identifier);
-            frame.channel = applicationChannel;
-            frame.format = (flags & canMSG_EXT) != 0 ? CanFrameFormat::Extended
-                                                     : CanFrameFormat::Standard;
-            frame.fd = (flags & canFDMSG_FDF) != 0;
-            frame.brs = (flags & canFDMSG_BRS) != 0;
-            frame.esi = (flags & canFDMSG_ESI) != 0;
-            frame.rtr = (flags & canMSG_RTR) != 0;
-            frame.error = (flags & canMSG_ERROR_FRAME) != 0;
-
-            // canMSG_TXACK marks the driver echoing back something we sent.
-            frame.direction = (flags & canMSG_TXACK) != 0 ? CanDirection::Tx : CanDirection::Rx;
-
-            frame.dlc = static_cast<std::uint8_t>(std::min<unsigned int>(dlc, 15U));
-            frame.length = static_cast<std::uint8_t>(
-                std::min<std::size_t>(payloadLengthFromDlc(frame.dlc, frame.fd), kMaxCanPayload));
-            std::copy_n(data.begin(), frame.length, frame.data.begin());
-
-            batch.push_back(frame);
-
-            if (batch.size() >= kBatchSize) {
-                flush();
-            }
-        }
-
-        flush();
-    })};
+            flush();
+        })};
 
     return Result::ok();
 }
@@ -585,8 +622,8 @@ Result KvaserCanBackend::transmit(const CanFrame& frame)
     // canWrite takes a non-const payload pointer even though it only reads it.
     std::array<std::uint8_t, kMaxCanPayload> payload = frame.data;
 
-    const canStatus status = canWrite(handle, static_cast<long>(frame.identifier), payload.data(),
-                                      frame.dlc, flags);
+    const canStatus status =
+        canWrite(handle, static_cast<long>(frame.identifier), payload.data(), frame.dlc, flags);
 
     if (status != canOK) {
         return Result::error(ErrorCode::TransmitFailed, describe(status, "canWrite"));
@@ -701,15 +738,23 @@ struct KvaserCanBackend::Impl final {
 
 KvaserCanBackend::KvaserCanBackend()
     : m_impl{std::make_unique<Impl>()}
-{
-}
+{ }
 
 KvaserCanBackend::~KvaserCanBackend() = default;
 
-bool KvaserCanBackend::isCompiledIn() noexcept { return false; }
-bool KvaserCanBackend::isAvailable() const noexcept { return false; }
+bool KvaserCanBackend::isCompiledIn() noexcept
+{
+    return false;
+}
+bool KvaserCanBackend::isAvailable() const noexcept
+{
+    return false;
+}
 
-CanDeviceInfoList KvaserCanBackend::enumerate() { return {}; }
+CanDeviceInfoList KvaserCanBackend::enumerate()
+{
+    return {};
+}
 
 Result KvaserCanBackend::open(const CanChannelConfig&)
 {
@@ -718,26 +763,38 @@ Result KvaserCanBackend::open(const CanChannelConfig&)
                          "Install the Kvaser drivers and CANlib SDK, then reconfigure.");
 }
 
-Result KvaserCanBackend::start() { return Result::error(ErrorCode::BackendUnavailable); }
-void KvaserCanBackend::stop() {}
-void KvaserCanBackend::close() {}
-bool KvaserCanBackend::isOpen() const noexcept { return false; }
+Result KvaserCanBackend::start()
+{
+    return Result::error(ErrorCode::BackendUnavailable);
+}
+void KvaserCanBackend::stop() { }
+void KvaserCanBackend::close() { }
+bool KvaserCanBackend::isOpen() const noexcept
+{
+    return false;
+}
 
 Result KvaserCanBackend::transmit(const CanFrame&)
 {
     return Result::error(ErrorCode::BackendUnavailable);
 }
 
-CanBusStatus KvaserCanBackend::status() const { return {}; }
-CanCapabilities KvaserCanBackend::capabilities() const { return m_impl->capabilities; }
+CanBusStatus KvaserCanBackend::status() const
+{
+    return {};
+}
+CanCapabilities KvaserCanBackend::capabilities() const
+{
+    return m_impl->capabilities;
+}
 
-void KvaserCanBackend::setFrameHandler(FrameHandler) {}
-void KvaserCanBackend::setStatusHandler(StatusHandler) {}
+void KvaserCanBackend::setFrameHandler(FrameHandler) { }
+void KvaserCanBackend::setStatusHandler(StatusHandler) { }
 
 // The stub has no threads to guard, but the declaration is unconditional and a
 // missing definition is a link error rather than a compile one - found later,
 // and only by whoever builds without the SDK.
-void KvaserCanBackend::reportThreadStopped(std::string_view) {}
+void KvaserCanBackend::reportThreadStopped(std::string_view) { }
 
 #endif // TORQUEBUS_HAVE_KVASER
 

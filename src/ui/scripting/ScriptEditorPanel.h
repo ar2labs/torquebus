@@ -44,7 +44,7 @@ class QPushButton;
 namespace torquebus {
 class GraphDescription;
 class ScriptLibrary;
-}
+} // namespace torquebus
 
 namespace torquebus::ui {
 

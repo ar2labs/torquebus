@@ -215,8 +215,9 @@ void PlotView::paintGrid(QPainter& painter, const QRectF& area) const
 
     for (int division = 0; division <= kTimeDivisions; ++division) {
         const double x = area.left() + area.width() * division / kTimeDivisions;
-        const std::uint64_t at = m_startNs + span * static_cast<std::uint64_t>(division)
-                                                 / static_cast<std::uint64_t>(kTimeDivisions);
+        const std::uint64_t at = m_startNs
+                                 + span * static_cast<std::uint64_t>(division)
+                                       / static_cast<std::uint64_t>(kTimeDivisions);
 
         const QString label = formatSeconds(at, span);
         const double width = metrics.horizontalAdvance(label);
@@ -331,7 +332,8 @@ void PlotView::mouseMoveEvent(QMouseEvent* event)
     const double fraction = (x - area.left()) / area.width();
     const auto span = static_cast<double>(m_endNs - m_startNs);
 
-    Q_EMIT cursorMoved(static_cast<quint64>(m_startNs + static_cast<std::uint64_t>(fraction * span)));
+    Q_EMIT cursorMoved(
+        static_cast<quint64>(m_startNs + static_cast<std::uint64_t>(fraction * span)));
 }
 
 void PlotView::leaveEvent(QEvent* event)

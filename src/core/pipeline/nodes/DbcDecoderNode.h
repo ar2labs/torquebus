@@ -54,8 +54,7 @@ public:
                             std::string label = "DBC decoder")
         : m_database{std::move(database)}
         , m_label{std::move(label)}
-    {
-    }
+    { }
 
     [[nodiscard]] std::string_view typeName() const noexcept override { return "dbc.decoder"; }
 

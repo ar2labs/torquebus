@@ -40,10 +40,7 @@ public:
     [[nodiscard]] std::string_view typeName() const noexcept override { return "test.queue"; }
     [[nodiscard]] std::string displayName() const override { return "Queue"; }
 
-    [[nodiscard]] std::span<const PortDescriptor> inputs() const noexcept override
-    {
-        return {};
-    }
+    [[nodiscard]] std::span<const PortDescriptor> inputs() const noexcept override { return {}; }
 
     [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override
     {
@@ -88,10 +85,7 @@ public:
         return kInputs;
     }
 
-    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override
-    {
-        return {};
-    }
+    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override { return {}; }
 
     void process(NodeContext& context) override
     {
@@ -257,8 +251,7 @@ TEST_CASE("A question reaches the ECU and the answer comes back", "[uds][graph]"
           == Bytes{0x62, 0xF1, 0x90, 'W', 'V', 'W', 'Z', 'Z', 'Z', '1', 'K'});
 }
 
-TEST_CASE("A long answer crosses in several frames and arrives whole",
-          "[uds][graph]")
+TEST_CASE("A long answer crosses in several frames and arrives whole", "[uds][graph]")
 {
     // The point of having ISO-TP underneath: an answer of forty bytes is a
     // first frame, a flow control and four consecutive frames, and none of that
@@ -281,8 +274,7 @@ TEST_CASE("A long answer crosses in several frames and arrives whole",
     CHECK(exchanges.front().response == answer);
 }
 
-TEST_CASE("A refusal reaches the console with its reason in words",
-          "[uds][graph]")
+TEST_CASE("A refusal reaches the console with its reason in words", "[uds][graph]")
 {
     Bench bench;
 
@@ -300,8 +292,7 @@ TEST_CASE("A refusal reaches the console with its reason in words",
     CHECK(text.find("security access") != std::string::npos);
 }
 
-TEST_CASE("Two requests posted at once are asked one after the other",
-          "[uds][graph]")
+TEST_CASE("Two requests posted at once are asked one after the other", "[uds][graph]")
 {
     // UDS is one question at a time, but a console user pressing Send twice
     // means both - a millisecond apart is not two questions at once.
@@ -369,18 +360,17 @@ TEST_CASE("The console and the executor do not wait for each other", "[uds]")
     CHECK(static_cast<int>(taken.size()) == kRequests);
 }
 
-TEST_CASE("P2 longer than P2* is refused while the block is on screen",
-          "[uds][validate]")
+TEST_CASE("P2 longer than P2* is refused while the block is on screen", "[uds][validate]")
 {
     // The one timing value somebody is tempted to "fix" by typing a bigger
     // number, and doing so makes the extended deadline meaningless.
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
     GraphDescription description;
-    description.addNode(NodeDescription{
-        .id = "uds",
-        .typeName = "uds.client",
-        .parameters = {{"p2Ms", ParameterValue::fromInteger(9000)}}});
+    description.addNode(
+        NodeDescription{.id = "uds",
+                        .typeName = "uds.client",
+                        .parameters = {{"p2Ms", ParameterValue::fromInteger(9000)}}});
 
     const Result result = description.validate(catalog);
 

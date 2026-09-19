@@ -21,10 +21,7 @@ namespace {
 /// touches the developer's real settings file.
 class ScopedSettingsFile final {
 public:
-    ScopedSettingsFile()
-    {
-        REQUIRE(m_directory.isValid());
-    }
+    ScopedSettingsFile() { REQUIRE(m_directory.isValid()); }
 
     [[nodiscard]] QString path() const
     {
@@ -132,8 +129,7 @@ TEST_CASE("Removing a key removes it from the file", "[settings]")
     CHECK_FALSE(reloaded.contains(QStringLiteral("project/lastOpened")));
 }
 
-TEST_CASE("An empty binary value clears its key rather than storing nothing",
-          "[settings]")
+TEST_CASE("An empty binary value clears its key rather than storing nothing", "[settings]")
 {
     const ScopedSettingsFile file;
 
@@ -179,8 +175,7 @@ TEST_CASE("A stored bitrate survives a save and a load", "[settings][bitrate]")
     {
         SettingsStore store{file.path()};
         REQUIRE(store.load());
-        store.setIntValue(torquebus::services::bitrateKey(QStringLiteral("peak:usb0")),
-                          500'000);
+        store.setIntValue(torquebus::services::bitrateKey(QStringLiteral("peak:usb0")), 500'000);
         REQUIRE(store.save());
     }
 

@@ -19,8 +19,7 @@ namespace {
         text.remove_prefix(1);
     }
 
-    while (!text.empty()
-           && (text.back() == ' ' || text.back() == '\t' || text.back() == '\r')) {
+    while (!text.empty() && (text.back() == ' ' || text.back() == '\t' || text.back() == '\r')) {
         text.remove_suffix(1);
     }
 
@@ -69,9 +68,9 @@ Result J1939NameTables::merge(std::string_view text)
         }
 
         const std::size_t firstComma = trimmed.find(',');
-        const std::size_t secondComma =
-            firstComma == std::string_view::npos ? std::string_view::npos
-                                                 : trimmed.find(',', firstComma + 1);
+        const std::size_t secondComma = firstComma == std::string_view::npos
+                                            ? std::string_view::npos
+                                            : trimmed.find(',', firstComma + 1);
 
         if (secondComma == std::string_view::npos) {
             return Result::error(
@@ -98,8 +97,8 @@ Result J1939NameTables::merge(std::string_view text)
             if (!parseNumber(key, value) || value > 7U) {
                 return Result::error(
                     ErrorCode::InvalidArgument,
-                    std::format("Line {}: '{}' is not an industry group, which is 0 to 7",
-                                number, key));
+                    std::format(
+                        "Line {}: '{}' is not an industry group, which is 0 to 7", number, key));
             }
 
             m_industryGroups[static_cast<std::uint8_t>(value)] = std::string{name};
@@ -111,7 +110,8 @@ Result J1939NameTables::merge(std::string_view text)
                 return Result::error(
                     ErrorCode::InvalidArgument,
                     std::format("Line {}: '{}' is not a manufacturer code, which is 0 to 2047",
-                                number, key));
+                                number,
+                                key));
             }
 
             m_manufacturers[static_cast<std::uint16_t>(value)] = std::string{name};
@@ -127,7 +127,9 @@ Result J1939NameTables::merge(std::string_view text)
                         std::format("Line {}: function {} is at or above {}, so it needs an "
                                     "industryGroup/vehicleSystem/function key - the number "
                                     "alone means different things on different machines",
-                                    number, value, kJ1939FirstDependentFunction));
+                                    number,
+                                    value,
+                                    kJ1939FirstDependentFunction));
                 }
 
                 m_functions[functionKey(0U, 0U, static_cast<std::uint8_t>(value))] =
@@ -136,9 +138,9 @@ Result J1939NameTables::merge(std::string_view text)
             }
 
             const std::size_t firstSlash = key.find('/');
-            const std::size_t secondSlash =
-                firstSlash == std::string_view::npos ? std::string_view::npos
-                                                     : key.find('/', firstSlash + 1);
+            const std::size_t secondSlash = firstSlash == std::string_view::npos
+                                                ? std::string_view::npos
+                                                : key.find('/', firstSlash + 1);
 
             std::uint32_t group = 0;
             std::uint32_t vehicleSystem = 0;
@@ -154,7 +156,9 @@ Result J1939NameTables::merge(std::string_view text)
                     ErrorCode::InvalidArgument,
                     std::format("Line {}: '{}' is not a function key. Use a number below "
                                 "{}, or industryGroup/vehicleSystem/function",
-                                number, key, kJ1939FirstDependentFunction));
+                                number,
+                                key,
+                                kJ1939FirstDependentFunction));
             }
 
             m_functions[functionKey(static_cast<std::uint8_t>(group),
@@ -165,8 +169,7 @@ Result J1939NameTables::merge(std::string_view text)
 
         return Result::error(
             ErrorCode::InvalidArgument,
-            std::format("Line {}: '{}' is not industry, manufacturer or function", number,
-                        kind));
+            std::format("Line {}: '{}' is not industry, manufacturer or function", number, kind));
     }
 
     return Result::ok();
@@ -201,8 +204,7 @@ Result J1939NameTables::mergeFile(const std::filesystem::path& path)
     if (Result result = merge(buffer.str()); result.failed()) {
         // The line number is in the message already; the file name is what
         // turns it into something somebody can open.
-        return Result::error(result.code(),
-                             std::format("{}: {}", path.string(), result.message()));
+        return Result::error(result.code(), std::format("{}: {}", path.string(), result.message()));
     }
 
     // The most recent file that actually had something in it, which is the one

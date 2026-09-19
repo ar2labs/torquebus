@@ -60,12 +60,14 @@ Result J1939Node::prepare(std::size_t maximumBatchSize)
 
     constexpr std::size_t kMaximumBufferedSignals = 8U * 1024U * 1024U;
     if (worstCase > kMaximumBufferedSignals) {
-        return Result::error(
-            ErrorCode::InvalidArgument,
-            std::format("J1939 block '{}' would need room for {} signals per pass "
-                        "({} frames times {} signals in the widest message), "
-                        "which is more than any real bus produces",
-                        m_label, worstCase, maximumBatchSize, widest));
+        return Result::error(ErrorCode::InvalidArgument,
+                             std::format("J1939 block '{}' would need room for {} signals per pass "
+                                         "({} frames times {} signals in the widest message), "
+                                         "which is more than any real bus produces",
+                                         m_label,
+                                         worstCase,
+                                         maximumBatchSize,
+                                         widest));
     }
 
     m_buffer.resize(worstCase);
@@ -155,9 +157,11 @@ void J1939Node::process(NodeContext& context)
 
         if (j1939IsDiagnosticPgn(id->pgn())) {
             if (std::optional<J1939Diagnostic> message = j1939DecodeDiagnostic(
-                    id->pgn(), id->sourceAddress,
+                    id->pgn(),
+                    id->sourceAddress,
                     std::span<const std::uint8_t>{frame.data.data(), frame.length},
-                    m_spnReading, frame.timestampNs);
+                    m_spnReading,
+                    frame.timestampNs);
                 message.has_value()) {
                 ++m_diagnosticMessages;
                 recordDiagnostic(std::move(*message));
@@ -173,8 +177,13 @@ void J1939Node::process(NodeContext& context)
             continue;
         }
 
-        count += decodeInto(id->pgn(), frame.identifier, frame.channel, frame.timestampNs,
-                            frame.data.data(), frame.length, count);
+        count += decodeInto(id->pgn(),
+                            frame.identifier,
+                            frame.channel,
+                            frame.timestampNs,
+                            frame.data.data(),
+                            frame.length,
+                            count);
     }
 
     // Anything the reassembler finished during this batch, plus the sessions
@@ -191,8 +200,7 @@ void J1939Node::process(NodeContext& context)
 
         if (j1939IsDiagnosticPgn(event.pgn)) {
             if (std::optional<J1939Diagnostic> message = j1939DecodeDiagnostic(
-                    event.pgn, event.sourceAddress, event.data, m_spnReading,
-                    event.timestampNs);
+                    event.pgn, event.sourceAddress, event.data, m_spnReading, event.timestampNs);
                 message.has_value()) {
                 ++m_diagnosticMessages;
                 recordDiagnostic(std::move(*message));
@@ -204,11 +212,15 @@ void J1939Node::process(NodeContext& context)
             continue;
         }
 
-        count += decodeInto(event.pgn,
-                            j1939Identifier(event.pgn, event.sourceAddress,
-                                            event.destinationAddress, event.priority),
-                            0U, event.timestampNs, event.data.data(), event.data.size(),
-                            count);
+        count += decodeInto(
+            event.pgn,
+            j1939Identifier(
+                event.pgn, event.sourceAddress, event.destinationAddress, event.priority),
+            0U,
+            event.timestampNs,
+            event.data.data(),
+            event.data.size(),
+            count);
     }
 
     // Anything the address table noticed - a claim, a contest, an ECU heard
@@ -237,11 +249,11 @@ void J1939Node::process(NodeContext& context)
 
 void J1939Node::recordDiagnostic(J1939Diagnostic message)
 {
-    const auto found = std::find_if(m_diagnostics.begin(), m_diagnostics.end(),
-                                    [&message](const J1939Diagnostic& existing) {
-                                        return existing.sourceAddress == message.sourceAddress
-                                               && existing.active == message.active;
-                                    });
+    const auto found = std::find_if(
+        m_diagnostics.begin(), m_diagnostics.end(), [&message](const J1939Diagnostic& existing) {
+            return existing.sourceAddress == message.sourceAddress
+                   && existing.active == message.active;
+        });
 
     if (found != m_diagnostics.end()) {
         // A fault list is a statement about now. An older copy of the same ECU
@@ -251,7 +263,9 @@ void J1939Node::recordDiagnostic(J1939Diagnostic message)
     }
 
     const auto position =
-        std::lower_bound(m_diagnostics.begin(), m_diagnostics.end(), message,
+        std::lower_bound(m_diagnostics.begin(),
+                         m_diagnostics.end(),
+                         message,
                          [](const J1939Diagnostic& left, const J1939Diagnostic& right) {
                              if (left.sourceAddress != right.sourceAddress) {
                                  return left.sourceAddress < right.sourceAddress;

@@ -35,17 +35,17 @@
 #include "core/can/CanFrame.h"
 #include "core/can/CanStatistics.h"
 #include "core/can/CanTypes.h"
+#include "core/dashboard/SystemVariables.h"
+#include "core/diagnostics/DiagnosticSession.h"
+#include "core/j1939/J1939Network.h"
+#include "core/log/ReplayControl.h"
+#include "core/log/TraceLog.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "core/pipeline/PipelineGraph.h"
-#include "core/diagnostics/DiagnosticSession.h"
-#include "core/dashboard/SystemVariables.h"
-#include "core/scripting/ScriptLibrary.h"
-#include "core/j1939/J1939Network.h"
-#include "core/testing/TestReport.h"
-#include "core/log/ReplayControl.h"
-#include "core/log/TraceLog.h"
 #include "core/plot/SignalSeries.h"
+#include "core/scripting/ScriptLibrary.h"
+#include "core/testing/TestReport.h"
 #include "core/trace/TraceStore.h"
 
 #include <atomic>
@@ -58,8 +58,8 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace torquebus {
@@ -324,10 +324,7 @@ public:
     /// same reason: the block dies with the graph at Stop, and "who was on this
     /// bus" is a question somebody asks after the run as often as during it.
     [[nodiscard]] J1939Network& j1939Network() noexcept { return m_j1939Network; }
-    [[nodiscard]] const J1939Network& j1939Network() const noexcept
-    {
-        return m_j1939Network;
-    }
+    [[nodiscard]] const J1939Network& j1939Network() const noexcept { return m_j1939Network; }
 
     /// What the running test sequence has found.
     ///
@@ -344,10 +341,7 @@ public:
     /// thread holds the other, and everything that crosses is behind the
     /// try_lock described in ScriptLibrary.h.
     [[nodiscard]] ScriptLibrary& scriptLibrary() noexcept { return m_scriptLibrary; }
-    [[nodiscard]] const ScriptLibrary& scriptLibrary() const noexcept
-    {
-        return m_scriptLibrary;
-    }
+    [[nodiscard]] const ScriptLibrary& scriptLibrary() const noexcept { return m_scriptLibrary; }
 
     /// The transport every replay block in this measurement obeys.
     ///
@@ -356,14 +350,11 @@ public:
     /// the GUI holds it while the executor thread reads it. What crosses that
     /// boundary is atomics only - see ReplayControl.
     [[nodiscard]] ReplayControl& replayControl() noexcept { return m_replayControl; }
-    [[nodiscard]] const ReplayControl& replayControl() const noexcept
-    {
-        return m_replayControl;
-    }
+    [[nodiscard]] const ReplayControl& replayControl() const noexcept { return m_replayControl; }
 
     /// A registered sink and the handle that removes it again. Public only so
     /// that the dispatch helpers in the .cpp can name it.
-    template <typename SinkType>
+    template<typename SinkType>
     struct Registration final {
         SinkId id{};
         SinkType sink;

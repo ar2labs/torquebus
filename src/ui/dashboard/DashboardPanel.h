@@ -61,7 +61,7 @@ class QPainter;
 namespace torquebus {
 class SignalSeriesStore;
 class SystemVariables;
-}
+} // namespace torquebus
 
 namespace torquebus::ui {
 
@@ -138,23 +138,34 @@ private:
     [[nodiscard]] QRectF handleOf(const DashboardWidget& widget) const;
 
     /// Turns a click inside a control into the value it means.
-    [[nodiscard]] static double valueFromPoint(const DashboardWidget& widget,
-                                               const QRectF& rect,
-                                               const QPoint& point);
+    [[nodiscard]] static double
+    valueFromPoint(const DashboardWidget& widget, const QRectF& rect, const QPoint& point);
 
     void paintWidget(QPainter& painter, const DashboardWidget& widget);
-    void paintGauge(QPainter& painter, const DashboardWidget& widget, const QRectF& rect,
+    void paintGauge(QPainter& painter,
+                    const DashboardWidget& widget,
+                    const QRectF& rect,
                     const Reading& reading);
-    void paintNumeric(QPainter& painter, const DashboardWidget& widget,
-                      const QRectF& rect, const Reading& reading);
-    void paintLamp(QPainter& painter, const DashboardWidget& widget, const QRectF& rect,
+    void paintNumeric(QPainter& painter,
+                      const DashboardWidget& widget,
+                      const QRectF& rect,
+                      const Reading& reading);
+    void paintLamp(QPainter& painter,
+                   const DashboardWidget& widget,
+                   const QRectF& rect,
                    const Reading& reading);
-    void paintSlider(QPainter& painter, const DashboardWidget& widget,
-                     const QRectF& rect, const Reading& reading);
-    void paintKnob(QPainter& painter, const DashboardWidget& widget, const QRectF& rect,
+    void paintSlider(QPainter& painter,
+                     const DashboardWidget& widget,
+                     const QRectF& rect,
+                     const Reading& reading);
+    void paintKnob(QPainter& painter,
+                   const DashboardWidget& widget,
+                   const QRectF& rect,
                    const Reading& reading);
-    void paintButton(QPainter& painter, const DashboardWidget& widget,
-                     const QRectF& rect, const Reading& reading);
+    void paintButton(QPainter& painter,
+                     const DashboardWidget& widget,
+                     const QRectF& rect,
+                     const Reading& reading);
     void paintLabel(QPainter& painter, const DashboardWidget& widget, const QRectF& rect);
 
     /// The text under a widget: its title, or what it is bound to.

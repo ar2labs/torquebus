@@ -12,8 +12,8 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QScrollBar>
-#include <QSizePolicy>
 #include <QSignalBlocker>
+#include <QSizePolicy>
 #include <QStyle>
 #include <QTableView>
 #include <QTimer>
@@ -27,19 +27,19 @@ namespace {
 /// actually holds - an eight-digit extended identifier, sixty-four hex bytes -
 /// so the table stops reflowing after the first screenful.
 constexpr int kColumnWidths[TraceModel::ColumnCount] = {
-    96,  // Time
-    72,  // Delta
-    56,  // Channel
-    40,  // Direction
-    88,  // Identifier
+    96, // Time
+    72, // Delta
+    56, // Channel
+    40, // Direction
+    88, // Identifier
     140, // Name
-    64,  // Type
-    40,  // DLC
+    64, // Type
+    40, // DLC
     260, // Data
     280, // Signals - the widest column, because a decoded row is the point
-    72,  // Cycle
-    72,  // Count
-    64,  // Flags
+    72, // Cycle
+    72, // Count
+    64, // Flags
 };
 
 /// How close to the bottom still counts as "at the bottom".
@@ -155,8 +155,7 @@ void TracePanel::createView()
     applyColumnWidths();
 
     connect(m_model, &TraceModel::rowsAppended, this, &TracePanel::onRowsAppended);
-    connect(m_view->verticalScrollBar(), &QScrollBar::valueChanged,
-            this, &TracePanel::onScrolled);
+    connect(m_view->verticalScrollBar(), &QScrollBar::valueChanged, this, &TracePanel::onScrolled);
 }
 
 void TracePanel::applyColumnWidths()
@@ -277,9 +276,8 @@ void TracePanel::refreshStatus()
                                    .arg(m_store->size())
                                    .arg(dropped));
     } else {
-        m_statusLabel->setText(tr("%L1 frames  ·  %L2 identifiers")
-                                   .arg(total)
-                                   .arg(m_store->identifiers().size()));
+        m_statusLabel->setText(
+            tr("%L1 frames  ·  %L2 identifiers").arg(total).arg(m_store->identifiers().size()));
     }
 }
 

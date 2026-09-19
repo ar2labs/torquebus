@@ -36,13 +36,9 @@ public:
     explicit SignalSinkNode(Callback callback, std::string label = "signal sink")
         : m_callback{std::move(callback)}
         , m_label{std::move(label)}
-    {
-    }
+    { }
 
-    [[nodiscard]] std::string_view typeName() const noexcept override
-    {
-        return "signal.sink";
-    }
+    [[nodiscard]] std::string_view typeName() const noexcept override { return "signal.sink"; }
 
     [[nodiscard]] std::string displayName() const override { return m_label; }
 

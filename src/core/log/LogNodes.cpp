@@ -68,10 +68,9 @@ LogSourceNode::LogSourceNode(std::unique_ptr<TraceLogReader> reader,
                              std::string label,
                              ReplayControl* control)
     : m_reader{std::move(reader)}
-    , m_label{std::move(label)}
-    // A speed of zero or less would mean a replay that never advances, which is
-    // a paused measurement rather than a configured one. Clamped to something
-    // that plays.
+    , m_label{std::move(label)} // A speed of zero or less would mean a replay that never advances,
+                                // which is a paused measurement rather than a configured one.
+                                // Clamped to something that plays.
     , m_speed{speed > 0.0 ? speed : 1.0}
     , m_control{control}
 {

@@ -81,9 +81,8 @@ public:
 
     /// Called before anything else, with the request. Fills `response` when it
     /// returns Answered.
-    using Handler =
-        std::function<Verdict(std::span<const std::uint8_t> request,
-                              std::vector<std::uint8_t>& response)>;
+    using Handler = std::function<Verdict(std::span<const std::uint8_t> request,
+                                          std::vector<std::uint8_t>& response)>;
 
     /// Turns a seed into the key the ECU will accept. Without one, security
     /// access is refused - an ECU with no algorithm is locked, not open.
@@ -116,10 +115,7 @@ public:
 
     void setHandler(Handler handler) { m_handler = std::move(handler); }
 
-    void setSecurityAlgorithm(SecurityAlgorithm algorithm)
-    {
-        m_algorithm = std::move(algorithm);
-    }
+    void setSecurityAlgorithm(SecurityAlgorithm algorithm) { m_algorithm = std::move(algorithm); }
 
     /// The seed the ECU gives out. Fixed rather than random by default, because
     /// a simulated ECU whose seed changes every run cannot be scripted against;
@@ -137,9 +133,8 @@ public:
     ///
     /// Silence is a real answer here: a suppressed TesterPresent, a functional
     /// request this ECU does not implement, or a script that said Silent.
-    [[nodiscard]] std::optional<std::vector<std::uint8_t>> handle(
-        std::span<const std::uint8_t> request,
-        std::uint64_t nowNs);
+    [[nodiscard]] std::optional<std::vector<std::uint8_t>>
+    handle(std::span<const std::uint8_t> request, std::uint64_t nowNs);
 
     /// Lets the session expire. Call it as often as convenient.
     void poll(std::uint64_t nowNs);
@@ -156,17 +151,16 @@ private:
     [[nodiscard]] std::vector<std::uint8_t> refuse(std::uint8_t service,
                                                    UdsNegativeResponse reason) const;
 
-    [[nodiscard]] std::optional<std::vector<std::uint8_t>> handleSessionControl(
-        std::span<const std::uint8_t> request,
-        std::uint64_t nowNs);
-    [[nodiscard]] std::optional<std::vector<std::uint8_t>> handleReadDid(
-        std::span<const std::uint8_t> request);
-    [[nodiscard]] std::optional<std::vector<std::uint8_t>> handleWriteDid(
-        std::span<const std::uint8_t> request);
-    [[nodiscard]] std::optional<std::vector<std::uint8_t>> handleReadDtc(
-        std::span<const std::uint8_t> request);
-    [[nodiscard]] std::optional<std::vector<std::uint8_t>> handleSecurityAccess(
-        std::span<const std::uint8_t> request);
+    [[nodiscard]] std::optional<std::vector<std::uint8_t>>
+    handleSessionControl(std::span<const std::uint8_t> request, std::uint64_t nowNs);
+    [[nodiscard]] std::optional<std::vector<std::uint8_t>>
+    handleReadDid(std::span<const std::uint8_t> request);
+    [[nodiscard]] std::optional<std::vector<std::uint8_t>>
+    handleWriteDid(std::span<const std::uint8_t> request);
+    [[nodiscard]] std::optional<std::vector<std::uint8_t>>
+    handleReadDtc(std::span<const std::uint8_t> request);
+    [[nodiscard]] std::optional<std::vector<std::uint8_t>>
+    handleSecurityAccess(std::span<const std::uint8_t> request);
 
     /// Whether `wanted` is satisfied by the session the ECU is in.
     [[nodiscard]] bool sessionAllows(UdsSession wanted) const noexcept;

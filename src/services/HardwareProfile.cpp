@@ -26,13 +26,12 @@ constexpr auto kOrderKey = "can/channelOrder";
 
 HardwareProfile::HardwareProfile(SettingsStore& settings)
     : m_settings{settings}
-{
-}
+{ }
 
 QString HardwareProfile::keyFor(const QString& handle, const char* property)
 {
     return QString::fromLatin1(kChannelPrefix) + handle + QLatin1Char('/')
-        + QString::fromLatin1(property);
+           + QString::fromLatin1(property);
 }
 
 ChannelPreferences HardwareProfile::preferencesFor(const QString& handle) const

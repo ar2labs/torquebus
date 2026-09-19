@@ -48,8 +48,8 @@ CanFrame frame(std::uint32_t identifier, std::uint8_t length = 8)
 {
     CanFrame result;
     result.identifier = identifier;
-    result.format = identifier > kMaxStandardIdentifier ? CanFrameFormat::Extended
-                                                        : CanFrameFormat::Standard;
+    result.format =
+        identifier > kMaxStandardIdentifier ? CanFrameFormat::Extended : CanFrameFormat::Standard;
     result.dlc = length;
     result.length = length;
     return result;
@@ -102,26 +102,26 @@ TEST_CASE("A Lua ECU answers a request on the bus", "[integration][lua]")
     Recorder recorder;
     engine.addFrameSink(recorder.sink());
 
-    engine.setGraphBuilder([&engine](PipelineGraph& graph,
-                                     std::span<const NodeId> sources) -> Result {
-        const NodeId ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
+    engine.setGraphBuilder(
+        [&engine](PipelineGraph& graph, std::span<const NodeId> sources) -> Result {
+            const NodeId ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
             function on_message(id, data)
                 if id == 0x7DF then
                     emit(0x7E8, "\2\1\0")
                 end
             end
         )",
-                                                                     "diag.lua"));
+                                                                          "diag.lua"));
 
-        const NodeId transmit =
-            graph.addNode(std::make_unique<ChannelSinkNode>(*engine.channel(0)));
+            const NodeId transmit =
+                graph.addNode(std::make_unique<ChannelSinkNode>(*engine.channel(0)));
 
-        if (Result result = graph.connect(PortRef{sources[0], 0}, PortRef{ecu, 0});
-            result.failed()) {
-            return result;
-        }
-        return graph.connect(PortRef{ecu, 0}, PortRef{transmit, 0});
-    });
+            if (Result result = graph.connect(PortRef{sources[0], 0}, PortRef{ecu, 0});
+                result.failed()) {
+                return result;
+            }
+            return graph.connect(PortRef{ecu, 0}, PortRef{transmit, 0});
+        });
 
     REQUIRE(engine.start().succeeded());
 
@@ -149,22 +149,22 @@ TEST_CASE("The ECU survives a stop and a second start", "[integration][lua]")
 
     std::atomic<int> builds{0};
 
-    engine.setGraphBuilder([&engine, &builds](PipelineGraph& graph,
-                                              std::span<const NodeId> sources) -> Result {
-        ++builds;
+    engine.setGraphBuilder(
+        [&engine, &builds](PipelineGraph& graph, std::span<const NodeId> sources) -> Result {
+            ++builds;
 
-        const NodeId ecu = graph.addNode(std::make_unique<LuaEcuNode>(
-            R"(function on_message(id) if id == 0x100 then emit(0x101, "\1") end end)",
-            "echo.lua"));
-        const NodeId transmit =
-            graph.addNode(std::make_unique<ChannelSinkNode>(*engine.channel(0)));
+            const NodeId ecu = graph.addNode(std::make_unique<LuaEcuNode>(
+                R"(function on_message(id) if id == 0x100 then emit(0x101, "\1") end end)",
+                "echo.lua"));
+            const NodeId transmit =
+                graph.addNode(std::make_unique<ChannelSinkNode>(*engine.channel(0)));
 
-        if (Result result = graph.connect(PortRef{sources[0], 0}, PortRef{ecu, 0});
-            result.failed()) {
-            return result;
-        }
-        return graph.connect(PortRef{ecu, 0}, PortRef{transmit, 0});
-    });
+            if (Result result = graph.connect(PortRef{sources[0], 0}, PortRef{ecu, 0});
+                result.failed()) {
+                return result;
+            }
+            return graph.connect(PortRef{ecu, 0}, PortRef{transmit, 0});
+        });
 
     for (int run = 0; run < 2; ++run) {
         Recorder recorder;
@@ -194,8 +194,8 @@ TEST_CASE("A script that will not compile fails the start with its own message",
                 .succeeded());
 
     engine.setGraphBuilder([](PipelineGraph& graph, std::span<const NodeId> sources) -> Result {
-        const NodeId ecu = graph.addNode(
-            std::make_unique<LuaEcuNode>("function on_message( end", "broken.lua"));
+        const NodeId ecu =
+            graph.addNode(std::make_unique<LuaEcuNode>("function on_message( end", "broken.lua"));
         return graph.connect(PortRef{sources[0], 0}, PortRef{ecu, 0});
     });
 
@@ -240,8 +240,8 @@ TEST_CASE("A faulted ECU does not stop the measurement", "[integration][lua]")
     REQUIRE(engine.start().succeeded());
 
     for (int index = 0; index < 20; ++index) {
-        REQUIRE(engine.transmit(0, frame(0x200 + static_cast<std::uint32_t>(index), 2))
-                    .succeeded());
+        REQUIRE(
+            engine.transmit(0, frame(0x200 + static_cast<std::uint32_t>(index), 2)).succeeded());
     }
 
     std::this_thread::sleep_for(150ms);
@@ -260,8 +260,7 @@ TEST_CASE("A faulted ECU does not stop the measurement", "[integration][lua]")
     CHECK(errors.size() == LuaEcuNode::kErrorLimit + 1);
 }
 
-TEST_CASE("A cyclic ECU puts frames on the bus with no input at all",
-          "[integration][lua]")
+TEST_CASE("A cyclic ECU puts frames on the bus with no input at all", "[integration][lua]")
 {
     // The other half of what a simulated network needs: a node that generates
     // traffic on a timer, with nothing feeding it. This is how a bus full of
@@ -282,7 +281,7 @@ TEST_CASE("A cyclic ECU puts frames on the bus with no input at all",
                 emit(0x300, string.pack("<I2", counter & 0xFFFF))
             end
         )",
-                                                                     "cyclic.lua"));
+                                                                      "cyclic.lua"));
 
         const NodeId transmit =
             graph.addNode(std::make_unique<ChannelSinkNode>(*engine.channel(0)));

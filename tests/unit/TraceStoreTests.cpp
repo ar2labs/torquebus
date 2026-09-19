@@ -24,8 +24,8 @@ CanFrame frame(std::uint32_t identifier,
     result.channel = channel;
     result.length = length;
     result.dlc = length;
-    result.format = identifier > kMaxStandardIdentifier ? CanFrameFormat::Extended
-                                                        : CanFrameFormat::Standard;
+    result.format =
+        identifier > kMaxStandardIdentifier ? CanFrameFormat::Extended : CanFrameFormat::Standard;
     return result;
 }
 
@@ -103,15 +103,14 @@ TEST_CASE("The ring survives many wraps", "[trace][ring]")
     CHECK(store.row(0).frame.identifier == 0x100 + 992);
 }
 
-TEST_CASE("Delta is the gap since the previous frame on any channel",
-          "[trace][timing]")
+TEST_CASE("Delta is the gap since the previous frame on any channel", "[trace][timing]")
 {
     TraceStore store{100};
 
     const std::vector<CanFrame> batch{
-        frame(0x100, 1'000'000),  // 1 ms
-        frame(0x200, 1'500'000),  // +500 us
-        frame(0x100, 3'000'000),  // +1500 us
+        frame(0x100, 1'000'000), // 1 ms
+        frame(0x200, 1'500'000), // +500 us
+        frame(0x100, 3'000'000), // +1500 us
     };
     store.append(batch);
 
@@ -120,8 +119,7 @@ TEST_CASE("Delta is the gap since the previous frame on any channel",
     CHECK(store.row(2).deltaUs == 1500);
 }
 
-TEST_CASE("Cycle is the gap since the same identifier on the same channel",
-          "[trace][timing]")
+TEST_CASE("Cycle is the gap since the same identifier on the same channel", "[trace][timing]")
 {
     TraceStore store{100};
 
@@ -141,8 +139,7 @@ TEST_CASE("Cycle is the gap since the same identifier on the same channel",
     CHECK(store.row(3).cycleUs == 2000);
 }
 
-TEST_CASE("The same identifier on two channels is two identifiers",
-          "[trace][timing]")
+TEST_CASE("The same identifier on two channels is two identifiers", "[trace][timing]")
 {
     // CAN 1 and CAN 2 are different buses. 0x100 on one has nothing to do with
     // 0x100 on the other, and sharing a cycle time between them would be a
@@ -156,7 +153,7 @@ TEST_CASE("The same identifier on two channels is two identifiers",
     };
     store.append(batch);
 
-    CHECK(store.row(1).cycleUs == 0);    // first sighting on channel 1
+    CHECK(store.row(1).cycleUs == 0); // first sighting on channel 1
     CHECK(store.row(2).cycleUs == 2000); // measured against channel 0 only
     CHECK(store.identifiers().size() == 2);
 }
@@ -220,8 +217,7 @@ TEST_CASE("Min and max cycle track the spread", "[trace][fixed]")
     CHECK(stats.maxCycleUs == 5000);
 }
 
-TEST_CASE("Changed bytes are flagged between consecutive frames",
-          "[trace][fixed]")
+TEST_CASE("Changed bytes are flagged between consecutive frames", "[trace][fixed]")
 {
     // The single most useful thing a fixed-ID view does: show which byte moved.
     TraceStore store{100};
@@ -243,8 +239,7 @@ TEST_CASE("Changed bytes are flagged between consecutive frames",
     CHECK(store.identifiers().front().changedBytes == (std::uint64_t{1} << 1U));
 }
 
-TEST_CASE("A timestamp that goes backwards does not produce a huge delta",
-          "[trace][timing]")
+TEST_CASE("A timestamp that goes backwards does not produce a huge delta", "[trace][timing]")
 {
     // Two adapters with unsynchronised clocks, or a replayed log spliced out of
     // order. A wrapped subtraction here would show a delta of several thousand
@@ -261,8 +256,7 @@ TEST_CASE("A timestamp that goes backwards does not produce a huge delta",
     CHECK(store.row(1).deltaUs == 0);
 }
 
-TEST_CASE("clear() empties everything, including the identifier index",
-          "[trace]")
+TEST_CASE("clear() empties everything, including the identifier index", "[trace]")
 {
     TraceStore store{100};
 
@@ -284,8 +278,7 @@ TEST_CASE("clear() empties everything, including the identifier index",
     CHECK(store.row(0).deltaUs == 0);
 }
 
-TEST_CASE("Extended and standard identifiers with the same value are distinct",
-          "[trace]")
+TEST_CASE("Extended and standard identifiers with the same value are distinct", "[trace]")
 {
     TraceStore store{100};
 

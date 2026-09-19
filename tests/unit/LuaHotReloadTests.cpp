@@ -41,10 +41,7 @@ public:
         return kPorts;
     }
 
-    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override
-    {
-        return {};
-    }
+    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override { return {}; }
 
     void process(NodeContext& context) override
     {
@@ -240,10 +237,10 @@ TEST_CASE("The measurement clock survives a reload", "[lua][reload]")
     REQUIRE(bench.countOf(0x600) == 1);
 
     const CanFrame& frame = bench.collector->frames.back();
-    const std::uint32_t milliseconds = static_cast<std::uint32_t>(frame.data[0]) |
-                                       (static_cast<std::uint32_t>(frame.data[1]) << 8) |
-                                       (static_cast<std::uint32_t>(frame.data[2]) << 16) |
-                                       (static_cast<std::uint32_t>(frame.data[3]) << 24);
+    const std::uint32_t milliseconds = static_cast<std::uint32_t>(frame.data[0])
+                                       | (static_cast<std::uint32_t>(frame.data[1]) << 8)
+                                       | (static_cast<std::uint32_t>(frame.data[2]) << 16)
+                                       | (static_cast<std::uint32_t>(frame.data[3]) << 24);
 
     INFO(milliseconds);
     CHECK(milliseconds >= 60);

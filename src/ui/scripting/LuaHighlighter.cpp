@@ -27,13 +27,13 @@ namespace {
 const QStringList& luaKeywords()
 {
     static const QStringList keywords{
-        QStringLiteral("and"),      QStringLiteral("break"),  QStringLiteral("do"),
-        QStringLiteral("else"),     QStringLiteral("elseif"), QStringLiteral("end"),
-        QStringLiteral("false"),    QStringLiteral("for"),    QStringLiteral("function"),
-        QStringLiteral("goto"),     QStringLiteral("if"),     QStringLiteral("in"),
-        QStringLiteral("local"),    QStringLiteral("nil"),    QStringLiteral("not"),
-        QStringLiteral("or"),       QStringLiteral("repeat"), QStringLiteral("return"),
-        QStringLiteral("then"),     QStringLiteral("true"),   QStringLiteral("until"),
+        QStringLiteral("and"),   QStringLiteral("break"),  QStringLiteral("do"),
+        QStringLiteral("else"),  QStringLiteral("elseif"), QStringLiteral("end"),
+        QStringLiteral("false"), QStringLiteral("for"),    QStringLiteral("function"),
+        QStringLiteral("goto"),  QStringLiteral("if"),     QStringLiteral("in"),
+        QStringLiteral("local"), QStringLiteral("nil"),    QStringLiteral("not"),
+        QStringLiteral("or"),    QStringLiteral("repeat"), QStringLiteral("return"),
+        QStringLiteral("then"),  QStringLiteral("true"),   QStringLiteral("until"),
         QStringLiteral("while"),
     };
 
@@ -48,18 +48,33 @@ const QStringList& torqueBusNames()
 {
     static const QStringList names{
         // Callbacks the node looks for.
-        QStringLiteral("on_enable"), QStringLiteral("on_disable"),
-        QStringLiteral("on_timer"), QStringLiteral("on_message"),
-        QStringLiteral("on_uds_request"), QStringLiteral("on_security_seed"),
+        QStringLiteral("on_enable"),
+        QStringLiteral("on_disable"),
+        QStringLiteral("on_timer"),
+        QStringLiteral("on_message"),
+        QStringLiteral("on_uds_request"),
+        QStringLiteral("on_security_seed"),
         // Bindings a script calls back.
-        QStringLiteral("emit"), QStringLiteral("emit_signal"), QStringLiteral("decode"),
-        QStringLiteral("every"), QStringLiteral("cyclic"), QStringLiteral("stop_cyclic"),
-        QStringLiteral("fault"), QStringLiteral("bus_last"), QStringLiteral("bus_stats"),
-        QStringLiteral("set_timer"), QStringLiteral("log_message"),
-        QStringLiteral("get_time_us"), QStringLiteral("uds_did"), QStringLiteral("uds_dtc"),
-        QStringLiteral("uds_clear_dtc"), QStringLiteral("uds_session"),
+        QStringLiteral("emit"),
+        QStringLiteral("emit_signal"),
+        QStringLiteral("decode"),
+        QStringLiteral("every"),
+        QStringLiteral("cyclic"),
+        QStringLiteral("stop_cyclic"),
+        QStringLiteral("fault"),
+        QStringLiteral("bus_last"),
+        QStringLiteral("bus_stats"),
+        QStringLiteral("set_timer"),
+        QStringLiteral("log_message"),
+        QStringLiteral("get_time_us"),
+        QStringLiteral("uds_did"),
+        QStringLiteral("uds_dtc"),
+        QStringLiteral("uds_clear_dtc"),
+        QStringLiteral("uds_session"),
         // Globals the node sets.
-        QStringLiteral("parameters"), QStringLiteral("node_name"), QStringLiteral("channel"),
+        QStringLiteral("parameters"),
+        QStringLiteral("node_name"),
+        QStringLiteral("channel"),
     };
 
     return names;
@@ -139,7 +154,8 @@ void LuaHighlighter::highlightBlock(const QString& text)
         while (matches.hasNext()) {
             const QRegularExpressionMatch match = matches.next();
             setFormat(static_cast<int>(match.capturedStart()),
-                      static_cast<int>(match.capturedLength()), rule.format);
+                      static_cast<int>(match.capturedLength()),
+                      rule.format);
         }
     }
 

@@ -32,9 +32,8 @@ struct BitPosition final {
     return BitPosition{dbcBit / 8U, static_cast<std::uint8_t>(dbcBit % 8U)};
 }
 
-[[nodiscard]] constexpr bool bitAt(const std::uint8_t* payload,
-                                   std::size_t payloadLength,
-                                   std::uint16_t dbcBit) noexcept
+[[nodiscard]] constexpr bool
+bitAt(const std::uint8_t* payload, std::size_t payloadLength, std::uint16_t dbcBit) noexcept
 {
     const BitPosition position = locate(dbcBit);
     if (position.byteIndex >= payloadLength) {
@@ -65,8 +64,7 @@ struct BitPosition final {
 
     // index counts from the least significant bit, which sits at the far end of
     // the run.
-    const std::uint16_t wire =
-        static_cast<std::uint16_t>(msbWire + (bitLength - 1U) - index);
+    const std::uint16_t wire = static_cast<std::uint16_t>(msbWire + (bitLength - 1U) - index);
 
     // Back to DBC numbering.
     return static_cast<std::uint16_t>((wire / 8U) * 8U + (7U - (wire % 8U)));
@@ -155,8 +153,8 @@ std::int64_t CanSignal::maximumRaw() const noexcept
         return std::numeric_limits<std::int64_t>::max();
     }
 
-    const std::uint16_t valueBits = isSigned ? static_cast<std::uint16_t>(bitLength - 1U)
-                                             : bitLength;
+    const std::uint16_t valueBits =
+        isSigned ? static_cast<std::uint16_t>(bitLength - 1U) : bitLength;
     return static_cast<std::int64_t>((std::uint64_t{1} << valueBits) - 1U);
 }
 
@@ -177,7 +175,8 @@ bool CanSignal::encodeRaw(std::int64_t raw,
         // Clear this signal's bit, then set it. Never touches a bit that
         // belongs to a neighbouring signal.
         const auto mask = static_cast<std::uint8_t>(1U << position.bitInByte);
-        payload[position.byteIndex] = static_cast<std::uint8_t>(payload[position.byteIndex] & ~mask);
+        payload[position.byteIndex] =
+            static_cast<std::uint8_t>(payload[position.byteIndex] & ~mask);
 
         if (((bits >> index) & 1U) != 0U) {
             payload[position.byteIndex] =
@@ -232,10 +231,10 @@ double CanSignal::decode(const std::uint8_t* payload, std::size_t payloadLength)
 
 std::string_view CanSignal::nameForValue(std::int64_t raw) const noexcept
 {
-    const auto match = std::find_if(valueNames.begin(), valueNames.end(),
-                                    [raw](const SignalValueName& entry) {
-                                        return entry.value == raw;
-                                    });
+    const auto match =
+        std::find_if(valueNames.begin(), valueNames.end(), [raw](const SignalValueName& entry) {
+            return entry.value == raw;
+        });
 
     return match == valueNames.end() ? std::string_view{} : std::string_view{match->name};
 }

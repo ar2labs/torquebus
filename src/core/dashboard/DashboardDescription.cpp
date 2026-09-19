@@ -16,14 +16,22 @@ std::string_view nameOf(DashboardWidgetKind kind)
     // Written into project files, so these never change once released - a
     // rename orphans every dashboard anybody saved.
     switch (kind) {
-    case DashboardWidgetKind::Gauge:   return "gauge";
-    case DashboardWidgetKind::Numeric: return "numeric";
-    case DashboardWidgetKind::Lamp:    return "lamp";
-    case DashboardWidgetKind::Button:  return "button";
-    case DashboardWidgetKind::Switch:  return "switch";
-    case DashboardWidgetKind::Slider:  return "slider";
-    case DashboardWidgetKind::Knob:    return "knob";
-    case DashboardWidgetKind::Label:   return "label";
+    case DashboardWidgetKind::Gauge:
+        return "gauge";
+    case DashboardWidgetKind::Numeric:
+        return "numeric";
+    case DashboardWidgetKind::Lamp:
+        return "lamp";
+    case DashboardWidgetKind::Button:
+        return "button";
+    case DashboardWidgetKind::Switch:
+        return "switch";
+    case DashboardWidgetKind::Slider:
+        return "slider";
+    case DashboardWidgetKind::Knob:
+        return "knob";
+    case DashboardWidgetKind::Label:
+        return "label";
     }
 
     return "numeric";
@@ -32,10 +40,14 @@ std::string_view nameOf(DashboardWidgetKind kind)
 bool kindFromName(std::string_view name, DashboardWidgetKind& kind)
 {
     static constexpr DashboardWidgetKind kAll[] = {
-        DashboardWidgetKind::Gauge,  DashboardWidgetKind::Numeric,
-        DashboardWidgetKind::Lamp,   DashboardWidgetKind::Button,
-        DashboardWidgetKind::Switch, DashboardWidgetKind::Slider,
-        DashboardWidgetKind::Knob,   DashboardWidgetKind::Label,
+        DashboardWidgetKind::Gauge,
+        DashboardWidgetKind::Numeric,
+        DashboardWidgetKind::Lamp,
+        DashboardWidgetKind::Button,
+        DashboardWidgetKind::Switch,
+        DashboardWidgetKind::Slider,
+        DashboardWidgetKind::Knob,
+        DashboardWidgetKind::Label,
     };
 
     for (const DashboardWidgetKind candidate : kAll) {
@@ -69,15 +81,15 @@ bool writesItsBinding(DashboardWidgetKind kind)
 
 void DashboardDescription::remove(const std::string& id)
 {
-    std::erase_if(m_widgets,
-                  [&id](const DashboardWidget& widget) { return widget.id == id; });
+    std::erase_if(m_widgets, [&id](const DashboardWidget& widget) { return widget.id == id; });
 }
 
 const DashboardWidget* DashboardDescription::find(const std::string& id) const
 {
-    const auto found = std::find_if(
-        m_widgets.begin(), m_widgets.end(),
-        [&id](const DashboardWidget& widget) { return widget.id == id; });
+    const auto found =
+        std::find_if(m_widgets.begin(), m_widgets.end(), [&id](const DashboardWidget& widget) {
+            return widget.id == id;
+        });
 
     return found == m_widgets.end() ? nullptr : &*found;
 }
@@ -116,20 +128,17 @@ Result DashboardDescription::validate() const
 
     for (const DashboardWidget& widget : m_widgets) {
         if (widget.id.empty()) {
-            return Result::error(ErrorCode::InvalidArgument,
-                                 "A dashboard widget has no id");
+            return Result::error(ErrorCode::InvalidArgument, "A dashboard widget has no id");
         }
 
         if (!seen.insert(widget.id).second) {
-            return Result::error(
-                ErrorCode::InvalidArgument,
-                std::format("Two dashboard widgets share the id '{}'", widget.id));
+            return Result::error(ErrorCode::InvalidArgument,
+                                 std::format("Two dashboard widgets share the id '{}'", widget.id));
         }
 
         if (widget.width <= 0.0 || widget.height <= 0.0) {
-            return Result::error(
-                ErrorCode::InvalidArgument,
-                std::format("Widget '{}' has no size", widget.id));
+            return Result::error(ErrorCode::InvalidArgument,
+                                 std::format("Widget '{}' has no size", widget.id));
         }
 
         // A Label is the one kind with nothing to show but itself.
@@ -170,8 +179,7 @@ Result DashboardDescription::validate() const
             if (widget.binding.variable.empty()) {
                 return Result::error(
                     ErrorCode::InvalidArgument,
-                    std::format("Widget '{}' is bound to a variable with no name",
-                                widget.id));
+                    std::format("Widget '{}' is bound to a variable with no name", widget.id));
             }
             break;
 
@@ -181,22 +189,23 @@ Result DashboardDescription::validate() const
 
         // Ranges matter to the kinds that sweep one. A Label has no range and a
         // Lamp only has a threshold, so neither is held to this.
-        const bool needsRange = widget.kind != DashboardWidgetKind::Label
-            && widget.kind != DashboardWidgetKind::Lamp;
+        const bool needsRange =
+            widget.kind != DashboardWidgetKind::Label && widget.kind != DashboardWidgetKind::Lamp;
 
         if (needsRange && !(widget.maximum > widget.minimum)) {
             return Result::error(
                 ErrorCode::InvalidArgument,
                 std::format("Widget '{}' has a range of {} to {}, which a needle cannot "
                             "sweep",
-                            widget.id, widget.minimum, widget.maximum));
+                            widget.id,
+                            widget.minimum,
+                            widget.maximum));
         }
 
         if (widget.decimals < 0 || widget.decimals > 6) {
             return Result::error(
                 ErrorCode::InvalidArgument,
-                std::format("Widget '{}' asks for {} decimals", widget.id,
-                            widget.decimals));
+                std::format("Widget '{}' asks for {} decimals", widget.id, widget.decimals));
         }
     }
 

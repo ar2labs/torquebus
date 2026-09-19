@@ -31,8 +31,8 @@ using namespace torquebus;
 
 namespace {
 
-[[nodiscard]] CanSignal makeSignal(std::string name, std::uint16_t startBit,
-                                   std::uint16_t bits, double factor, double offset)
+[[nodiscard]] CanSignal makeSignal(
+    std::string name, std::uint16_t startBit, std::uint16_t bits, double factor, double offset)
 {
     CanSignal signal;
     signal.name = std::move(name);
@@ -93,10 +93,7 @@ public:
         return kPorts;
     }
 
-    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override
-    {
-        return {};
-    }
+    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override { return {}; }
 
     void process(NodeContext& context) override
     {
@@ -229,8 +226,7 @@ TEST_CASE("Only the named nodes are simulated", "[restbus]")
     CHECK(bench.countOf(0x200) >= 2);
 }
 
-TEST_CASE("A message with no cycle time is not invented into a periodic one",
-          "[restbus]")
+TEST_CASE("A message with no cycle time is not invented into a periodic one", "[restbus]")
 {
     // A database that declares no GenMsgCycleTime is not saying "every 100 ms".
     // Traffic the real network never carries is worse than missing traffic,
@@ -346,8 +342,7 @@ TEST_CASE("A driven signal follows its variable", "[restbus][variables]")
     CHECK(sawNewValue);
 }
 
-TEST_CASE("A driven signal defaults to a variable named after it",
-          "[restbus][variables]")
+TEST_CASE("A driven signal defaults to a variable named after it", "[restbus][variables]")
 {
     SystemVariables variables;
 

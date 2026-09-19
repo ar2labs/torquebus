@@ -20,10 +20,12 @@ namespace {
 // a byte moved on the wire.
 
 constexpr std::array<UdsField, 1> kSessionFields{{
-    {"Session", UdsField::Kind::SubFunction,
+    {"Session",
+     UdsField::Kind::SubFunction,
      "Which session to move the ECU into. Most services beyond reading need "
      "the extended one.",
-     "03", false},
+     "03",
+     false},
 }};
 
 constexpr std::array<UdsChoice, 4> kSessionChoices{{
@@ -34,8 +36,7 @@ constexpr std::array<UdsChoice, 4> kSessionChoices{{
 }};
 
 constexpr std::array<UdsField, 1> kResetFields{{
-    {"Reset type", UdsField::Kind::SubFunction,
-     "What kind of restart to ask for.", "01", false},
+    {"Reset type", UdsField::Kind::SubFunction, "What kind of restart to ask for.", "01", false},
 }};
 
 constexpr std::array<UdsChoice, 3> kResetChoices{{
@@ -45,26 +46,39 @@ constexpr std::array<UdsChoice, 3> kResetChoices{{
 }};
 
 constexpr std::array<UdsField, 1> kReadDidFields{{
-    {"Identifier", UdsField::Kind::Identifier,
+    {"Identifier",
+     UdsField::Kind::Identifier,
      "Two bytes, big-endian. F190 is the VIN on almost every ECU; F187 is the "
      "part number.",
-     "F190", false},
+     "F190",
+     false},
 }};
 
 constexpr std::array<UdsField, 2> kWriteDidFields{{
-    {"Identifier", UdsField::Kind::Identifier,
-     "Two bytes, big-endian - the same identifier a read would use.", "", false},
-    {"Value", UdsField::Kind::Bytes,
+    {"Identifier",
+     UdsField::Kind::Identifier,
+     "Two bytes, big-endian - the same identifier a read would use.",
+     "",
+     false},
+    {"Value",
+     UdsField::Kind::Bytes,
      "The bytes to write. What they mean is the ECU's business; this sends "
      "them as given.",
-     "", false},
+     "",
+     false},
 }};
 
 constexpr std::array<UdsField, 2> kReadDtcFields{{
-    {"Report type", UdsField::Kind::SubFunction,
-     "Which view of the trouble codes to ask for.", "02", false},
-    {"Status mask", UdsField::Kind::Byte,
-     "Which codes to include. FF is all of them, 08 is confirmed only.", "FF", false},
+    {"Report type",
+     UdsField::Kind::SubFunction,
+     "Which view of the trouble codes to ask for.",
+     "02",
+     false},
+    {"Status mask",
+     UdsField::Kind::Byte,
+     "Which codes to include. FF is all of them, 08 is confirmed only.",
+     "FF",
+     false},
 }};
 
 constexpr std::array<UdsChoice, 3> kReadDtcChoices{{
@@ -74,28 +88,36 @@ constexpr std::array<UdsChoice, 3> kReadDtcChoices{{
 }};
 
 constexpr std::array<UdsField, 1> kClearFields{{
-    {"Group", UdsField::Kind::Group,
-     "Three bytes. FFFFFF clears everything the ECU stores.", "FFFFFF", false},
+    {"Group",
+     UdsField::Kind::Group,
+     "Three bytes. FFFFFF clears everything the ECU stores.",
+     "FFFFFF",
+     false},
 }};
 
 constexpr std::array<UdsField, 2> kSecurityFields{{
-    {"Level", UdsField::Kind::SubFunction,
+    {"Level",
+     UdsField::Kind::SubFunction,
      "Odd numbers ask for a seed; the even one after sends the key back. "
      "Which level unlocks what is the manufacturer's business.",
-     "01", false},
-    {"Key", UdsField::Kind::Bytes,
+     "01",
+     false},
+    {"Key",
+     UdsField::Kind::Bytes,
      "Left empty this asks for a seed. Filled in, it sends a key - and the "
      "level is used as given, so a key goes on the even number.",
-     "", true},
+     "",
+     true},
 }};
 
 constexpr std::array<UdsField, 3> kRoutineFields{{
-    {"Control", UdsField::Kind::SubFunction, "Start, stop, or ask for a result.",
-     "01", false},
-    {"Routine", UdsField::Kind::Identifier,
-     "Two bytes, big-endian, identifying the routine.", "", false},
-    {"Parameters", UdsField::Kind::Bytes, "Whatever the routine takes, if anything.",
-     "", true},
+    {"Control", UdsField::Kind::SubFunction, "Start, stop, or ask for a result.", "01", false},
+    {"Routine",
+     UdsField::Kind::Identifier,
+     "Two bytes, big-endian, identifying the routine.",
+     "",
+     false},
+    {"Parameters", UdsField::Kind::Bytes, "Whatever the routine takes, if anything.", "", true},
 }};
 
 constexpr std::array<UdsChoice, 3> kRoutineChoices{{
@@ -105,9 +127,11 @@ constexpr std::array<UdsChoice, 3> kRoutineChoices{{
 }};
 
 constexpr std::array<UdsField, 1> kTesterFields{{
-    {"Answer", UdsField::Kind::SubFunction,
+    {"Answer",
+     UdsField::Kind::SubFunction,
      "80 asks the ECU not to reply, which is how a heartbeat is normally sent.",
-     "80", false},
+     "80",
+     false},
 }};
 
 constexpr std::array<UdsChoice, 2> kTesterChoices{{
@@ -116,32 +140,43 @@ constexpr std::array<UdsChoice, 2> kTesterChoices{{
 }};
 
 constexpr std::array<UdsServiceTemplate, 9> kTemplates{{
-    {0x22, "Read Data By Identifier",
-     "Ask the ECU for the value behind an identifier.", kReadDidFields, {}},
+    {0x22,
+     "Read Data By Identifier",
+     "Ask the ECU for the value behind an identifier.",
+     kReadDidFields,
+     {}},
 
-    {0x19, "Read DTC Information", "Ask what faults the ECU has stored.",
-     kReadDtcFields, kReadDtcChoices},
+    {0x19,
+     "Read DTC Information",
+     "Ask what faults the ECU has stored.",
+     kReadDtcFields,
+     kReadDtcChoices},
 
-    {0x10, "Diagnostic Session Control",
-     "Move the ECU into a session that allows more than reading.", kSessionFields,
+    {0x10,
+     "Diagnostic Session Control",
+     "Move the ECU into a session that allows more than reading.",
+     kSessionFields,
      kSessionChoices},
 
-    {0x2E, "Write Data By Identifier", "Write a value behind an identifier.",
-     kWriteDidFields, {}},
+    {0x2E, "Write Data By Identifier", "Write a value behind an identifier.", kWriteDidFields, {}},
 
     {0x14, "Clear Diagnostic Information", "Erase stored faults.", kClearFields, {}},
 
     {0x11, "ECU Reset", "Restart the ECU.", kResetFields, kResetChoices},
 
-    {0x27, "Security Access",
+    {0x27,
+     "Security Access",
      "Unlock the ECU: ask for a seed, then send the key computed from it.",
-     kSecurityFields, {}},
+     kSecurityFields,
+     {}},
 
-    {0x31, "Routine Control", "Start or stop something the ECU can do on request.",
-     kRoutineFields, kRoutineChoices},
+    {0x31,
+     "Routine Control",
+     "Start or stop something the ECU can do on request.",
+     kRoutineFields,
+     kRoutineChoices},
 
-    {0x3E, "Tester Present", "Keep a session from expiring.", kTesterFields,
-     kTesterChoices},
+    {0x3E, "Tester Present", "Keep a session from expiring.", kTesterFields, kTesterChoices},
 }};
 
 /// The bytes of one field's text, and how many there must be.
@@ -164,8 +199,7 @@ constexpr std::array<UdsServiceTemplate, 9> kTemplates{{
     if (expected > 0 && bytes.size() != expected) {
         return Result::error(
             ErrorCode::InvalidArgument,
-            std::format("{}: {} byte(s) given, {} needed.", field.name, bytes.size(),
-                        expected));
+            std::format("{}: {} byte(s) given, {} needed.", field.name, bytes.size(), expected));
     }
 
     out.insert(out.end(), bytes.begin(), bytes.end());
@@ -202,8 +236,7 @@ Result buildRequest(const UdsServiceTemplate& service,
     for (std::size_t index = 0; index < service.fields.size(); ++index) {
         const UdsField& field = service.fields[index];
 
-        const std::string text =
-            index < values.size() ? values[index] : std::string{field.initial};
+        const std::string text = index < values.size() ? values[index] : std::string{field.initial};
 
         if (text.empty()) {
             if (field.optional) {

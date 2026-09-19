@@ -5,59 +5,59 @@
 
 #include "ui/mainwindow/MainWindow.h"
 
-#include "drivers/api/CanBackendRegistry.h"
 #include "core/log/TraceExport.h"
+#include "core/trace/TraceStore.h"
+#include "drivers/api/CanBackendRegistry.h"
 #include "services/ProjectFile.h"
 #include "services/SettingsStore.h"
 #include "ui/canvas/CanvasPanel.h"
 #include "ui/common/AnimatedToolButton.h"
-#include "ui/database/DatabasePanel.h"
-#include "ui/diagnostics/DiagnosticsPanel.h"
 #include "ui/dashboard/DashboardPanel.h"
 #include "ui/dashboard/DashboardWidgetEditor.h"
-#include "ui/scripting/ScriptEditorPanel.h"
-#include "ui/j1939/J1939NetworkPanel.h"
-#include "ui/plugins/PluginsDialog.h"
-#include "ui/testing/TestPanel.h"
+#include "ui/database/DatabasePanel.h"
+#include "ui/diagnostics/DiagnosticsPanel.h"
 #include "ui/graph/GraphPanel.h"
 #include "ui/hardware/HardwareDialog.h"
+#include "ui/j1939/J1939NetworkPanel.h"
 #include "ui/output/OutputPanel.h"
 #include "ui/playback/PlaybackPanel.h"
+#include "ui/plugins/PluginsDialog.h"
 #include "ui/preferences/PreferencesDialog.h"
 #include "ui/project/ProjectExplorerPanel.h"
 #include "ui/properties/NodePropertiesEditor.h"
 #include "ui/properties/PropertiesPanel.h"
-#include "ui/theme/ThemeManager.h"
-#include "core/trace/TraceStore.h"
-#include "ui/trace/TracePanel.h"
+#include "ui/scripting/ScriptEditorPanel.h"
 #include "ui/statistics/StatisticsPanel.h"
+#include "ui/testing/TestPanel.h"
+#include "ui/theme/ThemeManager.h"
+#include "ui/trace/TracePanel.h"
 #include "ui/transmit/TransmitPanel.h"
 
 #include <QAction>
 #include <QApplication>
 #include <QCloseEvent>
-#include <QDateTime>
-#include <QFileDialog>
-#include <QInputDialog>
-#include <QLineEdit>
-#include <QSignalBlocker>
-#include <QCursor>
-#include <QDir>
-#include <QFileInfo>
-#include <QGuiApplication>
-#include <QMessageBox>
 #include <QColor>
+#include <QCursor>
+#include <QDateTime>
+#include <QDir>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QFontMetrics>
 #include <QFrame>
+#include <QGuiApplication>
+#include <QInputDialog>
 #include <QKeySequence>
 #include <QLabel>
+#include <QLineEdit>
 #include <QList>
-#include <QPair>
-#include <QSize>
-#include <QStringList>
 #include <QMenu>
 #include <QMenuBar>
+#include <QMessageBox>
+#include <QPair>
+#include <QSignalBlocker>
+#include <QSize>
 #include <QStatusBar>
+#include <QStringList>
 #include <QStyle>
 #include <QToolBar>
 #include <QVariant>
@@ -74,23 +74,23 @@ namespace {
 // Unique dock names are part of the persisted layout format. Changing one
 // invalidates every workspace saved by an earlier build, so they are frozen
 // here and never inlined at the call site.
-constexpr auto kDockProject     = "torquebus.dock.project";
-constexpr auto kDockProperties  = "torquebus.dock.properties";
-constexpr auto kDockBlock       = "torquebus.dock.block";
-constexpr auto kDockTrace       = "torquebus.dock.trace";
-constexpr auto kDockDatabase    = "torquebus.dock.database";
-constexpr auto kDockPipeline    = "torquebus.dock.pipeline";
-constexpr auto kDockTransmit    = "torquebus.dock.transmit";
-constexpr auto kDockGraph       = "torquebus.dock.graph";
-constexpr auto kDockPlayback    = "torquebus.dock.playback";
-constexpr auto kDockStatistics  = "torquebus.dock.statistics";
+constexpr auto kDockProject = "torquebus.dock.project";
+constexpr auto kDockProperties = "torquebus.dock.properties";
+constexpr auto kDockBlock = "torquebus.dock.block";
+constexpr auto kDockTrace = "torquebus.dock.trace";
+constexpr auto kDockDatabase = "torquebus.dock.database";
+constexpr auto kDockPipeline = "torquebus.dock.pipeline";
+constexpr auto kDockTransmit = "torquebus.dock.transmit";
+constexpr auto kDockGraph = "torquebus.dock.graph";
+constexpr auto kDockPlayback = "torquebus.dock.playback";
+constexpr auto kDockStatistics = "torquebus.dock.statistics";
 constexpr auto kDockDiagnostics = "torquebus.dock.diagnostics";
-constexpr auto kDockScript      = "torquebus.dock.script";
-constexpr auto kDockTest        = "torquebus.dock.test";
-constexpr auto kDockJ1939       = "torquebus.dock.j1939";
-constexpr auto kDockDashboard   = "torquebus.dock.dashboard";
+constexpr auto kDockScript = "torquebus.dock.script";
+constexpr auto kDockTest = "torquebus.dock.test";
+constexpr auto kDockJ1939 = "torquebus.dock.j1939";
+constexpr auto kDockDashboard = "torquebus.dock.dashboard";
 constexpr auto kDockDashboardProperties = "torquebus.dock.dashboard.widget";
-constexpr auto kDockOutput      = "torquebus.dock.output";
+constexpr auto kDockOutput = "torquebus.dock.output";
 
 // Starting geometry of the default arrangement. Wide enough for a channel name
 // and a bitrate without wrapping, narrow enough that the trace keeps the room.
@@ -195,10 +195,9 @@ MainWindow::MainWindow(services::SettingsStore& settings,
     : DockMainWindowBase{QStringLiteral("torquebus.mainwindow")}
     , m_settings{settings}
     , m_themes{themes}
-    , m_catalog{catalog}
-    // In declaration order, which is the order they are actually initialised
-    // in. Harmless while both are references bound to parameters; a trap the
-    // moment one of them gains an initialiser that reads the other.
+    , m_catalog{catalog} // In declaration order, which is the order they are actually initialised
+                         // in. Harmless while both are references bound to parameters; a trap the
+                         // moment one of them gains an initialiser that reads the other.
     , m_j1939Names{j1939Names}
     , m_pluginLoader{pluginLoader}
     , m_recentProjects{settings}
@@ -224,8 +223,8 @@ MainWindow::MainWindow(services::SettingsStore& settings,
     restoreWindowState();
     refreshHardware();
 
-    m_output->appendInfo(tr("TorqueBus Studio %1 started.")
-                             .arg(QApplication::applicationVersion()));
+    m_output->appendInfo(
+        tr("TorqueBus Studio %1 started.").arg(QApplication::applicationVersion()));
 
     reportThemeDiagnostics();
 
@@ -286,10 +285,9 @@ void MainWindow::reportThemeDiagnostics()
 
     const Theme& theme = m_themes.theme();
 
-    m_output->appendInfo(tr("Theme: %1  (accent %2, panel %3)")
-                             .arg(theme.name,
-                                  theme.accent.name(QColor::HexRgb),
-                                  theme.panel.name(QColor::HexRgb)));
+    m_output->appendInfo(
+        tr("Theme: %1  (accent %2, panel %3)")
+            .arg(theme.name, theme.accent.name(QColor::HexRgb), theme.panel.name(QColor::HexRgb)));
 
     const int sheetBytes = m_themes.styleSheetBytes();
     if (sheetBytes < 0) {
@@ -297,8 +295,7 @@ void MainWindow::reportThemeDiagnostics()
             tr("Style sheet resource could not be loaded. The window is running on the "
                "palette alone. Re-run CMake configure so the Qt resources are rebuilt."));
     } else {
-        m_output->appendInfo(tr("Style sheet: %L1 bytes loaded from resources.")
-                                 .arg(sheetBytes));
+        m_output->appendInfo(tr("Style sheet: %L1 bytes loaded from resources.").arg(sheetBytes));
     }
 
     // The chevrons are the newest icons in the set, so they are the ones a
@@ -322,7 +319,8 @@ void MainWindow::reportThemeDiagnostics()
             tr("%n icon(s) missing from the compiled resources, starting with '%1'. "
                "Tab scroll arrows will be blank. Re-run CMake configure: new icon files "
                "are picked up by a glob, which only re-runs at configure time.",
-               nullptr, static_cast<int>(missing.size()))
+               nullptr,
+               static_cast<int>(missing.size()))
                 .arg(missing.first()));
     }
 }
@@ -332,38 +330,35 @@ void MainWindow::createEngine()
     m_controller = new CanEngineController(this);
 
     // A script's log_message(), and any script error, reach the Output panel.
-    m_controller->engine().addLogSink(
-        [this](const std::string& text, bool isError) {
-            // Called on the engine thread. Queued, because a panel must only be
-            // touched from the GUI thread (rule #6 in spirit: the UI never
-            // blocks the measurement, and the measurement never reaches into
-            // the UI).
-            QMetaObject::invokeMethod(
-                this,
-                [this, message = QString::fromStdString(text), isError] {
-                    if (m_output == nullptr) {
-                        return;
-                    }
+    m_controller->engine().addLogSink([this](const std::string& text, bool isError) {
+        // Called on the engine thread. Queued, because a panel must only be
+        // touched from the GUI thread (rule #6 in spirit: the UI never
+        // blocks the measurement, and the measurement never reaches into
+        // the UI).
+        QMetaObject::invokeMethod(
+            this,
+            [this, message = QString::fromStdString(text), isError] {
+                if (m_output == nullptr) {
+                    return;
+                }
 
-                    if (isError) {
-                        m_output->appendError(message);
-                    } else {
-                        m_output->appendInfo(message);
-                    }
-                },
-                Qt::QueuedConnection);
-        });
+                if (isError) {
+                    m_output->appendError(message);
+                } else {
+                    m_output->appendInfo(message);
+                }
+            },
+            Qt::QueuedConnection);
+    });
 
-    connect(m_controller, &CanEngineController::started,
-            this, &MainWindow::onMeasurementStarted);
-    connect(m_controller, &CanEngineController::stopped,
-            this, &MainWindow::onMeasurementStopped);
-    connect(m_controller, &CanEngineController::failed,
-            this, &MainWindow::onMeasurementFailed);
-    connect(m_controller, &CanEngineController::statusUpdated,
-            this, &MainWindow::onStatusUpdated);
-    connect(m_controller, &CanEngineController::frameCountChanged,
-            this, &MainWindow::onFrameCountChanged);
+    connect(m_controller, &CanEngineController::started, this, &MainWindow::onMeasurementStarted);
+    connect(m_controller, &CanEngineController::stopped, this, &MainWindow::onMeasurementStopped);
+    connect(m_controller, &CanEngineController::failed, this, &MainWindow::onMeasurementFailed);
+    connect(m_controller, &CanEngineController::statusUpdated, this, &MainWindow::onStatusUpdated);
+    connect(m_controller,
+            &CanEngineController::frameCountChanged,
+            this,
+            &MainWindow::onFrameCountChanged);
 }
 
 void MainWindow::createPanels()
@@ -372,23 +367,24 @@ void MainWindow::createPanels()
     m_properties = new PropertiesPanel;
     m_output = new OutputPanel;
 
-    connect(m_projectExplorer, &ProjectExplorerPanel::deviceSelected,
-            this, &MainWindow::onDeviceSelected);
-    connect(m_projectExplorer, &ProjectExplorerPanel::selectionCleared,
-            m_properties, &PropertiesPanel::clearProperties);
+    connect(m_projectExplorer,
+            &ProjectExplorerPanel::deviceSelected,
+            this,
+            &MainWindow::onDeviceSelected);
+    connect(m_projectExplorer,
+            &ProjectExplorerPanel::selectionCleared,
+            m_properties,
+            &PropertiesPanel::clearProperties);
 
-    const auto icon = [this](const char* name) {
-        return m_themes.icon(QString::fromLatin1(name));
-    };
+    const auto icon = [this](const char* name) { return m_themes.icon(QString::fromLatin1(name)); };
 
-    m_projectDock = createDockWidget(dockName(kDockProject), tr("Project Explorer"),
-                                     m_projectExplorer, icon("project"));
+    m_projectDock = createDockWidget(
+        dockName(kDockProject), tr("Project Explorer"), m_projectExplorer, icon("project"));
 
-    m_propertiesDock = createDockWidget(dockName(kDockProperties), tr("Properties"),
-                                        m_properties, icon("properties"));
+    m_propertiesDock = createDockWidget(
+        dockName(kDockProperties), tr("Properties"), m_properties, icon("properties"));
 
-    m_outputDock = createDockWidget(dockName(kDockOutput), tr("Output"),
-                                    m_output, icon("console"));
+    m_outputDock = createDockWidget(dockName(kDockOutput), tr("Output"), m_output, icon("console"));
 
     // The analysis panels exist from v0.1 as placeholders so that the docking
     // arrangement, the workspaces and the saved layouts are exercised against
@@ -406,8 +402,8 @@ void MainWindow::createPanels()
         m_settings.boolValue(QString::fromLatin1(services::keys::kDecimalIdentifiers),
                              PreferencesDialog::kDefaultDecimalIdentifiers));
 
-    m_traceDock = createDockWidget(dockName(kDockTrace), tr("CAN Trace"),
-                                   m_tracePanel, icon("trace"));
+    m_traceDock =
+        createDockWidget(dockName(kDockTrace), tr("CAN Trace"), m_tracePanel, icon("trace"));
 
     // Tabbed with the trace rather than given its own place. Both answer the
     // question "what is on this bus" - one from the traffic, one from the
@@ -415,7 +411,9 @@ void MainWindow::createPanels()
     // up a message they do not recognise.
     m_databasePanel = new DatabasePanel;
 
-    connect(m_databasePanel, &DatabasePanel::databaseLoaded, this,
+    connect(m_databasePanel,
+            &DatabasePanel::databaseLoaded,
+            this,
             [this](const QString& path, int messages, int signalTotal) {
                 m_output->appendInfo(tr("Database: %1 - %2 message(s), %3 signal(s).")
                                          .arg(QFileInfo{path}.fileName())
@@ -434,26 +432,26 @@ void MainWindow::createPanels()
     // Reported in the Output panel and not in a message box, because the
     // message names a line number and a line number is something you want to
     // keep looking at while you open the file in an editor.
-    connect(m_databasePanel, &DatabasePanel::databaseFailed, this,
+    connect(m_databasePanel,
+            &DatabasePanel::databaseFailed,
+            this,
             [this](const QString&, const QString& reason) {
                 m_output->appendWarning(tr("Database: %1").arg(reason));
             });
 
-    m_databaseDock = createDockWidget(dockName(kDockDatabase), tr("DBC Explorer"),
-                                      m_databasePanel, icon("database"));
+    m_databaseDock = createDockWidget(
+        dockName(kDockDatabase), tr("DBC Explorer"), m_databasePanel, icon("database"));
 
     // The canvas edits m_pipeline in place - there is no apply step, and no
     // copy. Closing this panel leaves the pipeline exactly as it was; the
     // engine builds from the same description either way.
     m_canvas = new CanvasPanel(m_pipeline, m_catalog);
 
-    connect(m_canvas, &CanvasPanel::nodeSelected,
-            this, &MainWindow::onCanvasNodeSelected);
-    connect(m_canvas, &CanvasPanel::graphEdited,
-            this, &MainWindow::onGraphEdited);
+    connect(m_canvas, &CanvasPanel::nodeSelected, this, &MainWindow::onCanvasNodeSelected);
+    connect(m_canvas, &CanvasPanel::graphEdited, this, &MainWindow::onGraphEdited);
 
-    m_pipelineDock = createDockWidget(dockName(kDockPipeline), tr("Pipeline"),
-                                      m_canvas, icon("graph"));
+    m_pipelineDock =
+        createDockWidget(dockName(kDockPipeline), tr("Pipeline"), m_canvas, icon("graph"));
 
     // A second properties panel, tabbed with the first rather than replacing
     // it: the read-only one describes a hardware channel picked in the Project
@@ -461,47 +459,52 @@ void MainWindow::createPanels()
     // different questions and one would have to guess which was meant.
     m_nodeProperties = new NodePropertiesEditor(m_pipeline, m_catalog);
 
-    connect(m_nodeProperties, &NodePropertiesEditor::nodeEdited,
-            this, [this](const QString&) { onGraphEdited(); });
+    connect(m_nodeProperties, &NodePropertiesEditor::nodeEdited, this, [this](const QString&) {
+        onGraphEdited();
+    });
 
-    m_nodePropertiesDock = createDockWidget(dockName(kDockBlock), tr("Block"),
-                                            m_nodeProperties, icon("properties"));
+    m_nodePropertiesDock =
+        createDockWidget(dockName(kDockBlock), tr("Block"), m_nodeProperties, icon("properties"));
 
     m_transmitPanel = new TransmitPanel(m_transmitList);
 
-    connect(m_transmitPanel, &TransmitPanel::reported, this,
-            [this](const QString& text) { m_output->appendWarning(text); });
+    connect(m_transmitPanel, &TransmitPanel::reported, this, [this](const QString& text) {
+        m_output->appendWarning(text);
+    });
 
-    m_transmitDock = createDockWidget(dockName(kDockTransmit), tr("Transmit"),
-                                      m_transmitPanel, icon("transmit"));
+    m_transmitDock = createDockWidget(
+        dockName(kDockTransmit), tr("Transmit"), m_transmitPanel, icon("transmit"));
 
     m_graphPanel = new GraphPanel;
     m_graphPanel->setStore(&m_controller->engine().plotStore());
 
-    m_graphDock = createDockWidget(dockName(kDockGraph), tr("Graph"), m_graphPanel,
-                                   icon("graph"));
+    m_graphDock = createDockWidget(dockName(kDockGraph), tr("Graph"), m_graphPanel, icon("graph"));
 
     m_playbackPanel = new PlaybackPanel;
     m_playbackPanel->setControl(&m_controller->engine().replayControl());
 
-    m_playbackDock = createDockWidget(dockName(kDockPlayback), tr("Playback"),
-                                      m_playbackPanel, icon("replay"));
+    m_playbackDock =
+        createDockWidget(dockName(kDockPlayback), tr("Playback"), m_playbackPanel, icon("replay"));
 
     m_statisticsPanel = new StatisticsPanel;
 
-    connect(m_controller, &CanEngineController::statusUpdated,
-            m_statisticsPanel, &StatisticsPanel::setChannels);
-    connect(m_controller, &CanEngineController::nodeStatisticsUpdated,
-            m_statisticsPanel, &StatisticsPanel::setNodes);
+    connect(m_controller,
+            &CanEngineController::statusUpdated,
+            m_statisticsPanel,
+            &StatisticsPanel::setChannels);
+    connect(m_controller,
+            &CanEngineController::nodeStatisticsUpdated,
+            m_statisticsPanel,
+            &StatisticsPanel::setNodes);
 
-    m_statisticsDock = createDockWidget(dockName(kDockStatistics), tr("Statistics"),
-                                        m_statisticsPanel, icon("statistics"));
+    m_statisticsDock = createDockWidget(
+        dockName(kDockStatistics), tr("Statistics"), m_statisticsPanel, icon("statistics"));
 
     m_diagnosticsPanel = new DiagnosticsPanel;
     m_diagnosticsPanel->setSession(&m_controller->engine().diagnosticSession());
 
-    m_diagnosticsDock = createDockWidget(dockName(kDockDiagnostics), tr("Diagnostics"),
-                                         m_diagnosticsPanel, icon("diagnostics"));
+    m_diagnosticsDock = createDockWidget(
+        dockName(kDockDiagnostics), tr("Diagnostics"), m_diagnosticsPanel, icon("diagnostics"));
 
     // The script editor edits the project like the Block panel does, and hands
     // the result to the running node like the console hands it a request - so
@@ -510,9 +513,12 @@ void MainWindow::createPanels()
     m_scriptEditor = new ScriptEditorPanel(m_pipeline);
     m_scriptEditor->setLibrary(&m_controller->engine().scriptLibrary());
 
-    connect(m_scriptEditor, &ScriptEditorPanel::nodeEdited,
-            this, [this](const QString&) { onGraphEdited(); });
-    connect(m_scriptEditor, &ScriptEditorPanel::reported, this,
+    connect(m_scriptEditor, &ScriptEditorPanel::nodeEdited, this, [this](const QString&) {
+        onGraphEdited();
+    });
+    connect(m_scriptEditor,
+            &ScriptEditorPanel::reported,
+            this,
             [this](const QString& text, bool isError) {
                 if (isError) {
                     m_output->appendError(text);
@@ -521,8 +527,8 @@ void MainWindow::createPanels()
                 }
             });
 
-    m_scriptDock = createDockWidget(dockName(kDockScript), tr("Script"),
-                                    m_scriptEditor, icon("script"));
+    m_scriptDock =
+        createDockWidget(dockName(kDockScript), tr("Script"), m_scriptEditor, icon("script"));
 
     // The verdict of a test sequence. Reads the engine's report, which outlives
     // the graph - so the result of a run is still on screen after Stop, which
@@ -530,17 +536,15 @@ void MainWindow::createPanels()
     m_testPanel = new TestPanel;
     m_testPanel->setReport(&m_controller->engine().testReport());
 
-    connect(m_testPanel, &TestPanel::reported, this,
-            [this](const QString& text, bool isError) {
-                if (isError) {
-                    m_output->appendError(text);
-                } else {
-                    m_output->appendInfo(text);
-                }
-            });
+    connect(m_testPanel, &TestPanel::reported, this, [this](const QString& text, bool isError) {
+        if (isError) {
+            m_output->appendError(text);
+        } else {
+            m_output->appendInfo(text);
+        }
+    });
 
-    m_testDock = createDockWidget(dockName(kDockTest), tr("Test"), m_testPanel,
-                                  icon("test"));
+    m_testDock = createDockWidget(dockName(kDockTest), tr("Test"), m_testPanel, icon("test"));
 
     // Who is on the bus. Reads the engine's view, which outlives the graph for
     // the same reason the test report does - "what was on this machine" is
@@ -549,8 +553,8 @@ void MainWindow::createPanels()
     m_j1939Panel->setNameTables(&m_j1939Names);
     m_j1939Panel->setNetwork(&m_controller->engine().j1939Network());
 
-    m_j1939Dock = createDockWidget(dockName(kDockJ1939), tr("J1939 Network"), m_j1939Panel,
-                                   icon("network"));
+    m_j1939Dock =
+        createDockWidget(dockName(kDockJ1939), tr("J1939 Network"), m_j1939Panel, icon("network"));
 
     // --- The dashboard, and the form that edits one widget of it -----------
     m_dashboardPanel = new DashboardPanel(m_dashboard);
@@ -568,16 +572,18 @@ void MainWindow::createPanels()
         m_dashboardEditor->refreshFromDescription();
     });
 
-    connect(m_dashboardPanel, &DashboardPanel::selectionChanged, this,
-            [this](const QString& widgetId) {
-                m_dashboardEditor->showWidget(widgetId);
+    connect(
+        m_dashboardPanel, &DashboardPanel::selectionChanged, this, [this](const QString& widgetId) {
+            m_dashboardEditor->showWidget(widgetId);
 
-                if (!widgetId.isEmpty() && m_dashboardPropertiesDock != nullptr) {
-                    m_dashboardPropertiesDock->setAsCurrentTab();
-                }
-            });
+            if (!widgetId.isEmpty() && m_dashboardPropertiesDock != nullptr) {
+                m_dashboardPropertiesDock->setAsCurrentTab();
+            }
+        });
 
-    connect(m_dashboardPanel, &DashboardPanel::reported, this,
+    connect(m_dashboardPanel,
+            &DashboardPanel::reported,
+            this,
             [this](const QString& text, bool isError) {
                 if (isError) {
                     m_output->appendError(text);
@@ -586,33 +592,39 @@ void MainWindow::createPanels()
                 }
             });
 
-    connect(m_dashboardEditor, &DashboardWidgetEditor::widgetEdited, this,
-            [this](const QString&) {
-                markDirty();
-                m_dashboardPanel->update();
-            });
+    connect(m_dashboardEditor, &DashboardWidgetEditor::widgetEdited, this, [this](const QString&) {
+        markDirty();
+        m_dashboardPanel->update();
+    });
 
-    m_dashboardDock = createDockWidget(dockName(kDockDashboard), tr("Dashboard"),
-                                       m_dashboardPanel, icon("gauge"));
+    m_dashboardDock = createDockWidget(
+        dockName(kDockDashboard), tr("Dashboard"), m_dashboardPanel, icon("gauge"));
 
-    m_dashboardPropertiesDock = createDockWidget(dockName(kDockDashboardProperties),
-                                                 tr("Widget"), m_dashboardEditor,
-                                                 icon("properties"));
+    m_dashboardPropertiesDock = createDockWidget(
+        dockName(kDockDashboardProperties), tr("Widget"), m_dashboardEditor, icon("properties"));
 
-    m_allDocks = {m_projectDock,     m_propertiesDock,  m_nodePropertiesDock,
-                  m_traceDock,       m_databaseDock,    m_pipelineDock,
-                  m_transmitDock,    m_graphDock,       m_playbackDock,
-                  m_statisticsDock,  m_diagnosticsDock, m_scriptDock,
-                  m_testDock,        m_dashboardDock,   m_dashboardPropertiesDock,
+    m_allDocks = {m_projectDock,
+                  m_propertiesDock,
+                  m_nodePropertiesDock,
+                  m_traceDock,
+                  m_databaseDock,
+                  m_pipelineDock,
+                  m_transmitDock,
+                  m_graphDock,
+                  m_playbackDock,
+                  m_statisticsDock,
+                  m_diagnosticsDock,
+                  m_scriptDock,
+                  m_testDock,
+                  m_dashboardDock,
+                  m_dashboardPropertiesDock,
                   m_j1939Dock,
                   m_outputDock};
 }
 
 void MainWindow::createActions()
 {
-    const auto icon = [this](const char* name) {
-        return m_themes.icon(QString::fromLatin1(name));
-    };
+    const auto icon = [this](const char* name) { return m_themes.icon(QString::fromLatin1(name)); };
 
     // --- File -------------------------------------------------------------
     m_actionNewProject = new QAction(icon("new"), tr("&New Project..."), this);
@@ -640,9 +652,8 @@ void MainWindow::createActions()
     connect(m_actionExit, &QAction::triggered, this, &MainWindow::close);
 
     // --- Measurement ------------------------------------------------------
-    m_actionStart = new QAction(m_themes.icon(QStringLiteral("start"),
-                                              m_themes.theme().success),
-                                tr("&Start"), this);
+    m_actionStart = new QAction(
+        m_themes.icon(QStringLiteral("start"), m_themes.theme().success), tr("&Start"), this);
     m_actionStart->setShortcut(Qt::Key_F5);
     m_actionStart->setToolTip(tr("Go bus-on and begin the measurement (F5)"));
     connect(m_actionStart, &QAction::triggered, this, &MainWindow::onStartMeasurement);
@@ -653,8 +664,8 @@ void MainWindow::createActions()
     m_actionStop->setEnabled(false);
     connect(m_actionStop, &QAction::triggered, this, &MainWindow::onStopMeasurement);
 
-    m_actionRecord = new QAction(m_themes.icon(QStringLiteral("record"), m_themes.theme().error),
-                                 tr("&Record"), this);
+    m_actionRecord = new QAction(
+        m_themes.icon(QStringLiteral("record"), m_themes.theme().error), tr("&Record"), this);
     m_actionRecord->setCheckable(true);
     m_actionRecord->setToolTip(
         tr("Choose a .tblog to record into, then press Start. What gets written is "
@@ -714,7 +725,9 @@ void MainWindow::createActions()
     connect(m_actionRecord, &QAction::toggled, this, &MainWindow::onRecord);
     connect(m_actionExportTrace, &QAction::triggered, this, &MainWindow::onExportTrace);
 
-    connect(m_actionHardwareConfiguration, &QAction::triggered, this,
+    connect(m_actionHardwareConfiguration,
+            &QAction::triggered,
+            this,
             &MainWindow::onHardwareConfiguration);
 
     // The dashboard's two modes, as one checkable action rather than two
@@ -748,8 +761,7 @@ void MainWindow::createActions()
     // Configuration - a question about this installation, not about the
     // program.
     m_actionPlugins = new QAction(tr("&Plugins..."), this);
-    m_actionPlugins->setToolTip(
-        tr("Which plugins loaded, which were refused, and why."));
+    m_actionPlugins->setToolTip(tr("Which plugins loaded, which were refused, and why."));
 
     connect(m_actionPlugins, &QAction::triggered, this, [this] {
         PluginsDialog dialog{m_pluginLoader, this};
@@ -935,10 +947,10 @@ void MainWindow::createStatusBar()
     // Left: what the hardware is doing. Right: what the measurement is doing.
     // The split is deliberate - the left half changes when the user changes
     // something, the right half changes continuously while running.
-    m_channel1Label = createStatusLabel(tr("%1 CAN 1  not configured").arg(kBullet),
-                                        QStringLiteral("offline"));
-    m_channel2Label = createStatusLabel(tr("%1 CAN 2  not configured").arg(kBullet),
-                                        QStringLiteral("offline"));
+    m_channel1Label =
+        createStatusLabel(tr("%1 CAN 1  not configured").arg(kBullet), QStringLiteral("offline"));
+    m_channel2Label =
+        createStatusLabel(tr("%1 CAN 2  not configured").arg(kBullet), QStringLiteral("offline"));
 
     m_frameCountLabel = createMetricLabel(tr("0"), 11);
     m_frameRateLabel = createMetricLabel(tr("0 f/s"), 11);
@@ -1016,8 +1028,8 @@ void MainWindow::applyDefaultLayout()
     //    margins, which is what a 64-column trace and a node canvas both want.
     addDockTo(this, m_projectDock, DockLocation::Left, QSize{kSidePanelWidth, 0});
 
-    addDockNextTo(this, m_propertiesDock, DockLocation::Bottom, m_projectDock,
-                  QSize{0, kSidePanelSplit});
+    addDockNextTo(
+        this, m_propertiesDock, DockLocation::Bottom, m_projectDock, QSize{0, kSidePanelSplit});
 
     m_propertiesDock->addDockWidgetAsTab(m_nodePropertiesDock);
 
@@ -1034,8 +1046,7 @@ void MainWindow::applyDefaultLayout()
     //    explorer column off at the knee - and one that occupies the bottom of
     //    the area it belongs to. The left column then runs the full height,
     //    which is where a tree of channels wants to be.
-    addDockNextTo(this, m_outputDock, DockLocation::Bottom, m_traceDock,
-                  QSize{0, kConsoleHeight});
+    addDockNextTo(this, m_outputDock, DockLocation::Bottom, m_traceDock, QSize{0, kConsoleHeight});
 
     m_projectDock->setMinimumWidth(kSidePanelMinimumWidth);
     m_propertiesDock->setMinimumWidth(kSidePanelMinimumWidth);
@@ -1043,8 +1054,8 @@ void MainWindow::applyDefaultLayout()
 
 void MainWindow::restoreWindowState()
 {
-    const QByteArray geometry = m_settings.binaryValue(
-        QString::fromLatin1(services::keys::kWindowGeometry));
+    const QByteArray geometry =
+        m_settings.binaryValue(QString::fromLatin1(services::keys::kWindowGeometry));
 
     if (!geometry.isEmpty()) {
         restoreGeometry(geometry);
@@ -1066,9 +1077,9 @@ void MainWindow::restoreWindowState()
 
     const bool layoutIsCurrent = savedVersion == kDockLayoutVersion;
 
-    const QByteArray layout = layoutIsCurrent
-        ? m_settings.binaryValue(QString::fromLatin1(services::keys::kDockLayout))
-        : QByteArray{};
+    const QByteArray layout =
+        layoutIsCurrent ? m_settings.binaryValue(QString::fromLatin1(services::keys::kDockLayout))
+                        : QByteArray{};
 
     // The docks must exist in the layout engine before LayoutSaver can place
     // them, so the default arrangement is always built first and the saved one
@@ -1101,16 +1112,12 @@ void MainWindow::restoreWindowState()
 
 void MainWindow::saveWindowState() const
 {
-    m_settings.setBinaryValue(QString::fromLatin1(services::keys::kWindowGeometry),
-                              saveGeometry());
-    m_settings.setBinaryValue(QString::fromLatin1(services::keys::kDockLayout),
-                              saveDockLayout());
+    m_settings.setBinaryValue(QString::fromLatin1(services::keys::kWindowGeometry), saveGeometry());
+    m_settings.setBinaryValue(QString::fromLatin1(services::keys::kDockLayout), saveDockLayout());
     m_settings.setIntValue(QString::fromLatin1(services::keys::kDockLayoutVersion),
                            kDockLayoutVersion);
-    m_settings.setValue(QString::fromLatin1(services::keys::kTheme),
-                        toString(m_themes.variant()));
-    m_settings.setValue(QString::fromLatin1(services::keys::kAccent),
-                        toString(m_themes.accent()));
+    m_settings.setValue(QString::fromLatin1(services::keys::kTheme), toString(m_themes.variant()));
+    m_settings.setValue(QString::fromLatin1(services::keys::kAccent), toString(m_themes.accent()));
     m_settings.setBoolValue(QString::fromLatin1(services::keys::kFollowSystemTheme),
                             m_themes.followsSystemTheme());
     m_settings.setValue(QString::fromLatin1(services::keys::kDensity),
@@ -1124,8 +1131,7 @@ void MainWindow::saveWindowState() const
                               m_graphPanel->splitterState());
 
     if (!m_settings.save()) {
-        qWarning("TorqueBus: failed to write settings to %s",
-                 qPrintable(m_settings.filePath()));
+        qWarning("TorqueBus: failed to write settings to %s", qPrintable(m_settings.filePath()));
     }
 }
 
@@ -1174,8 +1180,8 @@ void MainWindow::refreshHardware()
         }
     }
 
-    m_output->appendInfo(tr("%n CAN channel(s) detected.", nullptr,
-                            static_cast<int>(m_devices.size())));
+    m_output->appendInfo(
+        tr("%n CAN channel(s) detected.", nullptr, static_cast<int>(m_devices.size())));
 
     // Bound the way the saved hardware profile says, which on a machine nobody
     // has arranged is exactly what it used to be: everything detected, in
@@ -1210,9 +1216,9 @@ void MainWindow::refreshHardware()
         // Said out loud. An interface switched off in the hardware dialog and
         // then forgotten about is otherwise indistinguishable from a driver
         // that stopped working.
-        m_output->appendInfo(
-            tr("%n interface(s) are switched off in Hardware Configuration.", nullptr,
-               static_cast<int>(m_devices.size() - bound)));
+        m_output->appendInfo(tr("%n interface(s) are switched off in Hardware Configuration.",
+                                nullptr,
+                                static_cast<int>(m_devices.size() - bound)));
     }
 
     m_actionStart->setEnabled(bound > 0);
@@ -1261,13 +1267,20 @@ void MainWindow::onThemeChanged(const Theme& theme)
     // themeChanged itself (as the panels do).
 
     const QList<QPair<DockWidget*, const char*>> dockIcons{
-        {m_projectDock, "project"},        {m_propertiesDock, "properties"},
-        {m_outputDock, "console"},         {m_traceDock, "trace"},
-        {m_transmitDock, "transmit"},      {m_graphDock, "graph"},
-        {m_statisticsDock, "statistics"},  {m_diagnosticsDock, "diagnostics"},
-        {m_databaseDock, "database"},      {m_pipelineDock, "graph"},
-        {m_scriptDock, "script"},          {m_testDock, "test"},
-        {m_playbackDock, "replay"},        {m_dashboardDock, "gauge"},
+        {m_projectDock, "project"},
+        {m_propertiesDock, "properties"},
+        {m_outputDock, "console"},
+        {m_traceDock, "trace"},
+        {m_transmitDock, "transmit"},
+        {m_graphDock, "graph"},
+        {m_statisticsDock, "statistics"},
+        {m_diagnosticsDock, "diagnostics"},
+        {m_databaseDock, "database"},
+        {m_pipelineDock, "graph"},
+        {m_scriptDock, "script"},
+        {m_testDock, "test"},
+        {m_playbackDock, "replay"},
+        {m_dashboardDock, "gauge"},
         {m_dashboardPropertiesDock, "properties"},
         {m_j1939Dock, "network"},
     };
@@ -1428,8 +1441,8 @@ void MainWindow::onGraphEdited()
     const Result result = m_pipeline.validate(m_catalog);
 
     if (result.failed()) {
-        m_output->appendWarning(tr("Pipeline: %1")
-                                    .arg(QString::fromStdString(std::string{result.message()})));
+        m_output->appendWarning(
+            tr("Pipeline: %1").arg(QString::fromStdString(std::string{result.message()})));
         return;
     }
 
@@ -1440,15 +1453,14 @@ void MainWindow::onGraphEdited()
 
 void MainWindow::updateWindowTitle()
 {
-    const QString name = m_projectPath.isEmpty()
-        ? tr("Untitled project")
-        : QFileInfo{m_projectPath}.completeBaseName();
+    const QString name = m_projectPath.isEmpty() ? tr("Untitled project")
+                                                 : QFileInfo{m_projectPath}.completeBaseName();
 
     // The asterisk is the convention every editor uses, and it is the only
     // continuous signal that there is something to lose - the prompt only
     // appears at the moment it would be lost, which is too late to be a warning.
-    setWindowTitle(tr("%1%2 - TorqueBus Studio")
-                       .arg(name, m_dirty ? QStringLiteral("*") : QString{}));
+    setWindowTitle(
+        tr("%1%2 - TorqueBus Studio").arg(name, m_dirty ? QStringLiteral("*") : QString{}));
 }
 
 void MainWindow::markDirty()
@@ -1467,15 +1479,15 @@ bool MainWindow::confirmDiscardChanges()
         return true;
     }
 
-    const QString name = m_projectPath.isEmpty()
-        ? tr("this project")
-        : QFileInfo{m_projectPath}.fileName();
+    const QString name =
+        m_projectPath.isEmpty() ? tr("this project") : QFileInfo{m_projectPath}.fileName();
 
     // Save is the default and Discard is not, because the cost of the two
     // mistakes is not symmetric: an unwanted save is undone by not saving
     // again, and a discarded pipeline is gone.
     const QMessageBox::StandardButton answer = QMessageBox::warning(
-        this, tr("Unsaved changes"),
+        this,
+        tr("Unsaved changes"),
         tr("The pipeline in %1 has changed.\n\nSave it before continuing?").arg(name),
         QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
         QMessageBox::Save);
@@ -1520,8 +1532,8 @@ void MainWindow::rebuildRecentMenu()
         // the name alone cannot tell them apart.
         const QString name = QFileInfo{path}.fileName();
 
-        QAction* action = m_recentMenu->addAction(
-            number < 10 ? tr("&%1  %2").arg(number).arg(name) : name);
+        QAction* action =
+            m_recentMenu->addAction(number < 10 ? tr("&%1  %2").arg(number).arg(name) : name);
 
         action->setStatusTip(path);
         action->setToolTip(path);
@@ -1576,13 +1588,13 @@ void MainWindow::rebuildWorkspaceMenu()
             // disappeared without explanation is a bug report; one that says it
             // was saved by a different version is an answer.
             action->setEnabled(false);
-            action->setToolTip(
-                tr("Saved by a version with a different set of panels. Arrange the "
-                   "window and save it again under this name."));
+            action->setToolTip(tr("Saved by a version with a different set of panels. Arrange the "
+                                  "window and save it again under this name."));
         }
 
-        connect(action, &QAction::triggered, this,
-                [this, action] { applyWorkspace(action->data().toString()); });
+        connect(action, &QAction::triggered, this, [this, action] {
+            applyWorkspace(action->data().toString());
+        });
     }
 
     m_workspaceMenu->setToolTipsVisible(true);
@@ -1641,10 +1653,13 @@ void MainWindow::onSaveWorkspace()
     const QStringList existing = m_workspaces.names();
 
     bool accepted = false;
-    const QString name = QInputDialog::getText(
-        this, tr("Save Workspace"),
-        tr("Name this arrangement of panels:"), QLineEdit::Normal,
-        existing.isEmpty() ? tr("CAN Development") : QString{}, &accepted);
+    const QString name =
+        QInputDialog::getText(this,
+                              tr("Save Workspace"),
+                              tr("Name this arrangement of panels:"),
+                              QLineEdit::Normal,
+                              existing.isEmpty() ? tr("CAN Development") : QString{},
+                              &accepted);
 
     if (!accepted) {
         return;
@@ -1661,10 +1676,10 @@ void MainWindow::onSaveWorkspace()
 
     if (replacing
         && QMessageBox::question(
-               this, tr("Save Workspace"),
-               tr("Replace the workspace '%1' with the arrangement on screen?")
-                   .arg(name.trimmed()))
-            != QMessageBox::Yes) {
+               this,
+               tr("Save Workspace"),
+               tr("Replace the workspace '%1' with the arrangement on screen?").arg(name.trimmed()))
+               != QMessageBox::Yes) {
         return;
     }
 
@@ -1711,9 +1726,8 @@ void MainWindow::onNewProject()
         // working directory" - the same answer NodeCatalog gives, rather than
         // QFileInfo's, which would quietly be the directory the binary was
         // launched from.
-        m_scriptEditor->setBasePath(m_projectPath.isEmpty()
-                                        ? QString{}
-                                        : QFileInfo{m_projectPath}.absolutePath());
+        m_scriptEditor->setBasePath(
+            m_projectPath.isEmpty() ? QString{} : QFileInfo{m_projectPath}.absolutePath());
     }
 
     // The dashboard was replaced wholesale too, and the panel is holding a
@@ -1767,9 +1781,12 @@ void MainWindow::onExportTrace()
     const QString csvFilter = tr("Comma separated (*.csv)");
 
     QString selected = ascFilter;
-    const QString chosen = QFileDialog::getSaveFileName(
-        this, tr("Export trace"), QString{},
-        ascFilter + QStringLiteral(";;") + csvFilter, &selected);
+    const QString chosen =
+        QFileDialog::getSaveFileName(this,
+                                     tr("Export trace"),
+                                     QString{},
+                                     ascFilter + QStringLiteral(";;") + csvFilter,
+                                     &selected);
 
     if (chosen.isEmpty()) {
         return;
@@ -1778,15 +1795,14 @@ void MainWindow::onExportTrace()
     // The filter decides the format, not the typed name: somebody who picks
     // "Vector ASCII" and types `run3` gets an ASC file, which is what they
     // asked for. The extension is only appended when they left it off.
-    const TraceExporter::Format format = selected == csvFilter
-                                             ? TraceExporter::Format::Csv
-                                             : TraceExporter::Format::Asc;
+    const TraceExporter::Format format =
+        selected == csvFilter ? TraceExporter::Format::Csv : TraceExporter::Format::Asc;
 
     QString target = chosen;
     if (QFileInfo{target}.suffix().isEmpty()) {
         const std::string_view extension = extensionFor(format);
         target += QLatin1Char('.')
-            + QString::fromUtf8(extension.data(), static_cast<qsizetype>(extension.size()));
+                  + QString::fromUtf8(extension.data(), static_cast<qsizetype>(extension.size()));
     }
 
     // A million rows takes a moment, and a window that stops repainting with no
@@ -1840,8 +1856,7 @@ void MainWindow::onExportTrace()
         const std::string_view message = result.message();
         m_output->appendError(
             tr("Export failed: %1")
-                .arg(QString::fromUtf8(message.data(),
-                                       static_cast<qsizetype>(message.size()))));
+                .arg(QString::fromUtf8(message.data(), static_cast<qsizetype>(message.size()))));
         return;
     }
 
@@ -1863,8 +1878,7 @@ void MainWindow::onExportTrace()
 void MainWindow::onImportDatabase()
 {
     const QString path = QFileDialog::getOpenFileName(
-        this, tr("Import database"), QString{},
-        tr("CAN databases (*.dbc);;All files (*)"));
+        this, tr("Import database"), QString{}, tr("CAN databases (*.dbc);;All files (*)"));
 
     if (path.isEmpty()) {
         return;
@@ -1921,9 +1935,8 @@ void MainWindow::openProject(const QString& path)
         // working directory" - the same answer NodeCatalog gives, rather than
         // QFileInfo's, which would quietly be the directory the binary was
         // launched from.
-        m_scriptEditor->setBasePath(m_projectPath.isEmpty()
-                                        ? QString{}
-                                        : QFileInfo{m_projectPath}.absolutePath());
+        m_scriptEditor->setBasePath(
+            m_projectPath.isEmpty() ? QString{} : QFileInfo{m_projectPath}.absolutePath());
     }
 
     // The dashboard was replaced wholesale too, and the panel is holding a
@@ -2080,9 +2093,8 @@ void MainWindow::onStartMeasurement()
     // its scripts relative to itself and still open from anywhere. Empty for an
     // unsaved project, which falls back to the working directory - there is no
     // folder to be relative to yet.
-    const QString base = m_projectPath.isEmpty()
-                             ? QString{}
-                             : QFileInfo{m_projectPath}.absolutePath();
+    const QString base =
+        m_projectPath.isEmpty() ? QString{} : QFileInfo{m_projectPath}.absolutePath();
 
     m_controller->engine().setTransmitList(&m_transmitList);
     m_controller->engine().setGraphDescription(m_pipeline, m_catalog, base.toStdString());
@@ -2090,8 +2102,8 @@ void MainWindow::onStartMeasurement()
     // Refused before the channels are opened, with the node named, rather than
     // after - a half-started measurement is the thing start() exists to avoid.
     if (const Result result = m_pipeline.validate(m_catalog); result.failed()) {
-        m_output->appendError(tr("Cannot start: %1")
-                                  .arg(QString::fromStdString(std::string{result.message()})));
+        m_output->appendError(
+            tr("Cannot start: %1").arg(QString::fromStdString(std::string{result.message()})));
         return;
     }
 
@@ -2116,12 +2128,13 @@ void MainWindow::onMeasurementStarted()
     m_actionStop->setEnabled(true);
     m_actionRefreshHardware->setEnabled(false);
 
-    m_recordingLabel->setText(QStringLiteral("%1 %2").arg(QString::fromUtf8(kBullet),
-                                                          tr("Running")));
+    m_recordingLabel->setText(
+        QStringLiteral("%1 %2").arg(QString::fromUtf8(kBullet), tr("Running")));
     m_recordingLabel->setProperty("torquebusState", QStringLiteral("online"));
     repolish(m_recordingLabel);
 
-    m_output->appendInfo(tr("Measurement running on %n channel(s).", nullptr,
+    m_output->appendInfo(tr("Measurement running on %n channel(s).",
+                            nullptr,
                             static_cast<int>(m_controller->engine().channelCount())));
 
     // What the Playback panel is driving, taken from the graph rather than
@@ -2131,8 +2144,7 @@ void MainWindow::onMeasurementStarted()
 
     for (const NodeDescription& node : m_pipeline.nodes()) {
         if (node.typeName == "log.source" && node.enabled) {
-            const QString path =
-                QString::fromStdString(node.parameters.text("path", ""));
+            const QString path = QString::fromStdString(node.parameters.text("path", ""));
 
             if (!path.isEmpty()) {
                 replaying = QFileInfo{path}.fileName();
@@ -2157,10 +2169,10 @@ void MainWindow::onMeasurementStarted()
             continue;
         }
 
-        const auto request = static_cast<std::uint32_t>(
-            node.parameters.integer("transmitId", 0x7E0));
-        const auto response = static_cast<std::uint32_t>(
-            node.parameters.integer("receiveId", 0x7E8));
+        const auto request =
+            static_cast<std::uint32_t>(node.parameters.integer("transmitId", 0x7E0));
+        const auto response =
+            static_cast<std::uint32_t>(node.parameters.integer("receiveId", 0x7E8));
 
         target = tr("Request 0x%1  Response 0x%2  (CAN %3)")
                      .arg(request, 0, 16)
@@ -2179,8 +2191,7 @@ void MainWindow::onMeasurementStarted()
     // read a verdict, so the verdict is what comes forward. Checked from the
     // graph rather than from a setting, like everything else here.
     const bool hasSequence = std::any_of(
-        m_pipeline.nodes().begin(), m_pipeline.nodes().end(),
-        [](const NodeDescription& node) {
+        m_pipeline.nodes().begin(), m_pipeline.nodes().end(), [](const NodeDescription& node) {
             return node.typeName == "lua.test" && node.enabled;
         });
 
@@ -2208,8 +2219,7 @@ void MainWindow::onMeasurementStopped()
     m_actionStop->setEnabled(false);
     m_actionRefreshHardware->setEnabled(true);
 
-    m_recordingLabel->setText(QStringLiteral("%1 %2").arg(QString::fromUtf8(kBullet),
-                                                          tr("Idle")));
+    m_recordingLabel->setText(QStringLiteral("%1 %2").arg(QString::fromUtf8(kBullet), tr("Idle")));
     m_recordingLabel->setProperty("torquebusState", QStringLiteral("offline"));
     repolish(m_recordingLabel);
 
@@ -2223,9 +2233,7 @@ void MainWindow::onMeasurementStopped()
 
         // The path, named at the moment somebody wants to know where it went -
         // which is when the recording ends, not when it started.
-        m_output->appendInfo(tr("Recorded %L1 frame(s) to %2.")
-                                 .arg(frames)
-                                 .arg(m_recordingPath));
+        m_output->appendInfo(tr("Recorded %L1 frame(s) to %2.").arg(frames).arg(m_recordingPath));
 
         m_recordingPath.clear();
 
@@ -2257,9 +2265,8 @@ void MainWindow::onStatusUpdated(const QList<ChannelStatus>& channels)
 
         const ChannelStatus& status = channels.at(index);
 
-        setChannelIndicator(index,
-                            tr("%1  %2").arg(status.deviceName, status.stateText),
-                            status.stateToken);
+        setChannelIndicator(
+            index, tr("%1  %2").arg(status.deviceName, status.stateText), status.stateToken);
     }
 
     // The status bar shows the busiest channel rather than a sum: a total
@@ -2281,8 +2288,7 @@ void MainWindow::onStatusUpdated(const QList<ChannelStatus>& channels)
     // Worth colouring, not worth interrupting anyone about.
     const bool overloaded = peakLoad > 80.0;
     m_busLoadLabel->setProperty("torquebusState",
-                                overloaded ? QStringLiteral("warning")
-                                           : QStringLiteral("ready"));
+                                overloaded ? QStringLiteral("warning") : QStringLiteral("ready"));
     repolish(m_busLoadLabel);
 }
 
@@ -2299,9 +2305,8 @@ void MainWindow::onInspectChrome()
         m_output->appendInfo(line);
     }
 
-    m_output->appendInfo(
-        tr("A class shown as 'QWidget' has no Q_OBJECT, so no class selector in "
-           "torquebus.qss can ever match it - that rule is dead, not ignored."));
+    m_output->appendInfo(tr("A class shown as 'QWidget' has no Q_OBJECT, so no class selector in "
+                            "torquebus.qss can ever match it - that rule is dead, not ignored."));
 }
 
 void MainWindow::onNotImplemented()

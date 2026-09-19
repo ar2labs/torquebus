@@ -46,8 +46,7 @@ public:
     explicit LogSinkNode(TraceLogWriter& writer, std::string label = "CAN Logger")
         : m_writer{writer}
         , m_label{std::move(label)}
-    {
-    }
+    { }
 
     [[nodiscard]] std::string_view typeName() const noexcept override { return "can.log"; }
 
@@ -58,10 +57,7 @@ public:
         return kInputs;
     }
 
-    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override
-    {
-        return {};
-    }
+    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override { return {}; }
 
     void process(NodeContext& context) override;
 
@@ -114,17 +110,11 @@ public:
                            std::string label = "Log Replay",
                            ReplayControl* control = nullptr);
 
-    [[nodiscard]] std::string_view typeName() const noexcept override
-    {
-        return "log.source";
-    }
+    [[nodiscard]] std::string_view typeName() const noexcept override { return "log.source"; }
 
     [[nodiscard]] std::string displayName() const override { return m_label; }
 
-    [[nodiscard]] std::span<const PortDescriptor> inputs() const noexcept override
-    {
-        return {};
-    }
+    [[nodiscard]] std::span<const PortDescriptor> inputs() const noexcept override { return {}; }
 
     [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override
     {

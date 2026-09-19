@@ -30,8 +30,7 @@ using Bytes = std::vector<std::uint8_t>;
 
 } // namespace
 
-TEST_CASE("An identifier goes out big-endian, from a form that says so",
-          "[uds][form]")
+TEST_CASE("An identifier goes out big-endian, from a form that says so", "[uds][form]")
 {
     // The knowledge this file exists to hold. Typing 90 F1 by hand produces
     // "request out of range", which points at the identifier and not at the
@@ -45,13 +44,11 @@ TEST_CASE("An identifier goes out big-endian, from a form that says so",
     REQUIRE(buildRequest(form(0x22), std::vector<std::string>{"F1 90"}, request).succeeded());
     CHECK(request == Bytes{0x22, 0xF1, 0x90});
 
-    REQUIRE(buildRequest(form(0x22), std::vector<std::string>{"0xF1 0x90"}, request)
-                .succeeded());
+    REQUIRE(buildRequest(form(0x22), std::vector<std::string>{"0xF1 0x90"}, request).succeeded());
     CHECK(request == Bytes{0x22, 0xF1, 0x90});
 }
 
-TEST_CASE("A field of the wrong length says how many bytes it wanted",
-          "[uds][form]")
+TEST_CASE("A field of the wrong length says how many bytes it wanted", "[uds][form]")
 {
     Bytes request;
 
@@ -85,8 +82,7 @@ TEST_CASE("A missing required field is named", "[uds][form]")
     Bytes request;
 
     // WriteDataByIdentifier with an identifier and no value.
-    const Result result =
-        buildRequest(form(0x2E), std::vector<std::string>{"2001", ""}, request);
+    const Result result = buildRequest(form(0x2E), std::vector<std::string>{"2001", ""}, request);
 
     REQUIRE(result.failed());
     INFO(std::string{result.message()});
@@ -107,8 +103,7 @@ TEST_CASE("An optional field left empty is simply absent", "[uds][form]")
     CHECK(request == Bytes{0x27, 0x02, 0xAA, 0xBB, 0xCC, 0xDD});
 }
 
-TEST_CASE("Fields are laid out in the order the standard puts them",
-          "[uds][form]")
+TEST_CASE("Fields are laid out in the order the standard puts them", "[uds][form]")
 {
     Bytes request;
 
@@ -123,13 +118,11 @@ TEST_CASE("Fields are laid out in the order the standard puts them",
     CHECK(request == Bytes{0x31, 0x01, 0x02, 0x03, 0xFF});
 
     // 0x19: service, report type, status mask.
-    REQUIRE(buildRequest(form(0x19), std::vector<std::string>{"02", "FF"}, request)
-                .succeeded());
+    REQUIRE(buildRequest(form(0x19), std::vector<std::string>{"02", "FF"}, request).succeeded());
     CHECK(request == Bytes{0x19, 0x02, 0xFF});
 }
 
-TEST_CASE("A form left alone produces the request its defaults describe",
-          "[uds][form]")
+TEST_CASE("A form left alone produces the request its defaults describe", "[uds][form]")
 {
     // No values at all: every field falls back to its initial, which is what a
     // freshly opened form sends. Read VIN, all sessions extended, clear
@@ -188,8 +181,7 @@ TEST_CASE("Every form starts with its own service byte", "[uds][form]")
     }
 }
 
-TEST_CASE("Sub-function choices are values the service actually takes",
-          "[uds][form]")
+TEST_CASE("Sub-function choices are values the service actually takes", "[uds][form]")
 {
     // A choice list that offered a value the ECU refuses would be the form
     // teaching somebody the wrong thing.

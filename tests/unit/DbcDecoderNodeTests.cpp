@@ -59,8 +59,7 @@ class StaticFrameSource final : public IPipelineNode {
 public:
     explicit StaticFrameSource(std::vector<CanFrame> frames)
         : m_frames{std::move(frames)}
-    {
-    }
+    { }
 
     [[nodiscard]] std::string_view typeName() const noexcept override { return "test.source"; }
     [[nodiscard]] std::string displayName() const override { return "static source"; }
@@ -127,12 +126,14 @@ public:
         // The values are copied out inside the callback rather than the
         // DecodedSignals kept: a batch is only valid for the duration of the
         // call, which is a contract worth exercising as well as stating.
-        const NodeId sink = m_graph.addNode(std::make_unique<SignalSinkNode>(
-            [this](std::span<const DecodedSignal> batch) {
+        const NodeId sink = m_graph.addNode(
+            std::make_unique<SignalSinkNode>([this](std::span<const DecodedSignal> batch) {
                 for (const DecodedSignal& signal : batch) {
                     m_captured.push_back(Captured{std::string{signal.messageName()},
-                                                  std::string{signal.name()}, signal.value,
-                                                  signal.raw, signal.truncated});
+                                                  std::string{signal.name()},
+                                                  signal.value,
+                                                  signal.raw,
+                                                  signal.truncated});
                 }
             }));
 
@@ -183,8 +184,7 @@ TEST_CASE("Frames go in and named signal values come out", "[dbc][pipeline]")
     CHECK(near(captured[2].value, 2.0));
 }
 
-TEST_CASE("A frame the database does not describe is counted, not decoded",
-          "[dbc][pipeline]")
+TEST_CASE("A frame the database does not describe is counted, not decoded", "[dbc][pipeline]")
 {
     // Most traffic on a real bus is outside any one database. Logging each one
     // would bury the line that mattered; a count that reaches 100% of the
@@ -199,8 +199,7 @@ TEST_CASE("A frame the database does not describe is counted, not decoded",
     CHECK(pass.decoder().emittedSignals() == 1);
 }
 
-TEST_CASE("A frame shorter than the database says is flagged, not silently zero",
-          "[dbc][pipeline]")
+TEST_CASE("A frame shorter than the database says is flagged, not silently zero", "[dbc][pipeline]")
 {
     // The distinction a decoder returning only a number would destroy: "the
     // sensor reads zero" and "we could not read the sensor" have to look
@@ -247,10 +246,10 @@ TEST_CASE("A Signals output cannot be wired to a Frames input", "[dbc][pipeline]
 
     const NodeId decoder =
         graph.addNode(std::make_unique<DbcDecoderNode>(vehicleDatabase(), "decoder"));
-    const NodeId frameSink = graph.addNode(
-        std::make_unique<FrameSinkNode>([](std::span<const CanFrame>) {}, "frames"));
+    const NodeId frameSink =
+        graph.addNode(std::make_unique<FrameSinkNode>([](std::span<const CanFrame>) { }, "frames"));
     const NodeId signalSink = graph.addNode(
-        std::make_unique<SignalSinkNode>([](std::span<const DecodedSignal>) {}, "signals"));
+        std::make_unique<SignalSinkNode>([](std::span<const DecodedSignal>) { }, "signals"));
 
     const Result mismatch = graph.connect(PortRef{decoder, 0}, PortRef{frameSink, 0});
     CHECK(mismatch.failed());
@@ -264,8 +263,7 @@ TEST_CASE("A Signals output cannot be wired to a Frames input", "[dbc][pipeline]
     CHECK(graph.connect(PortRef{decoder, 0}, PortRef{signalSink, 0}).succeeded());
 }
 
-TEST_CASE("A decoder with no database compiles and decodes nothing",
-          "[dbc][pipeline]")
+TEST_CASE("A decoder with no database compiles and decodes nothing", "[dbc][pipeline]")
 {
     // What a block just dropped on the canvas is. Refusing to compile would
     // mean a project can only be built up in one order, which is not how
@@ -275,8 +273,7 @@ TEST_CASE("A decoder with no database compiles and decodes nothing",
     CHECK(pass.captured().empty());
 }
 
-TEST_CASE("A multiplexed message emits only the signals the frame carries",
-          "[dbc][pipeline]")
+TEST_CASE("A multiplexed message emits only the signals the frame carries", "[dbc][pipeline]")
 {
     auto database = std::make_shared<CanDatabase>();
     REQUIRE(DbcParser::parse(R"(

@@ -79,10 +79,8 @@ public:
     /// the first window is shown, for a result the user can only see once.
     ///
     /// `variant` is used only when `followSystem` is false.
-    void applyPreferences(AccentColor accent,
-                          Density density,
-                          bool followSystem,
-                          ThemeVariant variant);
+    void
+    applyPreferences(AccentColor accent, Density density, bool followSystem, ThemeVariant variant);
 
     /// What the desktop is asking for right now.
     ///

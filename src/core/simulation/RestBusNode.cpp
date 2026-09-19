@@ -100,9 +100,10 @@ Result RestBusNode::prepare(std::size_t maximumBatchSize)
 
     // --- The signals somebody drives ---------------------------------------
     for (const DrivenSignal& driven : m_driven) {
-        const auto job = std::find_if(m_jobs.begin(), m_jobs.end(), [&driven](const Job& candidate) {
-            return candidate.message->name == driven.message;
-        });
+        const auto job =
+            std::find_if(m_jobs.begin(), m_jobs.end(), [&driven](const Job& candidate) {
+                return candidate.message->name == driven.message;
+            });
 
         if (job == m_jobs.end()) {
             // Named rather than ignored: a signal on a message this block is
@@ -120,8 +121,7 @@ Result RestBusNode::prepare(std::size_t maximumBatchSize)
         if (signal == nullptr) {
             return Result::error(
                 ErrorCode::InvalidArgument,
-                std::format("Rest Bus: '{}' has no signal '{}'", driven.message,
-                            driven.signal));
+                std::format("Rest Bus: '{}' has no signal '{}'", driven.message, driven.signal));
         }
 
         if (m_variables == nullptr) {
@@ -130,9 +130,8 @@ Result RestBusNode::prepare(std::size_t maximumBatchSize)
                                  "graph has nowhere to keep one.");
         }
 
-        const std::string name = driven.variable.empty()
-            ? driven.message + "." + driven.signal
-            : driven.variable;
+        const std::string name =
+            driven.variable.empty() ? driven.message + "." + driven.signal : driven.variable;
 
         const SystemVariables::Handle handle = m_variables->resolve(name);
 
@@ -141,7 +140,8 @@ Result RestBusNode::prepare(std::size_t maximumBatchSize)
                 ErrorCode::InvalidState,
                 std::format("Rest Bus: no room for the variable '{}' - the limit is {} "
                             "names.",
-                            name, SystemVariables::kMaximumVariables));
+                            name,
+                            SystemVariables::kMaximumVariables));
         }
 
         job->driven.push_back(Job::Driven{signal, handle});
@@ -186,9 +186,8 @@ void RestBusNode::process(NodeContext& context)
             // not fit, and a slider pushed past a signal's range is a fact
             // about the slider. Refusing to send the frame over it would take
             // the whole rest bus down because one control was mis-configured.
-            static_cast<void>(driven.signal->encode(m_variables->value(driven.handle),
-                                                    job.frame.data.data(),
-                                                    job.frame.length));
+            static_cast<void>(driven.signal->encode(
+                m_variables->value(driven.handle), job.frame.data.data(), job.frame.length));
         }
 
         m_outgoing.push_back(job.frame);

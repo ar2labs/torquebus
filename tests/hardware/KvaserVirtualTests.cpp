@@ -87,8 +87,8 @@ CanFrame frame(std::uint32_t identifier, std::uint8_t length = 8)
 {
     CanFrame result;
     result.identifier = identifier;
-    result.format = identifier > kMaxStandardIdentifier ? CanFrameFormat::Extended
-                                                        : CanFrameFormat::Standard;
+    result.format =
+        identifier > kMaxStandardIdentifier ? CanFrameFormat::Extended : CanFrameFormat::Standard;
     result.dlc = length;
     result.length = length;
     for (std::uint8_t index = 0; index < length; ++index) {
@@ -283,10 +283,9 @@ TEST_CASE("Timestamps advance monotonically across a burst", "[kvaser][timestamp
     const std::vector<CanFrame> frames = receiver.frames();
     REQUIRE(frames.size() >= kBurst);
 
-    CHECK(std::is_sorted(frames.begin(), frames.end(),
-                         [](const CanFrame& a, const CanFrame& b) {
-                             return a.timestampNs < b.timestampNs;
-                         }));
+    CHECK(std::is_sorted(frames.begin(), frames.end(), [](const CanFrame& a, const CanFrame& b) {
+        return a.timestampNs < b.timestampNs;
+    }));
 
     CHECK(frames.back().timestampNs > frames.front().timestampNs);
 

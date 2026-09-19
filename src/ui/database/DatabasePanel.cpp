@@ -90,9 +90,8 @@ constexpr int kSignalRole = Qt::UserRole + 4;
         return formatScaling(signal);
     }
 
-    QString text = QStringLiteral("%1 .. %2")
-                       .arg(signal.minimum, 0, 'g', 10)
-                       .arg(signal.maximum, 0, 'g', 10);
+    QString text =
+        QStringLiteral("%1 .. %2").arg(signal.minimum, 0, 'g', 10).arg(signal.maximum, 0, 'g', 10);
 
     if (const QString scaling = formatScaling(signal); !scaling.isEmpty()) {
         text += QStringLiteral("  (%1)").arg(scaling);
@@ -125,10 +124,10 @@ DatabasePanel::DatabasePanel(QWidget* parent)
     buildUi();
 
     connect(m_filter, &QLineEdit::textChanged, this, &DatabasePanel::onFilterChanged);
-    connect(m_tree, &QTreeWidget::currentItemChanged, this,
-            [this](QTreeWidgetItem* current, QTreeWidgetItem*) {
-                onCurrentItemChanged(current);
-            });
+    connect(m_tree,
+            &QTreeWidget::currentItemChanged,
+            this,
+            [this](QTreeWidgetItem* current, QTreeWidgetItem*) { onCurrentItemChanged(current); });
 
     if (ThemeManager* themes = ThemeManager::instance()) {
         connect(themes, &ThemeManager::themeChanged, this, [this] { onThemeChanged(); });
@@ -206,8 +205,7 @@ void DatabasePanel::addDatabaseToTree(const CanDatabase& database)
     root->setExpanded(true);
 
     if (!database.version.empty()) {
-        root->setText(ColumnRange,
-                      tr("version %1").arg(QString::fromStdString(database.version)));
+        root->setText(ColumnRange, tr("version %1").arg(QString::fromStdString(database.version)));
     }
 
     for (const CanMessage& message : database.messages()) {
@@ -225,9 +223,8 @@ void DatabasePanel::addDatabaseToTree(const CanDatabase& database)
         }
 
         if (!message.transmitter.empty()) {
-            messageItem->setToolTip(ColumnName,
-                                    tr("Sent by %1")
-                                        .arg(QString::fromStdString(message.transmitter)));
+            messageItem->setToolTip(
+                ColumnName, tr("Sent by %1").arg(QString::fromStdString(message.transmitter)));
         }
 
         for (const CanSignal& signal : message.signalList) {
@@ -332,9 +329,9 @@ bool DatabasePanel::applyFilter(QTreeWidgetItem* item, const QString& needle)
         anyChildMatches = applyFilter(item->child(i), needle) || anyChildMatches;
     }
 
-    const bool selfMatches =
-        needle.isEmpty() || item->text(ColumnName).contains(needle, Qt::CaseInsensitive)
-        || item->text(ColumnPosition).contains(needle, Qt::CaseInsensitive);
+    const bool selfMatches = needle.isEmpty()
+                             || item->text(ColumnName).contains(needle, Qt::CaseInsensitive)
+                             || item->text(ColumnPosition).contains(needle, Qt::CaseInsensitive);
 
     const bool visible = selfMatches || anyChildMatches;
     item->setHidden(!visible);

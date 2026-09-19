@@ -17,10 +17,7 @@
 
 namespace torquebus::ui {
 
-enum class ThemeVariant {
-    Dark,
-    Light
-};
+enum class ThemeVariant { Dark, Light };
 
 /// A complete palette. Values are filled by Theme::dark() / Theme::light().
 struct Theme final {
@@ -28,10 +25,10 @@ struct Theme final {
     QString name;
 
     // --- Surfaces ---------------------------------------------------------
-    QColor background;      ///< The window itself, behind every panel.
-    QColor panel;           ///< Dock widget and view background.
-    QColor panelAlternate;  ///< Alternating row background in tables.
-    QColor toolbar;         ///< Toolbars and the menu bar.
+    QColor background; ///< The window itself, behind every panel.
+    QColor panel; ///< Dock widget and view background.
+    QColor panelAlternate; ///< Alternating row background in tables.
+    QColor toolbar; ///< Toolbars and the menu bar.
 
     /// The strip a panel's tabs sit on, behind the tabs themselves.
     ///
@@ -43,7 +40,7 @@ struct Theme final {
     /// makes a tab look like a tab rather than a button in a row of buttons.
     QColor tabStrip;
 
-    QColor border;          ///< Panel outlines and grid lines.
+    QColor border; ///< Panel outlines and grid lines.
 
     /// The draggable gap between two panels.
     ///
@@ -89,16 +86,16 @@ struct Theme final {
 
     // --- Text -------------------------------------------------------------
     QColor text;
-    QColor textMuted;       ///< Secondary labels, disabled items, units.
-    QColor textInverted;    ///< Text drawn on top of `accent`.
+    QColor textMuted; ///< Secondary labels, disabled items, units.
+    QColor textInverted; ///< Text drawn on top of `accent`.
 
     // --- Identity ---------------------------------------------------------
-    QColor accent;          ///< TorqueBus blue/cyan. Focus, active tab, links.
+    QColor accent; ///< TorqueBus blue/cyan. Focus, active tab, links.
     QColor accentHover;
 
     // --- Semantics --------------------------------------------------------
-    QColor rx;              ///< Received frames.
-    QColor tx;              ///< Transmitted frames.
+    QColor rx; ///< Received frames.
+    QColor tx; ///< Transmitted frames.
     QColor warning;
     QColor error;
     QColor success;
@@ -123,11 +120,7 @@ struct Theme final {
 /// - and Comfortable is that design. Compact is for a laptop screen with a
 /// thousand frames on it; Spacious is for reading across a desk, or for anyone
 /// who finds 20-pixel rows hard to hit with a mouse.
-enum class Density {
-    Compact,
-    Comfortable,
-    Spacious
-};
+enum class Density { Compact, Comfortable, Spacious };
 
 /// Vertical padding, in pixels, applied above and below a table row's text.
 ///

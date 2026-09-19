@@ -141,8 +141,7 @@ void ScriptEditorPanel::setRunning(bool running)
 
 bool ScriptEditorPanel::isModified() const
 {
-    return m_editor != nullptr && !m_nodeId.isEmpty()
-        && m_editor->toPlainText() != m_committed;
+    return m_editor != nullptr && !m_nodeId.isEmpty() && m_editor->toPlainText() != m_committed;
 }
 
 void ScriptEditorPanel::clear()
@@ -164,9 +163,8 @@ void ScriptEditorPanel::clear()
 
 void ScriptEditorPanel::showNode(const QString& descriptionId)
 {
-    const NodeDescription* node = descriptionId.isEmpty()
-        ? nullptr
-        : m_description.find(descriptionId.toStdString());
+    const NodeDescription* node =
+        descriptionId.isEmpty() ? nullptr : m_description.find(descriptionId.toStdString());
 
     // Only Lua ECUs have a script. A filter block selected on the canvas leaves
     // the panel showing what it was showing rather than emptying itself, so
@@ -198,9 +196,8 @@ void ScriptEditorPanel::showNode(const QString& descriptionId)
         m_editor->setErrorLine(0);
     }
 
-    m_header->setText(m_isFile
-                          ? tr("%1  ·  %2").arg(m_nodeId, QFileInfo{m_filePath}.fileName())
-                          : tr("%1  ·  script kept in the project").arg(m_nodeId));
+    m_header->setText(m_isFile ? tr("%1  ·  %2").arg(m_nodeId, QFileInfo{m_filePath}.fileName())
+                               : tr("%1  ·  script kept in the project").arg(m_nodeId));
 
     m_header->setToolTip(m_isFile ? m_filePath : QString{});
 
@@ -230,8 +227,8 @@ QString ScriptEditorPanel::readSource(bool& fromFile, QString& path) const
         // project that opens from its own folder and from nowhere else is not a
         // property anybody would guess a project file had.
         path = QDir::isAbsolutePath(declared) || m_basePath.isEmpty()
-            ? declared
-            : QDir{m_basePath}.filePath(declared);
+                   ? declared
+                   : QDir{m_basePath}.filePath(declared);
 
         QFile file{path};
         if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -359,8 +356,7 @@ void ScriptEditorPanel::refresh()
             Q_EMIT reported(tr("%1: script reloaded").arg(node), false);
         } else {
             Q_EMIT reported(
-                tr("%1: reload refused, the running script is unchanged. %2")
-                    .arg(node, message),
+                tr("%1: reload refused, the running script is unchanged. %2").arg(node, message),
                 true);
         }
 

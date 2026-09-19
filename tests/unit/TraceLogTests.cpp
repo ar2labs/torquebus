@@ -22,12 +22,12 @@
 
 #include <array>
 #include <chrono>
-#include <thread>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace torquebus;
@@ -66,9 +66,8 @@ private:
     std::string m_path;
 };
 
-[[nodiscard]] CanFrame frame(std::uint32_t identifier,
-                             std::uint64_t timestampNs,
-                             std::uint8_t length = 8)
+[[nodiscard]] CanFrame
+frame(std::uint32_t identifier, std::uint64_t timestampNs, std::uint8_t length = 8)
 {
     CanFrame result;
     result.identifier = identifier;
@@ -100,11 +99,11 @@ private:
     context.traceStore = &trace;
     context.replayControl = &control;
 
-    description.addNode(NodeDescription{
-        .id = "replay",
-        .typeName = "log.source",
-        .parameters = {{"path", ParameterValue::fromText(path)},
-                       {"speed", ParameterValue::fromReal(speed)}}});
+    description.addNode(
+        NodeDescription{.id = "replay",
+                        .typeName = "log.source",
+                        .parameters = {{"path", ParameterValue::fromText(path)},
+                                       {"speed", ParameterValue::fromReal(speed)}}});
     description.addNode(NodeDescription{.id = "trace", .typeName = "trace.sink"});
     description.addEdge(EdgeDescription{"replay", 0, "trace", 0});
 
@@ -177,8 +176,8 @@ TEST_CASE("Frames come back in the order they were written", "[log]")
 
     std::vector<CanFrame> written;
     for (std::uint32_t index = 0; index < 500; ++index) {
-        written.push_back(frame(0x100 + index, index * 1000ULL,
-                                static_cast<std::uint8_t>(index % 9)));
+        written.push_back(
+            frame(0x100 + index, index * 1000ULL, static_cast<std::uint8_t>(index % 9)));
     }
 
     {
@@ -290,8 +289,7 @@ TEST_CASE("A file cut off inside its header is refused, not half-read", "[log]")
     CHECK(result.code() == ErrorCode::ParseError);
 }
 
-TEST_CASE("A file that is not a log says so before reading forty megabytes",
-          "[log]")
+TEST_CASE("A file that is not a log says so before reading forty megabytes", "[log]")
 {
     const ScopedLogFile file;
 
@@ -311,8 +309,7 @@ TEST_CASE("A file that is not a log says so before reading forty megabytes",
     CHECK(std::string{result.message()}.find("TBLOG") != std::string::npos);
 }
 
-TEST_CASE("A log from a newer TorqueBus is refused by version, not by luck",
-          "[log]")
+TEST_CASE("A log from a newer TorqueBus is refused by version, not by luck", "[log]")
 {
     const ScopedLogFile file;
 
@@ -338,8 +335,7 @@ TEST_CASE("A log from a newer TorqueBus is refused by version, not by luck",
     CHECK(result.code() == ErrorCode::VersionMismatch);
 }
 
-TEST_CASE("The wall clock is carried, and the frame timestamps are not touched",
-          "[log]")
+TEST_CASE("The wall clock is carried, and the frame timestamps are not touched", "[log]")
 {
     // Two clocks on purpose. The frames keep nanoseconds since the measurement
     // began, which is what makes them comparable with the trace; the header
@@ -432,8 +428,7 @@ TEST_CASE("A zero-length frame costs no payload bytes", "[log]")
 // Recording and replaying as blocks
 // ---------------------------------------------------------------------------
 
-TEST_CASE("A log replays through the pipeline as though it were a bus",
-          "[log][graph][build]")
+TEST_CASE("A log replays through the pipeline as though it were a bus", "[log][graph][build]")
 {
     // The claim rule #11 makes, tested on the last port it had not been tested
     // on: a file is a source like any other, so everything downstream works on
@@ -458,10 +453,10 @@ TEST_CASE("A log replays through the pipeline as though it were a bus",
     context.traceStore = &trace;
 
     GraphDescription description;
-    description.addNode(NodeDescription{
-        .id = "replay",
-        .typeName = "log.source",
-        .parameters = {{"path", ParameterValue::fromText(file.path())}}});
+    description.addNode(
+        NodeDescription{.id = "replay",
+                        .typeName = "log.source",
+                        .parameters = {{"path", ParameterValue::fromText(file.path())}}});
     description.addNode(NodeDescription{.id = "trace", .typeName = "trace.sink"});
     description.addEdge(EdgeDescription{"replay", 0, "trace", 0});
 
@@ -478,8 +473,7 @@ TEST_CASE("A log replays through the pipeline as though it were a bus",
     CHECK(trace.row(19).frame.identifier == 0x213);
 }
 
-TEST_CASE("A replay block with no file is refused while it is on screen",
-          "[log][graph][validate]")
+TEST_CASE("A replay block with no file is refused while it is on screen", "[log][graph][validate]")
 {
     // Required, unlike every other path in the catalog, and for a reason worth
     // stating: a decoder with no database decodes nothing and is a block you
@@ -498,8 +492,7 @@ TEST_CASE("A replay block with no file is refused while it is on screen",
     CHECK(std::string{result.message()}.find("Log file") != std::string::npos);
 }
 
-TEST_CASE("A logger block without an open log says which button to press",
-          "[log][graph][build]")
+TEST_CASE("A logger block without an open log says which button to press", "[log][graph][build]")
 {
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
@@ -540,15 +533,15 @@ TEST_CASE("What a logger records is what reached it, not what reached the bus",
     context.logWriter = &output;
 
     GraphDescription description;
-    description.addNode(NodeDescription{
-        .id = "replay",
-        .typeName = "log.source",
-        .parameters = {{"path", ParameterValue::fromText(source.path())}}});
-    description.addNode(NodeDescription{
-        .id = "filter",
-        .typeName = "can.filter",
-        .parameters = {{"from", ParameterValue::fromInteger(0x105)},
-                       {"to", ParameterValue::fromInteger(0x109)}}});
+    description.addNode(
+        NodeDescription{.id = "replay",
+                        .typeName = "log.source",
+                        .parameters = {{"path", ParameterValue::fromText(source.path())}}});
+    description.addNode(
+        NodeDescription{.id = "filter",
+                        .typeName = "can.filter",
+                        .parameters = {{"from", ParameterValue::fromInteger(0x105)},
+                                       {"to", ParameterValue::fromInteger(0x109)}}});
     description.addNode(NodeDescription{.id = "logger", .typeName = "can.log"});
     description.addEdge(EdgeDescription{"replay", 0, "filter", 0});
     description.addEdge(EdgeDescription{"filter", 0, "logger", 0});
@@ -619,8 +612,8 @@ TEST_CASE("A recording that was cut short still says how long it is", "[log][sum
         TraceLogWriter writer;
         REQUIRE(writer.open(file.path()).succeeded());
         for (std::uint32_t index = 0; index < 100; ++index) {
-            REQUIRE(writer.append(std::array{frame(0x300 + index, index * 10'000'000ULL)})
-                        .succeeded());
+            REQUIRE(
+                writer.append(std::array{frame(0x300 + index, index * 10'000'000ULL)}).succeeded());
         }
     }
 
@@ -685,8 +678,8 @@ TEST_CASE("Pause stops the replay where it is", "[log][replay][transport]")
     GraphDescription description;
     PipelineGraph graph;
 
-    REQUIRE(buildReplay(file.path(), catalog, trace, control, context, description, graph)
-                .succeeded());
+    REQUIRE(
+        buildReplay(file.path(), catalog, trace, control, context, description, graph).succeeded());
 
     control.setPaused(true);
     graph.execute();
@@ -732,17 +725,17 @@ TEST_CASE("Seeking forward passes over what it skips", "[log][replay][transport]
     GraphDescription description;
     PipelineGraph graph;
 
-    REQUIRE(buildReplay(file.path(), catalog, trace, control, context, description, graph)
-                .succeeded());
+    REQUIRE(
+        buildReplay(file.path(), catalog, trace, control, context, description, graph).succeeded());
 
     // Asked for before anything has played, so nothing before the target can
     // reach the trace by accident and the count below means what it says.
     control.requestSeek(2'000'000'000);
 
-    graph.execute();   // Services the seek. Seeking is not playing.
+    graph.execute(); // Services the seek. Seeking is not playing.
     CHECK(trace.empty());
 
-    graph.execute();   // Now at 2 s, where a frame is waiting.
+    graph.execute(); // Now at 2 s, where a frame is waiting.
 
     REQUIRE(trace.size() == 1);
     CHECK(trace.row(0).frame.identifier == 0x202);
@@ -787,15 +780,15 @@ TEST_CASE("Seeking backwards reads the file again", "[log][replay][transport]")
     GraphDescription description;
     PipelineGraph graph;
 
-    REQUIRE(buildReplay(file.path(), catalog, trace, control, context, description, graph)
-                .succeeded());
+    REQUIRE(
+        buildReplay(file.path(), catalog, trace, control, context, description, graph).succeeded());
 
     graph.execute();
     REQUIRE(trace.size() == 10);
 
     control.requestSeek(0);
-    graph.execute();   // Rewinds.
-    graph.execute();   // Plays it again.
+    graph.execute(); // Rewinds.
+    graph.execute(); // Plays it again.
 
     CHECK(trace.size() == 20);
     CHECK(trace.row(10).frame.identifier == 0x400);
@@ -828,8 +821,8 @@ TEST_CASE("At maximum speed the file is bounded by the pipeline, not the clock",
     GraphDescription description;
     PipelineGraph graph;
 
-    REQUIRE(buildReplay(file.path(), catalog, trace, control, context, description, graph)
-                .succeeded());
+    REQUIRE(
+        buildReplay(file.path(), catalog, trace, control, context, description, graph).succeeded());
 
     control.setSpeed(ReplayControl::kUnlimitedSpeed);
 
@@ -843,8 +836,7 @@ TEST_CASE("At maximum speed the file is bounded by the pipeline, not the clock",
     CHECK(trace.size() == 30);
 }
 
-TEST_CASE("The block's Speed parameter is where the transport starts",
-          "[log][replay][transport]")
+TEST_CASE("The block's Speed parameter is where the transport starts", "[log][replay][transport]")
 {
     // A project that says 0.5x should open playing at 0.5x. After that the
     // panel owns the speed - the parameter is a starting position, not a rival.
@@ -871,12 +863,11 @@ TEST_CASE("The block's Speed parameter is where the transport starts",
 
     // And the duration was scanned at build time, so the timeline has a total
     // before the first frame is played.
-    CHECK(control.durationNs() == 0);   // One frame: no duration, honestly.
+    CHECK(control.durationNs() == 0); // One frame: no duration, honestly.
     CHECK(control.isActive());
 }
 
-TEST_CASE("A speed outside what a player offers is brought back in",
-          "[log][replay][transport]")
+TEST_CASE("A speed outside what a player offers is brought back in", "[log][replay][transport]")
 {
     ReplayControl control;
 

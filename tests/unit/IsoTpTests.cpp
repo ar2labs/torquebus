@@ -112,8 +112,7 @@ TEST_CASE("A long message is a first frame and then a block", "[isotp]")
     // The first frame carries the total length and six bytes of payload; then
     // the sender stops and waits, which is the entire handshake.
     REQUIRE(connection.pendingFrames().size() == 1);
-    CHECK(bytes(connection.pendingFrames().front(), 2)
-          == std::vector<std::uint8_t>{0x10, 0x14});
+    CHECK(bytes(connection.pendingFrames().front(), 2) == std::vector<std::uint8_t>{0x10, 0x14});
     CHECK(connection.isSending());
 
     connection.clearPendingFrames();
@@ -182,8 +181,7 @@ TEST_CASE("STmin puts a gap between consecutive frames", "[isotp]")
     CHECK(connection.pendingFrames().size() == 2);
 }
 
-TEST_CASE("The microsecond half of the STmin encoding is not milliseconds",
-          "[isotp]")
+TEST_CASE("The microsecond half of the STmin encoding is not milliseconds", "[isotp]")
 {
     // 0xF1..0xF9 are 100..900 microseconds, and reading them as milliseconds
     // makes a transfer a thousand times slower than the ECU asked for - which
@@ -201,8 +199,7 @@ TEST_CASE("The microsecond half of the STmin encoding is not milliseconds",
     CHECK(separationMicroseconds(0xFA) == 127'000);
 }
 
-TEST_CASE("A flow control that never comes is reported, not waited on forever",
-          "[isotp]")
+TEST_CASE("A flow control that never comes is reported, not waited on forever", "[isotp]")
 {
     IsoTpConnection connection = tester();
 
@@ -243,8 +240,7 @@ TEST_CASE("WAIT is honoured, and then it is not", "[isotp]")
     CHECK(connection.events().front().error == IsoTpError::TooManyWaitFrames);
 }
 
-TEST_CASE("An overflow answer stops the transfer rather than retrying it",
-          "[isotp]")
+TEST_CASE("An overflow answer stops the transfer rather than retrying it", "[isotp]")
 {
     IsoTpConnection connection = tester();
     REQUIRE(connection.send(ramp(20), 0).succeeded());
@@ -270,8 +266,7 @@ TEST_CASE("A single frame arriving is a message", "[isotp]")
     CHECK(event.data == std::vector<std::uint8_t>{0x62, 0xF1, 0x90, 0x41});
 }
 
-TEST_CASE("A long message is reassembled, and asked for a block at a time",
-          "[isotp]")
+TEST_CASE("A long message is reassembled, and asked for a block at a time", "[isotp]")
 {
     IsoTpConfig config;
     config.blockSize = 2;
@@ -314,8 +309,7 @@ TEST_CASE("A consecutive frame out of order abandons the message", "[isotp]")
     CHECK_FALSE(connection.isReceiving());
 }
 
-TEST_CASE("A message that stops half way is discarded, not delivered short",
-          "[isotp]")
+TEST_CASE("A message that stops half way is discarded, not delivered short", "[isotp]")
 {
     IsoTpConnection connection = tester();
 
@@ -371,8 +365,7 @@ TEST_CASE("Sequence numbers wrap at sixteen", "[isotp]")
 
     reassembled.resize(payload.size() - 6);
 
-    CHECK(reassembled
-          == std::vector<std::uint8_t>{payload.begin() + 6, payload.end()});
+    CHECK(reassembled == std::vector<std::uint8_t>{payload.begin() + 6, payload.end()});
 }
 
 TEST_CASE("Extended addressing spends its first byte on the address", "[isotp]")
@@ -402,8 +395,7 @@ TEST_CASE("Extended addressing spends its first byte on the address", "[isotp]")
     CHECK(connection.events().front().data == std::vector<std::uint8_t>{0x50, 0x01});
 }
 
-TEST_CASE("Normal fixed addressing builds the identifiers the standard names",
-          "[isotp]")
+TEST_CASE("Normal fixed addressing builds the identifiers the standard names", "[isotp]")
 {
     // 0x18DA<target><source> out and the same with the addresses swapped back.
     // Heavy vehicles run on this, and getting the two halves the wrong way
@@ -462,8 +454,7 @@ TEST_CASE("A CAN FD frame is padded to a length that exists", "[isotp]")
     CHECK(fdFrameLength(64) == 64);
 }
 
-TEST_CASE("A message too long for a 12-bit length uses the escape form",
-          "[isotp]")
+TEST_CASE("A message too long for a 12-bit length uses the escape form", "[isotp]")
 {
     IsoTpConnection connection = tester();
 

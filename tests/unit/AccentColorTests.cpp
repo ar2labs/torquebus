@@ -15,17 +15,17 @@
 #include <catch2/catch_test_macros.hpp>
 
 using torquebus::ui::AccentColor;
-using torquebus::ui::AccentPair;
-using torquebus::ui::Theme;
-using torquebus::ui::ThemeVariant;
 using torquebus::ui::accentColorFromString;
 using torquebus::ui::accentColors;
+using torquebus::ui::AccentPair;
 using torquebus::ui::accentPairFor;
 using torquebus::ui::applyAccent;
 using torquebus::ui::contrastRatio;
 using torquebus::ui::kMinimumTextContrast;
 using torquebus::ui::kMinimumUiContrast;
 using torquebus::ui::relativeLuminance;
+using torquebus::ui::Theme;
+using torquebus::ui::ThemeVariant;
 using torquebus::ui::toString;
 
 TEST_CASE("Black against white is the widest contrast there is", "[contrast]")
@@ -40,8 +40,7 @@ TEST_CASE("Black against white is the widest contrast there is", "[contrast]")
 
     // Symmetric: the ratio is a property of the pair, not of the order.
     const QColor teal{0x2F, 0xB6, 0xCC};
-    REQUIRE(contrastRatio(teal, QColor{Qt::white})
-            == contrastRatio(QColor{Qt::white}, teal));
+    REQUIRE(contrastRatio(teal, QColor{Qt::white}) == contrastRatio(QColor{Qt::white}, teal));
 }
 
 TEST_CASE("Luminance is weighted, not an average", "[contrast]")
@@ -68,8 +67,7 @@ TEST_CASE("The house accent is returned exactly as it was written", "[accent]")
     }
 }
 
-TEST_CASE("Every accent is visible on its panel and readable under its label",
-          "[accent]")
+TEST_CASE("Every accent is visible on its panel and readable under its label", "[accent]")
 {
     // The reason this module exists. The accent is the active tab's background
     // and the focus ring's colour: it has to be seen against the panel (WCAG
@@ -83,9 +81,8 @@ TEST_CASE("Every accent is visible on its panel and readable under its label",
             const double visible = contrastRatio(pair.accent, theme.panel);
             const double readable = contrastRatio(pair.accent, theme.textInverted);
 
-            INFO("accent " << toString(accent).toStdString() << " on "
-                           << theme.name.toStdString() << " is "
-                           << pair.accent.name().toStdString());
+            INFO("accent " << toString(accent).toStdString() << " on " << theme.name.toStdString()
+                           << " is " << pair.accent.name().toStdString());
 
             REQUIRE(visible >= kMinimumUiContrast);
             REQUIRE(readable >= kMinimumTextContrast);

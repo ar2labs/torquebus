@@ -87,15 +87,13 @@ struct IsoTpAddress final {
 
     /// The 29-bit pair for a physical request to `target` from `source`:
     /// 0x18DA<target><source> out, 0x18DA<source><target> back.
-    [[nodiscard]] static IsoTpAddress normalFixed(std::uint8_t source,
-                                                  std::uint8_t target,
-                                                  std::uint8_t channel = 0);
+    [[nodiscard]] static IsoTpAddress
+    normalFixed(std::uint8_t source, std::uint8_t target, std::uint8_t channel = 0);
 
     /// The 29-bit pair for a functional (broadcast) request: 0x18DB<target>
     /// <source> out, with replies arriving physically addressed.
-    [[nodiscard]] static IsoTpAddress normalFixedFunctional(std::uint8_t source,
-                                                            std::uint8_t target,
-                                                            std::uint8_t channel = 0);
+    [[nodiscard]] static IsoTpAddress
+    normalFixedFunctional(std::uint8_t source, std::uint8_t target, std::uint8_t channel = 0);
 
     /// The usual 11-bit tester pair: 0x7E0 out, 0x7E8 back for ECU 0.
     [[nodiscard]] static IsoTpAddress obd(std::uint8_t ecu = 0, std::uint8_t channel = 0);

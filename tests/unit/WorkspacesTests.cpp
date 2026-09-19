@@ -78,8 +78,7 @@ TEST_CASE("Workspaces stay in the order they were created", "[workspace]")
     CHECK(workspaces.layoutFor(QStringLiteral("Logging"), 6) == layout("c"));
 }
 
-TEST_CASE("A workspace from a build with other panels is refused, not half applied",
-          "[workspace]")
+TEST_CASE("A workspace from a build with other panels is refused, not half applied", "[workspace]")
 {
     // The blob names every panel that existed when it was written. Restoring it
     // into a build with a panel that did not exist then leaves that panel
@@ -103,15 +102,13 @@ TEST_CASE("A workspace from a build with other panels is refused, not half appli
     CHECK(workspaces.layoutFor(QStringLiteral("Old"), 6) == layout("new"));
 }
 
-TEST_CASE("A workspace saved before versions were stored counts as stale",
-          "[workspace]")
+TEST_CASE("A workspace saved before versions were stored counts as stale", "[workspace]")
 {
     const ScopedSettings settings;
 
     settings.store().setStringListValue(QStringLiteral("ui/workspaces"),
                                         {QStringLiteral("Ancient")});
-    settings.store().setBinaryValue(QStringLiteral("ui/workspace/Ancient/layout"),
-                                    layout("a"));
+    settings.store().setBinaryValue(QStringLiteral("ui/workspace/Ancient/layout"), layout("a"));
 
     const Workspaces workspaces{settings.store()};
 
@@ -181,17 +178,17 @@ TEST_CASE("Workspaces survive a restart", "[workspace]")
     CHECK(workspaces.layoutFor(QStringLiteral("Simulation"), 6) == layout("a"));
 }
 
-TEST_CASE("A hand-edited name list cannot produce a workspace nobody can open",
-          "[workspace]")
+TEST_CASE("A hand-edited name list cannot produce a workspace nobody can open", "[workspace]")
 {
     // The settings file is JSON on purpose. A name with a slash in it could
     // never be found again, and a duplicate would show twice in the menu.
     const ScopedSettings settings;
 
-    settings.store().setStringListValue(
-        QStringLiteral("ui/workspaces"),
-        {QStringLiteral("Good"), QStringLiteral("bad/name"), QStringLiteral("Good"),
-         QStringLiteral("  ")});
+    settings.store().setStringListValue(QStringLiteral("ui/workspaces"),
+                                        {QStringLiteral("Good"),
+                                         QStringLiteral("bad/name"),
+                                         QStringLiteral("Good"),
+                                         QStringLiteral("  ")});
 
     const Workspaces workspaces{settings.store()};
 

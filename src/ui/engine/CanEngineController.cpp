@@ -12,8 +12,8 @@
 
 #include <algorithm>
 #include <optional>
-#include <vector>
 #include <utility>
+#include <vector>
 
 namespace torquebus::ui {
 namespace {
@@ -25,11 +25,16 @@ constexpr int kRefreshIntervalMs = 100;
 [[nodiscard]] QString stateText(CanBusState state)
 {
     switch (state) {
-    case CanBusState::Offline:      return CanEngineController::tr("Offline");
-    case CanBusState::ErrorActive:  return CanEngineController::tr("Online");
-    case CanBusState::ErrorWarning: return CanEngineController::tr("Warning");
-    case CanBusState::ErrorPassive: return CanEngineController::tr("Error passive");
-    case CanBusState::BusOff:       return CanEngineController::tr("Bus off");
+    case CanBusState::Offline:
+        return CanEngineController::tr("Offline");
+    case CanBusState::ErrorActive:
+        return CanEngineController::tr("Online");
+    case CanBusState::ErrorWarning:
+        return CanEngineController::tr("Warning");
+    case CanBusState::ErrorPassive:
+        return CanEngineController::tr("Error passive");
+    case CanBusState::BusOff:
+        return CanEngineController::tr("Bus off");
     }
     return CanEngineController::tr("Unknown");
 }
@@ -39,12 +44,16 @@ constexpr int kRefreshIntervalMs = 100;
 [[nodiscard]] QString stateToken(CanBusState state, bool running)
 {
     switch (state) {
-    case CanBusState::Offline:      return running ? QStringLiteral("warning")
-                                                   : QStringLiteral("offline");
-    case CanBusState::ErrorActive:  return QStringLiteral("online");
-    case CanBusState::ErrorWarning: return QStringLiteral("warning");
-    case CanBusState::ErrorPassive: return QStringLiteral("warning");
-    case CanBusState::BusOff:       return QStringLiteral("error");
+    case CanBusState::Offline:
+        return running ? QStringLiteral("warning") : QStringLiteral("offline");
+    case CanBusState::ErrorActive:
+        return QStringLiteral("online");
+    case CanBusState::ErrorWarning:
+        return QStringLiteral("warning");
+    case CanBusState::ErrorPassive:
+        return QStringLiteral("warning");
+    case CanBusState::BusOff:
+        return QStringLiteral("error");
     }
     return QStringLiteral("offline");
 }
@@ -69,8 +78,8 @@ CanEngineController::CanEngineController(QObject* parent)
     // work: copy the snapshot under a short lock and return. The GUI thread
     // picks it up on its own timer, so a stalled UI can never back-pressure
     // the engine.
-    m_statisticsSink = m_engine->addStatisticsSink(
-        [this](std::span<const CanStatisticsSnapshot> snapshot) {
+    m_statisticsSink =
+        m_engine->addStatisticsSink([this](std::span<const CanStatisticsSnapshot> snapshot) {
             const std::lock_guard lock{m_snapshotMutex};
             m_snapshot.assign(snapshot.begin(), snapshot.end());
         });
@@ -176,8 +185,8 @@ QStringList CanEngineController::boundChannelDescriptions() const
         }
 
         const QString device = index < static_cast<std::size_t>(m_deviceNames.size())
-            ? m_deviceNames.at(static_cast<qsizetype>(index))
-            : tr("unknown interface");
+                                   ? m_deviceNames.at(static_cast<qsizetype>(index))
+                                   : tr("unknown interface");
 
         descriptions.append(tr("%1 -> %2 at %3 kbit/s")
                                 .arg(QString::fromStdString(channel->displayName()),
@@ -269,12 +278,11 @@ void CanEngineController::publishToUi()
         ChannelStatus status;
         status.name = tr("CAN %1").arg(index + 1);
         status.deviceName = index < static_cast<std::size_t>(m_deviceNames.size())
-            ? m_deviceNames.at(static_cast<qsizetype>(index))
-            : QString{};
+                                ? m_deviceNames.at(static_cast<qsizetype>(index))
+                                : QString{};
 
         status.stateText = running ? stateText(source.state) : tr("Ready");
-        status.stateToken = running ? stateToken(source.state, running)
-                                    : QStringLiteral("ready");
+        status.stateToken = running ? stateToken(source.state, running) : QStringLiteral("ready");
 
         status.rxFrames = source.rxFrames;
         status.txFrames = source.txFrames;

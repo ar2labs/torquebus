@@ -83,7 +83,6 @@ namespace {
     return QDir{directory.path()}.filePath(name);
 }
 
-
 /// A transmit list for the cases that are only about the pipeline.
 ///
 /// Function-local static rather than a fresh one per call: TransmitList is not
@@ -283,8 +282,8 @@ TEST_CASE("A failed load leaves the previous pipeline untouched", "[project]")
 TEST_CASE("Opening a file that is not there says so", "[project]")
 {
     GraphDescription pipeline;
-    const Result result =
-        ProjectFile::load(QStringLiteral("no/such/project.tbsproj"), pipeline, scratch(), noDashboard());
+    const Result result = ProjectFile::load(
+        QStringLiteral("no/such/project.tbsproj"), pipeline, scratch(), noDashboard());
 
     REQUIRE(result.failed());
     CHECK(result.code() == ErrorCode::FileNotFound);
@@ -314,8 +313,7 @@ TEST_CASE("The shipped example project opens and validates", "[project][examples
     // An example that does not open is worse than no example: it is the first
     // thing a new user tries, and it is the one file in the repository whose
     // correctness nothing else checks. This is the check.
-    const QString path =
-        QStringLiteral(TORQUEBUS_EXAMPLE_PROJECT_DIR "/virtual-vehicle.tbsproj");
+    const QString path = QStringLiteral(TORQUEBUS_EXAMPLE_PROJECT_DIR "/virtual-vehicle.tbsproj");
 
     GraphDescription pipeline;
     const Result opened = ProjectFile::load(path, pipeline, scratch(), noDashboard());
@@ -401,8 +399,7 @@ TEST_CASE("A transmit list survives a save and a load unchanged", "[project][tra
     CHECK(row.messageName == expected.messageName);
 }
 
-TEST_CASE("A saved project does not claim a row has already been sent",
-          "[project][transmit]")
+TEST_CASE("A saved project does not claim a row has already been sent", "[project][transmit]")
 {
     // sentCount and lastSentUs belong to a run, not to a project. Saving them
     // would mean opening a file that says a row has gone out forty times before
@@ -439,8 +436,7 @@ TEST_CASE("A saved project does not claim a row has already been sent",
     CHECK(loaded.lastSentUs == 0);
 }
 
-TEST_CASE("A project written before the transmit list still opens",
-          "[project][transmit]")
+TEST_CASE("A project written before the transmit list still opens", "[project][transmit]")
 {
     // Every project saved in format 1 has no transmit section. A build that
     // refused those would make the version check pointless - it only exists to
@@ -470,8 +466,7 @@ TEST_CASE("A project written before the transmit list still opens",
     CHECK(transmit.size() == 0);
 }
 
-TEST_CASE("An unknown trigger word does not start transmitting",
-          "[project][transmit]")
+TEST_CASE("An unknown trigger word does not start transmitting", "[project][transmit]")
 {
     // A file from a future version might name a trigger this build has never
     // heard of. Defaulting it to periodic would put traffic on a bus because
@@ -560,8 +555,7 @@ TEST_CASE("A dashboard survives a save and a load unchanged", "[project][dashboa
     GraphDescription reopenedPipeline;
     DashboardDescription reopened;
 
-    const Result result =
-        ProjectFile::load(path, reopenedPipeline, scratch(), reopened);
+    const Result result = ProjectFile::load(path, reopenedPipeline, scratch(), reopened);
 
     INFO(std::string{result.message()});
     REQUIRE(result.succeeded());
@@ -572,8 +566,7 @@ TEST_CASE("A dashboard survives a save and a load unchanged", "[project][dashboa
     CHECK(reopened == original);
 }
 
-TEST_CASE("A project from before dashboards opens with an empty one",
-          "[project][dashboard]")
+TEST_CASE("A project from before dashboards opens with an empty one", "[project][dashboard]")
 {
     // Every project written before format 3. Refusing those would make the
     // version field pointless.
@@ -598,8 +591,7 @@ TEST_CASE("A project from before dashboards opens with an empty one",
     CHECK(dashboard.empty());
 }
 
-TEST_CASE("A widget kind this build does not have refuses the file",
-          "[project][dashboard]")
+TEST_CASE("A widget kind this build does not have refuses the file", "[project][dashboard]")
 {
     // Drawing something else in its place would be a lie about what the file
     // contains - and the next save would write that lie back.
@@ -628,8 +620,7 @@ TEST_CASE("A widget kind this build does not have refuses the file",
     CHECK(std::string{result.message()}.find("hologram") != std::string::npos);
 }
 
-TEST_CASE("A dashboard that could not be drawn refuses the file",
-          "[project][dashboard]")
+TEST_CASE("A dashboard that could not be drawn refuses the file", "[project][dashboard]")
 {
     // Validated before anything is assigned, so the alternative - opening the
     // project, showing an empty panel, and writing it back that way - cannot

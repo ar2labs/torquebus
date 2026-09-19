@@ -43,8 +43,7 @@ namespace {
         return "date unknown";
     }
 
-    return std::format("date {}.{:03} UTC {}", text.data(), milliseconds,
-                       1900 + parts.tm_year);
+    return std::format("date {}.{:03} UTC {}", text.data(), milliseconds, 1900 + parts.tm_year);
 }
 
 /// Two uppercase hex digits, which is what every ASC file in the world uses.
@@ -95,9 +94,7 @@ TraceExporter::~TraceExporter()
     }
 }
 
-Result TraceExporter::open(const std::string& path,
-                           Format format,
-                           std::uint64_t startWallClockUs)
+Result TraceExporter::open(const std::string& path, Format format, std::uint64_t startWallClockUs)
 {
     static_cast<void>(close());
 
@@ -140,8 +137,7 @@ Result TraceExporter::write(std::span<const CanFrame> frames)
     }
 
     for (const CanFrame& frame : frames) {
-        const Result result =
-            m_format == Format::Asc ? writeAsc(frame) : writeCsv(frame);
+        const Result result = m_format == Format::Asc ? writeAsc(frame) : writeCsv(frame);
 
         if (result.failed()) {
             return result;
@@ -218,23 +214,30 @@ Result TraceExporter::writeCsv(const CanFrame& frame)
         flags += name;
     };
 
-    if (frame.fd)    { add("FD"); }
-    if (frame.brs)   { add("BRS"); }
-    if (frame.esi)   { add("ESI"); }
-    if (frame.rtr)   { add("RTR"); }
-    if (frame.error) { add("ERR"); }
+    if (frame.fd) {
+        add("FD");
+    }
+    if (frame.brs) {
+        add("BRS");
+    }
+    if (frame.esi) {
+        add("ESI");
+    }
+    if (frame.rtr) {
+        add("RTR");
+    }
+    if (frame.error) {
+        add("ERR");
+    }
 
-    m_file << formatTimestamp(frame.timestampNs) << ','
-           << (frame.channel + 1) << ','
-           << (frame.isRx() ? "Rx" : "Tx") << ','
+    m_file << formatTimestamp(frame.timestampNs) << ',' << (frame.channel + 1) << ','
+           << (frame.isRx() ? "Rx" : "Tx")
+           << ','
            // Hex without a 0x prefix, and the extended flag in its own column -
            // so a spreadsheet does not have to be told how to read either.
-           << std::format("{:X}", frame.identifier) << ','
-           << (frame.isExtended() ? 1 : 0) << ','
-           << static_cast<unsigned>(frame.dlc) << ','
-           << static_cast<unsigned>(frame.length) << ','
-           << flags << ','
-           << data << '\n';
+           << std::format("{:X}", frame.identifier) << ',' << (frame.isExtended() ? 1 : 0) << ','
+           << static_cast<unsigned>(frame.dlc) << ',' << static_cast<unsigned>(frame.length) << ','
+           << flags << ',' << data << '\n';
 
     return Result::ok();
 }

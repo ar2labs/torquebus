@@ -103,10 +103,7 @@ public:
     void poll(std::uint64_t nowNs);
 
     /// Frames waiting to go onto the bus, oldest first.
-    [[nodiscard]] std::span<const CanFrame> pendingFrames() const noexcept
-    {
-        return m_outgoing;
-    }
+    [[nodiscard]] std::span<const CanFrame> pendingFrames() const noexcept { return m_outgoing; }
 
     void clearPendingFrames() { m_outgoing.clear(); }
 

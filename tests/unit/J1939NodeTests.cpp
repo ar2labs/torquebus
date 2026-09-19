@@ -72,22 +72,22 @@ constexpr std::uint32_t kTemperature = 0x0'FEEEU;
     return frame;
 }
 
-[[nodiscard]] CanFrame bamFrame(std::uint32_t pgn,
-                                std::uint16_t size,
-                                std::uint8_t packets,
-                                std::uint8_t source)
+[[nodiscard]] CanFrame
+bamFrame(std::uint32_t pgn, std::uint16_t size, std::uint8_t packets, std::uint8_t source)
 {
     return frameOf(j1939Identifier(kPgnTransportConnection, source, kJ1939GlobalAddress, 7U),
-                   {32U, static_cast<std::uint8_t>(size & 0xFFU),
-                    static_cast<std::uint8_t>((size >> 8U) & 0xFFU), packets, 0xFFU,
+                   {32U,
+                    static_cast<std::uint8_t>(size & 0xFFU),
+                    static_cast<std::uint8_t>((size >> 8U) & 0xFFU),
+                    packets,
+                    0xFFU,
                     static_cast<std::uint8_t>(pgn & 0xFFU),
                     static_cast<std::uint8_t>((pgn >> 8U) & 0xFFU),
                     static_cast<std::uint8_t>((pgn >> 16U) & 0xFFU)});
 }
 
-[[nodiscard]] CanFrame dataFrame(std::uint8_t sequence,
-                                 std::vector<std::uint8_t> seven,
-                                 std::uint8_t source)
+[[nodiscard]] CanFrame
+dataFrame(std::uint8_t sequence, std::vector<std::uint8_t> seven, std::uint8_t source)
 {
     seven.resize(J1939Transport::kBytesPerPacket, 0xFFU);
     seven.insert(seven.begin(), sequence);
@@ -99,7 +99,9 @@ constexpr std::uint32_t kTemperature = 0x0'FEEEU;
 /// Runs one batch through a node and hands back what it published.
 class Driver final {
 public:
-    explicit Driver(J1939Node& node) : m_node{node} {}
+    explicit Driver(J1939Node& node)
+        : m_node{node}
+    { }
 
     /// Not [[nodiscard]]: several cases here drive the block for its side
     /// effects - the address table, the fault lists - and never look at the
@@ -161,9 +163,8 @@ TEST_CASE("A transport packet is never decoded as a message", "[j1939][block]")
 
     // The announcement and the first packet on their own: nothing is complete,
     // so nothing may be emitted.
-    const std::array<CanFrame, 2> opening{
-        bamFrame(kTemperature, 12U, 2U, kEngine),
-        dataFrame(1U, {1U, 2U, 3U, 4U, 5U, 6U, 7U}, kEngine)};
+    const std::array<CanFrame, 2> opening{bamFrame(kTemperature, 12U, 2U, kEngine),
+                                          dataFrame(1U, {1U, 2U, 3U, 4U, 5U, 6U, 7U}, kEngine)};
 
     CHECK(driver.run(opening).empty());
 
@@ -218,8 +219,7 @@ TEST_CASE("A trouble code in one frame reaches the block", "[j1939][block]")
 
     Driver driver{node};
     const std::array<CanFrame, 1> frames{
-        frameOf(j1939Identifier(kPgnDm1, kEngine),
-                {0x40U, 0x00U, 100U, 0U, 1U, 5U, 0xFFU, 0xFFU})};
+        frameOf(j1939Identifier(kPgnDm1, kEngine), {0x40U, 0x00U, 100U, 0U, 1U, 5U, 0xFFU, 0xFFU})};
 
     driver.run(frames);
 
@@ -243,8 +243,7 @@ TEST_CASE("A healthy ECU is recorded as having nothing wrong", "[j1939][block]")
 
     Driver driver{node};
     const std::array<CanFrame, 1> frames{
-        frameOf(j1939Identifier(kPgnDm1, kEngine),
-                {0x00U, 0x00U, 0U, 0U, 0U, 0U, 0xFFU, 0xFFU})};
+        frameOf(j1939Identifier(kPgnDm1, kEngine), {0x00U, 0x00U, 0U, 0U, 0U, 0U, 0xFFU, 0xFFU})};
 
     driver.run(frames);
 
@@ -252,8 +251,7 @@ TEST_CASE("A healthy ECU is recorded as having nothing wrong", "[j1939][block]")
     CHECK(node.diagnostics()[0].faults.empty());
 }
 
-TEST_CASE("Several faults arrive over transport and are filed together",
-          "[j1939][block]")
+TEST_CASE("Several faults arrive over transport and are filed together", "[j1939][block]")
 {
     // More than one active fault does not fit in eight bytes, which is why a
     // real DM1 is a transport message and why this path has to work.
@@ -279,8 +277,7 @@ TEST_CASE("Several faults arrive over transport and are filed together",
     CHECK(message.faults[2].spn == 190U);
 }
 
-TEST_CASE("A newer fault list replaces the older one from the same ECU",
-          "[j1939][block]")
+TEST_CASE("A newer fault list replaces the older one from the same ECU", "[j1939][block]")
 {
     // A fault list is a statement about now. Keeping the previous one would
     // show a repaired fault beside the current answer as though both were true.
@@ -290,31 +287,26 @@ TEST_CASE("A newer fault list replaces the older one from the same ECU",
     Driver driver{node};
 
     const std::array<CanFrame, 1> faulted{
-        frameOf(j1939Identifier(kPgnDm1, kEngine),
-                {0x40U, 0x00U, 100U, 0U, 1U, 5U, 0xFFU, 0xFFU})};
+        frameOf(j1939Identifier(kPgnDm1, kEngine), {0x40U, 0x00U, 100U, 0U, 1U, 5U, 0xFFU, 0xFFU})};
     driver.run(faulted);
 
     const std::array<CanFrame, 1> healthy{
-        frameOf(j1939Identifier(kPgnDm1, kEngine),
-                {0x00U, 0x00U, 0U, 0U, 0U, 0U, 0xFFU, 0xFFU})};
+        frameOf(j1939Identifier(kPgnDm1, kEngine), {0x00U, 0x00U, 0U, 0U, 0U, 0U, 0xFFU, 0xFFU})};
     driver.run(healthy);
 
     REQUIRE(node.diagnostics().size() == 1U);
     CHECK(node.diagnostics()[0].faults.empty());
 }
 
-TEST_CASE("What is wrong now and what used to be are kept apart",
-          "[j1939][block]")
+TEST_CASE("What is wrong now and what used to be are kept apart", "[j1939][block]")
 {
     J1939Node node{nullptr, "J1939"};
     REQUIRE(node.prepare(64U).succeeded());
 
     Driver driver{node};
     const std::array<CanFrame, 2> frames{
-        frameOf(j1939Identifier(kPgnDm1, kEngine),
-                {0x40U, 0x00U, 100U, 0U, 1U, 5U, 0xFFU, 0xFFU}),
-        frameOf(j1939Identifier(kPgnDm2, kEngine),
-                {0x00U, 0x00U, 110U, 0U, 3U, 2U, 0xFFU, 0xFFU})};
+        frameOf(j1939Identifier(kPgnDm1, kEngine), {0x40U, 0x00U, 100U, 0U, 1U, 5U, 0xFFU, 0xFFU}),
+        frameOf(j1939Identifier(kPgnDm2, kEngine), {0x00U, 0x00U, 110U, 0U, 3U, 2U, 0xFFU, 0xFFU})};
 
     driver.run(frames);
 
@@ -328,8 +320,7 @@ TEST_CASE("What is wrong now and what used to be are kept apart",
     CHECK(node.diagnostics()[1].faults[0].spn == 110U);
 }
 
-TEST_CASE("Turning the SPN assembly off leaves the bytes and the fault",
-          "[j1939][block]")
+TEST_CASE("Turning the SPN assembly off leaves the bytes and the fault", "[j1939][block]")
 {
     J1939Node node{nullptr, "J1939"};
     node.setSpnReading(J1939SpnReading::RawOnly);
@@ -337,8 +328,7 @@ TEST_CASE("Turning the SPN assembly off leaves the bytes and the fault",
 
     Driver driver{node};
     const std::array<CanFrame, 1> frames{
-        frameOf(j1939Identifier(kPgnDm1, kEngine),
-                {0x40U, 0x00U, 100U, 0U, 1U, 5U, 0xFFU, 0xFFU})};
+        frameOf(j1939Identifier(kPgnDm1, kEngine), {0x40U, 0x00U, 100U, 0U, 1U, 5U, 0xFFU, 0xFFU})};
 
     driver.run(frames);
 
@@ -348,8 +338,7 @@ TEST_CASE("Turning the SPN assembly off leaves the bytes and the fault",
     CHECK(node.diagnostics()[0].faults[0].raw[0] == 100U);
 }
 
-TEST_CASE("The block counts what a person would want to compare",
-          "[j1939][block]")
+TEST_CASE("The block counts what a person would want to compare", "[j1939][block]")
 {
     // "PGNs not in the database" next to "messages decoded" is the pair that
     // names a bus with the wrong database loaded - which otherwise looks quiet
@@ -383,8 +372,7 @@ TEST_CASE("The block counts what a person would want to compare",
     CHECK(value("ECUs seen") == 1U);
 }
 
-TEST_CASE("The block is in the catalog and builds without a database",
-          "[j1939][block]")
+TEST_CASE("The block is in the catalog and builds without a database", "[j1939][block]")
 {
     // A freshly dropped block has no path yet, and a graph that will not
     // compile until every block is configured cannot be built up in any order
@@ -407,8 +395,7 @@ TEST_CASE("The block is in the catalog and builds without a database",
     CHECK(node->typeName() == "j1939.decoder");
 }
 
-TEST_CASE("Nothing published is not the same as nobody on the bus",
-          "[j1939][block]")
+TEST_CASE("Nothing published is not the same as nobody on the bus", "[j1939][block]")
 {
     // A measurement that has not started and a bus with no traffic look alike
     // in an empty table. The revision tells them apart, and a panel has to say
@@ -420,8 +407,7 @@ TEST_CASE("Nothing published is not the same as nobody on the bus",
     CHECK(network.snapshot().revision == 0U);
 }
 
-TEST_CASE("The block hands its view over when the bus changes",
-          "[j1939][block]")
+TEST_CASE("The block hands its view over when the bus changes", "[j1939][block]")
 {
     J1939Network network;
 
@@ -487,8 +473,7 @@ TEST_CASE("A fault reaches the panel side of the hand-over", "[j1939][block]")
 
     Driver driver{node};
     const std::array<CanFrame, 1> frames{
-        frameOf(j1939Identifier(kPgnDm1, kEngine),
-                {0x40U, 0x00U, 100U, 0U, 1U, 5U, 0xFFU, 0xFFU})};
+        frameOf(j1939Identifier(kPgnDm1, kEngine), {0x40U, 0x00U, 100U, 0U, 1U, 5U, 0xFFU, 0xFFU})};
 
     driver.run(frames);
 
@@ -498,8 +483,7 @@ TEST_CASE("A fault reaches the panel side of the hand-over", "[j1939][block]")
     CHECK(snapshot.diagnostics[0].faults[0].spn == 100U);
 }
 
-TEST_CASE("Clearing for a new measurement is a change a panel notices",
-          "[j1939][block]")
+TEST_CASE("Clearing for a new measurement is a change a panel notices", "[j1939][block]")
 {
     // Not a reset to zero: a panel watching for movement would miss a clear
     // that put the counter back where it already was, and go on showing the

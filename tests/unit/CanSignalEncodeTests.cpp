@@ -24,11 +24,8 @@ using namespace torquebus;
 
 namespace {
 
-[[nodiscard]] CanSignal motorola(std::uint16_t startBit,
-                                 std::uint16_t bitLength,
-                                 bool isSigned,
-                                 double factor,
-                                 double offset)
+[[nodiscard]] CanSignal motorola(
+    std::uint16_t startBit, std::uint16_t bitLength, bool isSigned, double factor, double offset)
 {
     CanSignal signal;
     signal.startBit = startBit;
@@ -40,11 +37,8 @@ namespace {
     return signal;
 }
 
-[[nodiscard]] CanSignal intel(std::uint16_t startBit,
-                              std::uint16_t bitLength,
-                              bool isSigned,
-                              double factor,
-                              double offset)
+[[nodiscard]] CanSignal
+intel(std::uint16_t startBit, std::uint16_t bitLength, bool isSigned, double factor, double offset)
 {
     CanSignal signal = motorola(startBit, bitLength, isSigned, factor, offset);
     signal.byteOrder = ByteOrder::Intel;
@@ -58,8 +52,7 @@ namespace {
 
 } // namespace
 
-TEST_CASE("Encoding the published values reproduces the published bytes",
-          "[dbc][signal][encode]")
+TEST_CASE("Encoding the published values reproduces the published bytes", "[dbc][signal][encode]")
 {
     std::uint8_t payload[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
@@ -93,8 +86,7 @@ TEST_CASE("Writing one signal leaves its neighbours alone", "[dbc][signal][encod
     CHECK(near(mode.decode(payload, 1), 5.0));
 }
 
-TEST_CASE("Encode and decode are inverses across every case that matters",
-          "[dbc][signal][encode]")
+TEST_CASE("Encode and decode are inverses across every case that matters", "[dbc][signal][encode]")
 {
     struct Case final {
         const char* what;
@@ -141,8 +133,7 @@ TEST_CASE("A value too large saturates and says so", "[dbc][signal][encode]")
     CHECK(signedSignal.rawValue(payload, 1) == -128);
 }
 
-TEST_CASE("Rounding happens before the range test, not after",
-          "[dbc][signal][encode]")
+TEST_CASE("Rounding happens before the range test, not after", "[dbc][signal][encode]")
 {
     // 255.4 on an 8-bit unsigned signal rounds to 255 and fits. Testing the
     // range first would reject a value the field can hold.
@@ -183,8 +174,7 @@ TEST_CASE("NaN does not become an arbitrary number", "[dbc][signal][encode]")
     CHECK(payload[0] == 0x00);
 }
 
-TEST_CASE("Encoding into a payload that is too short writes nothing",
-          "[dbc][signal][encode]")
+TEST_CASE("Encoding into a payload that is too short writes nothing", "[dbc][signal][encode]")
 {
     // The counterpart of decode returning zero rather than reading past the
     // end. Writing past the end would be worse: it corrupts memory rather than

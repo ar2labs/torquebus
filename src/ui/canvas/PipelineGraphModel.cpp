@@ -132,8 +132,8 @@ const NodeTypeInfo* PipelineGraphModel::typeInfo(QtNodes::NodeId nodeId) const
 // Connections
 // ---------------------------------------------------------------------------
 
-std::unordered_set<QtNodes::ConnectionId> PipelineGraphModel::allConnectionIds(
-    QtNodes::NodeId nodeId) const
+std::unordered_set<QtNodes::ConnectionId>
+PipelineGraphModel::allConnectionIds(QtNodes::NodeId nodeId) const
 {
     std::unordered_set<QtNodes::ConnectionId> result;
 
@@ -164,16 +164,14 @@ std::unordered_set<QtNodes::ConnectionId> PipelineGraphModel::allConnectionIds(
 }
 
 std::unordered_set<QtNodes::ConnectionId> PipelineGraphModel::connections(
-    QtNodes::NodeId nodeId,
-    QtNodes::PortType portType,
-    QtNodes::PortIndex index) const
+    QtNodes::NodeId nodeId, QtNodes::PortType portType, QtNodes::PortIndex index) const
 {
     std::unordered_set<QtNodes::ConnectionId> result;
 
     for (const QtNodes::ConnectionId& id : allConnectionIds(nodeId)) {
         const bool matches = portType == QtNodes::PortType::Out
-            ? (id.outNodeId == nodeId && id.outPortIndex == index)
-            : (id.inNodeId == nodeId && id.inPortIndex == index);
+                                 ? (id.outNodeId == nodeId && id.outPortIndex == index)
+                                 : (id.inNodeId == nodeId && id.inPortIndex == index);
 
         if (matches) {
             result.insert(id);
@@ -188,12 +186,12 @@ bool PipelineGraphModel::connectionExists(QtNodes::ConnectionId connectionId) co
     const std::string from = descriptionId(connectionId.outNodeId);
     const std::string to = descriptionId(connectionId.inNodeId);
 
-    return std::any_of(m_description.edges().begin(), m_description.edges().end(),
+    return std::any_of(m_description.edges().begin(),
+                       m_description.edges().end(),
                        [&](const EdgeDescription& edge) {
                            return edge.fromNode == from
-                               && edge.fromPort == connectionId.outPortIndex
-                               && edge.toNode == to
-                               && edge.toPort == connectionId.inPortIndex;
+                                  && edge.fromPort == connectionId.outPortIndex && edge.toNode == to
+                                  && edge.toPort == connectionId.inPortIndex;
                        });
 }
 
@@ -238,10 +236,8 @@ void PipelineGraphModel::addConnection(QtNodes::ConnectionId connectionId)
         return;
     }
 
-    m_description.addEdge(EdgeDescription{from,
-                                          connectionId.outPortIndex,
-                                          to,
-                                          connectionId.inPortIndex});
+    m_description.addEdge(
+        EdgeDescription{from, connectionId.outPortIndex, to, connectionId.inPortIndex});
 
     Q_EMIT connectionCreated(connectionId);
 }
@@ -251,10 +247,10 @@ bool PipelineGraphModel::deleteConnection(QtNodes::ConnectionId connectionId)
     const std::string from = descriptionId(connectionId.outNodeId);
     const std::string to = descriptionId(connectionId.inNodeId);
 
-    const std::size_t removed = std::erase_if(
-        m_description.edges(), [&](const EdgeDescription& edge) {
+    const std::size_t removed =
+        std::erase_if(m_description.edges(), [&](const EdgeDescription& edge) {
             return edge.fromNode == from && edge.fromPort == connectionId.outPortIndex
-                && edge.toNode == to && edge.toPort == connectionId.inPortIndex;
+                   && edge.toNode == to && edge.toPort == connectionId.inPortIndex;
         });
 
     if (removed == 0) {
@@ -376,9 +372,7 @@ QVariant PipelineGraphModel::nodeData(QtNodes::NodeId nodeId, QtNodes::NodeRole 
     return {};
 }
 
-bool PipelineGraphModel::setNodeData(QtNodes::NodeId nodeId,
-                                     QtNodes::NodeRole role,
-                                     QVariant value)
+bool PipelineGraphModel::setNodeData(QtNodes::NodeId nodeId, QtNodes::NodeRole role, QVariant value)
 {
     NodeDescription* node = description(nodeId);
     if (node == nullptr) {
@@ -447,9 +441,8 @@ QVariant PipelineGraphModel::portData(QtNodes::NodeId nodeId,
         return {};
     }
 
-    const std::vector<PortDescriptor>& ports = portType == QtNodes::PortType::Out
-        ? info->outputs
-        : info->inputs;
+    const std::vector<PortDescriptor>& ports =
+        portType == QtNodes::PortType::Out ? info->outputs : info->inputs;
 
     if (index >= ports.size()) {
         return {};
@@ -487,11 +480,8 @@ QVariant PipelineGraphModel::portData(QtNodes::NodeId nodeId,
     return {};
 }
 
-bool PipelineGraphModel::setPortData(QtNodes::NodeId,
-                                     QtNodes::PortType,
-                                     QtNodes::PortIndex,
-                                     const QVariant&,
-                                     QtNodes::PortRole)
+bool PipelineGraphModel::setPortData(
+    QtNodes::NodeId, QtNodes::PortType, QtNodes::PortIndex, const QVariant&, QtNodes::PortRole)
 {
     // Ports come from the node's type and are not editable. A node with a
     // different shape is a different type.

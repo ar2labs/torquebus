@@ -103,13 +103,13 @@ public:
     /// faulted - otherwise has to keep a raw pointer alongside the id and hope
     /// the two stay in step. Returns nullptr if the id is unknown or the node
     /// is not a T, so a wrong guess is a null check rather than a bad cast.
-    template <typename T>
+    template<typename T>
     [[nodiscard]] T* nodeAs(NodeId id) noexcept
     {
         return dynamic_cast<T*>(node(id));
     }
 
-    template <typename T>
+    template<typename T>
     [[nodiscard]] const T* nodeAs(NodeId id) const noexcept
     {
         return dynamic_cast<const T*>(node(id));

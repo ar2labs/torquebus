@@ -7,20 +7,20 @@
 
 #include "core/can/CanChannel.h"
 #include "core/database/DbcParser.h"
-#include "core/pipeline/nodes/DbcDecoderNode.h"
-#include "core/pipeline/nodes/FrameNodes.h"
-#include "core/transmit/TransmitListNode.h"
-#include "core/scripting/LuaEcuNode.h"
-#include "core/j1939/J1939Node.h"
-#include "core/scripting/LuaTestNode.h"
-#include "core/simulation/RestBusNode.h"
 #include "core/diagnostics/DiagnosticEvent.h"
 #include "core/diagnostics/UdsClientNode.h"
 #include "core/isotp/IsoTpNode.h"
+#include "core/j1939/J1939Node.h"
 #include "core/log/LogNodes.h"
+#include "core/pipeline/nodes/DbcDecoderNode.h"
+#include "core/pipeline/nodes/FrameNodes.h"
 #include "core/plot/SignalPlotNode.h"
+#include "core/scripting/LuaEcuNode.h"
+#include "core/scripting/LuaTestNode.h"
+#include "core/simulation/RestBusNode.h"
 #include "core/trace/TraceSinkNode.h"
 #include "core/trace/TraceStore.h"
+#include "core/transmit/TransmitListNode.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -58,8 +58,7 @@ namespace {
 {
     std::ifstream file{path, std::ios::binary};
     if (!file) {
-        return Result::error(ErrorCode::FileNotFound,
-                             std::format("Cannot open script '{}'", path));
+        return Result::error(ErrorCode::FileNotFound, std::format("Cannot open script '{}'", path));
     }
 
     std::ostringstream contents;
@@ -90,9 +89,9 @@ namespace {
         // The number the user sees is 1-based, so report it that way. A message
         // saying "channel 0" when the panel says "CAN 1" is a message that
         // costs somebody ten minutes.
-        return Result::error(ErrorCode::DeviceNotFound,
-                             std::format("Node '{}' is set to CAN {}, which is not configured",
-                                         nodeId, index + 1));
+        return Result::error(
+            ErrorCode::DeviceNotFound,
+            std::format("Node '{}' is set to CAN {}, which is not configured", nodeId, index + 1));
     }
 
     return Result::ok();
@@ -107,8 +106,7 @@ namespace {
 /// Called twice on purpose: once by the catalog's validator, so the problem is
 /// reported while the block is on screen, and once by the creator, which must
 /// not assume anybody validated first.
-[[nodiscard]] Result checkLuaScriptChoice(const NodeParameters& parameters,
-                                          std::string_view nodeId)
+[[nodiscard]] Result checkLuaScriptChoice(const NodeParameters& parameters, std::string_view nodeId)
 {
     const bool hasSource = parameters.contains("script");
     const bool hasPath = parameters.contains("scriptPath");
@@ -199,7 +197,8 @@ namespace {
                 std::format("Block '{}': '{}' does not name a signal. Signal names are "
                             "only unique within a message, so this wants "
                             "Message.Signal.",
-                            nodeId, entry));
+                            nodeId,
+                            entry));
         }
 
         driven.message = std::string{qualified.substr(0, dot)};
@@ -208,8 +207,8 @@ namespace {
         if (driven.message.empty() || driven.signal.empty()) {
             return Result::error(
                 ErrorCode::InvalidArgument,
-                std::format("Block '{}': '{}' is missing one half of Message.Signal",
-                            nodeId, entry));
+                std::format(
+                    "Block '{}': '{}' is missing one half of Message.Signal", nodeId, entry));
         }
 
         out.push_back(std::move(driven));
@@ -220,8 +219,7 @@ namespace {
 
 /// A rest bus with no database has nothing to say, and the block says so while
 /// it is on screen rather than at the next Start.
-[[nodiscard]] Result checkRestBus(const NodeParameters& parameters,
-                                  std::string_view nodeId)
+[[nodiscard]] Result checkRestBus(const NodeParameters& parameters, std::string_view nodeId)
 {
     if (parameters.text("database", "").empty()) {
         return Result::error(
@@ -278,10 +276,10 @@ Result NodeCatalog::validateParameters(std::string_view typeName,
         // Named by the label the properties editor shows, not by the key the
         // project file uses. The person reading this is looking at a form, and
         // "Channel" is what is written next to the empty field.
-        return Result::error(
-            ErrorCode::InvalidArgument,
-            std::format("Block '{}' needs its {} set before the pipeline can run.",
-                        nodeId, parameter.displayName));
+        return Result::error(ErrorCode::InvalidArgument,
+                             std::format("Block '{}' needs its {} set before the pipeline can run.",
+                                         nodeId,
+                                         parameter.displayName));
     }
 
     if (const auto validator = m_validators.find(typeName);
@@ -320,9 +318,10 @@ Result NodeCatalog::create(std::string_view typeName,
             known += info.typeName;
         }
 
-        return Result::error(ErrorCode::NotImplemented,
-                             std::format("Node '{}' has unknown type '{}'. Known types: {}",
-                                         nodeId, typeName, known));
+        return Result::error(
+            ErrorCode::NotImplemented,
+            std::format(
+                "Node '{}' has unknown type '{}'. Known types: {}", nodeId, typeName, known));
     }
 
     return creator->second(parameters, context, nodeId, out);
@@ -355,8 +354,10 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                                .required = false,
                                                .description = "Application channel, 0 for CAN 1."}},
         },
-        [](const NodeParameters& parameters, const NodeBuildContext& context,
-           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
+        [](const NodeParameters& parameters,
+           const NodeBuildContext& context,
+           std::string_view nodeId,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
             CanChannel* channel = nullptr;
             if (Result result = resolveChannel(parameters, context, nodeId, channel);
                 result.failed()) {
@@ -402,14 +403,15 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .description = "The value the mask is compared against."},
                 },
         },
-        [](const NodeParameters& parameters, const NodeBuildContext&, std::string_view,
+        [](const NodeParameters& parameters,
+           const NodeBuildContext&,
+           std::string_view,
            std::unique_ptr<IPipelineNode>& out) -> Result {
             CanFilter filter;
             filter.name = "graph";
-            filter.identifierFrom =
-                static_cast<std::uint32_t>(parameters.integer("from", 0));
-            filter.identifierTo = static_cast<std::uint32_t>(
-                parameters.integer("to", kMaxExtendedIdentifier));
+            filter.identifierFrom = static_cast<std::uint32_t>(parameters.integer("from", 0));
+            filter.identifierTo =
+                static_cast<std::uint32_t>(parameters.integer("to", kMaxExtendedIdentifier));
             filter.mask = static_cast<std::uint32_t>(parameters.integer("mask", 0));
             filter.value = static_cast<std::uint32_t>(parameters.integer("value", 0));
 
@@ -446,15 +448,13 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .displayName = "Database",
                                         .type = ParameterValue::Type::Text,
                                         .required = false,
-                                        .description =
-                                            "Optional .dbc, so the script can use "
-                                            "emit_signal() and decode()."},
+                                        .description = "Optional .dbc, so the script can use "
+                                                       "emit_signal() and decode()."},
                     ParameterDescriptor{.name = "channel",
                                         .displayName = "Transmit channel",
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
-                                        .description =
-                                            "Channel stamped onto the frames it emits."},
+                                        .description = "Channel stamped onto the frames it emits."},
                     ParameterDescriptor{
                         .name = "udsRequestId",
                         .displayName = "Diagnostic request ID",
@@ -463,18 +463,20 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                         .description =
                             "Identifier this ECU *listens* on - what a tester sends to. "
                             "Set it and the block answers UDS; leave it and it does not."},
-                    ParameterDescriptor{
-                        .name = "udsResponseId",
-                        .displayName = "Diagnostic response ID",
-                        .type = ParameterValue::Type::Integer,
-                        .required = false,
-                        .description = "Identifier this ECU answers on. 2024 (0x7E8) "
-                                       "answers a tester on 0x7E0."},
+                    ParameterDescriptor{.name = "udsResponseId",
+                                        .displayName = "Diagnostic response ID",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description =
+                                            "Identifier this ECU answers on. 2024 (0x7E8) "
+                                            "answers a tester on 0x7E0."},
                 },
             .acceptsExtraParameters = true,
         },
-        [](const NodeParameters& parameters, const NodeBuildContext& context,
-           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
+        [](const NodeParameters& parameters,
+           const NodeBuildContext& context,
+           std::string_view nodeId,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
             // Inline source or a path, never both silently: a project holding
             // one copy of the script and a stale path to another is a bug that
             // only shows up on the machine where the path resolves.
@@ -492,9 +494,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             if (hasPath) {
                 const std::string path = resolvePath(context, parameters.text("scriptPath"));
                 if (Result result = readFile(path, source); result.failed()) {
-                    return Result::error(result.code(),
-                                         std::format("Node '{}': {}", nodeId,
-                                                     std::string{result.message()}));
+                    return Result::error(
+                        result.code(),
+                        std::format("Node '{}': {}", nodeId, std::string{result.message()}));
                 }
 
                 // Errors read "ecu_motor.lua:42", not the node id, because that
@@ -506,7 +508,8 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             }
 
             auto node = std::make_unique<LuaEcuNode>(
-                std::move(source), std::move(name),
+                std::move(source),
+                std::move(name),
                 static_cast<std::uint8_t>(parameters.integer("channel", 0)));
 
             // What the measurement has seen, so a script can ask about the bus
@@ -538,9 +541,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                     static_cast<std::uint32_t>(parameters.integer("udsResponseId", 0x7E8));
                 address.channel = static_cast<std::uint8_t>(parameters.integer("channel", 0));
                 address.format = address.receiveId > kMaxStandardIdentifier
-                        || address.transmitId > kMaxStandardIdentifier
-                    ? CanFrameFormat::Extended
-                    : CanFrameFormat::Standard;
+                                         || address.transmitId > kMaxStandardIdentifier
+                                     ? CanFrameFormat::Extended
+                                     : CanFrameFormat::Standard;
 
                 node->enableDiagnostics(address, IsoTpConfig{});
             }
@@ -556,8 +559,7 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             // Settings the *node* reads. Everything else in the parameter map
             // is the script's, and reaches it through the `parameters` global.
             static constexpr std::string_view kReserved[] = {
-                "script", "scriptPath", "channel", "database", "udsRequestId",
-                "udsResponseId"};
+                "script", "scriptPath", "channel", "database", "udsRequestId", "udsResponseId"};
 
             std::map<std::string, LuaValue> scriptParameters;
 
@@ -594,9 +596,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
 
                 if (Result result = DbcParser::parseFile(databasePath, *database);
                     result.failed()) {
-                    return Result::error(result.code(),
-                                         std::format("Node '{}': {}", nodeId,
-                                                     std::string{result.message()}));
+                    return Result::error(
+                        result.code(),
+                        std::format("Node '{}': {}", nodeId, std::string{result.message()}));
                 }
 
                 node->setDatabase(std::move(database));
@@ -631,70 +633,64 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .displayName = "Database",
                                         .type = ParameterValue::Type::Text,
                                         .required = true,
-                                        .description =
-                                            "The .dbc describing the network to stand "
-                                            "in for."},
+                                        .description = "The .dbc describing the network to stand "
+                                                       "in for."},
                     ParameterDescriptor{
                         .name = "exclude",
                         .displayName = "Real nodes",
                         .type = ParameterValue::Type::Text,
                         .required = false,
-                        .description =
-                            "Nodes NOT to simulate, comma separated - the ECUs actually "
-                            "on the bench. This is the list to fill in."},
+                        .description = "Nodes NOT to simulate, comma separated - the ECUs actually "
+                                       "on the bench. This is the list to fill in."},
                     ParameterDescriptor{
                         .name = "nodes",
                         .displayName = "Simulated nodes",
                         .type = ParameterValue::Type::Text,
                         .required = false,
-                        .description =
-                            "Nodes to simulate, comma separated. Empty means every node "
-                            "the database describes."},
+                        .description = "Nodes to simulate, comma separated. Empty means every node "
+                                       "the database describes."},
                     ParameterDescriptor{
                         .name = "signals",
                         .displayName = "Driven signals",
                         .type = ParameterValue::Type::Text,
                         .required = false,
-                        .description =
-                            "Signals that follow a variable rather than holding their "
-                            "default: Engine.Speed, Engine.Throttle=throttle_pedal"},
+                        .description = "Signals that follow a variable rather than holding their "
+                                       "default: Engine.Speed, Engine.Throttle=throttle_pedal"},
                     ParameterDescriptor{
                         .name = "defaultCycleMs",
                         .displayName = "Default cycle time",
                         .type = ParameterValue::Type::Integer,
                         .required = false,
-                        .description =
-                            "For messages whose database declares none. Zero - the "
-                            "default - leaves them unsent, because a message with no "
-                            "cycle time is usually event-triggered and inventing a "
-                            "period puts traffic on the bus the real network never "
-                            "carries."},
+                        .description = "For messages whose database declares none. Zero - the "
+                                       "default - leaves them unsent, because a message with no "
+                                       "cycle time is usually event-triggered and inventing a "
+                                       "period puts traffic on the bus the real network never "
+                                       "carries."},
                     ParameterDescriptor{.name = "channel",
                                         .displayName = "Transmit channel",
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
-                                        .description =
-                                            "Channel stamped onto the frames it sends."},
+                                        .description = "Channel stamped onto the frames it sends."},
                 },
         },
-        [](const NodeParameters& parameters, const NodeBuildContext& context,
-           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
+        [](const NodeParameters& parameters,
+           const NodeBuildContext& context,
+           std::string_view nodeId,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
             if (Result result = checkRestBus(parameters, nodeId); result.failed()) {
                 return result;
             }
 
             auto node = std::make_unique<RestBusNode>();
 
-            const std::string databasePath =
-                resolvePath(context, parameters.text("database"));
+            const std::string databasePath = resolvePath(context, parameters.text("database"));
 
             auto database = std::make_shared<CanDatabase>();
 
-            if (Result result = DbcParser::parseFile(databasePath, *database);
-                result.failed()) {
-                return Result::error(result.code(),
-                                     std::format("Node '{}': {}", nodeId,
-                                                 std::string{result.message()}));
+            if (Result result = DbcParser::parseFile(databasePath, *database); result.failed()) {
+                return Result::error(
+                    result.code(),
+                    std::format("Node '{}': {}", nodeId, std::string{result.message()}));
             }
 
             node->setDatabase(std::move(database));
@@ -704,8 +700,7 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
 
             std::vector<RestBusNode::DrivenSignal> driven;
 
-            if (Result result =
-                    parseDrivenSignals(parameters.text("signals", ""), nodeId, driven);
+            if (Result result = parseDrivenSignals(parameters.text("signals", ""), nodeId, driven);
                 result.failed()) {
                 return result;
             }
@@ -715,8 +710,7 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
 
             node->setDefaultCycleMs(
                 static_cast<std::uint32_t>(parameters.integer("defaultCycleMs", 0)));
-            node->setTransmitChannel(
-                static_cast<std::uint8_t>(parameters.integer("channel", 0)));
+            node->setTransmitChannel(static_cast<std::uint8_t>(parameters.integer("channel", 0)));
 
             out = std::move(node);
             return Result::ok();
@@ -749,13 +743,14 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .displayName = "Transmit channel",
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
-                                        .description =
-                                            "Channel stamped onto the frames it sends."},
+                                        .description = "Channel stamped onto the frames it sends."},
                 },
             .acceptsExtraParameters = true,
         },
-        [](const NodeParameters& parameters, const NodeBuildContext& context,
-           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
+        [](const NodeParameters& parameters,
+           const NodeBuildContext& context,
+           std::string_view nodeId,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
             if (Result result = checkLuaScriptChoice(parameters, nodeId); result.failed()) {
                 return result;
             }
@@ -768,9 +763,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             if (hasPath) {
                 const std::string path = resolvePath(context, parameters.text("scriptPath"));
                 if (Result result = readFile(path, source); result.failed()) {
-                    return Result::error(result.code(),
-                                         std::format("Node '{}': {}", nodeId,
-                                                     std::string{result.message()}));
+                    return Result::error(
+                        result.code(),
+                        std::format("Node '{}': {}", nodeId, std::string{result.message()}));
                 }
 
                 const std::size_t separator = path.find_last_of("/\\");
@@ -780,7 +775,8 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             }
 
             auto node = std::make_unique<LuaTestNode>(
-                std::move(source), std::move(name),
+                std::move(source),
+                std::move(name),
                 static_cast<std::uint8_t>(parameters.integer("channel", 0)));
 
             // Where the verdict goes. Null in a graph built without one, and
@@ -842,8 +838,10 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                                .required = false,
                                                .description = "Path to a .dbc file."}},
         },
-        [](const NodeParameters& parameters, const NodeBuildContext& context,
-           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
+        [](const NodeParameters& parameters,
+           const NodeBuildContext& context,
+           std::string_view nodeId,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
             const std::string path = resolvePath(context, parameters.text("database", ""));
 
             // An empty path builds a decoder with no database rather than
@@ -866,10 +864,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             // way worth fixing when a project appears that does it. Caching in
             // the build context is the fix; guessing at it now would be a cache
             // with no measurement behind it.
-            const std::string label =
-                std::format("{} ({} messages)",
-                            path.substr(path.find_last_of("/\\") + 1),
-                            database->messageCount());
+            const std::string label = std::format("{} ({} messages)",
+                                                  path.substr(path.find_last_of("/\\") + 1),
+                                                  database->messageCount());
 
             out = std::make_unique<DbcDecoderNode>(std::move(database), label);
             return Result::ok();
@@ -895,25 +892,27 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                                        "one source address reads a bench "
                                                        "where the ECU answers from "
                                                        "another."},
-                    ParameterDescriptor{
-                        .name = "spnReading",
-                        .displayName = "Legacy SPN packing",
-                        .type = ParameterValue::Type::Text,
-                        .required = false,
-                        .description = "What to do with a trouble code whose conversion "
-                                       "bit says it used one of the three packings from "
-                                       "before 1996. Empty or version4: leave it "
-                                       "unassembled, because the wire does not say which "
-                                       "of the three it is and every guess looks like a "
-                                       "real SPN. version1, version2 or version3: read it "
-                                       "that way, for a bus somebody knows. raw: assemble "
-                                       "nothing at all. A code whose bit is clear is "
-                                       "version 4 under every setting - it is not "
-                                       "ambiguous."},
+                    ParameterDescriptor{.name = "spnReading",
+                                        .displayName = "Legacy SPN packing",
+                                        .type = ParameterValue::Type::Text,
+                                        .required = false,
+                                        .description =
+                                            "What to do with a trouble code whose conversion "
+                                            "bit says it used one of the three packings from "
+                                            "before 1996. Empty or version4: leave it "
+                                            "unassembled, because the wire does not say which "
+                                            "of the three it is and every guess looks like a "
+                                            "real SPN. version1, version2 or version3: read it "
+                                            "that way, for a bus somebody knows. raw: assemble "
+                                            "nothing at all. A code whose bit is clear is "
+                                            "version 4 under every setting - it is not "
+                                            "ambiguous."},
                 },
         },
-        [](const NodeParameters& parameters, const NodeBuildContext& context,
-           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
+        [](const NodeParameters& parameters,
+           const NodeBuildContext& context,
+           std::string_view nodeId,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
             const std::string path = resolvePath(context, parameters.text("database", ""));
 
             std::shared_ptr<CanDatabase> database;
@@ -927,8 +926,7 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                 database = std::make_shared<CanDatabase>();
                 if (Result result = DbcParser::parseFile(path, *database); result.failed()) {
                     return Result::error(result.code(),
-                                         std::format("Node '{}': {}", nodeId,
-                                                     result.message()));
+                                         std::format("Node '{}': {}", nodeId, result.message()));
                 }
 
                 label = std::format("J1939 - {} ({} messages)",
@@ -955,11 +953,11 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             } else if (spnReading == "raw") {
                 node->setSpnReading(J1939SpnReading::RawOnly);
             } else {
-                return Result::error(
-                    ErrorCode::InvalidArgument,
-                    std::format("Node '{}': '{}' is not a legacy SPN packing. Use "
-                                "version1, version2, version3, version4 or raw",
-                                nodeId, spnReading));
+                return Result::error(ErrorCode::InvalidArgument,
+                                     std::format("Node '{}': '{}' is not a legacy SPN packing. Use "
+                                                 "version1, version2, version3, version4 or raw",
+                                                 nodeId,
+                                                 spnReading));
             }
 
             // Null in a headless build, and the block then keeps its view of
@@ -985,8 +983,10 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                 .required = false,
                 .description = "Which channel's rows this block sends. 0 for CAN 1."}},
         },
-        [](const NodeParameters& parameters, const NodeBuildContext& context,
-           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
+        [](const NodeParameters& parameters,
+           const NodeBuildContext& context,
+           std::string_view nodeId,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
             if (context.transmitList == nullptr) {
                 return Result::error(
                     ErrorCode::InvalidState,
@@ -1027,8 +1027,10 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                             "minute in a minute."},
                 },
         },
-        [](const NodeParameters& parameters, const NodeBuildContext& context,
-           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
+        [](const NodeParameters& parameters,
+           const NodeBuildContext& context,
+           std::string_view nodeId,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
             const std::string path = resolvePath(context, parameters.text("path", ""));
 
             // Required, unlike every other path in this catalog, and the
@@ -1037,9 +1039,8 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             // with no file is a source that will never produce a frame - a
             // measurement that runs and does nothing, with no error anywhere.
             if (path.empty()) {
-                return Result::error(
-                    ErrorCode::InvalidArgument,
-                    std::format("Block '{}' needs a log file to replay.", nodeId));
+                return Result::error(ErrorCode::InvalidArgument,
+                                     std::format("Block '{}' needs a log file to replay.", nodeId));
             }
 
             auto reader = std::make_unique<TraceLogReader>();
@@ -1110,9 +1111,8 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .displayName = "Pad frames",
                                         .type = ParameterValue::Type::Boolean,
                                         .required = false,
-                                        .description =
-                                            "Fill every frame to its full length. Many "
-                                            "ECUs ignore a frame that is not padded."},
+                                        .description = "Fill every frame to its full length. Many "
+                                                       "ECUs ignore a frame that is not padded."},
                     ParameterDescriptor{.name = "canFd",
                                         .displayName = "CAN FD",
                                         .type = ParameterValue::Type::Boolean,
@@ -1129,9 +1129,8 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .displayName = "P2* timeout (ms)",
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
-                                        .description =
-                                            "How long after the ECU says it is still "
-                                            "working. 5000 ms."},
+                                        .description = "How long after the ECU says it is still "
+                                                       "working. 5000 ms."},
                     ParameterDescriptor{.name = "keepSessionAlive",
                                         .displayName = "Hold the session open",
                                         .type = ParameterValue::Type::Boolean,
@@ -1142,12 +1141,15 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                             "anything."},
                 },
         },
-        [](const NodeParameters& parameters, const NodeBuildContext& context,
-           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
+        [](const NodeParameters& parameters,
+           const NodeBuildContext& context,
+           std::string_view nodeId,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
             static_cast<void>(nodeId);
 
             IsoTpAddress address;
-            address.transmitId = static_cast<std::uint32_t>(parameters.integer("transmitId", 0x7E0));
+            address.transmitId =
+                static_cast<std::uint32_t>(parameters.integer("transmitId", 0x7E0));
             address.receiveId = static_cast<std::uint32_t>(parameters.integer("receiveId", 0x7E8));
             address.format = parameters.boolean("extendedId", false) ? CanFrameFormat::Extended
                                                                      : CanFrameFormat::Standard;
@@ -1162,8 +1164,8 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             timing.p2StarMs = static_cast<std::uint32_t>(parameters.integer("p2StarMs", 5000));
             timing.keepSessionAlive = parameters.boolean("keepSessionAlive", true);
 
-            out = std::make_unique<UdsClientNode>(address, transport, timing,
-                                                  context.diagnosticSession);
+            out = std::make_unique<UdsClientNode>(
+                address, transport, timing, context.diagnosticSession);
             return Result::ok();
         },
         [](const NodeParameters& parameters, std::string_view nodeId) -> Result {
@@ -1174,9 +1176,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             const std::int64_t p2Star = parameters.integer("p2StarMs", 5000);
 
             if (p2 <= 0 || p2Star <= 0) {
-                return Result::error(ErrorCode::InvalidArgument,
-                                     std::format("Block '{}': a timeout has to be positive.",
-                                                 nodeId));
+                return Result::error(
+                    ErrorCode::InvalidArgument,
+                    std::format("Block '{}': a timeout has to be positive.", nodeId));
             }
 
             if (p2 > p2Star) {
@@ -1185,7 +1187,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                     std::format("Block '{}': P2 ({} ms) is longer than P2* ({} ms). P2* is "
                                 "the *extended* deadline the ECU gets after saying it is "
                                 "still working, so it cannot be the shorter of the two.",
-                                nodeId, p2, p2Star));
+                                nodeId,
+                                p2,
+                                p2Star));
             }
 
             return Result::ok();
@@ -1222,9 +1226,8 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .displayName = "29-bit identifiers",
                                         .type = ParameterValue::Type::Boolean,
                                         .required = false,
-                                        .description =
-                                            "Heavy vehicles use 29-bit addresses; cars "
-                                            "usually do not."},
+                                        .description = "Heavy vehicles use 29-bit addresses; cars "
+                                                       "usually do not."},
                     ParameterDescriptor{.name = "channel",
                                         .displayName = "Channel",
                                         .type = ParameterValue::Type::Integer,
@@ -1241,16 +1244,14 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .displayName = "Separation time (ms)",
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
-                                        .description =
-                                            "Gap this end needs between consecutive "
-                                            "frames, 0 to 127."},
+                                        .description = "Gap this end needs between consecutive "
+                                                       "frames, 0 to 127."},
                     ParameterDescriptor{.name = "padding",
                                         .displayName = "Pad frames",
                                         .type = ParameterValue::Type::Boolean,
                                         .required = false,
-                                        .description =
-                                            "Fill every frame to its full length. Many "
-                                            "ECUs ignore a frame that is not padded."},
+                                        .description = "Fill every frame to its full length. Many "
+                                                       "ECUs ignore a frame that is not padded."},
                     ParameterDescriptor{.name = "canFd",
                                         .displayName = "CAN FD",
                                         .type = ParameterValue::Type::Boolean,
@@ -1260,10 +1261,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .displayName = "Request",
                                         .type = ParameterValue::Type::Text,
                                         .required = false,
-                                        .description =
-                                            "Bytes to send, as hex: \"22 F1 90\". Left "
-                                            "empty, the block only carries what an "
-                                            "upstream block asks it to."},
+                                        .description = "Bytes to send, as hex: \"22 F1 90\". Left "
+                                                       "empty, the block only carries what an "
+                                                       "upstream block asks it to."},
                     ParameterDescriptor{.name = "requestIntervalMs",
                                         .displayName = "Repeat every (ms)",
                                         .type = ParameterValue::Type::Integer,
@@ -1274,12 +1274,15 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                             "while somebody drives does."},
                 },
         },
-        [](const NodeParameters& parameters, const NodeBuildContext& context,
-           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
+        [](const NodeParameters& parameters,
+           const NodeBuildContext& context,
+           std::string_view nodeId,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
             static_cast<void>(context);
 
             IsoTpAddress address;
-            address.transmitId = static_cast<std::uint32_t>(parameters.integer("transmitId", 0x7E0));
+            address.transmitId =
+                static_cast<std::uint32_t>(parameters.integer("transmitId", 0x7E0));
             address.receiveId = static_cast<std::uint32_t>(parameters.integer("receiveId", 0x7E8));
             address.format = parameters.boolean("extendedId", false) ? CanFrameFormat::Extended
                                                                      : CanFrameFormat::Standard;
@@ -1298,13 +1301,15 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                 if (!parseHexBytes(text, request)) {
                     return Result::error(
                         ErrorCode::InvalidArgument,
-                        std::format("Block '{}': '{}' is not a whole number of hex bytes.",
-                                    nodeId, text));
+                        std::format(
+                            "Block '{}': '{}' is not a whole number of hex bytes.", nodeId, text));
                 }
             }
 
             out = std::make_unique<IsoTpNode>(
-                address, config, std::move(request),
+                address,
+                config,
+                std::move(request),
                 static_cast<std::uint32_t>(parameters.integer("requestIntervalMs", 0)));
 
             return Result::ok();
@@ -1328,8 +1333,7 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
 
             if (blockSize < 0 || blockSize > 255) {
                 return Result::error(ErrorCode::InvalidArgument,
-                                     std::format("Block '{}': a block size is 0 to 255.",
-                                                 nodeId));
+                                     std::format("Block '{}': a block size is 0 to 255.", nodeId));
             }
 
             std::vector<std::uint8_t> ignored;
@@ -1341,7 +1345,8 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                     std::format("Block '{}': '{}' is not a whole number of hex bytes - "
                                 "\"22 F1 90\" is three bytes, \"22 F1 9\" is not two and a "
                                 "half.",
-                                nodeId, text));
+                                nodeId,
+                                text));
             }
 
             return Result::ok();
@@ -1362,8 +1367,10 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                                .required = false,
                                                .description = "Application channel to send on."}},
         },
-        [](const NodeParameters& parameters, const NodeBuildContext& context,
-           std::string_view nodeId, std::unique_ptr<IPipelineNode>& out) -> Result {
+        [](const NodeParameters& parameters,
+           const NodeBuildContext& context,
+           std::string_view nodeId,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
             CanChannel* channel = nullptr;
             if (Result result = resolveChannel(parameters, context, nodeId, channel);
                 result.failed()) {
@@ -1384,7 +1391,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             .outputs = {},
             .parameters = {},
         },
-        [](const NodeParameters&, const NodeBuildContext& context, std::string_view nodeId,
+        [](const NodeParameters&,
+           const NodeBuildContext& context,
+           std::string_view nodeId,
            std::unique_ptr<IPipelineNode>& out) -> Result {
             if (context.traceStore == nullptr) {
                 return Result::error(ErrorCode::InvalidState,
@@ -1407,7 +1416,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             .outputs = {},
             .parameters = {},
         },
-        [](const NodeParameters&, const NodeBuildContext& context, std::string_view nodeId,
+        [](const NodeParameters&,
+           const NodeBuildContext& context,
+           std::string_view nodeId,
            std::unique_ptr<IPipelineNode>& out) -> Result {
             if (context.logWriter == nullptr) {
                 return Result::error(
@@ -1431,7 +1442,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             .outputs = {},
             .parameters = {},
         },
-        [](const NodeParameters&, const NodeBuildContext& context, std::string_view nodeId,
+        [](const NodeParameters&,
+           const NodeBuildContext& context,
+           std::string_view nodeId,
            std::unique_ptr<IPipelineNode>& out) -> Result {
             if (context.plotStore == nullptr) {
                 return Result::error(ErrorCode::InvalidState,

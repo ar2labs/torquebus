@@ -36,10 +36,10 @@ Theme Theme::dark()
     theme.variant = ThemeVariant::Dark;
     theme.name = QStringLiteral("TorqueBus Dark");
 
-    theme.background     = QColor(0x1A, 0x1C, 0x1E);
-    theme.panel          = QColor(0x20, 0x23, 0x25);
+    theme.background = QColor(0x1A, 0x1C, 0x1E);
+    theme.panel = QColor(0x20, 0x23, 0x25);
     theme.panelAlternate = QColor(0x25, 0x28, 0x2A);
-    theme.toolbar        = QColor(0x2A, 0x2D, 0x30);
+    theme.toolbar = QColor(0x2A, 0x2D, 0x30);
 
     // The surface ladder, darkest first:
     //
@@ -52,16 +52,16 @@ Theme Theme::dark()
     // surface at a glance, small enough that the window still looks like one
     // object rather than a collage. The active tab shares `panel` exactly, so
     // it merges into the content below it.
-    theme.tabStrip       = QColor(0x16, 0x19, 0x1B);
-    theme.separator      = QColor(0x0E, 0x10, 0x11);
-    theme.border         = QColor(0x34, 0x38, 0x3B);
-    theme.hover          = QColor(0x2F, 0x33, 0x36);
-    theme.selection      = QColor(0x1B, 0x42, 0x56);
+    theme.tabStrip = QColor(0x16, 0x19, 0x1B);
+    theme.separator = QColor(0x0E, 0x10, 0x11);
+    theme.border = QColor(0x34, 0x38, 0x3B);
+    theme.hover = QColor(0x2F, 0x33, 0x36);
+    theme.selection = QColor(0x1B, 0x42, 0x56);
 
     // Above the panels rather than below them. A divider tinted like
     // `separator` reads as a groove between two panels and vanishes the moment
     // it borders the canvas, which is darker still.
-    theme.divider        = QColor(0x36, 0x3C, 0x40);
+    theme.divider = QColor(0x36, 0x3C, 0x40);
 
     // The canvas is the deepest surface in the window - deeper than the groove
     // between panels - so the blocks, which are painted in `panel`, float the
@@ -70,26 +70,26 @@ Theme Theme::dark()
     // The grid is two steps up from it: +5 for the 15 px filler, which should
     // be felt rather than seen, and +14 for the 150 px guide, which is what the
     // eye actually aligns to.
-    theme.canvas           = QColor(0x0C, 0x0E, 0x0F);
-    theme.canvasGridFine   = QColor(0x11, 0x13, 0x14);
+    theme.canvas = QColor(0x0C, 0x0E, 0x0F);
+    theme.canvasGridFine = QColor(0x11, 0x13, 0x14);
     theme.canvasGridCoarse = QColor(0x1A, 0x1D, 0x1F);
 
-    theme.text           = QColor(0xD4, 0xD7, 0xDA);
-    theme.textMuted      = QColor(0x8A, 0x8F, 0x94);
-    theme.textInverted   = QColor(0x0F, 0x11, 0x12);
+    theme.text = QColor(0xD4, 0xD7, 0xDA);
+    theme.textMuted = QColor(0x8A, 0x8F, 0x94);
+    theme.textInverted = QColor(0x0F, 0x11, 0x12);
 
-    theme.accent         = QColor(0x2F, 0xB6, 0xCC);
-    theme.accentHover    = QColor(0x4F, 0xD0, 0xE4);
+    theme.accent = QColor(0x2F, 0xB6, 0xCC);
+    theme.accentHover = QColor(0x4F, 0xD0, 0xE4);
 
     // Rx and Tx are the two colours a user reads thousands of times an hour in
     // the trace. They are picked to differ in hue *and* in lightness, so they
     // stay distinguishable for the ~8% of men with a colour vision deficiency,
     // and they are desaturated enough not to vibrate against the dark grey.
-    theme.rx             = QColor(0x7C, 0xC2, 0x94);
-    theme.tx             = QColor(0x6E, 0xAD, 0xE8);
-    theme.warning        = QColor(0xDC, 0xB4, 0x5C);
-    theme.error          = QColor(0xDC, 0x6F, 0x6F);
-    theme.success        = QColor(0x7C, 0xC2, 0x94);
+    theme.rx = QColor(0x7C, 0xC2, 0x94);
+    theme.tx = QColor(0x6E, 0xAD, 0xE8);
+    theme.warning = QColor(0xDC, 0xB4, 0x5C);
+    theme.error = QColor(0xDC, 0x6F, 0x6F);
+    theme.success = QColor(0x7C, 0xC2, 0x94);
 
     return theme;
 }
@@ -104,10 +104,10 @@ Theme Theme::light()
     // that is where the data lives, and the chrome recedes behind it. Widened
     // to match the dark theme, so the two variants have the same structural
     // legibility rather than one being an afterthought.
-    theme.background     = QColor(0xE8, 0xEB, 0xEF);
-    theme.panel          = QColor(0xFF, 0xFF, 0xFF);
+    theme.background = QColor(0xE8, 0xEB, 0xEF);
+    theme.panel = QColor(0xFF, 0xFF, 0xFF);
     theme.panelAlternate = QColor(0xF4, 0xF6, 0xF8);
-    theme.toolbar        = QColor(0xDD, 0xE2, 0xE8);
+    theme.toolbar = QColor(0xDD, 0xE2, 0xE8);
 
     // The same ladder inverted, and it has to be inverted rather than
     // mirrored: on a light theme the recessed surfaces go *darker* than the
@@ -118,31 +118,31 @@ Theme Theme::light()
     //   background #E8EBEF   the window void
     //   tabStrip   #D7DCE3   behind the tabs
     //   separator  #C3CAD4   the groove between panels
-    theme.tabStrip       = QColor(0xD7, 0xDC, 0xE3);
-    theme.separator      = QColor(0xC3, 0xCA, 0xD4);
-    theme.border         = QColor(0xBF, 0xC5, 0xCE);
-    theme.hover          = QColor(0xD2, 0xD8, 0xE0);
-    theme.selection      = QColor(0xC4, 0xE3, 0xF5);
+    theme.tabStrip = QColor(0xD7, 0xDC, 0xE3);
+    theme.separator = QColor(0xC3, 0xCA, 0xD4);
+    theme.border = QColor(0xBF, 0xC5, 0xCE);
+    theme.hover = QColor(0xD2, 0xD8, 0xE0);
+    theme.selection = QColor(0xC4, 0xE3, 0xF5);
 
     // Below the panels here, as it is above them in the dark theme: the
     // divider has to be visible against the white content on one side and the
     // recessed canvas on the other.
-    theme.divider        = QColor(0xB8, 0xBF, 0xCA);
+    theme.divider = QColor(0xB8, 0xBF, 0xCA);
 
     // Recessed from the white panels, but nothing like as deep as the dark
     // theme's canvas - a light window with a near-black rectangle in the middle
     // of it is not a light window. The grid steps *down* from the ground here,
     // by the same two magnitudes.
-    theme.canvas           = QColor(0xDE, 0xE2, 0xE8);
-    theme.canvasGridFine   = QColor(0xD7, 0xDC, 0xE3);
+    theme.canvas = QColor(0xDE, 0xE2, 0xE8);
+    theme.canvasGridFine = QColor(0xD7, 0xDC, 0xE3);
     theme.canvasGridCoarse = QColor(0xC5, 0xCC, 0xD6);
 
-    theme.text           = QColor(0x17, 0x19, 0x1D);
-    theme.textMuted      = QColor(0x62, 0x6A, 0x75);
-    theme.textInverted   = QColor(0xFF, 0xFF, 0xFF);
+    theme.text = QColor(0x17, 0x19, 0x1D);
+    theme.textMuted = QColor(0x62, 0x6A, 0x75);
+    theme.textInverted = QColor(0xFF, 0xFF, 0xFF);
 
-    theme.accent         = QColor(0x0B, 0x74, 0x90);
-    theme.accentHover    = QColor(0x0F, 0x8F, 0xB2);
+    theme.accent = QColor(0x0B, 0x74, 0x90);
+    theme.accentHover = QColor(0x0F, 0x8F, 0xB2);
 
     // Darker than their dark-theme counterparts: these are read against white.
     //
@@ -151,11 +151,11 @@ Theme Theme::light()
     // for body text, which for a warning colour is the wrong side of the line to
     // be on. Darkened until it clears; it stops looking like amber somewhere
     // around here, which is why the dark theme keeps its own value.
-    theme.rx             = QColor(0x1F, 0x7A, 0x43);
-    theme.tx             = QColor(0x1B, 0x5F, 0xA8);
-    theme.warning        = QColor(0x8A, 0x60, 0x00);
-    theme.error          = QColor(0xB3, 0x2B, 0x2B);
-    theme.success        = QColor(0x1F, 0x7A, 0x43);
+    theme.rx = QColor(0x1F, 0x7A, 0x43);
+    theme.tx = QColor(0x1B, 0x5F, 0xA8);
+    theme.warning = QColor(0x8A, 0x60, 0x00);
+    theme.error = QColor(0xB3, 0x2B, 0x2B);
+    theme.success = QColor(0x1F, 0x7A, 0x43);
 
     return theme;
 }
@@ -189,9 +189,12 @@ int rowPaddingFor(Density density)
     // which is what the sheet has always said - the default is not a new
     // opinion about how the application should look.
     switch (density) {
-    case Density::Compact:     return 0;
-    case Density::Comfortable: return 1;
-    case Density::Spacious:    return 3;
+    case Density::Compact:
+        return 0;
+    case Density::Comfortable:
+        return 1;
+    case Density::Spacious:
+        return 3;
     }
     return 1;
 }
@@ -199,9 +202,12 @@ int rowPaddingFor(Density density)
 int rowMinimumHeightFor(Density density)
 {
     switch (density) {
-    case Density::Compact:     return 16;
-    case Density::Comfortable: return 18;
-    case Density::Spacious:    return 24;
+    case Density::Compact:
+        return 16;
+    case Density::Comfortable:
+        return 18;
+    case Density::Spacious:
+        return 24;
     }
     return 18;
 }
@@ -209,9 +215,12 @@ int rowMinimumHeightFor(Density density)
 QString toString(Density density)
 {
     switch (density) {
-    case Density::Compact:     return QStringLiteral("compact");
-    case Density::Comfortable: return QStringLiteral("comfortable");
-    case Density::Spacious:    return QStringLiteral("spacious");
+    case Density::Compact:
+        return QStringLiteral("compact");
+    case Density::Comfortable:
+        return QStringLiteral("comfortable");
+    case Density::Spacious:
+        return QStringLiteral("spacious");
     }
     return QStringLiteral("comfortable");
 }

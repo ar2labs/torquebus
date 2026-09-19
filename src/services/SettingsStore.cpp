@@ -22,13 +22,11 @@ constexpr int kCurrentSettingsVersion = 1;
 
 SettingsStore::SettingsStore()
     : SettingsStore{defaultFilePath()}
-{
-}
+{ }
 
 SettingsStore::SettingsStore(QString filePath)
     : m_filePath{std::move(filePath)}
-{
-}
+{ }
 
 QString SettingsStore::defaultFilePath()
 {

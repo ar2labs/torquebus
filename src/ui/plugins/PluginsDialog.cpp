@@ -63,12 +63,11 @@ PluginsDialog::PluginsDialog(const plugins::PluginLoader& loader, QWidget* paren
         summary->setText(tr("No plugins found beside the application. Everything "
                             "TorqueBus can do right now is built in."));
     } else {
-        summary->setText(tr("%n plugin(s) loaded", nullptr,
-                            static_cast<int>(loader.loaded().size()))
-                         + (loader.rejected().empty()
-                                ? QString{}
-                                : tr(", %n refused", nullptr,
-                                     static_cast<int>(loader.rejected().size()))));
+        summary->setText(
+            tr("%n plugin(s) loaded", nullptr, static_cast<int>(loader.loaded().size()))
+            + (loader.rejected().empty()
+                   ? QString{}
+                   : tr(", %n refused", nullptr, static_cast<int>(loader.rejected().size()))));
     }
 
     layout->addWidget(summary);
@@ -90,9 +89,9 @@ PluginsDialog::PluginsDialog(const plugins::PluginLoader& loader, QWidget* paren
 
     for (const plugins::LoadedPlugin& plugin : loader.loaded()) {
         auto* row = new QTreeWidgetItem(tree);
-        row->setText(ColumnName, QString::fromStdString(
-                                     plugin.displayName.empty() ? plugin.name
-                                                                : plugin.displayName));
+        row->setText(
+            ColumnName,
+            QString::fromStdString(plugin.displayName.empty() ? plugin.name : plugin.displayName));
         row->setText(ColumnVersion, QString::fromStdString(plugin.version));
         row->setText(ColumnFile, fileName(plugin.path));
         row->setText(ColumnDetail, tr("loaded"));
@@ -119,11 +118,11 @@ PluginsDialog::PluginsDialog(const plugins::PluginLoader& loader, QWidget* paren
     // The host key, because the commonest refusal is a key that does not match
     // and the message shows both - so this is the half somebody needs to give
     // to whoever built the plugin.
-    auto* key = new QLabel(tr("This build accepts plugins marked  %1")
-                               .arg(QString::fromUtf8(
-                                   plugins::PluginLoader::hostBuildKey().data(),
-                                   static_cast<qsizetype>(
-                                       plugins::PluginLoader::hostBuildKey().size()))));
+    auto* key =
+        new QLabel(tr("This build accepts plugins marked  %1")
+                       .arg(QString::fromUtf8(
+                           plugins::PluginLoader::hostBuildKey().data(),
+                           static_cast<qsizetype>(plugins::PluginLoader::hostBuildKey().size()))));
     key->setTextInteractionFlags(Qt::TextSelectableByMouse);
     key->setStyleSheet(QStringLiteral("color: %1;").arg(theme.textMuted.name()));
     layout->addWidget(key);

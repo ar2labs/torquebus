@@ -115,9 +115,8 @@ public:
     ///
     /// Does not compile: the caller adds whatever else it needs - the engine
     /// adds its own default trace path - and compiles once, at the end.
-    [[nodiscard]] Result build(const NodeCatalog& catalog,
-                               const NodeBuildContext& context,
-                               PipelineGraph& graph) const;
+    [[nodiscard]] Result
+    build(const NodeCatalog& catalog, const NodeBuildContext& context, PipelineGraph& graph) const;
 
     [[nodiscard]] friend bool operator==(const GraphDescription&,
                                          const GraphDescription&) = default;

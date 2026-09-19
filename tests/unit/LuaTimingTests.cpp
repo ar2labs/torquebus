@@ -41,10 +41,7 @@ public:
         return kPorts;
     }
 
-    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override
-    {
-        return {};
-    }
+    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override { return {}; }
 
     void process(NodeContext& context) override
     {
@@ -311,8 +308,7 @@ TEST_CASE("every wants a function, and says so", "[lua][timing]")
     CHECK(std::string{result.message()}.find("function") != std::string::npos);
 }
 
-TEST_CASE("The generators are arithmetic over the measurement clock",
-          "[lua][timing][prelude]")
+TEST_CASE("The generators are arithmetic over the measurement clock", "[lua][timing][prelude]")
 {
     // Checked through what they produce rather than by reading them back: a
     // ramp that never leaves its bounds and a sine that goes both above and

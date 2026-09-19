@@ -17,8 +17,7 @@ constexpr std::uint8_t kSuppressPositiveResponse = 0x80U;
 /// The identifier in the two bytes after the service.
 [[nodiscard]] std::uint16_t identifierOf(std::span<const std::uint8_t> request) noexcept
 {
-    return static_cast<std::uint16_t>((static_cast<std::uint16_t>(request[1]) << 8U)
-                                      | request[2]);
+    return static_cast<std::uint16_t>((static_cast<std::uint16_t>(request[1]) << 8U) | request[2]);
 }
 
 } // namespace
@@ -48,8 +47,7 @@ void UdsServer::clearTroubleCodes()
     m_troubleCodes.clear();
 }
 
-std::vector<std::uint8_t> UdsServer::refuse(std::uint8_t service,
-                                            UdsNegativeResponse reason) const
+std::vector<std::uint8_t> UdsServer::refuse(std::uint8_t service, UdsNegativeResponse reason) const
 {
     return {kNegativeResponse, service, static_cast<std::uint8_t>(reason)};
 }
@@ -62,9 +60,8 @@ bool UdsServer::sessionAllows(UdsSession wanted) const noexcept
     return wanted == UdsSession::Default || wanted == m_session;
 }
 
-std::optional<std::vector<std::uint8_t>> UdsServer::handleSessionControl(
-    std::span<const std::uint8_t> request,
-    std::uint64_t nowNs)
+std::optional<std::vector<std::uint8_t>>
+UdsServer::handleSessionControl(std::span<const std::uint8_t> request, std::uint64_t nowNs)
 {
     if (request.size() < 2) {
         return refuse(request[0], UdsNegativeResponse::IncorrectMessageLength);
@@ -104,11 +101,14 @@ std::optional<std::vector<std::uint8_t>> UdsServer::handleSessionControl(
     // it: 50 ms and 5000 ms in the units the message uses (P2* is in tens).
     return std::vector<std::uint8_t>{static_cast<std::uint8_t>(request[0] + 0x40U),
                                      static_cast<std::uint8_t>(wanted),
-                                     0x00, 0x32, 0x01, 0xF4};
+                                     0x00,
+                                     0x32,
+                                     0x01,
+                                     0xF4};
 }
 
-std::optional<std::vector<std::uint8_t>> UdsServer::handleReadDid(
-    std::span<const std::uint8_t> request)
+std::optional<std::vector<std::uint8_t>>
+UdsServer::handleReadDid(std::span<const std::uint8_t> request)
 {
     if (request.size() < 3) {
         return refuse(request[0], UdsNegativeResponse::IncorrectMessageLength);
@@ -131,15 +131,15 @@ std::optional<std::vector<std::uint8_t>> UdsServer::handleReadDid(
         return refuse(request[0], UdsNegativeResponse::SecurityAccessDenied);
     }
 
-    std::vector<std::uint8_t> response{static_cast<std::uint8_t>(request[0] + 0x40U),
-                                       request[1], request[2]};
+    std::vector<std::uint8_t> response{
+        static_cast<std::uint8_t>(request[0] + 0x40U), request[1], request[2]};
 
     response.insert(response.end(), found->second.value.begin(), found->second.value.end());
     return response;
 }
 
-std::optional<std::vector<std::uint8_t>> UdsServer::handleWriteDid(
-    std::span<const std::uint8_t> request)
+std::optional<std::vector<std::uint8_t>>
+UdsServer::handleWriteDid(std::span<const std::uint8_t> request)
 {
     if (request.size() < 4) {
         return refuse(request[0], UdsNegativeResponse::IncorrectMessageLength);
@@ -168,12 +168,12 @@ std::optional<std::vector<std::uint8_t>> UdsServer::handleWriteDid(
 
     found->second.value.assign(request.begin() + 3, request.end());
 
-    return std::vector<std::uint8_t>{static_cast<std::uint8_t>(request[0] + 0x40U),
-                                     request[1], request[2]};
+    return std::vector<std::uint8_t>{
+        static_cast<std::uint8_t>(request[0] + 0x40U), request[1], request[2]};
 }
 
-std::optional<std::vector<std::uint8_t>> UdsServer::handleReadDtc(
-    std::span<const std::uint8_t> request)
+std::optional<std::vector<std::uint8_t>>
+UdsServer::handleReadDtc(std::span<const std::uint8_t> request)
 {
     if (request.size() < 2) {
         return refuse(request[0], UdsNegativeResponse::IncorrectMessageLength);
@@ -226,8 +226,8 @@ std::optional<std::vector<std::uint8_t>> UdsServer::handleReadDtc(
     return response;
 }
 
-std::optional<std::vector<std::uint8_t>> UdsServer::handleSecurityAccess(
-    std::span<const std::uint8_t> request)
+std::optional<std::vector<std::uint8_t>>
+UdsServer::handleSecurityAccess(std::span<const std::uint8_t> request)
 {
     if (request.size() < 2) {
         return refuse(request[0], UdsNegativeResponse::IncorrectMessageLength);
@@ -289,9 +289,8 @@ std::optional<std::vector<std::uint8_t>> UdsServer::handleSecurityAccess(
     return std::vector<std::uint8_t>{static_cast<std::uint8_t>(request[0] + 0x40U), request[1]};
 }
 
-std::optional<std::vector<std::uint8_t>> UdsServer::handle(
-    std::span<const std::uint8_t> request,
-    std::uint64_t nowNs)
+std::optional<std::vector<std::uint8_t>> UdsServer::handle(std::span<const std::uint8_t> request,
+                                                           std::uint64_t nowNs)
 {
     if (request.empty()) {
         return std::nullopt;

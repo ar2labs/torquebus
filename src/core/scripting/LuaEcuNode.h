@@ -50,22 +50,22 @@
 #include "core/can/CanFrame.h"
 #include "core/dashboard/SystemVariables.h"
 #include "core/database/CanMessage.h"
-#include "core/pipeline/PipelineNode.h"
-#include "core/trace/TraceStore.h"
 #include "core/diagnostics/UdsServer.h"
 #include "core/isotp/IsoTpConnection.h"
+#include "core/pipeline/PipelineNode.h"
 #include "core/scripting/LuaRuntime.h"
 #include "core/scripting/ScriptLibrary.h"
+#include "core/trace/TraceStore.h"
 
 #include <array>
 #include <chrono>
 #include <cstdint>
 #include <functional>
 #include <map>
-#include <utility>
 #include <memory>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace torquebus {

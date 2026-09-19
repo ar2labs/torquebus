@@ -60,13 +60,13 @@ public:
 
     // --- Connections ------------------------------------------------------
 
-    [[nodiscard]] std::unordered_set<QtNodes::ConnectionId> allConnectionIds(
-        QtNodes::NodeId nodeId) const override;
+    [[nodiscard]] std::unordered_set<QtNodes::ConnectionId>
+    allConnectionIds(QtNodes::NodeId nodeId) const override;
 
-    [[nodiscard]] std::unordered_set<QtNodes::ConnectionId> connections(
-        QtNodes::NodeId nodeId,
-        QtNodes::PortType portType,
-        QtNodes::PortIndex index) const override;
+    [[nodiscard]] std::unordered_set<QtNodes::ConnectionId>
+    connections(QtNodes::NodeId nodeId,
+                QtNodes::PortType portType,
+                QtNodes::PortIndex index) const override;
 
     [[nodiscard]] bool connectionExists(QtNodes::ConnectionId connectionId) const override;
 
@@ -87,8 +87,7 @@ public:
     QtNodes::NodeId addNode(QString nodeType = QString{}) override;
     bool deleteNode(QtNodes::NodeId nodeId) override;
 
-    [[nodiscard]] QVariant nodeData(QtNodes::NodeId nodeId,
-                                    QtNodes::NodeRole role) const override;
+    [[nodiscard]] QVariant nodeData(QtNodes::NodeId nodeId, QtNodes::NodeRole role) const override;
 
     bool setNodeData(QtNodes::NodeId nodeId, QtNodes::NodeRole role, QVariant value) override;
 

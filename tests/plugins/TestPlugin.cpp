@@ -39,10 +39,7 @@ using namespace torquebus;
 /// built, not that it does anything interesting once built.
 class PassThroughNode final : public IPipelineNode {
 public:
-    [[nodiscard]] std::string_view typeName() const noexcept override
-    {
-        return "test.passthrough";
-    }
+    [[nodiscard]] std::string_view typeName() const noexcept override { return "test.passthrough"; }
 
     [[nodiscard]] std::span<const PortDescriptor> inputs() const noexcept override
     {
@@ -84,7 +81,9 @@ bool registerWith(const torquebus::plugins::PluginHost& host)
             .inputs = {PortDescriptor{"frames", PortType::Frames}},
             .outputs = {PortDescriptor{"frames", PortType::Frames}},
         },
-        [](const NodeParameters&, const NodeBuildContext&, std::string_view,
+        [](const NodeParameters&,
+           const NodeBuildContext&,
+           std::string_view,
            std::unique_ptr<IPipelineNode>& out) -> Result {
             out = std::make_unique<PassThroughNode>();
             return Result::ok();

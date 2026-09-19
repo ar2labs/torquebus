@@ -51,8 +51,7 @@ public:
         : m_capacity{std::bit_ceil(capacity < 2 ? std::size_t{2} : capacity)}
         , m_mask{m_capacity - 1}
         , m_storage(m_capacity)
-    {
-    }
+    { }
 
     FrameQueue(const FrameQueue&) = delete;
     FrameQueue& operator=(const FrameQueue&) = delete;

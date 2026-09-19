@@ -106,8 +106,7 @@ TEST_CASE("An absolute path is left exactly as it was written", "[project][paths
     CHECK(buildDecoder(absolute, "/some/other/project").succeeded());
 }
 
-TEST_CASE("A missing file still fails, and names the path it looked for",
-          "[project][paths]")
+TEST_CASE("A missing file still fails, and names the path it looked for", "[project][paths]")
 {
     const ProjectFolder project;
 

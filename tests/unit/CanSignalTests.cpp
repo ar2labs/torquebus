@@ -32,11 +32,8 @@ namespace {
 /// The published motohawk vector.
 constexpr std::uint8_t kMotohawk[8] = {0xC0, 0x06, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-[[nodiscard]] CanSignal motorola(std::uint16_t startBit,
-                                 std::uint16_t bitLength,
-                                 bool isSigned,
-                                 double factor,
-                                 double offset)
+[[nodiscard]] CanSignal motorola(
+    std::uint16_t startBit, std::uint16_t bitLength, bool isSigned, double factor, double offset)
 {
     CanSignal signal;
     signal.startBit = startBit;
@@ -48,11 +45,8 @@ constexpr std::uint8_t kMotohawk[8] = {0xC0, 0x06, 0xE0, 0x00, 0x00, 0x00, 0x00,
     return signal;
 }
 
-[[nodiscard]] CanSignal intel(std::uint16_t startBit,
-                              std::uint16_t bitLength,
-                              bool isSigned,
-                              double factor,
-                              double offset)
+[[nodiscard]] CanSignal
+intel(std::uint16_t startBit, std::uint16_t bitLength, bool isSigned, double factor, double offset)
 {
     CanSignal signal = motorola(startBit, bitLength, isSigned, factor, offset);
     signal.byteOrder = ByteOrder::Intel;
@@ -68,8 +62,7 @@ constexpr std::uint8_t kMotohawk[8] = {0xC0, 0x06, 0xE0, 0x00, 0x00, 0x00, 0x00,
 
 } // namespace
 
-TEST_CASE("The published motohawk vector decodes to its published values",
-          "[dbc][signal]")
+TEST_CASE("The published motohawk vector decodes to its published values", "[dbc][signal]")
 {
     // SG_ Temperature : 0|12@0- (0.01,250)
     const CanSignal temperature = motorola(0, 12, true, 0.01, 250.0);

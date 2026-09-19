@@ -36,9 +36,8 @@ namespace {
 }
 
 /// A NAME carrying just enough to ask the table a question.
-[[nodiscard]] J1939Name nameWith(std::uint8_t function,
-                                 std::uint8_t vehicleSystem = 0U,
-                                 std::uint8_t industryGroup = 0U)
+[[nodiscard]] J1939Name
+nameWith(std::uint8_t function, std::uint8_t vehicleSystem = 0U, std::uint8_t industryGroup = 0U)
 {
     J1939Name name;
     name.function = function;

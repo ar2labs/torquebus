@@ -156,8 +156,7 @@ struct DashboardWidget final {
     /// pretending to be precision.
     int decimals{1};
 
-    [[nodiscard]] friend bool operator==(const DashboardWidget&,
-                                         const DashboardWidget&) = default;
+    [[nodiscard]] friend bool operator==(const DashboardWidget&, const DashboardWidget&) = default;
 };
 
 class DashboardDescription final {
@@ -170,10 +169,7 @@ public:
     void add(DashboardWidget widget) { m_widgets.push_back(std::move(widget)); }
     void remove(const std::string& id);
 
-    [[nodiscard]] const std::vector<DashboardWidget>& widgets() const noexcept
-    {
-        return m_widgets;
-    }
+    [[nodiscard]] const std::vector<DashboardWidget>& widgets() const noexcept { return m_widgets; }
 
     [[nodiscard]] std::vector<DashboardWidget>& widgets() noexcept { return m_widgets; }
 

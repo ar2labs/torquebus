@@ -20,8 +20,7 @@ IsoTpNode::IsoTpNode(IsoTpAddress address,
     , m_label{std::move(label)}
     , m_periodicRequest{std::move(periodicRequest)}
     , m_intervalNs{static_cast<std::uint64_t>(requestIntervalMs) * 1'000'000ULL}
-{
-}
+{ }
 
 Result IsoTpNode::prepare(std::size_t maximumBatchSize)
 {
@@ -79,8 +78,8 @@ void IsoTpNode::drain(std::uint64_t nowNs)
         case IsoTpEvent::Kind::ReceiveFailed:
             out.kind = DiagnosticEvent::Kind::TransferFailed;
             out.identifier = event.kind == IsoTpEvent::Kind::SendFailed
-                ? m_connection.address().transmitId
-                : m_connection.address().receiveId;
+                                 ? m_connection.address().transmitId
+                                 : m_connection.address().receiveId;
             ++m_failed;
             break;
         }
@@ -99,10 +98,10 @@ void IsoTpNode::process(NodeContext& context)
     // One clock for the whole pass. The connection's timeouts, the periodic
     // request and the timestamps on what comes out all have to agree, and
     // reading the clock three times is three chances for them not to.
-    const auto nowNs = static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()
-                                                             - m_started)
-            .count());
+    const auto nowNs =
+        static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                       std::chrono::steady_clock::now() - m_started)
+                                       .count());
 
     // --- Frames from the bus ---------------------------------------------
     for (const CanFrame& frame : context.in<CanFrame>(0)) {
@@ -137,8 +136,8 @@ void IsoTpNode::process(NodeContext& context)
             // An interval of zero means once, at Start - a question asked when
             // the measurement begins and not again. Pushed out of reach rather
             // than special-cased on every pass.
-            m_nextRequestNs = m_intervalNs > 0 ? nowNs + m_intervalNs
-                                               : std::numeric_limits<std::uint64_t>::max();
+            m_nextRequestNs =
+                m_intervalNs > 0 ? nowNs + m_intervalNs : std::numeric_limits<std::uint64_t>::max();
         }
     }
 

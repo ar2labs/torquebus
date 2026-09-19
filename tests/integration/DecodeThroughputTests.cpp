@@ -94,8 +94,7 @@ constexpr std::size_t kBatches = 128;
 
 } // namespace
 
-TEST_CASE("Decoding keeps up with a bus that is actually busy",
-          "[dbc][throughput]")
+TEST_CASE("Decoding keeps up with a bus that is actually busy", "[dbc][throughput]")
 {
     DbcDecoderNode node{benchmarkDatabase(), "benchmark"};
     REQUIRE(node.prepare(kBatchSize).succeeded());
@@ -124,10 +123,10 @@ TEST_CASE("Decoding keeps up with a bus that is actually busy",
 
     // Printed rather than only asserted: this number is the point, and it is
     // read by a person comparing one build against another.
-    WARN("decode throughput: " << static_cast<std::uint64_t>(framesPerSecond)
-                               << " frames/s  (" << static_cast<std::uint64_t>(decoded)
-                               << " frames in " << elapsed.count() << " us, "
-                               << node.emittedSignals() << " signals)");
+    WARN("decode throughput: " << static_cast<std::uint64_t>(framesPerSecond) << " frames/s  ("
+                               << static_cast<std::uint64_t>(decoded) << " frames in "
+                               << elapsed.count() << " us, " << node.emittedSignals()
+                               << " signals)");
 
     CHECK(node.emittedSignals() == kBatchSize * kBatches * kSignalsPerMessage);
 

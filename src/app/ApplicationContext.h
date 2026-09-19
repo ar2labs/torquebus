@@ -63,18 +63,12 @@ public:
     /// once, and so a second window sees the same catalogue as the first.
     [[nodiscard]] NodeCatalog& catalog() noexcept { return m_catalog; }
 
-    [[nodiscard]] const plugins::PluginLoader& pluginLoader() const noexcept
-    {
-        return m_plugins;
-    }
+    [[nodiscard]] const plugins::PluginLoader& pluginLoader() const noexcept { return m_plugins; }
 
     /// The words behind the numbers in a J1939 NAME, when this machine has a
     /// file of them. Empty is the ordinary case and not a fault - see
     /// J1939NameTables.h for why the data is not shipped.
-    [[nodiscard]] const J1939NameTables& j1939Names() const noexcept
-    {
-        return m_j1939Names;
-    }
+    [[nodiscard]] const J1939NameTables& j1939Names() const noexcept { return m_j1939Names; }
 
     /// What happened while starting, for a window to print once it has
     /// somewhere to print it.

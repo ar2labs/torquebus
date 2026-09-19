@@ -8,8 +8,8 @@
 #include "services/SettingsStore.h"
 
 #include <QDir>
-#include <QtGlobal>
 #include <QFileInfo>
+#include <QtGlobal>
 
 #include <utility>
 

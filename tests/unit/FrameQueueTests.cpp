@@ -56,8 +56,7 @@ TEST_CASE("Frames come out in the order they went in", "[queue]")
     CHECK(queue.empty());
 }
 
-TEST_CASE("A full queue declines a push without losing anything",
-          "[queue][overflow]")
+TEST_CASE("A full queue declines a push without losing anything", "[queue][overflow]")
 {
     // push() hands the frame back by returning false, so nothing was lost and
     // nothing is counted. The caller still holds the frame and decides whether
@@ -84,8 +83,7 @@ TEST_CASE("A full queue declines a push without losing anything",
     CHECK(out.back().identifier == 3);
 }
 
-TEST_CASE("An overfull batch is discarded by the queue and counted",
-          "[queue][overflow]")
+TEST_CASE("An overfull batch is discarded by the queue and counted", "[queue][overflow]")
 {
     // pushBatch() is the real receive path, and the backend's batch is gone
     // the moment the handler returns - so a tail that does not fit is

@@ -119,7 +119,7 @@ TEST_CASE("The range does not shrink as history falls off the back", "[plot]")
     // pixels.
     SignalSeries series{"s", "", 4};
 
-    series.append(1, 100.0);  // the peak, which will age out
+    series.append(1, 100.0); // the peak, which will age out
     for (std::uint64_t index = 2; index < 12; ++index) {
         series.append(index, 5.0);
     }
@@ -223,8 +223,7 @@ TEST_CASE("A store gives each signal its own history", "[plot][store]")
     CHECK(store.find("EngineSpeed") == kNoSeries);
 }
 
-TEST_CASE("A signal too short to read is counted, not plotted as zero",
-          "[plot][store]")
+TEST_CASE("A signal too short to read is counted, not plotted as zero", "[plot][store]")
 {
     // The distinction DecodedSignal::truncated exists to preserve. A frame that
     // could not hold the signal did not report zero; a line drawn through those
@@ -290,8 +289,7 @@ TEST_CASE("Clearing samples keeps the signals", "[plot][store]")
     CHECK(store.find("EngineData.EngineSpeed") == kNoSeries);
 }
 
-TEST_CASE("A store survives a database being swapped underneath it",
-          "[plot][store]")
+TEST_CASE("A store survives a database being swapped underneath it", "[plot][store]")
 {
     // The reason names are copied on first sighting rather than read through
     // the definition pointer. Reloading a .dbc mid-measurement is an ordinary
@@ -301,8 +299,7 @@ TEST_CASE("A store survives a database being swapped underneath it",
 
     {
         const Definitions temporary;
-        store.append(
-            std::vector<DecodedSignal>{sample(temporary, temporary.speed, 10, 700.0)});
+        store.append(std::vector<DecodedSignal>{sample(temporary, temporary.speed, 10, 700.0)});
     }
 
     // The definitions are gone. The series is not.
@@ -341,9 +338,13 @@ TEST_CASE("Reading a window while the executor appends is safe", "[plot][store][
         while (!stop.load(std::memory_order_relaxed)) {
             batch.clear();
             for (int index = 0; index < 32; ++index) {
-                batch.push_back(sample(definitions, definitions.speed, ++timestamp,
+                batch.push_back(sample(definitions,
+                                       definitions.speed,
+                                       ++timestamp,
                                        static_cast<double>(timestamp % 100)));
-                batch.push_back(sample(definitions, definitions.temperature, timestamp,
+                batch.push_back(sample(definitions,
+                                       definitions.temperature,
+                                       timestamp,
                                        static_cast<double>(timestamp % 50)));
             }
             store.append(batch);
@@ -372,8 +373,7 @@ TEST_CASE("Reading a window while the executor appends is safe", "[plot][store][
             // Whatever was read has to be internally consistent: in time order,
             // and inside the range that was read alongside it.
             for (std::size_t index = 1; index < window.samples.size(); ++index) {
-                REQUIRE(window.samples[index].timestampNs
-                        >= window.samples[index - 1].timestampNs);
+                REQUIRE(window.samples[index].timestampNs >= window.samples[index - 1].timestampNs);
             }
 
             for (const SignalSample& point : window.samples) {

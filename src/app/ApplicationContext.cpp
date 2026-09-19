@@ -23,8 +23,7 @@ namespace torquebus::app {
 ApplicationContext::ApplicationContext()
     : m_settings{std::make_unique<services::SettingsStore>()}
     , m_themes{std::make_unique<ui::ThemeManager>()}
-{
-}
+{ }
 
 ApplicationContext::~ApplicationContext() = default;
 
@@ -40,14 +39,13 @@ void ApplicationContext::initialize()
     }
 
     const ui::ThemeVariant variant = ui::themeVariantFromString(
-        m_settings->value(QString::fromLatin1(services::keys::kTheme)),
-        ui::ThemeVariant::Dark);
+        m_settings->value(QString::fromLatin1(services::keys::kTheme)), ui::ThemeVariant::Dark);
 
-    const ui::AccentColor accent = ui::accentColorFromString(
-        m_settings->value(QString::fromLatin1(services::keys::kAccent)));
+    const ui::AccentColor accent =
+        ui::accentColorFromString(m_settings->value(QString::fromLatin1(services::keys::kAccent)));
 
-    const ui::Density density = ui::densityFromString(
-        m_settings->value(QString::fromLatin1(services::keys::kDensity)));
+    const ui::Density density =
+        ui::densityFromString(m_settings->value(QString::fromLatin1(services::keys::kDensity)));
 
     // A first run follows the desktop; an installation that already has a theme
     // written down does not.
@@ -57,9 +55,9 @@ void ApplicationContext::initialize()
     // deliberately picked the dark theme on a light desktop - which is the one
     // group whose preference we can actually see, and the one we would be
     // overruling.
-    const bool followSystem = m_settings->boolValue(
-        QString::fromLatin1(services::keys::kFollowSystemTheme),
-        !m_settings->contains(QString::fromLatin1(services::keys::kTheme)));
+    const bool followSystem =
+        m_settings->boolValue(QString::fromLatin1(services::keys::kFollowSystemTheme),
+                              !m_settings->contains(QString::fromLatin1(services::keys::kTheme)));
 
     m_themes->applyPreferences(accent, density, followSystem, variant);
 
@@ -82,8 +80,7 @@ void ApplicationContext::say(const QString& text, bool isError)
 void ApplicationContext::loadNameTables()
 {
     const std::filesystem::path data =
-        std::filesystem::path{QCoreApplication::applicationFilePath().toStdWString()}
-            .parent_path()
+        std::filesystem::path{QCoreApplication::applicationFilePath().toStdWString()}.parent_path()
         / "data";
 
     const auto complain = [this](const Result& result) {
@@ -103,8 +100,7 @@ void ApplicationContext::loadNameTables()
     // And whatever the person running this generated for themselves, on top.
     // Later entries win, so their Digital Annex corrects ours rather than
     // sitting beside it.
-    if (const Result result = m_j1939Names.mergeFile(data / "j1939-names.csv");
-        result.failed()) {
+    if (const Result result = m_j1939Names.mergeFile(data / "j1939-names.csv"); result.failed()) {
         complain(result);
         return;
     }
@@ -141,8 +137,7 @@ void ApplicationContext::loadPlugins()
         say(QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size())), isError);
     };
 
-    const std::filesystem::path executable{
-        QCoreApplication::applicationFilePath().toStdWString()};
+    const std::filesystem::path executable{QCoreApplication::applicationFilePath().toStdWString()};
 
     m_plugins.loadFrom(plugins::PluginLoader::directoryFor(executable), host);
 }

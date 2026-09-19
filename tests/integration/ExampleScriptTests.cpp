@@ -185,8 +185,8 @@ void runEcu(const char* name,
     // assembled by hand here would silently have none, and every one of these
     // assertions would then be checking an empty vector. Finding that out was
     // this test failing with "script errors:" and nothing after the colon.
-    auto collect = [&outcome, errorMutex = std::make_shared<std::mutex>()](
-                       const std::string& text, bool isError) {
+    auto collect = [&outcome, errorMutex = std::make_shared<std::mutex>()](const std::string& text,
+                                                                           bool isError) {
         if (!isError) {
             return;
         }
@@ -199,8 +199,7 @@ void runEcu(const char* name,
     LuaEcuNode* ecu = nullptr;
 
     engine.setGraphBuilder([&engine, &source, name, &ecu, &database, collect](
-                               PipelineGraph& graph, std::span<const NodeId> sources)
-                               -> Result {
+                               PipelineGraph& graph, std::span<const NodeId> sources) -> Result {
         auto node = std::make_unique<LuaEcuNode>(source, name);
         node->setLogHandler(collect);
         if (database) {
@@ -339,8 +338,7 @@ TEST_CASE("sequence_engine.lua declares its test cases", "[integration][examples
     CHECK(sequence.declaredCases() > 0);
 }
 
-TEST_CASE("The example databases decode what the example scripts send",
-          "[integration][examples]")
+TEST_CASE("The example databases decode what the example scripts send", "[integration][examples]")
 {
     // docs/development/databases.md says the shipped databases "match what
     // examples/scripts puts on the bus", and that pairing is the entire point
@@ -354,7 +352,9 @@ TEST_CASE("The example databases decode what the example scripts send",
                                       const char* databaseName,
                                       const char* databaseFile) {
         Outcome outcome;
-        runEcu(script, 250ms, outcome,
+        runEcu(script,
+               250ms,
+               outcome,
                std::string_view{databaseName} == "none" ? nullptr : databaseName);
 
         CanDatabase database;
@@ -381,8 +381,7 @@ TEST_CASE("The example databases decode what the example scripts send",
         }
 
         std::sort(undescribed.begin(), undescribed.end());
-        undescribed.erase(std::unique(undescribed.begin(), undescribed.end()),
-                          undescribed.end());
+        undescribed.erase(std::unique(undescribed.begin(), undescribed.end()), undescribed.end());
 
         return undescribed;
     };
@@ -419,8 +418,11 @@ TEST_CASE("Every shipped example script is covered here", "[integration][example
     REQUIRE(std::filesystem::is_directory(directory));
 
     const std::vector<std::string> covered{
-        "ecu_motor.lua", "ecu_uds.lua", "ecu_vehicle.lua",
-        "ecu_vehicle_dbc.lua", "sequence_engine.lua",
+        "ecu_motor.lua",
+        "ecu_uds.lua",
+        "ecu_vehicle.lua",
+        "ecu_vehicle_dbc.lua",
+        "sequence_engine.lua",
     };
 
     std::vector<std::string> found;

@@ -147,9 +147,8 @@ enum class UdsSession : std::uint8_t {
 [[nodiscard]] std::vector<std::uint8_t> readDataByIdentifier(std::uint16_t identifier);
 
 /// 0x2E: the identifier, then the value.
-[[nodiscard]] std::vector<std::uint8_t> writeDataByIdentifier(
-    std::uint16_t identifier,
-    const std::vector<std::uint8_t>& value);
+[[nodiscard]] std::vector<std::uint8_t>
+writeDataByIdentifier(std::uint16_t identifier, const std::vector<std::uint8_t>& value);
 
 /// 0x10, with the suppress-positive-response bit clear: a session change whose
 /// answer nobody waits for is a session change nobody can be sure of.
@@ -168,8 +167,8 @@ enum class UdsSession : std::uint8_t {
 [[nodiscard]] std::vector<std::uint8_t> readDtcByStatusMask(std::uint8_t statusMask = 0xFF);
 
 /// 0x14 with a three-byte group. 0xFFFFFF clears everything the ECU stores.
-[[nodiscard]] std::vector<std::uint8_t> clearDiagnosticInformation(
-    std::uint32_t group = 0xFF'FFFFU);
+[[nodiscard]] std::vector<std::uint8_t>
+clearDiagnosticInformation(std::uint32_t group = 0xFF'FFFFU);
 
 /// 0x27: the odd sub-function requests a seed, the even one that follows sends
 /// the key back.
@@ -201,7 +200,7 @@ struct DiagnosticTroubleCode final {
 
 /// The trouble codes in a 0x59 0x02 response, or an empty list when it is not
 /// one.
-[[nodiscard]] std::vector<DiagnosticTroubleCode> parseDtcResponse(
-    const std::vector<std::uint8_t>& response);
+[[nodiscard]] std::vector<DiagnosticTroubleCode>
+parseDtcResponse(const std::vector<std::uint8_t>& response);
 
 } // namespace torquebus

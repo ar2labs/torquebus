@@ -12,8 +12,8 @@
 #include <QScrollBar>
 #include <QTextBlock>
 #include <QTextCharFormat>
-#include <QTextDocument>
 #include <QTextCursor>
+#include <QTextDocument>
 #include <QVBoxLayout>
 
 namespace torquebus::ui {
@@ -22,10 +22,14 @@ namespace {
 QString levelTag(OutputPanel::Level level)
 {
     switch (level) {
-    case OutputPanel::Level::Debug:   return QStringLiteral("DEBUG");
-    case OutputPanel::Level::Info:    return QStringLiteral("INFO ");
-    case OutputPanel::Level::Warning: return QStringLiteral("WARN ");
-    case OutputPanel::Level::Error:   return QStringLiteral("ERROR");
+    case OutputPanel::Level::Debug:
+        return QStringLiteral("DEBUG");
+    case OutputPanel::Level::Info:
+        return QStringLiteral("INFO ");
+    case OutputPanel::Level::Warning:
+        return QStringLiteral("WARN ");
+    case OutputPanel::Level::Error:
+        return QStringLiteral("ERROR");
     }
     return QStringLiteral("     ");
 }
@@ -39,10 +43,14 @@ QColor levelColor(OutputPanel::Level level)
 
     const Theme& theme = themes->theme();
     switch (level) {
-    case OutputPanel::Level::Debug:   return theme.textMuted;
-    case OutputPanel::Level::Info:    return theme.text;
-    case OutputPanel::Level::Warning: return theme.warning;
-    case OutputPanel::Level::Error:   return theme.error;
+    case OutputPanel::Level::Debug:
+        return theme.textMuted;
+    case OutputPanel::Level::Info:
+        return theme.text;
+    case OutputPanel::Level::Warning:
+        return theme.warning;
+    case OutputPanel::Level::Error:
+        return theme.error;
     }
     return theme.text;
 }
@@ -91,11 +99,12 @@ void OutputPanel::append(Level level, const QString& message)
         cursor.insertBlock();
     }
 
-    cursor.insertText(QStringLiteral("%1  %2  %3")
-                          .arg(QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss.zzz")),
-                               levelTag(level),
-                               message),
-                      format);
+    cursor.insertText(
+        QStringLiteral("%1  %2  %3")
+            .arg(QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss.zzz")),
+                 levelTag(level),
+                 message),
+        format);
 
     // The level, kept with the line so a theme change can recolour it without
     // a parallel list of entries to fall out of step with the document.
@@ -138,9 +147,18 @@ void OutputPanel::onThemeChanged()
     cursor.endEditBlock();
 }
 
-void OutputPanel::appendInfo(const QString& message)    { append(Level::Info, message); }
-void OutputPanel::appendWarning(const QString& message) { append(Level::Warning, message); }
-void OutputPanel::appendError(const QString& message)   { append(Level::Error, message); }
+void OutputPanel::appendInfo(const QString& message)
+{
+    append(Level::Info, message);
+}
+void OutputPanel::appendWarning(const QString& message)
+{
+    append(Level::Warning, message);
+}
+void OutputPanel::appendError(const QString& message)
+{
+    append(Level::Error, message);
+}
 
 void OutputPanel::clear()
 {

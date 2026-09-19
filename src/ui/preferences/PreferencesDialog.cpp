@@ -10,11 +10,11 @@
 #include "ui/preferences/ThemeCard.h"
 #include "ui/theme/ThemeManager.h"
 
+#include <QAbstractItemView>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QDialogButtonBox>
-#include <QAbstractItemView>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QFrame>
@@ -137,8 +137,7 @@ void PreferencesDialog::buildUi()
                                 "and a switch to turn each one off."),
                              QStringLiteral("v0.10")));
 
-    connect(m_pageList, &QListWidget::currentRowChanged, m_pages,
-            &QStackedWidget::setCurrentIndex);
+    connect(m_pageList, &QListWidget::currentRowChanged, m_pages, &QStackedWidget::setCurrentIndex);
 
     m_pageList->setCurrentRow(1); // Appearance, which is what this is mostly for.
 
@@ -182,25 +181,25 @@ QWidget* PreferencesDialog::buildGeneralPage()
 
     m_restoreLayout = new QCheckBox(tr("Restore the panel layout from the last session"), page);
     layout->addWidget(m_restoreLayout);
-    layout->addWidget(hintLabel(
-        tr("Off means every session starts from the default arrangement. The layout is "
-           "still saved either way, so turning this back on brings it back."),
-        page));
+    layout->addWidget(
+        hintLabel(tr("Off means every session starts from the default arrangement. The layout is "
+                     "still saved either way, so turning this back on brings it back."),
+                  page));
 
     m_restoreLastProject = new QCheckBox(tr("Open the last project again"), page);
     layout->addWidget(m_restoreLastProject);
-    layout->addWidget(hintLabel(
-        tr("A project named on the command line always wins, and this never overrides "
-           "a File > New."),
-        page));
+    layout->addWidget(
+        hintLabel(tr("A project named on the command line always wins, and this never overrides "
+                     "a File > New."),
+                  page));
 
     layout->addSpacing(8);
     layout->addWidget(sectionLabel(tr("Settings file"), page));
 
-    layout->addWidget(hintLabel(
-        tr("Preferences are stored as JSON - readable, diffable, and copyable between "
-           "machines. Project state lives in the .tbsproj instead."),
-        page));
+    layout->addWidget(
+        hintLabel(tr("Preferences are stored as JSON - readable, diffable, and copyable between "
+                     "machines. Project state lives in the .tbsproj instead."),
+                  page));
 
     m_settingsPath = new QLabel(page);
     m_settingsPath->setObjectName(QStringLiteral("preferencesHint"));
@@ -268,10 +267,10 @@ QWidget* PreferencesDialog::buildAppearancePage()
 
     m_followSystem = new QCheckBox(tr("Follow the system theme"), page);
     layout->addWidget(m_followSystem);
-    layout->addWidget(hintLabel(
-        tr("Picking a theme above turns this off: an explicit choice keeps winning, "
-           "rather than being undone the next time Windows changes its mind."),
-        page));
+    layout->addWidget(
+        hintLabel(tr("Picking a theme above turns this off: an explicit choice keeps winning, "
+                     "rather than being undone the next time Windows changes its mind."),
+                  page));
 
     layout->addSpacing(10);
     layout->addWidget(sectionLabel(tr("Accent colour"), page));
@@ -283,11 +282,11 @@ QWidget* PreferencesDialog::buildAppearancePage()
     accentRow->addStretch(1);
     layout->addLayout(accentRow);
 
-    layout->addWidget(hintLabel(
-        tr("A swatch stores a hue, not a colour. The tone is worked out for whichever "
-           "theme is running and checked for contrast, so one choice is a luminous "
-           "colour on Dark and a deep one on Light - the cards above show both."),
-        page));
+    layout->addWidget(
+        hintLabel(tr("A swatch stores a hue, not a colour. The tone is worked out for whichever "
+                     "theme is running and checked for contrast, so one choice is a luminous "
+                     "colour on Dark and a deep one on Light - the cards above show both."),
+                  page));
 
     layout->addSpacing(10);
     layout->addWidget(sectionLabel(tr("Density"), page));
@@ -303,21 +302,19 @@ QWidget* PreferencesDialog::buildAppearancePage()
     densityRow->addStretch(1);
     layout->addLayout(densityRow);
 
-    layout->addWidget(hintLabel(
-        tr("How much air a row of a table gets. Comfortable is what TorqueBus has "
-           "always used; Compact fits more of a trace on a laptop screen."),
-        page));
+    layout->addWidget(
+        hintLabel(tr("How much air a row of a table gets. Comfortable is what TorqueBus has "
+                     "always used; Compact fits more of a trace on a laptop screen."),
+                  page));
 
     layout->addStretch(1);
 
     connect(m_lightCard, &ThemeCard::clicked, this, &PreferencesDialog::onThemeCardClicked);
     connect(m_darkCard, &ThemeCard::clicked, this, &PreferencesDialog::onThemeCardClicked);
-    connect(m_followSystem, &QCheckBox::toggled, this,
-            &PreferencesDialog::onFollowSystemToggled);
-    connect(m_accentRow, &AccentSwatchRow::accentChanged, this,
-            &PreferencesDialog::onAccentChanged);
-    connect(m_density, &QComboBox::currentIndexChanged, this,
-            &PreferencesDialog::onDensityChanged);
+    connect(m_followSystem, &QCheckBox::toggled, this, &PreferencesDialog::onFollowSystemToggled);
+    connect(
+        m_accentRow, &AccentSwatchRow::accentChanged, this, &PreferencesDialog::onAccentChanged);
+    connect(m_density, &QComboBox::currentIndexChanged, this, &PreferencesDialog::onDensityChanged);
 
     return page;
 }
@@ -342,22 +339,22 @@ QWidget* PreferencesDialog::buildTracePage()
     form->addRow(tr("Refresh the view every"), m_traceRefresh);
     layout->addLayout(form);
 
-    layout->addWidget(hintLabel(
-        tr("How often new rows appear - not how often frames are captured. The store "
-           "is filled by the pipeline at full rate whatever this says, so a slower "
-           "refresh loses nothing but liveness."),
-        page));
+    layout->addWidget(
+        hintLabel(tr("How often new rows appear - not how often frames are captured. The store "
+                     "is filled by the pipeline at full rate whatever this says, so a slower "
+                     "refresh loses nothing but liveness."),
+                  page));
 
     layout->addSpacing(10);
     layout->addWidget(sectionLabel(tr("Identifiers"), page));
 
     m_decimalIdentifiers = new QCheckBox(tr("Show identifiers in decimal"), page);
     layout->addWidget(m_decimalIdentifiers);
-    layout->addWidget(hintLabel(
-        tr("Hexadecimal by default, because that is how a database, a datasheet and "
-           "every other tool in this family writes a CAN identifier. Decimal is "
-           "occasionally what a J1939 document uses."),
-        page));
+    layout->addWidget(
+        hintLabel(tr("Hexadecimal by default, because that is how a database, a datasheet and "
+                     "every other tool in this family writes a CAN identifier. Decimal is "
+                     "occasionally what a J1939 document uses."),
+                  page));
 
     layout->addStretch(1);
 
@@ -421,12 +418,13 @@ QWidget* PreferencesDialog::buildHardwarePage()
                              QVariant{static_cast<uint>(rate)});
         }
 
-        const std::uint32_t current = services::bitrateFor(
-            m_settings, QString::fromStdString(device.handle));
+        const std::uint32_t current =
+            services::bitrateFor(m_settings, QString::fromStdString(device.handle));
         bitrate->setCurrentIndex(bitrate->findData(QVariant{static_cast<uint>(current)}));
 
-        connect(bitrate, &QComboBox::currentIndexChanged, this,
-                [this, row](int) { onBitrateChanged(row); });
+        connect(bitrate, &QComboBox::currentIndexChanged, this, [this, row](int) {
+            onBitrateChanged(row);
+        });
 
         m_hardware->setCellWidget(row, HardwareColumnBitrate, bitrate);
     }
@@ -434,23 +432,22 @@ QWidget* PreferencesDialog::buildHardwarePage()
     layout->addWidget(m_hardware, 1);
 
     if (m_devices.empty()) {
-        layout->addWidget(hintLabel(
-            tr("No interfaces were found. Connect an adapter and use "
-               "Hardware > Refresh Interfaces, then reopen this page."),
-            page));
+        layout->addWidget(hintLabel(tr("No interfaces were found. Connect an adapter and use "
+                                       "Hardware > Refresh Interfaces, then reopen this page."),
+                                    page));
     } else {
-        layout->addWidget(hintLabel(
-            tr("The rate belongs to the bus an adapter is plugged into, so it is "
-               "remembered per interface rather than per channel: unplug an adapter "
-               "and plug it back in second, and it keeps its rate."),
-            page));
+        layout->addWidget(
+            hintLabel(tr("The rate belongs to the bus an adapter is plugged into, so it is "
+                         "remembered per interface rather than per channel: unplug an adapter "
+                         "and plug it back in second, and it keeps its rate."),
+                      page));
 
-        layout->addWidget(hintLabel(
-            tr("A change takes effect when the channels are next bound - immediately "
-               "while stopped, and at the next Refresh Interfaces if a measurement is "
-               "running. A controller on the wrong rate cannot acknowledge a frame, so "
-               "it shows up as errors and an empty Trace rather than as wrong data."),
-            page));
+        layout->addWidget(
+            hintLabel(tr("A change takes effect when the channels are next bound - immediately "
+                         "while stopped, and at the next Refresh Interfaces if a measurement is "
+                         "running. A controller on the wrong rate cannot acknowledge a frame, so "
+                         "it shows up as errors and an empty Trace rather than as wrong data."),
+                      page));
     }
 
     return page;
@@ -544,8 +541,10 @@ void PreferencesDialog::onBitrateChanged(int row)
 
 void PreferencesDialog::onResetPreferences()
 {
-    m_themes.applyPreferences(AccentColor::TorqueBus, Density::Comfortable,
-                              /*followSystem=*/true, ThemeVariant::Dark);
+    m_themes.applyPreferences(AccentColor::TorqueBus,
+                              Density::Comfortable,
+                              /*followSystem=*/true,
+                              ThemeVariant::Dark);
 
     m_loading = true;
     m_restoreLayout->setChecked(kDefaultRestoreLayout);
@@ -564,10 +563,9 @@ void PreferencesDialog::onResetPreferences()
         m_settings.remove(services::bitrateKey(
             QString::fromStdString(m_devices[static_cast<std::size_t>(row)].handle)));
 
-        if (auto* combo = qobject_cast<QComboBox*>(
-                m_hardware->cellWidget(row, HardwareColumnBitrate))) {
-            combo->setCurrentIndex(
-                combo->findData(QVariant{static_cast<uint>(kDefaultBitrate)}));
+        if (auto* combo =
+                qobject_cast<QComboBox*>(m_hardware->cellWidget(row, HardwareColumnBitrate))) {
+            combo->setCurrentIndex(combo->findData(QVariant{static_cast<uint>(kDefaultBitrate)}));
         }
     }
 
@@ -621,15 +619,13 @@ void PreferencesDialog::loadFromSettings()
         QString::fromLatin1(services::keys::kRestoreLayout), kDefaultRestoreLayout));
 
     m_restoreLastProject->setChecked(m_settings.boolValue(
-        QString::fromLatin1(services::keys::kRestoreLastProject),
-        kDefaultRestoreLastProject));
+        QString::fromLatin1(services::keys::kRestoreLastProject), kDefaultRestoreLastProject));
 
     m_traceRefresh->setValue(m_settings.intValue(
         QString::fromLatin1(services::keys::kTraceRefreshMs), kDefaultTraceRefreshMs));
 
     m_decimalIdentifiers->setChecked(m_settings.boolValue(
-        QString::fromLatin1(services::keys::kDecimalIdentifiers),
-        kDefaultDecimalIdentifiers));
+        QString::fromLatin1(services::keys::kDecimalIdentifiers), kDefaultDecimalIdentifiers));
 
     // Appearance comes from the manager, not the file. The file is what the
     // manager was built from at startup, but the View menu can have changed the
@@ -652,10 +648,8 @@ void PreferencesDialog::loadFromSettings()
 
 void PreferencesDialog::storeToSettings()
 {
-    m_settings.setValue(QString::fromLatin1(services::keys::kTheme),
-                        toString(m_themes.variant()));
-    m_settings.setValue(QString::fromLatin1(services::keys::kAccent),
-                        toString(m_themes.accent()));
+    m_settings.setValue(QString::fromLatin1(services::keys::kTheme), toString(m_themes.variant()));
+    m_settings.setValue(QString::fromLatin1(services::keys::kAccent), toString(m_themes.accent()));
     m_settings.setValue(QString::fromLatin1(services::keys::kDensity),
                         toString(m_themes.density()));
     m_settings.setBoolValue(QString::fromLatin1(services::keys::kFollowSystemTheme),
@@ -674,15 +668,14 @@ void PreferencesDialog::storeToSettings()
     // effect and then lost to a crash is worse than one that never applied,
     // because they have no reason to suspect it went missing.
     if (!m_settings.save()) {
-        qWarning("TorqueBus: failed to write settings to %s",
-                 qPrintable(m_settings.filePath()));
+        qWarning("TorqueBus: failed to write settings to %s", qPrintable(m_settings.filePath()));
     }
 }
 
 void PreferencesDialog::revertAppearance()
 {
-    m_themes.applyPreferences(m_openingAccent, m_openingDensity, m_openingFollowSystem,
-                              m_openingVariant);
+    m_themes.applyPreferences(
+        m_openingAccent, m_openingDensity, m_openingFollowSystem, m_openingVariant);
 }
 
 void PreferencesDialog::reject()

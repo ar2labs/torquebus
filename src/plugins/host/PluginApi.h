@@ -89,9 +89,10 @@ inline constexpr std::uint32_t kPluginAbiVersion = 1U;
 /// Baked into the plugin at its compile time and into the host at its own, so
 /// the comparison is between what each side was actually built with rather than
 /// what either claims.
-#define TORQUEBUS_PLUGIN_BUILD_KEY                                                       \
-    "torquebus-abi-" TORQUEBUS_PLUGIN_STRINGIFY(1) "/" TORQUEBUS_PLUGIN_COMPILER         \
-    "/x" TORQUEBUS_PLUGIN_ARCH "/stl-" TORQUEBUS_PLUGIN_STL_DEBUG
+#define TORQUEBUS_PLUGIN_BUILD_KEY                                                                 \
+    "torquebus-abi-" TORQUEBUS_PLUGIN_STRINGIFY(1) "/" TORQUEBUS_PLUGIN_COMPILER                   \
+                                                   "/x" TORQUEBUS_PLUGIN_ARCH                      \
+                                                   "/stl-" TORQUEBUS_PLUGIN_STL_DEBUG
 
 /// The key this translation unit was compiled with.
 [[nodiscard]] constexpr std::string_view pluginBuildKey() noexcept
@@ -164,10 +165,9 @@ using TorqueBusPluginQuery = const torquebus::plugins::PluginInfo* (*)();
 
 /// Declares the entry point in a plugin. One line, so that getting it wrong is
 /// hard and the symbol name lives in exactly one place.
-#define TORQUEBUS_DECLARE_PLUGIN(infoExpression)                                         \
-    extern "C" __declspec(dllexport) const torquebus::plugins::PluginInfo*               \
-    torquebusPluginQuery()                                                               \
-    {                                                                                    \
-        static const torquebus::plugins::PluginInfo info = (infoExpression);             \
-        return &info;                                                                    \
+#define TORQUEBUS_DECLARE_PLUGIN(infoExpression)                                                   \
+    extern "C" __declspec(dllexport) const torquebus::plugins::PluginInfo* torquebusPluginQuery()  \
+    {                                                                                              \
+        static const torquebus::plugins::PluginInfo info = (infoExpression);                       \
+        return &info;                                                                              \
     }

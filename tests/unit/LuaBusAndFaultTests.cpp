@@ -42,10 +42,7 @@ public:
         return kPorts;
     }
 
-    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override
-    {
-        return {};
-    }
+    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override { return {}; }
 
     void process(NodeContext& context) override
     {
@@ -202,8 +199,8 @@ TEST_CASE("A script can read the measurement's own counters", "[lua][bus]")
     const std::vector<CanFrame> reported = bench.framesOf(0x202);
 
     REQUIRE_FALSE(reported.empty());
-    CHECK(reported.back().data[0] == 2);  // two identifiers
-    CHECK(reported.back().data[1] == 3);  // three frames
+    CHECK(reported.back().data[0] == 2); // two identifiers
+    CHECK(reported.back().data[1] == 3); // three frames
 }
 
 TEST_CASE("Asking about the bus without a trace says so", "[lua][bus]")
@@ -379,8 +376,7 @@ TEST_CASE("The CRC helper computes what a receiver will check", "[lua][prelude]"
     CHECK(frames.front().data[2] == 0x34);
 }
 
-TEST_CASE("The E2E helper puts the checksum and counter where they belong",
-          "[lua][prelude]")
+TEST_CASE("The E2E helper puts the checksum and counter where they belong", "[lua][prelude]")
 {
     Bench bench{R"(
         function on_enable()
@@ -396,7 +392,7 @@ TEST_CASE("The E2E helper puts the checksum and counter where they belong",
     const CanFrame& frame = frames.front();
 
     REQUIRE(frame.length == 4);
-    CHECK(frame.data[1] == 0x03);   // counter in the low nibble of byte two
+    CHECK(frame.data[1] == 0x03); // counter in the low nibble of byte two
     CHECK(frame.data[2] == 0xAA);
     CHECK(frame.data[3] == 0xBB);
 

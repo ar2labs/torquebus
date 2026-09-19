@@ -152,11 +152,11 @@ struct CanChannelConfig final {
 
 /// Controller state as defined by ISO 11898-1 fault confinement.
 enum class CanBusState : std::uint8_t {
-    Offline,      ///< Channel closed / not started.
-    ErrorActive,  ///< Normal operation.
+    Offline, ///< Channel closed / not started.
+    ErrorActive, ///< Normal operation.
     ErrorWarning, ///< An error counter passed 96.
     ErrorPassive, ///< An error counter passed 127.
-    BusOff        ///< Transmit error counter passed 255.
+    BusOff ///< Transmit error counter passed 255.
 };
 
 /// Snapshot of a channel's health, polled by the UI at a low rate. Never
@@ -178,11 +178,16 @@ struct CanBusStatus final {
 [[nodiscard]] constexpr const char* toString(CanBusState state) noexcept
 {
     switch (state) {
-    case CanBusState::Offline:      return "Offline";
-    case CanBusState::ErrorActive:  return "Error active";
-    case CanBusState::ErrorWarning: return "Error warning";
-    case CanBusState::ErrorPassive: return "Error passive";
-    case CanBusState::BusOff:       return "Bus off";
+    case CanBusState::Offline:
+        return "Offline";
+    case CanBusState::ErrorActive:
+        return "Error active";
+    case CanBusState::ErrorWarning:
+        return "Error warning";
+    case CanBusState::ErrorPassive:
+        return "Error passive";
+    case CanBusState::BusOff:
+        return "Bus off";
     }
     return "Unknown";
 }

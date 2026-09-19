@@ -76,10 +76,18 @@ constexpr int kDefaultRefreshMs = 40; // 25 Hz
 [[nodiscard]] QString formatFlags(const CanFrame& frame)
 {
     QString flags;
-    if (frame.error) { flags.append(QStringLiteral("ERR ")); }
-    if (frame.rtr)   { flags.append(QStringLiteral("RTR ")); }
-    if (frame.brs)   { flags.append(QStringLiteral("BRS ")); }
-    if (frame.esi)   { flags.append(QStringLiteral("ESI ")); }
+    if (frame.error) {
+        flags.append(QStringLiteral("ERR "));
+    }
+    if (frame.rtr) {
+        flags.append(QStringLiteral("RTR "));
+    }
+    if (frame.brs) {
+        flags.append(QStringLiteral("BRS "));
+    }
+    if (frame.esi) {
+        flags.append(QStringLiteral("ESI "));
+    }
     return flags.trimmed();
 }
 
@@ -126,9 +134,7 @@ void TraceModel::setDecimalIdentifiers(bool decimal)
     // One column, every row. Not a model reset: a reset would scroll the view
     // back to the top and lose the selection, and the rows have not changed -
     // only how one of their columns is spelled.
-    Q_EMIT dataChanged(index(0, Identifier),
-                       index(rowCount() - 1, Identifier),
-                       {Qt::DisplayRole});
+    Q_EMIT dataChanged(index(0, Identifier), index(rowCount() - 1, Identifier), {Qt::DisplayRole});
 }
 
 void TraceModel::setFrozen(bool frozen)
@@ -398,16 +404,16 @@ QString TraceModel::decodedText(const CanFrame& frame) const
         // A value table entry replaces the number. "Reverse" is what the
         // engineer is looking for; the 2 behind it is in the Data column.
         if (const std::string_view named = signal->nameForValue(raw); !named.empty()) {
-            parts << QStringLiteral("%1 = %2")
-                         .arg(QString::fromStdString(signal->name),
-                              QString::fromUtf8(named.data(), static_cast<int>(named.size())));
+            parts << QStringLiteral("%1 = %2").arg(
+                QString::fromStdString(signal->name),
+                QString::fromUtf8(named.data(), static_cast<int>(named.size())));
             continue;
         }
 
-        QString text = QStringLiteral("%1 = %2")
-                           .arg(QString::fromStdString(signal->name))
-                           .arg(static_cast<double>(raw) * signal->factor + signal->offset,
-                                0, 'g', 8);
+        QString text =
+            QStringLiteral("%1 = %2")
+                .arg(QString::fromStdString(signal->name))
+                .arg(static_cast<double>(raw) * signal->factor + signal->offset, 0, 'g', 8);
 
         if (!signal->unit.empty()) {
             text += QLatin1Char(' ') + QString::fromStdString(signal->unit);
@@ -425,20 +431,34 @@ QVariant TraceModel::headerData(int section, Qt::Orientation orientation, int ro
     }
 
     switch (section) {
-    case Time:       return tr("Time");
-    case Delta:      return tr("Delta");
-    case Channel:    return tr("Ch");
-    case Direction:  return tr("Dir");
-    case Identifier: return tr("ID");
-    case Name:       return tr("Name");
-    case Type:       return tr("Type");
-    case Dlc:        return tr("DLC");
-    case Data:       return tr("Data");
-    case Signals:    return tr("Signals");
-    case Cycle:      return tr("Cycle");
-    case Count:      return tr("Count");
-    case Flags:      return tr("Flags");
-    default:         return {};
+    case Time:
+        return tr("Time");
+    case Delta:
+        return tr("Delta");
+    case Channel:
+        return tr("Ch");
+    case Direction:
+        return tr("Dir");
+    case Identifier:
+        return tr("ID");
+    case Name:
+        return tr("Name");
+    case Type:
+        return tr("Type");
+    case Dlc:
+        return tr("DLC");
+    case Data:
+        return tr("Data");
+    case Signals:
+        return tr("Signals");
+    case Cycle:
+        return tr("Cycle");
+    case Count:
+        return tr("Count");
+    case Flags:
+        return tr("Flags");
+    default:
+        return {};
     }
 }
 

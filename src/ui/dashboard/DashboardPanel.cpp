@@ -169,8 +169,7 @@ DashboardPanel::Reading DashboardPanel::read(const DashboardWidget& widget) cons
 
 void DashboardPanel::write(const DashboardWidget& widget, double value)
 {
-    if (widget.binding.source != DashboardBinding::Source::Variable
-        || m_variables == nullptr) {
+    if (widget.binding.source != DashboardBinding::Source::Variable || m_variables == nullptr) {
         return;
     }
 
@@ -216,8 +215,8 @@ QRectF DashboardPanel::handleOf(const DashboardWidget& widget) const
 {
     const QRectF rect = rectOf(widget);
 
-    return QRectF{rect.right() - kHandleSize, rect.bottom() - kHandleSize, kHandleSize,
-                  kHandleSize};
+    return QRectF{
+        rect.right() - kHandleSize, rect.bottom() - kHandleSize, kHandleSize, kHandleSize};
 }
 
 DashboardWidget* DashboardPanel::widgetAt(const QPoint& point)
@@ -235,7 +234,8 @@ DashboardWidget* DashboardPanel::widgetAt(const QPoint& point)
     return nullptr;
 }
 
-double DashboardPanel::valueFromPoint(const DashboardWidget& widget, const QRectF& rect,
+double DashboardPanel::valueFromPoint(const DashboardWidget& widget,
+                                      const QRectF& rect,
                                       const QPoint& point)
 {
     const double span = widget.maximum - widget.minimum;
@@ -426,11 +426,9 @@ void DashboardPanel::contextMenuEvent(QContextMenuEvent* event)
 
     const QPoint where = event->pos();
 
-    const auto addKind = [this, &menu, where](DashboardWidgetKind kind,
-                                              const QString& label) {
+    const auto addKind = [this, &menu, where](DashboardWidgetKind kind, const QString& label) {
         QAction* action = menu.addAction(label);
-        connect(action, &QAction::triggered, this,
-                [this, kind, where] { addWidget(kind, where); });
+        connect(action, &QAction::triggered, this, [this, kind, where] { addWidget(kind, where); });
     };
 
     addKind(DashboardWidgetKind::Gauge, tr("Add Gauge"));
@@ -447,8 +445,7 @@ void DashboardPanel::contextMenuEvent(QContextMenuEvent* event)
     if (const DashboardWidget* widget = widgetAt(where); widget != nullptr) {
         menu.addSeparator();
 
-        QAction* remove = menu.addAction(tr("Delete '%1'")
-                                             .arg(QString::fromStdString(widget->id)));
+        QAction* remove = menu.addAction(tr("Delete '%1'").arg(QString::fromStdString(widget->id)));
 
         const std::string id = widget->id;
         connect(remove, &QAction::triggered, this, [this, id] {
@@ -591,11 +588,11 @@ void DashboardPanel::paintEvent(QPaintEvent* event)
 
     if (m_dashboard.empty()) {
         painter.setPen(theme.textMuted);
-        painter.drawText(rect(), Qt::AlignCenter,
-                         m_editing
-                             ? tr("Right-click to add a gauge, a lamp or a slider.")
-                             : tr("This project has no dashboard yet.\n"
-                                  "Switch to Edit and right-click to build one."));
+        painter.drawText(rect(),
+                         Qt::AlignCenter,
+                         m_editing ? tr("Right-click to add a gauge, a lamp or a slider.")
+                                   : tr("This project has no dashboard yet.\n"
+                                        "Switch to Edit and right-click to build one."));
         return;
     }
 
@@ -661,8 +658,10 @@ void DashboardPanel::paintWidget(QPainter& painter, const DashboardWidget& widge
     }
 }
 
-void DashboardPanel::paintGauge(QPainter& painter, const DashboardWidget& widget,
-                                const QRectF& rect, const Reading& reading)
+void DashboardPanel::paintGauge(QPainter& painter,
+                                const DashboardWidget& widget,
+                                const QRectF& rect,
+                                const Reading& reading)
 {
     const Theme theme = currentTheme();
 
@@ -678,8 +677,8 @@ void DashboardPanel::paintGauge(QPainter& painter, const DashboardWidget& widget
 
     painter.setBrush(Qt::NoBrush);
     painter.setPen(track);
-    painter.drawArc(face, static_cast<int>(kGaugeStartDegrees * 16),
-                    static_cast<int>(kGaugeSweepDegrees * 16));
+    painter.drawArc(
+        face, static_cast<int>(kGaugeStartDegrees * 16), static_cast<int>(kGaugeSweepDegrees * 16));
 
     if (reading.known) {
         const double swept = fraction(reading.value, widget.minimum, widget.maximum);
@@ -688,7 +687,8 @@ void DashboardPanel::paintGauge(QPainter& painter, const DashboardWidget& widget
         live.setWidthF(track.widthF());
         live.setCapStyle(Qt::FlatCap);
         painter.setPen(live);
-        painter.drawArc(face, static_cast<int>(kGaugeStartDegrees * 16),
+        painter.drawArc(face,
+                        static_cast<int>(kGaugeStartDegrees * 16),
                         static_cast<int>(kGaugeSweepDegrees * swept * 16));
 
         // The needle. Drawn from the centre so that a gauge resized by its
@@ -713,23 +713,29 @@ void DashboardPanel::paintGauge(QPainter& painter, const DashboardWidget& widget
     painter.setPen(reading.known ? theme.text : theme.textMuted);
 
     const QString value = reading.known
-        ? QStringLiteral("%1").arg(reading.value, 0, 'f', widget.decimals)
-        : QStringLiteral("--");
+                              ? QStringLiteral("%1").arg(reading.value, 0, 'f', widget.decimals)
+                              : QStringLiteral("--");
 
     const QString unit = QString::fromStdString(widget.unit);
 
-    painter.drawText(QRectF{rect.left(), rect.center().y() + rect.height() * 0.18,
-                            rect.width(), rect.height() * 0.2},
-                     Qt::AlignCenter, unit.isEmpty() ? value : value + QStringLiteral(" ") + unit);
+    painter.drawText(QRectF{rect.left(),
+                            rect.center().y() + rect.height() * 0.18,
+                            rect.width(),
+                            rect.height() * 0.2},
+                     Qt::AlignCenter,
+                     unit.isEmpty() ? value : value + QStringLiteral(" ") + unit);
 
     painter.setPen(theme.textMuted);
-    painter.drawText(QRectF{rect.left(), rect.bottom() - rect.height() * 0.2,
-                            rect.width(), rect.height() * 0.2},
-                     Qt::AlignCenter, captionOf(widget));
+    painter.drawText(
+        QRectF{rect.left(), rect.bottom() - rect.height() * 0.2, rect.width(), rect.height() * 0.2},
+        Qt::AlignCenter,
+        captionOf(widget));
 }
 
-void DashboardPanel::paintNumeric(QPainter& painter, const DashboardWidget& widget,
-                                  const QRectF& rect, const Reading& reading)
+void DashboardPanel::paintNumeric(QPainter& painter,
+                                  const DashboardWidget& widget,
+                                  const QRectF& rect,
+                                  const Reading& reading)
 {
     const Theme theme = currentTheme();
 
@@ -738,8 +744,8 @@ void DashboardPanel::paintNumeric(QPainter& painter, const DashboardWidget& widg
     painter.drawRoundedRect(rect, 4.0, 4.0);
 
     const QString value = reading.known
-        ? QStringLiteral("%1").arg(reading.value, 0, 'f', widget.decimals)
-        : QStringLiteral("--");
+                              ? QStringLiteral("%1").arg(reading.value, 0, 'f', widget.decimals)
+                              : QStringLiteral("--");
 
     const QString unit = QString::fromStdString(widget.unit);
 
@@ -753,9 +759,10 @@ void DashboardPanel::paintNumeric(QPainter& painter, const DashboardWidget& widg
     painter.setFont(big);
 
     painter.setPen(reading.known ? theme.text : theme.textMuted);
-    painter.drawText(QRectF{rect.left(), rect.top() + rect.height() * 0.1, rect.width(),
-                            rect.height() * 0.55},
-                     Qt::AlignCenter, unit.isEmpty() ? value : value + QStringLiteral(" ") + unit);
+    painter.drawText(
+        QRectF{rect.left(), rect.top() + rect.height() * 0.1, rect.width(), rect.height() * 0.55},
+        Qt::AlignCenter,
+        unit.isEmpty() ? value : value + QStringLiteral(" ") + unit);
 
     QFont small = painter.font();
     small.setPointSizeF(std::max(8.0, rect.height() * 0.16));
@@ -763,13 +770,17 @@ void DashboardPanel::paintNumeric(QPainter& painter, const DashboardWidget& widg
     painter.setFont(small);
 
     painter.setPen(theme.textMuted);
-    painter.drawText(QRectF{rect.left(), rect.bottom() - rect.height() * 0.3, rect.width(),
-                            rect.height() * 0.25},
-                     Qt::AlignCenter, captionOf(widget));
+    painter.drawText(
+        QRectF{
+            rect.left(), rect.bottom() - rect.height() * 0.3, rect.width(), rect.height() * 0.25},
+        Qt::AlignCenter,
+        captionOf(widget));
 }
 
-void DashboardPanel::paintLamp(QPainter& painter, const DashboardWidget& widget,
-                               const QRectF& rect, const Reading& reading)
+void DashboardPanel::paintLamp(QPainter& painter,
+                               const DashboardWidget& widget,
+                               const QRectF& rect,
+                               const Reading& reading)
 {
     const Theme theme = currentTheme();
 
@@ -792,13 +803,17 @@ void DashboardPanel::paintLamp(QPainter& painter, const DashboardWidget& widget,
     painter.drawEllipse(bulb);
 
     painter.setPen(theme.textMuted);
-    painter.drawText(QRectF{rect.left(), rect.bottom() - rect.height() * 0.3, rect.width(),
-                            rect.height() * 0.25},
-                     Qt::AlignCenter, captionOf(widget));
+    painter.drawText(
+        QRectF{
+            rect.left(), rect.bottom() - rect.height() * 0.3, rect.width(), rect.height() * 0.25},
+        Qt::AlignCenter,
+        captionOf(widget));
 }
 
-void DashboardPanel::paintSlider(QPainter& painter, const DashboardWidget& widget,
-                                 const QRectF& rect, const Reading& reading)
+void DashboardPanel::paintSlider(QPainter& painter,
+                                 const DashboardWidget& widget,
+                                 const QRectF& rect,
+                                 const Reading& reading)
 {
     const Theme theme = currentTheme();
 
@@ -833,25 +848,28 @@ void DashboardPanel::paintSlider(QPainter& painter, const DashboardWidget& widge
 
     // The handle, which is what says this is a thing to be moved rather than a
     // progress bar.
-    const QPointF centre = horizontal
-        ? QPointF{groove.left() + groove.width() * swept, groove.center().y()}
-        : QPointF{groove.center().x(), groove.bottom() - groove.height() * swept};
+    const QPointF centre =
+        horizontal ? QPointF{groove.left() + groove.width() * swept, groove.center().y()}
+                   : QPointF{groove.center().x(), groove.bottom() - groove.height() * swept};
 
     painter.setBrush(theme.text);
     painter.setPen(Qt::NoPen);
     painter.drawEllipse(centre, 9.0, 9.0);
 
     painter.setPen(theme.textMuted);
-    painter.drawText(QRectF{rect.left(), rect.bottom() - rect.height() * 0.3, rect.width(),
-                            rect.height() * 0.28},
-                     Qt::AlignCenter,
-                     QStringLiteral("%1  %2")
-                         .arg(captionOf(widget))
-                         .arg(reading.value, 0, 'f', widget.decimals));
+    painter.drawText(
+        QRectF{
+            rect.left(), rect.bottom() - rect.height() * 0.3, rect.width(), rect.height() * 0.28},
+        Qt::AlignCenter,
+        QStringLiteral("%1  %2")
+            .arg(captionOf(widget))
+            .arg(reading.value, 0, 'f', widget.decimals));
 }
 
-void DashboardPanel::paintKnob(QPainter& painter, const DashboardWidget& widget,
-                               const QRectF& rect, const Reading& reading)
+void DashboardPanel::paintKnob(QPainter& painter,
+                               const DashboardWidget& widget,
+                               const QRectF& rect,
+                               const Reading& reading)
 {
     const Theme theme = currentTheme();
 
@@ -875,16 +893,19 @@ void DashboardPanel::paintKnob(QPainter& painter, const DashboardWidget& widget,
     painter.drawLine(centre, tip);
 
     painter.setPen(theme.textMuted);
-    painter.drawText(QRectF{rect.left(), rect.bottom() - rect.height() * 0.26, rect.width(),
-                            rect.height() * 0.24},
-                     Qt::AlignCenter,
-                     QStringLiteral("%1  %2")
-                         .arg(captionOf(widget))
-                         .arg(reading.value, 0, 'f', widget.decimals));
+    painter.drawText(
+        QRectF{
+            rect.left(), rect.bottom() - rect.height() * 0.26, rect.width(), rect.height() * 0.24},
+        Qt::AlignCenter,
+        QStringLiteral("%1  %2")
+            .arg(captionOf(widget))
+            .arg(reading.value, 0, 'f', widget.decimals));
 }
 
-void DashboardPanel::paintButton(QPainter& painter, const DashboardWidget& widget,
-                                 const QRectF& rect, const Reading& reading)
+void DashboardPanel::paintButton(QPainter& painter,
+                                 const DashboardWidget& widget,
+                                 const QRectF& rect,
+                                 const Reading& reading)
 {
     const Theme theme = currentTheme();
 
@@ -897,18 +918,21 @@ void DashboardPanel::paintButton(QPainter& painter, const DashboardWidget& widge
     painter.drawRoundedRect(face, 6.0, 6.0);
 
     painter.setPen(on ? theme.textInverted : theme.text);
-    painter.drawText(face, Qt::AlignCenter,
-                     widget.kind == DashboardWidgetKind::Switch
-                         ? (on ? tr("ON") : tr("OFF"))
-                         : captionOf(widget));
+    painter.drawText(face,
+                     Qt::AlignCenter,
+                     widget.kind == DashboardWidgetKind::Switch ? (on ? tr("ON") : tr("OFF"))
+                                                                : captionOf(widget));
 
     painter.setPen(theme.textMuted);
-    painter.drawText(QRectF{rect.left(), rect.bottom() - rect.height() * 0.28, rect.width(),
-                            rect.height() * 0.26},
-                     Qt::AlignCenter, captionOf(widget));
+    painter.drawText(
+        QRectF{
+            rect.left(), rect.bottom() - rect.height() * 0.28, rect.width(), rect.height() * 0.26},
+        Qt::AlignCenter,
+        captionOf(widget));
 }
 
-void DashboardPanel::paintLabel(QPainter& painter, const DashboardWidget& widget,
+void DashboardPanel::paintLabel(QPainter& painter,
+                                const DashboardWidget& widget,
                                 const QRectF& rect)
 {
     const Theme theme = currentTheme();

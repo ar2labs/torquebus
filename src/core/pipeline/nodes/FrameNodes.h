@@ -45,8 +45,7 @@ public:
     /// by recompiling the graph whenever channels change.
     explicit ChannelSourceNode(CanChannel& channel)
         : m_channel{channel}
-    {
-    }
+    { }
 
     [[nodiscard]] std::string_view typeName() const noexcept override { return "can.source"; }
 
@@ -102,8 +101,7 @@ public:
 
     explicit FrameFilterNode(CanFilterSet filters)
         : m_filters{std::move(filters)}
-    {
-    }
+    { }
 
     [[nodiscard]] std::string_view typeName() const noexcept override { return "can.filter"; }
 
@@ -190,8 +188,7 @@ class ChannelSinkNode final : public IPipelineNode {
 public:
     explicit ChannelSinkNode(CanChannel& channel)
         : m_channel{channel}
-    {
-    }
+    { }
 
     [[nodiscard]] std::string_view typeName() const noexcept override { return "can.transmit"; }
 
@@ -252,8 +249,7 @@ public:
     explicit FrameSinkNode(Callback callback, std::string label = "sink")
         : m_callback{std::move(callback)}
         , m_label{std::move(label)}
-    {
-    }
+    { }
 
     [[nodiscard]] std::string_view typeName() const noexcept override { return "can.sink"; }
 

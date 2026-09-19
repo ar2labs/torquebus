@@ -51,8 +51,7 @@ public:
     NodeContext(std::span<const PortBatch> inputs, std::span<PortBatch> outputs) noexcept
         : m_inputs{inputs}
         , m_outputs{outputs}
-    {
-    }
+    { }
 
     [[nodiscard]] std::size_t inputCount() const noexcept { return m_inputs.size(); }
     [[nodiscard]] std::size_t outputCount() const noexcept { return m_outputs.size(); }
@@ -65,7 +64,7 @@ public:
     }
 
     /// Convenience for the overwhelmingly common single-input node.
-    template <typename T>
+    template<typename T>
     [[nodiscard]] std::span<const T> in(std::size_t port = 0) const noexcept
     {
         return input(port).as<T>();
@@ -84,7 +83,7 @@ public:
     /// core's headers from being included by Qt code, which is exactly what the
     /// UI does. So core headers avoid Qt's macro names: emit, signals, slots,
     /// foreach.
-    template <typename T>
+    template<typename T>
     void publish(std::size_t port, std::span<const T> items) noexcept
     {
         if (port < m_outputs.size()) {
@@ -164,7 +163,7 @@ public:
 
     /// Called once when the measurement stops, after the final pass. Where a
     /// logger closes its file and a script node runs its on_disable.
-    virtual void finish() {}
+    virtual void finish() { }
 };
 
 } // namespace torquebus

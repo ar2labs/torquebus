@@ -21,16 +21,15 @@ constexpr std::size_t kMaximumQueued = 8;
 } // namespace
 
 UdsClientNode::UdsClientNode(IsoTpAddress address,
-                            IsoTpConfig transport,
-                            UdsTiming timing,
-                            DiagnosticSession* session,
-                            std::string label)
+                             IsoTpConfig transport,
+                             UdsTiming timing,
+                             DiagnosticSession* session,
+                             std::string label)
     : m_transport{address, transport}
     , m_client{timing}
     , m_session{session}
     , m_label{std::move(label)}
-{
-}
+{ }
 
 Result UdsClientNode::prepare(std::size_t maximumBatchSize)
 {
@@ -102,10 +101,10 @@ void UdsClientNode::process(NodeContext& context)
     m_outgoingFrames.clear();
     m_outgoingEvents.clear();
 
-    const auto nowNs = static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()
-                                                             - m_started)
-            .count());
+    const auto nowNs =
+        static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                       std::chrono::steady_clock::now() - m_started)
+                                       .count());
 
     // --- Frames from the bus, up through the transport ---------------------
     for (const CanFrame& frame : context.in<CanFrame>(0)) {

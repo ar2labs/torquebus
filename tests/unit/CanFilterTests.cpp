@@ -155,10 +155,8 @@ TEST_CASE("Rules can constrain format and direction", "[filter]")
         CanFilterSet filters;
         filters.add(rule);
 
-        CHECK(filters.accepts(
-            frame(0x100, CanFrameFormat::Standard, CanDirection::Tx)));
-        CHECK_FALSE(filters.accepts(
-            frame(0x100, CanFrameFormat::Standard, CanDirection::Rx)));
+        CHECK(filters.accepts(frame(0x100, CanFrameFormat::Standard, CanDirection::Tx)));
+        CHECK_FALSE(filters.accepts(frame(0x100, CanFrameFormat::Standard, CanDirection::Rx)));
     }
 }
 
@@ -204,7 +202,12 @@ TEST_CASE("retainAccepted compacts a batch in place", "[filter][batch]")
     filters.add(CanFilter::acceptRange(0x100, 0x1FF));
 
     std::vector<CanFrame> batch{
-        frame(0x0FF), frame(0x100), frame(0x200), frame(0x150), frame(0x300), frame(0x1FF),
+        frame(0x0FF),
+        frame(0x100),
+        frame(0x200),
+        frame(0x150),
+        frame(0x300),
+        frame(0x1FF),
     };
 
     const std::size_t kept = filters.retainAccepted(batch);

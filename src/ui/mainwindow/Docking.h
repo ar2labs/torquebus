@@ -19,9 +19,9 @@
 
 #include <QByteArray>
 #include <QIcon>
-#include <QStringList>
 #include <QSize>
 #include <QString>
+#include <QStringList>
 
 namespace torquebus::ui {
 
@@ -32,12 +32,7 @@ using DockMainWindowBase = KDDockWidgets::QtWidgets::MainWindow;
 using DockWidget = KDDockWidgets::QtWidgets::DockWidget;
 
 /// Where a panel is placed relative to the main window or to another panel.
-enum class DockLocation {
-    Left,
-    Right,
-    Top,
-    Bottom
-};
+enum class DockLocation { Left, Right, Top, Bottom };
 
 /// Configures the docking framework. Must be called once, after QApplication
 /// is constructed and before the main window is created.
