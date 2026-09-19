@@ -197,16 +197,16 @@ try {
 
     # --- 4. Formatting ------------------------------------------------------
     #
-    # Advisory, exactly as in CI, and for a reason worth repeating here rather
-    # than hiding in a workflow file: this codebase is hand-formatted. Line
-    # breaks are chosen for meaning in places where clang-format would join the
-    # line because it fits. Running `clang-format -i` over a file you touched
-    # will reformat the whole file and bury your change in a diff nobody can
-    # review.
+    # A failure now, matching CI. It was advisory while 250 of 267 files
+    # disagreed with the config; the tree was reformatted in one commit and the
+    # check can pass, so it is allowed to fail.
     #
-    # So: it tells you what clang-format thinks, and lets you decide.
+    # The version matters and is reported when it disagrees: CI pins
+    # clang-format-17, and a different one formats differently. A local 21
+    # saying 30 files differ, against a CI that is happy, is a version gap and
+    # not a formatting problem.
 
-    Write-Heading "Formatting (advisory)"
+    Write-Heading "Formatting"
 
     $clangFormat = Get-Command "clang-format" -ErrorAction SilentlyContinue
 
@@ -236,10 +236,19 @@ try {
         if ($dirty.Count -eq 0) {
             Write-Host "  ok - $($files.Count) files" -ForegroundColor Green
         } else {
-            Write-Host ("  clang-format {0} would change {1} of {2} files." -f
-                        $version, $dirty.Count, $files.Count) -ForegroundColor Yellow
-            Write-Host "  This is expected and is not a failure. See the note above." -ForegroundColor DarkGray
-            $advisories += "formatting: $($dirty.Count) files differ"
+            Write-Host ("  clang-format {0} would change {1} of {2} files:" -f
+                        $version, $dirty.Count, $files.Count) -ForegroundColor Red
+            foreach ($file in ($dirty | Select-Object -First 20)) {
+                Write-Host "    $file" -ForegroundColor Red
+            }
+            if ($dirty.Count -gt 20) {
+                Write-Host ("    ... and {0} more" -f ($dirty.Count - 20)) -ForegroundColor Red
+            }
+            Write-Host "  clang-format -i on those files fixes it." -ForegroundColor DarkGray
+            Write-Host "  CI pins clang-format-17; if yours is a different major, that may be why." `
+                -ForegroundColor DarkGray
+
+            $failures += "formatting: $($dirty.Count) files differ"
         }
     }
 

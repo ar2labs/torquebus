@@ -144,19 +144,21 @@ jobs:
       - name: Install clang tooling
         run: sudo apt-get update && sudo apt-get install -y clang-format-17
 
+      # A gate now, and not advisory. It was advisory while 250 of 267 files
+      # disagreed with the config - refusing a merge over that would have been
+      # refusing it over a decision nobody had taken. The decision was taken,
+      # the tree was reformatted in one commit, and a check that can now pass
+      # is a check that can honestly fail.
+      #
       # third_party is excluded because it is not ours to format: the glob used
       # to include 27 vendored Lua headers, which are C written in someone
       # else's style and can never match a config of ours.
       #
-      # Advisory, and honestly labelled as such. The codebase is hand-formatted
-      # - line breaks chosen for meaning, in places where clang-format would
-      # join the line because it fits - so this reports what it would change
-      # instead of refusing the merge. Turning it into a gate means reformatting
-      # 246 of 263 files first, which is a decision about the whole codebase and
-      # not something a CI step should make on its own.
-      - name: Formatting (advisory)
-        continue-on-error: true
+      # --Werror is what makes it a gate. Pinning clang-format-17 matters more
+      # now than it did: a different version formats differently, and this job
+      # would reject a tree that is correct for the version everybody else runs.
+      - name: Formatting
         run: |
           files=$(git ls-files '*.cpp' '*.h' | grep -v '^third_party/')
-          clang-format-17 --dry-run $files 2>&1 | head -80
+          clang-format-17 --dry-run --Werror $files
 
