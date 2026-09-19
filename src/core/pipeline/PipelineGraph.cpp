@@ -52,9 +52,8 @@ void PipelineGraph::removeNode(NodeId id)
 {
     invalidate();
 
-    std::erase_if(m_edges, [id](const Edge& edge) {
-        return edge.from.node == id || edge.to.node == id;
-    });
+    std::erase_if(m_edges,
+                  [id](const Edge& edge) { return edge.from.node == id || edge.to.node == id; });
 
     std::erase_if(m_nodes, [id](const NodeEntry& entry) { return entry.id == id; });
 }
@@ -73,15 +72,15 @@ Result PipelineGraph::connect(PortRef from, PortRef to)
     const std::span<const PortDescriptor> inputs = target->node->inputs();
 
     if (from.port >= outputs.size()) {
-        return Result::error(ErrorCode::InvalidArgument,
-                             std::format("{} has no output port {}",
-                                         source->node->typeName(), from.port));
+        return Result::error(
+            ErrorCode::InvalidArgument,
+            std::format("{} has no output port {}", source->node->typeName(), from.port));
     }
 
     if (to.port >= inputs.size()) {
-        return Result::error(ErrorCode::InvalidArgument,
-                             std::format("{} has no input port {}",
-                                         target->node->typeName(), to.port));
+        return Result::error(
+            ErrorCode::InvalidArgument,
+            std::format("{} has no input port {}", target->node->typeName(), to.port));
     }
 
     // The typecheck. This is the whole reason ports carry a type: the mistake
@@ -97,8 +96,8 @@ Result PipelineGraph::connect(PortRef from, PortRef to)
                         toString(inputs[to.port].type)));
     }
 
-    const bool alreadyConnected = std::ranges::any_of(
-        m_edges, [&to](const Edge& edge) { return edge.to == to; });
+    const bool alreadyConnected =
+        std::ranges::any_of(m_edges, [&to](const Edge& edge) { return edge.to == to; });
 
     if (alreadyConnected) {
         return Result::error(
@@ -297,8 +296,8 @@ Result PipelineGraph::compile(std::size_t maximumBatchSize)
     m_executionPlan.clear();
     m_executionPlan.reserve(m_executionOrder.size());
     for (const NodeId id : m_executionOrder) {
-        const auto position = std::ranges::find_if(
-            m_nodes, [id](const NodeEntry& entry) { return entry.id == id; });
+        const auto position =
+            std::ranges::find_if(m_nodes, [id](const NodeEntry& entry) { return entry.id == id; });
         m_executionPlan.push_back(
             static_cast<std::size_t>(std::distance(m_nodes.begin(), position)));
     }

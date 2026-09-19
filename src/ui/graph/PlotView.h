@@ -99,10 +99,8 @@ private:
     [[nodiscard]] double xFor(std::uint64_t timestampNs, const QRectF& area) const;
 
     /// Where `value` falls vertically for a trace with that range.
-    [[nodiscard]] static double yFor(double value,
-                                     double minimum,
-                                     double maximum,
-                                     const QRectF& area);
+    [[nodiscard]] static double
+    yFor(double value, double minimum, double maximum, const QRectF& area);
 
     void paintGrid(QPainter& painter, const QRectF& area) const;
     void paintTrace(QPainter& painter, const QRectF& area, const PlotTrace& trace) const;
@@ -112,10 +110,7 @@ private:
     /// Per trace and not once down the side, because each has its own vertical
     /// scale - a single axis would be labelling a scale that only one of the
     /// lines is actually drawn against.
-    void paintScale(QPainter& painter,
-                    const QRectF& area,
-                    const PlotTrace& trace,
-                    int row) const;
+    void paintScale(QPainter& painter, const QRectF& area, const PlotTrace& trace, int row) const;
     void paintCursor(QPainter& painter, const QRectF& area) const;
 
     std::vector<PlotTrace> m_traces;

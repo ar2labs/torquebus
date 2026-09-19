@@ -19,8 +19,7 @@ SignalSeries::SignalSeries(std::string name, std::string unit, std::size_t capac
     : m_name{std::move(name)}
     , m_unit{std::move(unit)}
     , m_samples(std::max<std::size_t>(capacity, 1))
-{
-}
+{ }
 
 void SignalSeries::append(std::uint64_t timestampNs, double value)
 {
@@ -100,8 +99,7 @@ void SignalSeries::clear()
 
 SignalSeriesStore::SignalSeriesStore(std::size_t capacityPerSignal)
     : m_capacity{std::max<std::size_t>(capacityPerSignal, 1)}
-{
-}
+{ }
 
 std::string SignalSeriesStore::qualify(const DecodedSignal& signal)
 {
@@ -179,8 +177,8 @@ std::vector<SeriesInfo> SignalSeriesStore::listSeries() const
     infos.reserve(m_series.size());
 
     for (SeriesId id = 0; id < m_series.size(); ++id) {
-        infos.push_back(SeriesInfo{id, m_series[id].name(), m_series[id].unit(),
-                                   m_series[id].size()});
+        infos.push_back(
+            SeriesInfo{id, m_series[id].name(), m_series[id].unit(), m_series[id].size()});
     }
 
     return infos;
@@ -221,8 +219,7 @@ void SignalSeriesStore::readWindows(std::span<const SeriesId> ids,
     }
 }
 
-bool SignalSeriesStore::latest(SeriesId id, double& value,
-                               std::uint64_t& timestampNs) const
+bool SignalSeriesStore::latest(SeriesId id, double& value, std::uint64_t& timestampNs) const
 {
     const std::lock_guard lock{m_mutex};
 

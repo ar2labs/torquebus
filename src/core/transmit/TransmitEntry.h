@@ -87,10 +87,7 @@ struct TransmitEntry final {
     /// periodic line is actually running.
     std::uint64_t sentCount{0};
 
-    [[nodiscard]] bool isPeriodic() const noexcept
-    {
-        return trigger == TransmitTrigger::Periodic;
-    }
+    [[nodiscard]] bool isPeriodic() const noexcept { return trigger == TransmitTrigger::Periodic; }
 };
 
 } // namespace torquebus

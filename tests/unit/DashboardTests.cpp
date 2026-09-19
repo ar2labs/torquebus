@@ -209,10 +209,14 @@ TEST_CASE("Widget kinds survive the round trip through their names", "[dashboard
     // The names go into project files, so a kind that does not come back is a
     // dashboard that opens with the wrong widget on it.
     static constexpr DashboardWidgetKind kAll[] = {
-        DashboardWidgetKind::Gauge,  DashboardWidgetKind::Numeric,
-        DashboardWidgetKind::Lamp,   DashboardWidgetKind::Button,
-        DashboardWidgetKind::Switch, DashboardWidgetKind::Slider,
-        DashboardWidgetKind::Knob,   DashboardWidgetKind::Label,
+        DashboardWidgetKind::Gauge,
+        DashboardWidgetKind::Numeric,
+        DashboardWidgetKind::Lamp,
+        DashboardWidgetKind::Button,
+        DashboardWidgetKind::Switch,
+        DashboardWidgetKind::Slider,
+        DashboardWidgetKind::Knob,
+        DashboardWidgetKind::Label,
     };
 
     for (const DashboardWidgetKind kind : kAll) {
@@ -290,8 +294,7 @@ TEST_CASE("An unknown name reads as zero rather than failing", "[dashboard][vari
     CHECK(variables.count() == 0);
 }
 
-TEST_CASE("Writing counts, even when the value did not change",
-          "[dashboard][variables]")
+TEST_CASE("Writing counts, even when the value did not change", "[dashboard][variables]")
 {
     // "The number is the same" and "nothing happened" are different questions.
     // A script writing 0 every cycle is doing something, and a gauge that
@@ -308,8 +311,7 @@ TEST_CASE("Writing counts, even when the value did not change",
     CHECK(variables.revision(handle) == before + 2);
 }
 
-TEST_CASE("Names come back in the order they were first seen",
-          "[dashboard][variables]")
+TEST_CASE("Names come back in the order they were first seen", "[dashboard][variables]")
 {
     SystemVariables variables;
 
@@ -325,14 +327,12 @@ TEST_CASE("Names come back in the order they were first seen",
     CHECK(names[2] == "middle");
 }
 
-TEST_CASE("The table says when it is full instead of losing a name",
-          "[dashboard][variables]")
+TEST_CASE("The table says when it is full instead of losing a name", "[dashboard][variables]")
 {
     SystemVariables variables;
 
     for (std::size_t index = 0; index < SystemVariables::kMaximumVariables; ++index) {
-        const SystemVariables::Handle handle =
-            variables.resolve("v" + std::to_string(index));
+        const SystemVariables::Handle handle = variables.resolve("v" + std::to_string(index));
 
         REQUIRE(handle != SystemVariables::kUnknown);
     }
@@ -345,8 +345,7 @@ TEST_CASE("The table says when it is full instead of losing a name",
     CHECK(variables.resolve("v0") == 0);
 }
 
-TEST_CASE("A reader and a writer do not need a lock between them",
-          "[dashboard][variables]")
+TEST_CASE("A reader and a writer do not need a lock between them", "[dashboard][variables]")
 {
     // Not a proof - a race is not proved absent by running it - but it does
     // exercise the path under a thread sanitizer, which is where this would be
@@ -452,8 +451,7 @@ TEST_CASE("A variable read every pass costs no lock", "[dashboard][variables][lu
     CHECK(variables.value("ticks") >= 2.0);
 }
 
-TEST_CASE("Clearing forgets the values as well as the names",
-          "[dashboard][variables]")
+TEST_CASE("Clearing forgets the values as well as the names", "[dashboard][variables]")
 {
     SystemVariables variables;
 

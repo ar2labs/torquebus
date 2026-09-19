@@ -24,8 +24,8 @@
 
 #include "core/Result.h"
 #include "core/dashboard/DashboardDescription.h"
-#include "core/transmit/TransmitList.h"
 #include "core/pipeline/GraphDescription.h"
+#include "core/transmit/TransmitList.h"
 
 #include <QString>
 

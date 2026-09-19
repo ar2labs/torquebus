@@ -51,8 +51,8 @@ public:
         m_animation.setStartValue(0.0);
         m_animation.setEndValue(0.0);
 
-        QObject::connect(&m_animation, &QVariantAnimation::valueChanged, owner,
-                         [owner] { owner->update(); });
+        QObject::connect(
+            &m_animation, &QVariantAnimation::valueChanged, owner, [owner] { owner->update(); });
     }
 
     Motion(const Motion&) = delete;

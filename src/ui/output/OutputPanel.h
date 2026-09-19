@@ -23,12 +23,7 @@ class OutputPanel final : public QWidget {
     Q_OBJECT
 
 public:
-    enum class Level {
-        Debug,
-        Info,
-        Warning,
-        Error
-    };
+    enum class Level { Debug, Info, Warning, Error };
     Q_ENUM(Level)
 
     explicit OutputPanel(QWidget* parent = nullptr);

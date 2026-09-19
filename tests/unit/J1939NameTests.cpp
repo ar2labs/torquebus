@@ -22,9 +22,8 @@ using namespace torquebus;
 namespace {
 
 /// An Address Claimed from `source`, carrying `name` in the usual byte order.
-[[nodiscard]] CanFrame claimFrame(std::uint64_t name,
-                                  std::uint8_t source,
-                                  std::uint8_t length = kJ1939NameBytes)
+[[nodiscard]] CanFrame
+claimFrame(std::uint64_t name, std::uint8_t source, std::uint8_t length = kJ1939NameBytes)
 {
     CanFrame frame;
     frame.identifier = j1939Identifier(kPgnAddressClaimed, source);
@@ -105,8 +104,7 @@ TEST_CASE("No field of a NAME bleeds into its neighbour", "[j1939][name]")
     CHECK(j1939DecodeName(name.value()).vehicleSystemInstance == 0U);
 }
 
-TEST_CASE("The eight bytes of a claim are read least significant first",
-          "[j1939][name]")
+TEST_CASE("The eight bytes of a claim are read least significant first", "[j1939][name]")
 {
     // Bytes 1..8 in order. A NAME read the other way round is still a plausible
     // NAME - another manufacturer, another serial - and nothing about it looks
@@ -145,8 +143,7 @@ TEST_CASE("The lower NAME wins the address", "[j1939][name]")
     CHECK_FALSE(low.winsAgainst(low));
 }
 
-TEST_CASE("An ECU that can move loses the tie it would otherwise win",
-          "[j1939][name]")
+TEST_CASE("An ECU that can move loses the tie it would otherwise win", "[j1939][name]")
 {
     // Identical in every other field. The arbitrary-address-capable bit is the
     // top bit of the NAME, so setting it can only make the NAME larger - and
@@ -161,8 +158,7 @@ TEST_CASE("An ECU that can move loses the tie it would otherwise win",
     CHECK_FALSE(movable.winsAgainst(fixed));
 }
 
-TEST_CASE("A claim shorter than eight bytes is refused, not padded",
-          "[j1939][name]")
+TEST_CASE("A claim shorter than eight bytes is refused, not padded", "[j1939][name]")
 {
     // Padding would invent an identity number nobody transmitted, and that
     // invented NAME would then win or lose contests and be shown in a panel as
@@ -171,8 +167,7 @@ TEST_CASE("A claim shorter than eight bytes is refused, not padded",
     CHECK(j1939NameFromClaim(claimFrame(sampleName().value(), 0x80U, 8U)).has_value());
 }
 
-TEST_CASE("A frame that is not an Address Claimed carries no NAME",
-          "[j1939][name]")
+TEST_CASE("A frame that is not an Address Claimed carries no NAME", "[j1939][name]")
 {
     CanFrame other;
     other.identifier = j1939Identifier(kPgnDm1, 0x00U);
@@ -192,8 +187,7 @@ TEST_CASE("A frame that is not an Address Claimed carries no NAME",
     CHECK_FALSE(j1939NameFromClaim(standard).has_value());
 }
 
-TEST_CASE("Cannot Claim Address is recognised and is not a claim on 254",
-          "[j1939][name]")
+TEST_CASE("Cannot Claim Address is recognised and is not a claim on 254", "[j1939][name]")
 {
     // An ECU that lost announces it from the null address. The NAME is real and
     // worth keeping; the address is not an address. Filing this as an occupant
@@ -225,8 +219,7 @@ TEST_CASE("The reserved bit is carried, not quietly cleared", "[j1939][name]")
     CHECK(round.value() == name.value());
 }
 
-TEST_CASE("The industry groups are named, and the reserved ones say so",
-          "[j1939][name]")
+TEST_CASE("The industry groups are named, and the reserved ones say so", "[j1939][name]")
 {
     CHECK(j1939IndustryGroupName(0U) == "Global");
     CHECK(j1939IndustryGroupName(1U) == "On-Highway Equipment");

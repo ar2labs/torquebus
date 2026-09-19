@@ -52,17 +52,12 @@ namespace torquebus {
 
 class J1939Node final : public IPipelineNode {
 public:
-    explicit J1939Node(std::shared_ptr<const CanDatabase> database,
-                       std::string label = "J1939")
+    explicit J1939Node(std::shared_ptr<const CanDatabase> database, std::string label = "J1939")
         : m_database{std::move(database)}
         , m_label{std::move(label)}
-    {
-    }
+    { }
 
-    [[nodiscard]] std::string_view typeName() const noexcept override
-    {
-        return "j1939.decoder";
-    }
+    [[nodiscard]] std::string_view typeName() const noexcept override { return "j1939.decoder"; }
 
     [[nodiscard]] std::string displayName() const override { return m_label; }
 

@@ -36,8 +36,7 @@ constexpr std::string_view kAnyNode = "Vector__XXX";
 /// same function reads both.
 [[nodiscard]] constexpr bool isNameChar(char c) noexcept
 {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
-           || c == '_';
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
 }
 
 /// A cursor over one statement, with enough position tracking to say where a
@@ -51,8 +50,7 @@ public:
     Scanner(std::string_view text, std::size_t lineNumber) noexcept
         : m_text{text}
         , m_line{lineNumber}
-    {
-    }
+    { }
 
     [[nodiscard]] bool atEnd() noexcept
     {
@@ -153,7 +151,8 @@ public:
         skipSpace();
         const std::size_t start = m_position;
 
-        if (m_position < m_text.size() && (m_text[m_position] == '-' || m_text[m_position] == '+')) {
+        if (m_position < m_text.size()
+            && (m_text[m_position] == '-' || m_text[m_position] == '+')) {
             ++m_position;
         }
         while (m_position < m_text.size() && m_text[m_position] >= '0'
@@ -189,7 +188,8 @@ public:
         skipSpace();
         const std::size_t start = m_position;
 
-        if (m_position < m_text.size() && (m_text[m_position] == '-' || m_text[m_position] == '+')) {
+        if (m_position < m_text.size()
+            && (m_text[m_position] == '-' || m_text[m_position] == '+')) {
             ++m_position;
         }
 
@@ -302,7 +302,8 @@ struct Statement final {
 
         if (c == '/' && i + 1 < text.size() && text[i + 1] == '*') {
             i += 2;
-            while (i < text.size() && !(text[i] == '*' && i + 1 < text.size() && text[i + 1] == '/')) {
+            while (i < text.size()
+                   && !(text[i] == '*' && i + 1 < text.size() && text[i + 1] == '/')) {
                 // Keep the newlines: an error reported after a twenty-line
                 // comment block should name the real line.
                 if (text[i] == '\n') {
@@ -407,8 +408,8 @@ struct Statement final {
                 return false;
             }
             signal.multiplexerValue = selector;
-            signal.isMultiplexer = parsed.ptr != digits.data() + digits.size()
-                                   && *parsed.ptr == 'M';
+            signal.isMultiplexer =
+                parsed.ptr != digits.data() + digits.size() && *parsed.ptr == 'M';
         } else {
             error = scanner.describe("unexpected \"" + std::string{marker}
                                      + "\" where a multiplexing marker was allowed");
@@ -594,18 +595,18 @@ Result DbcParser::parse(std::string_view text, CanDatabase& database)
             const auto raw = static_cast<std::uint32_t>(rawIdentifier);
 
             CanMessage message;
-            message.format = (raw & kExtendedFlag) != 0U ? CanFrameFormat::Extended
-                                                         : CanFrameFormat::Standard;
+            message.format =
+                (raw & kExtendedFlag) != 0U ? CanFrameFormat::Extended : CanFrameFormat::Standard;
             message.identifier = raw & ~kExtendedFlag;
             message.name = std::string{messageName};
             message.length = static_cast<std::uint8_t>(std::min<std::int64_t>(length, 64));
 
             if (!isValidIdentifier(message.identifier, message.format)) {
-                return Result::error(
-                    ErrorCode::ParseError,
-                    scanner.describe("message \"" + message.name + "\" has identifier "
-                                     + std::to_string(message.identifier)
-                                     + ", which does not fit its frame format"));
+                return Result::error(ErrorCode::ParseError,
+                                     scanner.describe("message \"" + message.name
+                                                      + "\" has identifier "
+                                                      + std::to_string(message.identifier)
+                                                      + ", which does not fit its frame format"));
             }
 
             const std::string_view transmitter = scanner.name();

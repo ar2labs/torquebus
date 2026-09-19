@@ -16,10 +16,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cstdint>
-#include <string_view>
 #include <algorithm>
+#include <cstdint>
 #include <numeric>
+#include <string_view>
 #include <vector>
 
 using namespace torquebus;
@@ -62,8 +62,12 @@ constexpr std::uint32_t kCarried = 0x0'FEE3U;
 
 [[nodiscard]] CanFrame bam(std::uint16_t size, std::uint8_t packets, std::uint8_t source)
 {
-    return connectionFrame(J1939TransportControl::BroadcastAnnounce, kCarried, size, packets,
-                           source, kJ1939GlobalAddress);
+    return connectionFrame(J1939TransportControl::BroadcastAnnounce,
+                           kCarried,
+                           size,
+                           packets,
+                           source,
+                           kJ1939GlobalAddress);
 }
 
 [[nodiscard]] CanFrame requestToSend(std::uint16_t size,
@@ -71,8 +75,8 @@ constexpr std::uint32_t kCarried = 0x0'FEE3U;
                                      std::uint8_t source,
                                      std::uint8_t destination)
 {
-    return connectionFrame(J1939TransportControl::RequestToSend, kCarried, size, packets,
-                           source, destination);
+    return connectionFrame(
+        J1939TransportControl::RequestToSend, kCarried, size, packets, source, destination);
 }
 
 /// A TP.DT frame. `payload` is padded to seven bytes with 0xFF, as a real
@@ -97,13 +101,11 @@ constexpr std::uint32_t kCarried = 0x0'FEE3U;
 }
 
 /// An ETP.RTS: the size in four bytes rather than two.
-[[nodiscard]] CanFrame extendedRts(std::uint32_t size,
-                                   std::uint8_t source,
-                                   std::uint8_t destination)
+[[nodiscard]] CanFrame
+extendedRts(std::uint32_t size, std::uint8_t source, std::uint8_t destination)
 {
     CanFrame frame;
-    frame.identifier =
-        j1939Identifier(kPgnExtendedTransportConnection, source, destination, 7U);
+    frame.identifier = j1939Identifier(kPgnExtendedTransportConnection, source, destination, 7U);
     frame.format = CanFrameFormat::Extended;
     frame.length = 8;
     frame.dlc = 8;
@@ -127,8 +129,7 @@ constexpr std::uint32_t kCarried = 0x0'FEE3U;
                                       std::uint8_t destination)
 {
     CanFrame frame;
-    frame.identifier =
-        j1939Identifier(kPgnExtendedTransportConnection, source, destination, 7U);
+    frame.identifier = j1939Identifier(kPgnExtendedTransportConnection, source, destination, 7U);
     frame.format = CanFrameFormat::Extended;
     frame.length = 8;
     frame.dlc = 8;
@@ -189,8 +190,7 @@ constexpr std::uint32_t kCarried = 0x0'FEE3U;
 
 } // namespace
 
-TEST_CASE("A broadcast message reassembles into exactly what was sent",
-          "[j1939][transport]")
+TEST_CASE("A broadcast message reassembles into exactly what was sent", "[j1939][transport]")
 {
     // Twelve bytes is two packets, and the second one is padded - so this also
     // proves the padding does not reach the message.
@@ -214,8 +214,7 @@ TEST_CASE("A broadcast message reassembles into exactly what was sent",
     CHECK(transport.openSessions() == 0U);
 }
 
-TEST_CASE("A missing packet abandons the message instead of patching it",
-          "[j1939][transport]")
+TEST_CASE("A missing packet abandons the message instead of patching it", "[j1939][transport]")
 {
     // The refusal the whole file exists for. Packet two never arrives and three
     // does; seven bytes of anything in that hole would decode as measured data.
@@ -253,8 +252,7 @@ TEST_CASE("A repeated packet abandons the message", "[j1939][transport]")
     CHECK(transport.openSessions() == 0U);
 }
 
-TEST_CASE("A new announcement replaces the transfer already in flight",
-          "[j1939][transport]")
+TEST_CASE("A new announcement replaces the transfer already in flight", "[j1939][transport]")
 {
     // One session per pair of addresses. The announcement that just arrived is
     // the one that means something; keeping the old one would also leak a
@@ -281,8 +279,7 @@ TEST_CASE("A new announcement replaces the transfer already in flight",
     CHECK(transport.events()[0].data == second);
 }
 
-TEST_CASE("A declared size outside 9..1785 is a malformed announcement",
-          "[j1939][transport]")
+TEST_CASE("A declared size outside 9..1785 is a malformed announcement", "[j1939][transport]")
 {
     // Eight bytes fit in a frame and do not use transport at all; 1786 is one
     // past what 255 packets of seven can carry. Neither is a message.
@@ -307,8 +304,7 @@ TEST_CASE("A declared size outside 9..1785 is a malformed announcement",
     CHECK(transport.openSessions() == 2U);
 }
 
-TEST_CASE("A packet count that disagrees with the size is refused",
-          "[j1939][transport]")
+TEST_CASE("A packet count that disagrees with the size is refused", "[j1939][transport]")
 {
     // One of the two numbers is wrong and there is no way to tell which.
     // Trusting the size would overrun a short transfer; trusting the count
@@ -329,9 +325,8 @@ TEST_CASE("A sender that gives up ends the transfer", "[j1939][transport]")
 
     // Byte 1 of a Conn Abort is the reason. connectionFrame puts `size` there,
     // so 3 is "a timeout occurred" - J1939-21 Table 6.
-    transport.onFrame(connectionFrame(J1939TransportControl::Abort, kCarried, 3U, 0U,
-                                      kEngine, kTester),
-                      2000U);
+    transport.onFrame(
+        connectionFrame(J1939TransportControl::Abort, kCarried, 3U, 0U, kEngine, kTester), 2000U);
 
     REQUIRE(transport.events().size() == 1U);
     CHECK(transport.events()[0].error == J1939TransportError::AbortedByPeer);
@@ -339,8 +334,7 @@ TEST_CASE("A sender that gives up ends the transfer", "[j1939][transport]")
     CHECK(transport.openSessions() == 0U);
 }
 
-TEST_CASE("Every abort reason the standard defines is decoded",
-          "[j1939][transport]")
+TEST_CASE("Every abort reason the standard defines is decoded", "[j1939][transport]")
 {
     // J1939-21 MAY2022 Table 6. Six of these nine did not exist in the revision
     // this file was first written against, and were being reported as
@@ -372,16 +366,14 @@ TEST_CASE("Every abort reason the standard defines is decoded",
     // exactly as it arrived.
     J1939Transport transport;
     transport.onFrame(requestToSend(21U, 3U, kEngine, kTester), 0U);
-    transport.onFrame(connectionFrame(J1939TransportControl::Abort, kCarried, 200U, 0U,
-                                      kEngine, kTester),
-                      1000U);
+    transport.onFrame(
+        connectionFrame(J1939TransportControl::Abort, kCarried, 200U, 0U, kEngine, kTester), 1000U);
 
     REQUIRE(transport.events().size() == 1U);
     CHECK(transport.events()[0].abortReason == 200U);
 }
 
-TEST_CASE("The extended transport has its own abort reasons",
-          "[j1939][transport][etp]")
+TEST_CASE("The extended transport has its own abort reasons", "[j1939][transport][etp]")
 {
     // ISO 11783-3:2018 Table 9 against J1939-21 Table 6. Nine values mean the
     // same thing in both and then they diverge, which is the trap: reading an
@@ -394,9 +386,12 @@ TEST_CASE("The extended transport has its own abort reasons",
 
     // And 10 to 15 exist only for the extended protocol. Under the ordinary
     // table every one of them is "reserved".
-    for (const std::uint8_t reason : {std::uint8_t{10U}, std::uint8_t{11U},
-                                     std::uint8_t{12U}, std::uint8_t{13U},
-                                     std::uint8_t{14U}, std::uint8_t{15U}}) {
+    for (const std::uint8_t reason : {std::uint8_t{10U},
+                                      std::uint8_t{11U},
+                                      std::uint8_t{12U},
+                                      std::uint8_t{13U},
+                                      std::uint8_t{14U},
+                                      std::uint8_t{15U}}) {
         CHECK(j1939AbortReasonText(reason, false).find("reserved") != std::string_view::npos);
         CHECK(j1939AbortReasonText(reason, true).find("reserved") == std::string_view::npos);
     }
@@ -406,10 +401,14 @@ TEST_CASE("The extended transport has its own abort reasons",
     CHECK(j1939AbortReasonText(15U, true).find("more packets") != std::string_view::npos);
 
     // The first nine agree, which is why the trap is a trap.
-    for (const std::uint8_t reason : {std::uint8_t{1U}, std::uint8_t{2U},
-                                     std::uint8_t{3U}, std::uint8_t{4U},
-                                     std::uint8_t{5U}, std::uint8_t{6U},
-                                     std::uint8_t{7U}, std::uint8_t{8U}}) {
+    for (const std::uint8_t reason : {std::uint8_t{1U},
+                                      std::uint8_t{2U},
+                                      std::uint8_t{3U},
+                                      std::uint8_t{4U},
+                                      std::uint8_t{5U},
+                                      std::uint8_t{6U},
+                                      std::uint8_t{7U},
+                                      std::uint8_t{8U}}) {
         CHECK(j1939AbortReasonText(reason, false) == j1939AbortReasonText(reason, true));
     }
 
@@ -428,17 +427,15 @@ TEST_CASE("An abort says which end gave up", "[j1939][transport]")
     // reason = 3 (timeout) and role byte = 1 (the responder).
     J1939Transport transport;
     transport.onFrame(requestToSend(21U, 3U, kEngine, kTester), 0U);
-    transport.onFrame(connectionFrame(J1939TransportControl::Abort, kCarried, 0x0103U, 0U,
-                                      kEngine, kTester),
-                      1000U);
+    transport.onFrame(
+        connectionFrame(J1939TransportControl::Abort, kCarried, 0x0103U, 0U, kEngine, kTester),
+        1000U);
 
     REQUIRE(transport.events().size() == 1U);
     CHECK(transport.events()[0].abortReason == 3U);
     CHECK(transport.events()[0].abortRole == J1939AbortRole::Responder);
-    CHECK(j1939AbortRoleText(J1939AbortRole::Responder).find("receiver")
-          != std::string_view::npos);
-    CHECK(j1939AbortRoleText(J1939AbortRole::Originator).find("sender")
-          != std::string_view::npos);
+    CHECK(j1939AbortRoleText(J1939AbortRole::Responder).find("receiver") != std::string_view::npos);
+    CHECK(j1939AbortRoleText(J1939AbortRole::Originator).find("sender") != std::string_view::npos);
 
     // An extended abort reports no role at all. The layout of one belongs to
     // ISO 11783-3, which this project has not read, and reading J1939-21 byte
@@ -447,8 +444,7 @@ TEST_CASE("An abort says which end gave up", "[j1939][transport]")
     transport.onFrame(extendedRts(1792U, kEngine, kTester), 2000U);
 
     CanFrame abort;
-    abort.identifier =
-        j1939Identifier(kPgnExtendedTransportConnection, kEngine, kTester, 7U);
+    abort.identifier = j1939Identifier(kPgnExtendedTransportConnection, kEngine, kTester, 7U);
     abort.format = CanFrameFormat::Extended;
     abort.length = 8;
     abort.dlc = 8;
@@ -503,8 +499,7 @@ TEST_CASE("A negotiated transfer is given the handshake time before its first pa
     CHECK(silent.events()[0].packetsReceived == 0U);
 }
 
-TEST_CASE("A broadcast gets no extra patience, because it has no handshake",
-          "[j1939][transport]")
+TEST_CASE("A broadcast gets no extra patience, because it has no handshake", "[j1939][transport]")
 {
     // Nobody answers a BAM - the packets follow the announcement directly - so
     // there is no negotiation to wait through and T1 applies from the start.
@@ -522,8 +517,7 @@ TEST_CASE("A broadcast gets no extra patience, because it has no handshake",
     CHECK(transport.events()[0].broadcast);
 }
 
-TEST_CASE("A transfer that simply stops is ended by the clock",
-          "[j1939][transport]")
+TEST_CASE("A transfer that simply stops is ended by the clock", "[j1939][transport]")
 {
     // A BAM that stops halfway leaves nothing to react to: no handshake, no
     // abort, just silence. Only T1 ends it.
@@ -569,8 +563,7 @@ TEST_CASE("Two ECUs can be transferring at the same time", "[j1939][transport]")
     CHECK(transport.openSessions() == 0U);
 }
 
-TEST_CASE("A negotiated transfer between two other ECUs reassembles too",
-          "[j1939][transport]")
+TEST_CASE("A negotiated transfer between two other ECUs reassembles too", "[j1939][transport]")
 {
     // TorqueBus is a bystander here: the CTS and the end-of-message
     // acknowledgement belong to the two ECUs negotiating with each other, and
@@ -579,14 +572,15 @@ TEST_CASE("A negotiated transfer between two other ECUs reassembles too",
 
     J1939Transport transport;
     transport.onFrame(requestToSend(12U, 2U, kEngine, kTester), 0U);
-    transport.onFrame(connectionFrame(J1939TransportControl::ClearToSend, kCarried, 0U, 0U,
-                                      kTester, kEngine),
-                      100U);
+    transport.onFrame(
+        connectionFrame(J1939TransportControl::ClearToSend, kCarried, 0U, 0U, kTester, kEngine),
+        100U);
     transport.onFrame(dataFrame(1U, slice(payload, 0U), kEngine, kTester), 200U);
     transport.onFrame(dataFrame(2U, slice(payload, 1U), kEngine, kTester), 300U);
-    transport.onFrame(connectionFrame(J1939TransportControl::EndOfMessageAck, kCarried, 12U,
-                                      2U, kTester, kEngine),
-                      400U);
+    transport.onFrame(
+        connectionFrame(
+            J1939TransportControl::EndOfMessageAck, kCarried, 12U, 2U, kTester, kEngine),
+        400U);
 
     REQUIRE(transport.events().size() == 1U);
 
@@ -597,8 +591,7 @@ TEST_CASE("A negotiated transfer between two other ECUs reassembles too",
     CHECK(event.data == payload);
 }
 
-TEST_CASE("The extended transport PGNs are the ones the standard gives",
-          "[j1939][transport][etp]")
+TEST_CASE("The extended transport PGNs are the ones the standard gives", "[j1939][transport][etp]")
 {
     // Stated by extension rather than only used. These were wrong once - read
     // out of memory instead of out of the standard - and because they were
@@ -622,8 +615,7 @@ TEST_CASE("The extended transport PGNs are the ones the standard gives",
     CHECK(static_cast<std::uint8_t>(J1939ExtendedControl::EndOfMessageAck) == 23U);
 }
 
-TEST_CASE("An extended message reassembles across its offset windows",
-          "[j1939][transport][etp]")
+TEST_CASE("An extended message reassembles across its offset windows", "[j1939][transport][etp]")
 {
     // 1792 bytes is 256 packets - one more than a one-byte sequence number can
     // count, which is the entire reason ETP exists. The second window is where
@@ -644,7 +636,9 @@ TEST_CASE("An extended message reassembles across its offset windows",
 
         for (std::uint32_t index = 0U; index < window; ++index) {
             transport.onFrame(extendedData(static_cast<std::uint8_t>(index + 1U),
-                                           slice(payload, sent + index), kEngine, kTester),
+                                           slice(payload, sent + index),
+                                           kEngine,
+                                           kTester),
                               clock++);
         }
 
@@ -663,8 +657,7 @@ TEST_CASE("An extended message reassembles across its offset windows",
     CHECK(transport.openSessions() == 0U);
 }
 
-TEST_CASE("An extended sequence number restarts inside every window",
-          "[j1939][transport][etp]")
+TEST_CASE("An extended sequence number restarts inside every window", "[j1939][transport][etp]")
 {
     // Packet 256 arrives as sequence 1 with an offset of 255. Read without the
     // offset it is the first packet of the message, and the transfer quietly
@@ -677,9 +670,10 @@ TEST_CASE("An extended sequence number restarts inside every window",
     transport.onFrame(extendedOffset(255U, 0U, kEngine, kTester), 1U);
 
     for (std::uint32_t index = 0U; index < 255U; ++index) {
-        transport.onFrame(extendedData(static_cast<std::uint8_t>(index + 1U),
-                                       slice(payload, index), kEngine, kTester),
-                          2U + index);
+        transport.onFrame(
+            extendedData(
+                static_cast<std::uint8_t>(index + 1U), slice(payload, index), kEngine, kTester),
+            2U + index);
     }
 
     CHECK(transport.events().empty());
@@ -691,8 +685,7 @@ TEST_CASE("An extended sequence number restarts inside every window",
     CHECK(transport.events()[0].data == payload);
 }
 
-TEST_CASE("An offset that jumps forward is a hole, and is refused",
-          "[j1939][transport][etp]")
+TEST_CASE("An offset that jumps forward is a hole, and is refused", "[j1939][transport][etp]")
 {
     // The sender skipping a stretch it believes was delivered. Accepting it
     // would leave a gap that reassembles into a message nothing downstream can
@@ -714,8 +707,7 @@ TEST_CASE("An offset that jumps forward is a hole, and is refused",
     CHECK(transport.openSessions() == 0U);
 }
 
-TEST_CASE("Extended data before any offset has nowhere to go",
-          "[j1939][transport][etp]")
+TEST_CASE("Extended data before any offset has nowhere to go", "[j1939][transport][etp]")
 {
     // Assuming the first window would put these bytes at the start of the
     // message and silently misplace every window after it.
@@ -730,8 +722,7 @@ TEST_CASE("Extended data before any offset has nowhere to go",
     CHECK(transport.openSessions() == 0U);
 }
 
-TEST_CASE("Neither transport takes in the other laundry",
-          "[j1939][transport][etp]")
+TEST_CASE("Neither transport takes in the other laundry", "[j1939][transport][etp]")
 {
     J1939Transport transport;
 
@@ -749,8 +740,7 @@ TEST_CASE("Neither transport takes in the other laundry",
     CHECK(transport.openSessions() == 1U);
 }
 
-TEST_CASE("A size no ECU means is refused rather than allocated",
-          "[j1939][transport][etp]")
+TEST_CASE("A size no ECU means is refused rather than allocated", "[j1939][transport][etp]")
 {
     // The protocol allows 117,440,505 bytes. That is a number every fuzzer
     // tries and no ECU on a bench means, and honouring it would turn a
@@ -759,7 +749,8 @@ TEST_CASE("A size no ECU means is refused rather than allocated",
 
     transport.onFrame(
         extendedRts(static_cast<std::uint32_t>(J1939Transport::kMaximumExtendedMessage) + 1U,
-                    kEngine, kTester),
+                    kEngine,
+                    kTester),
         0U);
 
     REQUIRE(transport.events().size() == 1U);
@@ -804,8 +795,7 @@ TEST_CASE("Only transport frames are claimed", "[j1939][transport]")
     CHECK(transport.onFrame(dataFrame(1U, countingPayload(7U), kEngine), 0U));
 }
 
-TEST_CASE("Stopping a measurement drops transfers without reporting them",
-          "[j1939][transport]")
+TEST_CASE("Stopping a measurement drops transfers without reporting them", "[j1939][transport]")
 {
     // reset() is for a measurement ending, which is not a fault of the bus. A
     // half-finished transfer at Stop is not news.

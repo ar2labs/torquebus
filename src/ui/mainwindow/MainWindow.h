@@ -14,11 +14,11 @@
 
 #include "core/can/CanTypes.h"
 #include "core/dashboard/DashboardDescription.h"
+#include "core/j1939/J1939NameTables.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
-#include "core/j1939/J1939NameTables.h"
-#include "plugins/host/PluginLoader.h"
 #include "core/transmit/TransmitList.h"
+#include "plugins/host/PluginLoader.h"
 #include "services/HardwareProfile.h"
 #include "services/RecentProjects.h"
 #include "services/Workspaces.h"

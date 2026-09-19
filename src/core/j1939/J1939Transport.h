@@ -238,8 +238,7 @@ enum class J1939ExtendedAbortReason : std::uint8_t {
 /// byte means different things in the two protocols, and a call site that had
 /// not thought about which one it was holding would get the wrong sentence
 /// silently.
-[[nodiscard]] std::string_view j1939AbortReasonText(std::uint8_t reason,
-                                                    bool extended) noexcept;
+[[nodiscard]] std::string_view j1939AbortReasonText(std::uint8_t reason, bool extended) noexcept;
 
 /// Why a transfer ended without a message.
 enum class J1939TransportError : std::uint8_t {
@@ -400,10 +399,7 @@ public:
     /// session is the clock.
     void poll(std::uint64_t nowNs);
 
-    [[nodiscard]] std::span<const J1939TransportEvent> events() const noexcept
-    {
-        return m_events;
-    }
+    [[nodiscard]] std::span<const J1939TransportEvent> events() const noexcept { return m_events; }
 
     void clearEvents() { m_events.clear(); }
 
@@ -458,13 +454,9 @@ private:
         return static_cast<Key>((static_cast<Key>(source) << 8U) | destination);
     }
 
-    void onConnectionManagement(const CanFrame& frame,
-                                const J1939Id& id,
-                                std::uint64_t nowNs);
+    void onConnectionManagement(const CanFrame& frame, const J1939Id& id, std::uint64_t nowNs);
 
-    void onExtendedConnection(const CanFrame& frame,
-                              const J1939Id& id,
-                              std::uint64_t nowNs);
+    void onExtendedConnection(const CanFrame& frame, const J1939Id& id, std::uint64_t nowNs);
 
     /// `packet` is the absolute index, already worked out for the protocol the
     /// frame belongs to.

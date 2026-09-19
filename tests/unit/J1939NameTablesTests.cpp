@@ -24,9 +24,8 @@ using namespace torquebus;
 
 namespace {
 
-[[nodiscard]] J1939Name nameWith(std::uint8_t function,
-                                 std::uint8_t industryGroup = 0U,
-                                 std::uint8_t vehicleSystem = 0U)
+[[nodiscard]] J1939Name
+nameWith(std::uint8_t function, std::uint8_t industryGroup = 0U, std::uint8_t vehicleSystem = 0U)
 {
     J1939Name name;
     name.function = function;
@@ -71,8 +70,7 @@ TEST_CASE("A function at or above 128 is a different device on a different machi
     CHECK(tables.function(nameWith(130U, 2U, 9U)) == std::nullopt);
 }
 
-TEST_CASE("A high function number written as a bare number is refused",
-          "[j1939][names]")
+TEST_CASE("A high function number written as a bare number is refused", "[j1939][names]")
 {
     // It would load, and then answer the same for every industry group - which
     // is the failure this format exists to prevent. Better to refuse the line
@@ -105,8 +103,7 @@ TEST_CASE("Manufacturers and industry groups are read", "[j1939][names]")
     CHECK(tables.industryGroupCount() == 1U);
 }
 
-TEST_CASE("A malformed line is refused with its number, not skipped",
-          "[j1939][names]")
+TEST_CASE("A malformed line is refused with its number, not skipped", "[j1939][names]")
 {
     // A table that quietly drops half its rows answers some questions and not
     // others, and nobody can tell which - so a bad line stops the load and says
@@ -119,8 +116,7 @@ TEST_CASE("A malformed line is refused with its number, not skipped",
 
     const Result badKind = tables.load("company,33,Acme\n");
     REQUIRE(badKind.failed());
-    CHECK(badKind.message().find("industry, manufacturer or function")
-          != std::string::npos);
+    CHECK(badKind.message().find("industry, manufacturer or function") != std::string::npos);
 
     const Result outOfRange = tables.load("industry,9,Too Big\n");
     REQUIRE(outOfRange.failed());

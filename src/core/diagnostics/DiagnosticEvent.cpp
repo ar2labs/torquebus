@@ -41,8 +41,7 @@ bool parseHexBytes(std::string_view text, std::vector<std::uint8_t>& out)
     for (std::size_t index = 0; index < text.size(); ++index) {
         const char character = text[index];
 
-        if ((character == 'x' || character == 'X') && !digits.empty()
-            && digits.back() == '0') {
+        if ((character == 'x' || character == 'X') && !digits.empty() && digits.back() == '0') {
             // An 0x prefix: the zero already gathered was part of it.
             digits.pop_back();
             continue;

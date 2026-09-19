@@ -35,9 +35,8 @@ constexpr std::uint8_t kGearbox = 0x03U;
     return name;
 }
 
-[[nodiscard]] CanFrame claimFrame(const J1939Name& name,
-                                  std::uint8_t source,
-                                  std::uint8_t length = kJ1939NameBytes)
+[[nodiscard]] CanFrame
+claimFrame(const J1939Name& name, std::uint8_t source, std::uint8_t length = kJ1939NameBytes)
 {
     CanFrame frame;
     frame.identifier = j1939Identifier(kPgnAddressClaimed, source);
@@ -85,8 +84,7 @@ TEST_CASE("A claim seats an ECU at an address", "[j1939][network]")
     CHECK(table.events()[0].kind == J1939NetworkEvent::Kind::AddressClaimed);
 }
 
-TEST_CASE("The same ECU announcing itself again is not a contest",
-          "[j1939][network]")
+TEST_CASE("The same ECU announcing itself again is not a contest", "[j1939][network]")
 {
     // ECUs re-announce on request and after a contest. Reporting each one as a
     // dispute would fill the panel with events that say nothing happened.
@@ -124,8 +122,7 @@ TEST_CASE("The lower NAME takes the address", "[j1939][network]")
     CHECK(table.nodes()[0].name->identityNumber == 100U);
 }
 
-TEST_CASE("A higher NAME loses, and the seat does not change",
-          "[j1939][network]")
+TEST_CASE("A higher NAME loses, and the seat does not change", "[j1939][network]")
 {
     // The loser is required to stop using the address. Whether it actually does
     // is exactly what somebody is watching this table to find out - so the
@@ -183,8 +180,7 @@ TEST_CASE("There is no seat at the global address", "[j1939][network]")
     CHECK(table.events().empty());
 }
 
-TEST_CASE("Traffic from an address with no claim is reported once",
-          "[j1939][network]")
+TEST_CASE("Traffic from an address with no claim is reported once", "[j1939][network]")
 {
     J1939AddressTable table;
     table.onFrame(trafficFrame(kGearbox), 1000U);
@@ -204,8 +200,7 @@ TEST_CASE("Traffic from an address with no claim is reported once",
     CHECK(table.nodes()[0].framesSeen == 3U);
 }
 
-TEST_CASE("Traffic from an ECU that already claimed is not called unclaimed",
-          "[j1939][network]")
+TEST_CASE("Traffic from an ECU that already claimed is not called unclaimed", "[j1939][network]")
 {
     J1939AddressTable table;
     table.onFrame(claimFrame(nameWith(100U), kEngine), 1000U);
@@ -218,8 +213,7 @@ TEST_CASE("Traffic from an ECU that already claimed is not called unclaimed",
     CHECK(table.nodes()[0].trafficSeen);
 }
 
-TEST_CASE("A claim arriving after the traffic fills in the NAME",
-          "[j1939][network]")
+TEST_CASE("A claim arriving after the traffic fills in the NAME", "[j1939][network]")
 {
     // The ordinary shape of a measurement started before an ECU was reset: the
     // traffic comes first and the claim explains it afterwards.
@@ -240,12 +234,11 @@ TEST_CASE("A claim arriving after the traffic fills in the NAME",
     CHECK(table.nodes()[0].firstSeenNs == 1000U);
 }
 
-TEST_CASE("Addresses come out in order, whatever order they arrived in",
-          "[j1939][network]")
+TEST_CASE("Addresses come out in order, whatever order they arrived in", "[j1939][network]")
 {
     J1939AddressTable table;
-    for (const std::uint8_t address : {std::uint8_t{0x30U}, std::uint8_t{0x03U},
-                                       std::uint8_t{0xF0U}, std::uint8_t{0x00U}}) {
+    for (const std::uint8_t address :
+         {std::uint8_t{0x30U}, std::uint8_t{0x03U}, std::uint8_t{0xF0U}, std::uint8_t{0x00U}}) {
         table.onFrame(trafficFrame(address), 1000U);
     }
 
@@ -259,8 +252,7 @@ TEST_CASE("Addresses come out in order, whatever order they arrived in",
     CHECK(table.find(0x31U) == nullptr);
 }
 
-TEST_CASE("A claim too short to hold a NAME records nothing",
-          "[j1939][network]")
+TEST_CASE("A claim too short to hold a NAME records nothing", "[j1939][network]")
 {
     // The NAME layer refuses to invent the missing bytes, and a claim without a
     // NAME names nobody - so there is no ECU to seat.

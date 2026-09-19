@@ -344,7 +344,8 @@ void GraphPanel::onCursorMoved(quint64 timestampNs)
         // the bus never carried, which on a signal that changes in steps is a
         // reading somebody could act on.
         const auto found = std::upper_bound(
-            window.samples.begin(), window.samples.end(),
+            window.samples.begin(),
+            window.samples.end(),
             static_cast<std::uint64_t>(timestampNs),
             [](std::uint64_t at, const SignalSample& point) { return at < point.timestampNs; });
 

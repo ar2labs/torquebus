@@ -168,10 +168,10 @@ void TestPanel::appendCase(const TestCaseResult& result)
 {
     const Theme theme = currentTheme();
 
-    const QString outcomeText = result.outcome == TestOutcome::Passed  ? tr("Passed")
-        : result.outcome == TestOutcome::Failed                       ? tr("Failed")
-        : result.outcome == TestOutcome::Errored                      ? tr("Error")
-                                                                      : tr("Running");
+    const QString outcomeText = result.outcome == TestOutcome::Passed    ? tr("Passed")
+                                : result.outcome == TestOutcome::Failed  ? tr("Failed")
+                                : result.outcome == TestOutcome::Errored ? tr("Error")
+                                                                         : tr("Running");
 
     auto* item = new QTreeWidgetItem(m_cases);
     item->setText(ColumnCase, QString::fromStdString(result.name));
@@ -185,13 +185,12 @@ void TestPanel::appendCase(const TestCaseResult& result)
 
     // How long the case itself took, which is not the same as when it ended and
     // is the number that says "this one waited for its timeout".
-    const std::uint64_t duration = result.finishedNs > result.startedNs
-        ? result.finishedNs - result.startedNs
-        : 0;
+    const std::uint64_t duration =
+        result.finishedNs > result.startedNs ? result.finishedNs - result.startedNs : 0;
 
-    item->setToolTip(ColumnTime,
-                     tr("Started at %1, took %2")
-                         .arg(elapsedText(result.startedNs), elapsedText(duration)));
+    item->setToolTip(
+        ColumnTime,
+        tr("Started at %1, took %2").arg(elapsedText(result.startedNs), elapsedText(duration)));
 
     for (const TestCheck& check : result.checks) {
         auto* child = new QTreeWidgetItem(item);
@@ -245,21 +244,22 @@ void TestPanel::updateSummary()
                        .arg(summary.errored);
 
             if (summary.complete) {
-                text = (summary.failed == 0 && summary.errored == 0)
-                    ? tr("Passed  ·  %1 of %2 case(s)").arg(summary.passed).arg(summary.total)
-                    : tr("FAILED  ·  %1 passed, %2 failed, %3 in error, of %4")
-                          .arg(summary.passed)
-                          .arg(summary.failed)
-                          .arg(summary.errored)
-                          .arg(summary.total);
+                text =
+                    (summary.failed == 0 && summary.errored == 0)
+                        ? tr("Passed  ·  %1 of %2 case(s)").arg(summary.passed).arg(summary.total)
+                        : tr("FAILED  ·  %1 passed, %2 failed, %3 in error, of %4")
+                              .arg(summary.passed)
+                              .arg(summary.failed)
+                              .arg(summary.errored)
+                              .arg(summary.total);
             }
 
             // Red as soon as the first failure lands, not only at the end. A
             // run that is already lost should say so while there is still time
             // to stop it.
             colour = (summary.failed > 0 || summary.errored > 0) ? theme.error
-                : summary.complete                              ? theme.success
-                                                                : theme.text;
+                     : summary.complete                          ? theme.success
+                                                                 : theme.text;
         }
     }
 
@@ -270,8 +270,7 @@ void TestPanel::updateSummary()
     m_lastSummary = text;
 
     m_summary->setText(text);
-    m_summary->setStyleSheet(QStringLiteral("color: %1; font-weight: 600;")
-                                 .arg(colour.name()));
+    m_summary->setStyleSheet(QStringLiteral("color: %1; font-weight: 600;").arg(colour.name()));
 
     m_export->setEnabled(m_report != nullptr && m_cases->topLevelItemCount() > 0);
 }
@@ -296,8 +295,8 @@ QString TestPanel::buildMarkdown() const
         const TestSummary summary = m_report->summary();
 
         out << (summary.complete ? "**Complete.**" : "**Stopped before the end.**") << "  \n";
-        out << summary.passed << " passed, " << summary.failed << " failed, "
-            << summary.errored << " in error, of " << summary.total << " declared.\n\n";
+        out << summary.passed << " passed, " << summary.failed << " failed, " << summary.errored
+            << " in error, of " << summary.total << " declared.\n\n";
     }
 
     out << "| Result | Case | Time (s) | Detail |\n";
@@ -340,9 +339,10 @@ QString TestPanel::buildMarkdown() const
 
 void TestPanel::onExport()
 {
-    const QString path = QFileDialog::getSaveFileName(
-        this, tr("Export Test Report"), QStringLiteral("test-report.md"),
-        tr("Markdown (*.md);;All files (*)"));
+    const QString path = QFileDialog::getSaveFileName(this,
+                                                      tr("Export Test Report"),
+                                                      QStringLiteral("test-report.md"),
+                                                      tr("Markdown (*.md);;All files (*)"));
 
     if (path.isEmpty()) {
         return;
@@ -376,10 +376,10 @@ void TestPanel::onThemeChanged()
     for (int index = 0; index < m_cases->topLevelItemCount(); ++index) {
         QTreeWidgetItem* item = m_cases->topLevelItem(index);
 
-        const TestOutcome outcome = item->text(ColumnResult) == tr("Passed")
-            ? TestOutcome::Passed
-            : item->text(ColumnResult) == tr("Failed") ? TestOutcome::Failed
-                                                       : TestOutcome::Errored;
+        const TestOutcome outcome = item->text(ColumnResult) == tr("Passed") ? TestOutcome::Passed
+                                    : item->text(ColumnResult) == tr("Failed")
+                                        ? TestOutcome::Failed
+                                        : TestOutcome::Errored;
 
         const QBrush tint{colourFor(outcome, theme)};
         item->setForeground(ColumnResult, tint);
@@ -389,7 +389,7 @@ void TestPanel::onThemeChanged()
             QTreeWidgetItem* check = item->child(child);
 
             const QBrush checkTint{check->text(ColumnResult) == tr("ok") ? theme.textMuted
-                                                                        : theme.error};
+                                                                         : theme.error};
             check->setForeground(ColumnResult, checkTint);
             check->setForeground(ColumnDetail, checkTint);
         }

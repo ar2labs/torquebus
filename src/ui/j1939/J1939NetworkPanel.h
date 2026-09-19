@@ -42,7 +42,7 @@ namespace torquebus {
 class J1939Network;
 class J1939NameTables;
 struct J1939NetworkSnapshot;
-}
+} // namespace torquebus
 
 namespace torquebus::ui {
 

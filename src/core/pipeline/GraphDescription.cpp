@@ -23,7 +23,8 @@ void GraphDescription::removeNode(const std::string& id)
 
 const NodeDescription* GraphDescription::find(const std::string& id) const
 {
-    const auto it = std::find_if(m_nodes.begin(), m_nodes.end(),
+    const auto it = std::find_if(m_nodes.begin(),
+                                 m_nodes.end(),
                                  [&id](const NodeDescription& node) { return node.id == id; });
 
     return it == m_nodes.end() ? nullptr : &*it;
@@ -59,11 +60,10 @@ Result GraphDescription::validate(const NodeCatalog& catalog) const
         }
 
         if (!seen.insert(node.id).second) {
-            return Result::error(
-                ErrorCode::InvalidArgument,
-                std::format("Two nodes share the id '{}'. Ids address edges, so a "
-                            "duplicate makes a wire ambiguous.",
-                            node.id));
+            return Result::error(ErrorCode::InvalidArgument,
+                                 std::format("Two nodes share the id '{}'. Ids address edges, so a "
+                                             "duplicate makes a wire ambiguous.",
+                                             node.id));
         }
 
         // A disabled node is skipped by build(), wires and all - so validate()
@@ -81,9 +81,9 @@ Result GraphDescription::validate(const NodeCatalog& catalog) const
         }
 
         if (!catalog.contains(node.typeName)) {
-            return Result::error(ErrorCode::NotImplemented,
-                                 std::format("Node '{}' has unknown type '{}'", node.id,
-                                             node.typeName));
+            return Result::error(
+                ErrorCode::NotImplemented,
+                std::format("Node '{}' has unknown type '{}'", node.id, node.typeName));
         }
 
         // What the node's own settings say, as far as that can be known
@@ -108,15 +108,15 @@ Result GraphDescription::validate(const NodeCatalog& catalog) const
         const NodeDescription* to = find(edge.toNode);
 
         if (from == nullptr) {
-            return Result::error(ErrorCode::InvalidArgument,
-                                 std::format("An edge starts at '{}', which is not in this graph",
-                                             edge.fromNode));
+            return Result::error(
+                ErrorCode::InvalidArgument,
+                std::format("An edge starts at '{}', which is not in this graph", edge.fromNode));
         }
 
         if (to == nullptr) {
-            return Result::error(ErrorCode::InvalidArgument,
-                                 std::format("An edge ends at '{}', which is not in this graph",
-                                             edge.toNode));
+            return Result::error(
+                ErrorCode::InvalidArgument,
+                std::format("An edge ends at '{}', which is not in this graph", edge.toNode));
         }
 
         const NodeTypeInfo* fromType = catalog.find(from->typeName);
@@ -129,15 +129,18 @@ Result GraphDescription::validate(const NodeCatalog& catalog) const
         if (edge.fromPort >= fromType->outputs.size()) {
             return Result::error(
                 ErrorCode::InvalidArgument,
-                std::format("'{}' has {} output port(s), so port {} does not exist", from->id,
-                            fromType->outputs.size(), edge.fromPort));
+                std::format("'{}' has {} output port(s), so port {} does not exist",
+                            from->id,
+                            fromType->outputs.size(),
+                            edge.fromPort));
         }
 
         if (edge.toPort >= toType->inputs.size()) {
-            return Result::error(
-                ErrorCode::InvalidArgument,
-                std::format("'{}' has {} input port(s), so port {} does not exist", to->id,
-                            toType->inputs.size(), edge.toPort));
+            return Result::error(ErrorCode::InvalidArgument,
+                                 std::format("'{}' has {} input port(s), so port {} does not exist",
+                                             to->id,
+                                             toType->inputs.size(),
+                                             edge.toPort));
         }
 
         const PortType producing = fromType->outputs[edge.fromPort].type;
@@ -146,10 +149,12 @@ Result GraphDescription::validate(const NodeCatalog& catalog) const
         if (producing != consuming) {
             // Both ends named, and both types: "cannot connect" alone leaves
             // the user to work out which of the two is wrong.
-            return Result::error(
-                ErrorCode::InvalidArgument,
-                std::format("'{}' produces {} but '{}' expects {}", from->id,
-                            toString(producing), to->id, toString(consuming)));
+            return Result::error(ErrorCode::InvalidArgument,
+                                 std::format("'{}' produces {} but '{}' expects {}",
+                                             from->id,
+                                             toString(producing),
+                                             to->id,
+                                             toString(consuming)));
         }
 
         if (!from->enabled || !to->enabled) {
@@ -165,7 +170,8 @@ Result GraphDescription::validate(const NodeCatalog& catalog) const
                 std::format("Two wires arrive at '{}' port {}. An input takes one, because "
                             "merging two streams needs a policy - put a merge node between "
                             "them when there is one.",
-                            to->id, edge.toPort));
+                            to->id,
+                            edge.toPort));
         }
     }
 
@@ -199,9 +205,9 @@ Result GraphDescription::build(const NodeCatalog& catalog,
         }
 
         if (instance == nullptr) {
-            return Result::error(ErrorCode::Unknown,
-                                 std::format("Node '{}' of type '{}' built nothing", node.id,
-                                             node.typeName));
+            return Result::error(
+                ErrorCode::Unknown,
+                std::format("Node '{}' of type '{}' built nothing", node.id, node.typeName));
         }
 
         built.emplace(node.id, graph.addNode(std::move(instance)));

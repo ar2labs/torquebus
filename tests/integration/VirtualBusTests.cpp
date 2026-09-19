@@ -18,11 +18,11 @@
 
 #include <algorithm>
 #include <chrono>
-#include <thread>
 #include <cstdint>
 #include <memory>
 #include <span>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace torquebus;
@@ -67,10 +67,9 @@ public:
     [[nodiscard]] std::size_t countByDirection(CanDirection direction) const
     {
         return static_cast<std::size_t>(
-            std::count_if(m_frames.begin(), m_frames.end(),
-                          [direction](const CanFrame& frame) {
-                              return frame.direction == direction;
-                          }));
+            std::count_if(m_frames.begin(), m_frames.end(), [direction](const CanFrame& frame) {
+                return frame.direction == direction;
+            }));
     }
 
     void clear() { m_frames.clear(); }
@@ -98,8 +97,8 @@ CanFrame makeFrame(std::uint32_t identifier, std::uint8_t length)
     // rejected the transmit outright - correctly, and the test read as though
     // the bus had failed. The same defect was fixed once in CanEngineTests'
     // helper and missed here.
-    frame.format = identifier > kMaxStandardIdentifier ? CanFrameFormat::Extended
-                                                       : CanFrameFormat::Standard;
+    frame.format =
+        identifier > kMaxStandardIdentifier ? CanFrameFormat::Extended : CanFrameFormat::Standard;
     frame.dlc = length;
     frame.length = length;
     for (std::uint8_t index = 0; index < length; ++index) {
@@ -326,8 +325,7 @@ TEST_CASE("CAN FD frames need a channel opened in FD mode", "[virtual][canfd]")
     }
 }
 
-TEST_CASE("The registry exposes the virtual backend to the application",
-          "[registry]")
+TEST_CASE("The registry exposes the virtual backend to the application", "[registry]")
 {
     CanBackendRegistry& registry = CanBackendRegistry::instance();
     registry.registerBuiltins();

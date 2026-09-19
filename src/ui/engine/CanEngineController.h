@@ -41,9 +41,9 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
-#include <optional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <vector>
 
 class QTimer;
@@ -52,9 +52,9 @@ namespace torquebus::ui {
 
 /// One channel's live figures, in a form a widget can display directly.
 struct ChannelStatus final {
-    QString name;        ///< "CAN 1"
-    QString deviceName;  ///< "TorqueBus Virtual CAN 0"
-    QString stateText;   ///< "Online", "Bus off", ...
+    QString name; ///< "CAN 1"
+    QString deviceName; ///< "TorqueBus Virtual CAN 0"
+    QString stateText; ///< "Online", "Bus off", ...
 
     /// Style-sheet state token: offline / ready / online / warning / error.
     QString stateToken;
@@ -114,8 +114,7 @@ public:
     /// application's preferences. Returning nullopt leaves the interface
     /// unbound - it consumes no channel number and does not shift the ones
     /// after it.
-    using ChannelPlan =
-        std::function<std::optional<CanChannelConfig>(const CanDeviceInfo& device)>;
+    using ChannelPlan = std::function<std::optional<CanChannelConfig>(const CanDeviceInfo& device)>;
 
     /// Binds the interfaces `plan` accepts and returns how many were bound.
     /// Only valid while stopped; replaces any previous configuration.
@@ -125,8 +124,7 @@ public:
     /// enumeration order; anything named but not detected is skipped. An empty
     /// order is enumeration order, which is what a machine nobody has arranged
     /// gets.
-    std::size_t bindAvailableChannels(const ChannelPlan& plan,
-                                      const QStringList& order = {});
+    std::size_t bindAvailableChannels(const ChannelPlan& plan, const QStringList& order = {});
 
     [[nodiscard]] bool isRunning() const;
 
@@ -138,10 +136,7 @@ public:
     /// Needed now that channel order is a decision rather than enumeration
     /// order - the status bar cannot get CAN 1 by taking the first thing the
     /// registry found any more.
-    [[nodiscard]] const QList<QString>& boundDeviceNames() const noexcept
-    {
-        return m_deviceNames;
-    }
+    [[nodiscard]] const QList<QString>& boundDeviceNames() const noexcept { return m_deviceNames; }
 
 public Q_SLOTS:
     /// Starts the measurement. Emits started() or failed().

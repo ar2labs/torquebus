@@ -30,9 +30,8 @@ namespace {
 class ScopedFile final {
 public:
     explicit ScopedFile(const char* extension)
-        : m_path{uniqueTempPath("torquebus_export", counter(),
-                                std::string{"."} + extension)
-                     .string()}
+        : m_path{
+              uniqueTempPath("torquebus_export", counter(), std::string{"."} + extension).string()}
     {
         std::filesystem::remove(m_path);
     }
@@ -92,8 +91,7 @@ private:
 }
 
 /// True when any line contains `needle`.
-[[nodiscard]] bool anyLineContains(const std::vector<std::string>& lines,
-                                   const std::string& needle)
+[[nodiscard]] bool anyLineContains(const std::vector<std::string>& lines, const std::string& needle)
 {
     for (const std::string& line : lines) {
         if (line.find(needle) != std::string::npos) {
@@ -161,14 +159,13 @@ TEST_CASE("An extended identifier carries its x", "[export][asc]")
     CHECK_FALSE(anyLineContains(lines, "7ABx"));
 }
 
-TEST_CASE("A frame line carries the time, channel, direction and bytes",
-          "[export][asc]")
+TEST_CASE("A frame line carries the time, channel, direction and bytes", "[export][asc]")
 {
     const ScopedFile file{"asc"};
 
-    CanFrame sent = frame(0x123, 1'500'000);   // 0.0015 s
+    CanFrame sent = frame(0x123, 1'500'000); // 0.0015 s
     sent.direction = CanDirection::Tx;
-    sent.channel = 1;                          // CAN 2, in the numbering people read
+    sent.channel = 1; // CAN 2, in the numbering people read
 
     {
         TraceExporter exporter;
@@ -336,8 +333,7 @@ TEST_CASE("The date line says UTC", "[export][asc]")
 
     {
         TraceExporter exporter;
-        REQUIRE(exporter.open(file.path(), TraceExporter::Format::Asc,
-                              1'757'000'000'000'000ULL)
+        REQUIRE(exporter.open(file.path(), TraceExporter::Format::Asc, 1'757'000'000'000'000ULL)
                     .succeeded());
         REQUIRE(exporter.close().succeeded());
     }

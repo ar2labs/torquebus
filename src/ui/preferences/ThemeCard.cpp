@@ -111,13 +111,12 @@ void ThemeCard::paintEvent(QPaintEvent* /*event*/)
     // Toolbar buttons.
     painter.setPen(Qt::NoPen);
     painter.setBrush(preview.accent);
-    painter.drawRoundedRect(QRectF{left + 6.0, top + height * 0.055, 16.0, height * 0.07},
-                            1.5, 1.5);
+    painter.drawRoundedRect(
+        QRectF{left + 6.0, top + height * 0.055, 16.0, height * 0.07}, 1.5, 1.5);
     painter.setBrush(preview.textMuted);
     for (int index = 1; index <= 2; ++index) {
         painter.drawRoundedRect(
-            QRectF{left + 6.0 + index * 20.0, top + height * 0.055, 16.0, height * 0.07},
-            1.5, 1.5);
+            QRectF{left + 6.0 + index * 20.0, top + height * 0.055, 16.0, height * 0.07}, 1.5, 1.5);
     }
 
     // Side panel entries.
@@ -161,7 +160,8 @@ void ThemeCard::paintEvent(QPaintEvent* /*event*/)
 
         painter.setPen(QPen{selection, 2.0});
         painter.drawRoundedRect(QRectF{rect()}.adjusted(1.0, 1.0, -1.0, -1.0),
-                                kCornerRadius + 0.5, kCornerRadius + 0.5);
+                                kCornerRadius + 0.5,
+                                kCornerRadius + 0.5);
     }
 
     // Keyboard focus is its own mark. A card reached by Tab is not the same
@@ -172,8 +172,7 @@ void ThemeCard::paintEvent(QPaintEvent* /*event*/)
         focus.setAlpha(150);
 
         painter.setPen(QPen{focus, 1.0, Qt::DashLine});
-        painter.drawRoundedRect(card.adjusted(2.5, 2.5, -2.5, -2.5),
-                                kCornerRadius, kCornerRadius);
+        painter.drawRoundedRect(card.adjusted(2.5, 2.5, -2.5, -2.5), kCornerRadius, kCornerRadius);
     }
 }
 

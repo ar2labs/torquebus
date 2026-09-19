@@ -115,9 +115,8 @@ private:
 
     /// A page with nothing on it but an honest sentence about when it will
     /// have something.
-    [[nodiscard]] QWidget* buildPlannedPage(const QString& title,
-                                            const QString& description,
-                                            const QString& milestone);
+    [[nodiscard]] QWidget*
+    buildPlannedPage(const QString& title, const QString& description, const QString& milestone);
 
     /// Pushes every appearance control's current value at the ThemeManager.
     void applyAppearance();

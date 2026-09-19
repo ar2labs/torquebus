@@ -64,11 +64,16 @@ constexpr auto kHandlePrefix = "peak:";
 [[nodiscard]] CanBusState toBusState(QCanBusDevice::CanBusStatus status)
 {
     switch (status) {
-    case QCanBusDevice::CanBusStatus::Good:    return CanBusState::ErrorActive;
-    case QCanBusDevice::CanBusStatus::Warning: return CanBusState::ErrorWarning;
-    case QCanBusDevice::CanBusStatus::Error:   return CanBusState::ErrorPassive;
-    case QCanBusDevice::CanBusStatus::BusOff:  return CanBusState::BusOff;
-    case QCanBusDevice::CanBusStatus::Unknown: break;
+    case QCanBusDevice::CanBusStatus::Good:
+        return CanBusState::ErrorActive;
+    case QCanBusDevice::CanBusStatus::Warning:
+        return CanBusState::ErrorWarning;
+    case QCanBusDevice::CanBusStatus::Error:
+        return CanBusState::ErrorPassive;
+    case QCanBusDevice::CanBusStatus::BusOff:
+        return CanBusState::BusOff;
+    case QCanBusDevice::CanBusStatus::Unknown:
+        break;
     }
 
     // Unknown is what a plugin reports when it cannot ask the controller. Read
@@ -104,8 +109,8 @@ constexpr auto kHandlePrefix = "peak:";
     out.identifier = source.frameId();
     out.channel = applicationChannel;
     out.timestampNs = timestampNs;
-    out.format = source.hasExtendedFrameFormat() ? CanFrameFormat::Extended
-                                                 : CanFrameFormat::Standard;
+    out.format =
+        source.hasExtendedFrameFormat() ? CanFrameFormat::Extended : CanFrameFormat::Standard;
     out.fd = source.hasFlexibleDataRateFormat();
     out.brs = source.hasBitrateSwitch();
     out.error = source.frameType() == QCanBusFrame::ErrorFrame;
@@ -129,8 +134,7 @@ constexpr auto kHandlePrefix = "peak:";
     QCanBusFrame result;
     result.setFrameId(frame.identifier);
     result.setExtendedFrameFormat(frame.format == CanFrameFormat::Extended);
-    result.setFrameType(frame.rtr ? QCanBusFrame::RemoteRequestFrame
-                                  : QCanBusFrame::DataFrame);
+    result.setFrameType(frame.rtr ? QCanBusFrame::RemoteRequestFrame : QCanBusFrame::DataFrame);
 
     QByteArray payload;
     payload.resize(static_cast<qsizetype>(frame.length));
@@ -267,9 +271,10 @@ CanDeviceInfoList PeakCanBackend::enumerate()
         // the interface name, which is "usb0" and tells a user nothing about
         // which of the two adapters on their desk it is.
         const QString description = info.description();
-        device.name = description.isEmpty()
-            ? std::format("PEAK {}", info.name().toStdString())
-            : std::format("{} ({})", description.toStdString(), info.name().toStdString());
+        device.name =
+            description.isEmpty()
+                ? std::format("PEAK {}", info.name().toStdString())
+                : std::format("{} ({})", description.toStdString(), info.name().toStdString());
 
         device.serialNumber = info.serialNumber().toStdString();
         device.channelIndex = static_cast<std::uint32_t>(info.channel());
@@ -312,9 +317,9 @@ Result PeakCanBackend::open(const CanChannelConfig& config)
 
     const QString interfaceName = interfaceFromHandle(config.deviceHandle);
     if (interfaceName.isEmpty()) {
-        return Result::error(ErrorCode::InvalidArgument,
-                             std::format("'{}' does not name a PEAK interface",
-                                         config.deviceHandle));
+        return Result::error(
+            ErrorCode::InvalidArgument,
+            std::format("'{}' does not name a PEAK interface", config.deviceHandle));
     }
 
     // The thread exists before the device does, because the device has to be
@@ -346,8 +351,8 @@ Result PeakCanBackend::open(const CanChannelConfig& config)
         anchor,
         [&] {
             QString createError;
-            device = QCanBus::instance()->createDevice(QString::fromUtf8(kPlugin),
-                                                       interfaceName, &createError);
+            device = QCanBus::instance()->createDevice(
+                QString::fromUtf8(kPlugin), interfaceName, &createError);
             error = createError;
         },
         Qt::BlockingQueuedConnection);
@@ -362,11 +367,11 @@ Result PeakCanBackend::open(const CanChannelConfig& config)
         delete anchor;
         delete thread;
 
-        return Result::error(ErrorCode::DeviceNotFound,
-                             std::format("Could not open PEAK interface '{}': {}",
-                                         interfaceName.toStdString(),
-                                         error.isEmpty() ? std::string{"no reason given"}
-                                                         : error.toStdString()));
+        return Result::error(
+            ErrorCode::DeviceNotFound,
+            std::format("Could not open PEAK interface '{}': {}",
+                        interfaceName.toStdString(),
+                        error.isEmpty() ? std::string{"no reason given"} : error.toStdString()));
     }
 
     {
@@ -401,9 +406,8 @@ Result PeakCanBackend::open(const CanChannelConfig& config)
                 // in the device's configuration that nothing uses, which is how
                 // a later reader concludes the wrong thing about the channel.
                 if (wantBrs) {
-                    device->setConfigurationParameter(
-                        QCanBusDevice::DataBitRateKey,
-                        QVariant{static_cast<uint>(dataBitrate)});
+                    device->setConfigurationParameter(QCanBusDevice::DataBitRateKey,
+                                                      QVariant{static_cast<uint>(dataBitrate)});
                 }
             }
 
@@ -424,10 +428,12 @@ Result PeakCanBackend::open(const CanChannelConfig& config)
 
             // The device is the context object as well as the sender, so these
             // run on its thread - which is this thread - with no queueing.
-            QObject::connect(device, &QCanBusDevice::framesReceived, device,
-                             [this] { drainDevice(); });
+            QObject::connect(
+                device, &QCanBusDevice::framesReceived, device, [this] { drainDevice(); });
 
-            QObject::connect(device, &QCanBusDevice::stateChanged, device,
+            QObject::connect(device,
+                             &QCanBusDevice::stateChanged,
+                             device,
                              [this](QCanBusDevice::CanBusDeviceState deviceState) {
                                  if (deviceState == QCanBusDevice::UnconnectedState) {
                                      m_impl->state.store(CanBusState::Offline,
@@ -435,7 +441,9 @@ Result PeakCanBackend::open(const CanChannelConfig& config)
                                  }
                              });
 
-            QObject::connect(device, &QCanBusDevice::errorOccurred, device,
+            QObject::connect(device,
+                             &QCanBusDevice::errorOccurred,
+                             device,
                              [this](QCanBusDevice::CanBusError busError) {
                                  onDeviceError(static_cast<int>(busError));
                              });
@@ -475,10 +483,10 @@ Result PeakCanBackend::start()
         Qt::BlockingQueuedConnection);
 
     if (!connected) {
-        return Result::error(ErrorCode::Unknown,
-                             std::format("PEAK channel would not go bus-on: {}",
-                                         error.isEmpty() ? std::string{"no reason given"}
-                                                         : error.toStdString()));
+        return Result::error(
+            ErrorCode::Unknown,
+            std::format("PEAK channel would not go bus-on: {}",
+                        error.isEmpty() ? std::string{"no reason given"} : error.toStdString()));
     }
 
     m_impl->running.store(true, std::memory_order_release);
@@ -591,10 +599,9 @@ void PeakCanBackend::drainDevice()
             m_impl->hardwareTimestamps
                 ? static_cast<std::uint64_t>(stamp.seconds()) * 1'000'000'000ULL
                       + static_cast<std::uint64_t>(stamp.microSeconds()) * 1000ULL
-                : static_cast<std::uint64_t>(
-                      std::chrono::duration_cast<std::chrono::nanoseconds>(
-                          std::chrono::steady_clock::now() - m_impl->started)
-                          .count());
+                : static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                 std::chrono::steady_clock::now() - m_impl->started)
+                                                 .count());
 
         CanFrame frame;
         if (toCanFrame(source, channel, timestampNs, frame)) {
@@ -647,7 +654,6 @@ void PeakCanBackend::onDeviceError(int busError)
     report.hardwareOverruns = m_impl->hardwareOverruns.load(std::memory_order_relaxed);
 
     handler(report);
-
 }
 
 // ---------------------------------------------------------------------------
@@ -690,10 +696,10 @@ Result PeakCanBackend::transmit(const CanFrame& frame)
         Qt::BlockingQueuedConnection);
 
     if (!accepted) {
-        return Result::error(ErrorCode::TransmitFailed,
-                             std::format("PEAK refused the frame: {}",
-                                         error.isEmpty() ? std::string{"queue full"}
-                                                         : error.toStdString()));
+        return Result::error(
+            ErrorCode::TransmitFailed,
+            std::format("PEAK refused the frame: {}",
+                        error.isEmpty() ? std::string{"queue full"} : error.toStdString()));
     }
 
     // The echo, produced here because the driver's is switched off - see the
@@ -712,10 +718,10 @@ Result PeakCanBackend::transmit(const CanFrame& frame)
         CanFrame echo = frame;
         echo.direction = CanDirection::Tx;
         echo.channel = channel;
-        echo.timestampNs = static_cast<std::uint64_t>(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(
-                std::chrono::steady_clock::now() - m_impl->started)
-                .count());
+        echo.timestampNs =
+            static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                           std::chrono::steady_clock::now() - m_impl->started)
+                                           .count());
 
         handler(std::span<const CanFrame>{&echo, 1});
     }
@@ -747,7 +753,8 @@ CanBusStatus PeakCanBackend::status() const
     QCanBusDevice::CanBusStatus busStatus = QCanBusDevice::CanBusStatus::Unknown;
 
     QMetaObject::invokeMethod(
-        device, [device, &busStatus] { busStatus = device->busStatus(); },
+        device,
+        [device, &busStatus] { busStatus = device->busStatus(); },
         Qt::BlockingQueuedConnection);
 
     result.state = toBusState(busStatus);
@@ -797,15 +804,23 @@ struct PeakCanBackend::Impl final {
 
 PeakCanBackend::PeakCanBackend()
     : m_impl{std::make_unique<Impl>()}
-{
-}
+{ }
 
 PeakCanBackend::~PeakCanBackend() = default;
 
-bool PeakCanBackend::isCompiledIn() noexcept { return false; }
-bool PeakCanBackend::isAvailable() const noexcept { return false; }
+bool PeakCanBackend::isCompiledIn() noexcept
+{
+    return false;
+}
+bool PeakCanBackend::isAvailable() const noexcept
+{
+    return false;
+}
 
-CanDeviceInfoList PeakCanBackend::enumerate() { return {}; }
+CanDeviceInfoList PeakCanBackend::enumerate()
+{
+    return {};
+}
 
 Result PeakCanBackend::open(const CanChannelConfig&)
 {
@@ -815,21 +830,33 @@ Result PeakCanBackend::open(const CanChannelConfig&)
                          "TORQUEBUS_ENABLE_PEAK=ON against a Qt that has SerialBus.");
 }
 
-Result PeakCanBackend::start() { return Result::error(ErrorCode::BackendUnavailable); }
-void PeakCanBackend::stop() {}
-void PeakCanBackend::close() {}
-bool PeakCanBackend::isOpen() const noexcept { return false; }
+Result PeakCanBackend::start()
+{
+    return Result::error(ErrorCode::BackendUnavailable);
+}
+void PeakCanBackend::stop() { }
+void PeakCanBackend::close() { }
+bool PeakCanBackend::isOpen() const noexcept
+{
+    return false;
+}
 
 Result PeakCanBackend::transmit(const CanFrame&)
 {
     return Result::error(ErrorCode::BackendUnavailable);
 }
 
-CanBusStatus PeakCanBackend::status() const { return {}; }
-CanCapabilities PeakCanBackend::capabilities() const { return m_impl->capabilities; }
+CanBusStatus PeakCanBackend::status() const
+{
+    return {};
+}
+CanCapabilities PeakCanBackend::capabilities() const
+{
+    return m_impl->capabilities;
+}
 
-void PeakCanBackend::setFrameHandler(FrameHandler) {}
-void PeakCanBackend::setStatusHandler(StatusHandler) {}
+void PeakCanBackend::setFrameHandler(FrameHandler) { }
+void PeakCanBackend::setStatusHandler(StatusHandler) { }
 
 #endif // TORQUEBUS_HAVE_PEAK
 

@@ -8,8 +8,8 @@
 #include "core/scripting/LuaPrelude.h"
 
 #include <algorithm>
-#include <optional>
 #include <format>
+#include <optional>
 #include <utility>
 
 extern "C" {
@@ -33,8 +33,7 @@ LuaEcuNode::LuaEcuNode(std::string source, std::string name, std::uint8_t transm
     : m_source{std::move(source)}
     , m_name{std::move(name)}
     , m_transmitChannel{transmitChannel}
-{
-}
+{ }
 
 LuaEcuNode::~LuaEcuNode() = default;
 
@@ -186,8 +185,7 @@ Result LuaEcuNode::install(const std::string& source)
             const std::vector<LuaValue> arguments{LuaValue::fromString(
                 std::string{reinterpret_cast<const char*>(request.data()), request.size()})};
 
-            if (Result result = m_lua->call("on_uds_request", arguments, answer);
-                result.failed()) {
+            if (Result result = m_lua->call("on_uds_request", arguments, answer); result.failed()) {
                 handleScriptFailure(result, "on_uds_request");
 
                 // A script that threw has not decided anything, so the server
@@ -215,8 +213,8 @@ Result LuaEcuNode::install(const std::string& source)
                 [this](std::span<const std::uint8_t> seed) -> std::vector<std::uint8_t> {
                     LuaValue key;
 
-                    const std::vector<LuaValue> arguments{LuaValue::fromString(std::string{
-                        reinterpret_cast<const char*>(seed.data()), seed.size()})};
+                    const std::vector<LuaValue> arguments{LuaValue::fromString(
+                        std::string{reinterpret_cast<const char*>(seed.data()), seed.size()})};
 
                     if (Result result = m_lua->call("on_security_seed", arguments, key);
                         result.failed()) {
@@ -235,9 +233,9 @@ Result LuaEcuNode::install(const std::string& source)
 
     if (m_lua->hasFunction("on_enable")) {
         if (Result result = m_lua->call("on_enable"); result.failed()) {
-            return Result::error(result.code(),
-                                 std::format("{}: on_enable failed: {}",
-                                             m_name, std::string{result.message()}));
+            return Result::error(
+                result.code(),
+                std::format("{}: on_enable failed: {}", m_name, std::string{result.message()}));
         }
     }
 
@@ -326,7 +324,8 @@ Result LuaEcuNode::reload(std::string source)
             // a complaint from the one being replaced must not be reported as
             // the reload having failed.
             report(std::format("{}: on_disable failed during reload: {}",
-                               m_name, std::string{result.message()}),
+                               m_name,
+                               std::string{result.message()}),
                    true);
         }
 
@@ -359,10 +358,10 @@ void LuaEcuNode::takeOfferedScript()
     ScriptReload outcome;
     outcome.nodeId = m_nodeId;
     outcome.succeeded = result.succeeded();
-    outcome.timestampNs = static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now() - m_started)
-            .count());
+    outcome.timestampNs =
+        static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                       std::chrono::steady_clock::now() - m_started)
+                                       .count());
 
     if (result.succeeded()) {
         ++m_reloads;
@@ -375,7 +374,8 @@ void LuaEcuNode::takeOfferedScript()
         // refused changes nothing visible on the bus, and somebody watching the
         // trace rather than the editor would otherwise see no sign of it.
         report(std::format("{}: reload refused, the running script is unchanged: {}",
-                           m_name, outcome.message),
+                           m_name,
+                           outcome.message),
                true);
     }
 
@@ -422,10 +422,10 @@ void LuaEcuNode::process(NodeContext& context)
     // frames: a diagnostic frame is a frame, and an ECU that wanted to count
     // them or react to the raw bytes is entitled to.
     if (m_transport != nullptr) {
-        const auto nowNs = static_cast<std::uint64_t>(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(
-                std::chrono::steady_clock::now() - m_started)
-                .count());
+        const auto nowNs =
+            static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                           std::chrono::steady_clock::now() - m_started)
+                                           .count());
 
         for (const CanFrame& frame : context.in<CanFrame>(0)) {
             static_cast<void>(m_transport->onFrame(frame, nowNs));
@@ -478,8 +478,8 @@ void LuaEcuNode::process(NodeContext& context)
             // cansim scripts read payloads anyway.
             const std::vector<LuaValue> arguments{
                 LuaValue::fromInteger(frame.identifier),
-                LuaValue::fromString(std::string{
-                    reinterpret_cast<const char*>(frame.data.data()), frame.length}),
+                LuaValue::fromString(
+                    std::string{reinterpret_cast<const char*>(frame.data.data()), frame.length}),
                 LuaValue::fromInteger(frame.channel),
                 LuaValue::fromInteger(static_cast<std::int64_t>(frame.isExtended() ? 1 : 0)),
             };
@@ -540,8 +540,7 @@ void LuaEcuNode::process(NodeContext& context)
             if (job.provider != 0) {
                 LuaValue produced;
 
-                if (Result result = m_lua->callStored(job.provider, produced);
-                    result.failed()) {
+                if (Result result = m_lua->callStored(job.provider, produced); result.failed()) {
                     handleScriptFailure(result, "cyclic");
                     continue;
                 }
@@ -617,8 +616,7 @@ void LuaEcuNode::finish()
 
     if (m_lua->hasFunction("on_disable")) {
         if (Result result = m_lua->call("on_disable"); result.failed()) {
-            report(std::format("{}: on_disable failed: {}",
-                               m_name, std::string{result.message()}),
+            report(std::format("{}: on_disable failed: {}", m_name, std::string{result.message()}),
                    true);
         }
     }
@@ -653,7 +651,8 @@ void LuaEcuNode::handleScriptFailure(const Result& result, std::string_view duri
         m_faulted = true;
         report(std::format("{} stopped after {} consecutive errors. The measurement "
                            "continues without it.",
-                           m_name, kErrorLimit),
+                           m_name,
+                           kErrorLimit),
                true);
     }
 }
@@ -789,7 +788,8 @@ int LuaEcuNode::luaBusLast(lua_State* state)
         // The payload first, because it is what a script almost always wants:
         //     local data = bus_last(0x123)
         // and the rest is there for the script that needs it.
-        lua_pushlstring(state, reinterpret_cast<const char*>(stats.lastFrame.data.data()),
+        lua_pushlstring(state,
+                        reinterpret_cast<const char*>(stats.lastFrame.data.data()),
                         stats.lastFrame.length);
 
         lua_newtable(state);
@@ -865,8 +865,8 @@ int LuaEcuNode::luaVariableGet(lua_State* state)
 
     const char* name = luaL_checkstring(state, 1);
 
-    lua_pushnumber(state, static_cast<lua_Number>(node->m_variables->value(
-                              node->variableHandle(name))));
+    lua_pushnumber(state,
+                   static_cast<lua_Number>(node->m_variables->value(node->variableHandle(name))));
     return 1;
 }
 
@@ -893,7 +893,8 @@ int LuaEcuNode::luaVariableSet(lua_State* state)
         return luaL_error(state,
                           "var_set('%s'): no room for another variable - the limit is "
                           "%d names",
-                          name, static_cast<int>(SystemVariables::kMaximumVariables));
+                          name,
+                          static_cast<int>(SystemVariables::kMaximumVariables));
     }
 
     node->m_variables->set(handle, static_cast<double>(value));
@@ -1007,8 +1008,8 @@ void LuaEcuNode::applyFaults()
             // The previous payload again, whatever the script just built. A
             // stuck ECU: the counter stops, the CRC goes stale, and nothing
             // here had to know which byte was which.
-            frame.length = static_cast<std::uint8_t>(
-                std::min(fault.previous.size(), kMaxCanPayload));
+            frame.length =
+                static_cast<std::uint8_t>(std::min(fault.previous.size(), kMaxCanPayload));
             std::copy_n(fault.previous.begin(), frame.length, frame.data.begin());
         } else {
             fault.previous.assign(frame.data.begin(), frame.data.begin() + frame.length);
@@ -1102,8 +1103,8 @@ int LuaEcuNode::luaCyclic(lua_State* state)
         const char* payload = luaL_checklstring(state, 3, &length);
 
         if (length > kMaxCanPayload) {
-            return luaL_error(state, "cyclic: %d bytes is more than a frame carries",
-                              static_cast<int>(length));
+            return luaL_error(
+                state, "cyclic: %d bytes is more than a frame carries", static_cast<int>(length));
         }
 
         job.payload.assign(reinterpret_cast<const std::uint8_t*>(payload),
@@ -1299,8 +1300,7 @@ int LuaEcuNode::luaEmitSignal(lua_State* state)
 
     const CanMessage* message = node->m_database->findByName(messageName);
     if (message == nullptr) {
-        return luaL_error(state, "emit_signal: no message named '%s' in the database",
-                          messageName);
+        return luaL_error(state, "emit_signal: no message named '%s' in the database", messageName);
     }
 
     CanFrame frame = message->makeFrame();
@@ -1316,8 +1316,7 @@ int LuaEcuNode::luaEmitSignal(lua_State* state)
         // rather than converted.
         if (lua_type(state, -2) != LUA_TSTRING) {
             lua_pop(state, 2);
-            return luaL_error(state,
-                              "emit_signal: the table's keys have to be signal names");
+            return luaL_error(state, "emit_signal: the table's keys have to be signal names");
         }
 
         const char* signalName = lua_tostring(state, -2);
@@ -1326,8 +1325,8 @@ int LuaEcuNode::luaEmitSignal(lua_State* state)
         const CanSignal* signal = message->findSignal(signalName);
         if (signal == nullptr) {
             lua_pop(state, 2);
-            return luaL_error(state, "emit_signal: '%s' has no signal named '%s'",
-                              messageName, signalName);
+            return luaL_error(
+                state, "emit_signal: '%s' has no signal named '%s'", messageName, signalName);
         }
 
         if (!signal->encode(value, frame.data.data(), frame.length)) {
@@ -1366,8 +1365,8 @@ int LuaEcuNode::luaDecode(lua_State* state)
     }
 
     const auto raw = static_cast<std::uint32_t>(identifier);
-    const CanFrameFormat format = raw > kMaxStandardIdentifier ? CanFrameFormat::Extended
-                                                               : CanFrameFormat::Standard;
+    const CanFrameFormat format =
+        raw > kMaxStandardIdentifier ? CanFrameFormat::Extended : CanFrameFormat::Standard;
 
     const CanMessage* message = node->m_database->find(raw, format);
     if (message == nullptr) {

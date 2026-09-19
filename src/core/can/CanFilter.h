@@ -37,22 +37,14 @@ namespace torquebus {
 /// What a matching frame should cause.
 enum class CanFilterAction : std::uint8_t {
     Accept, ///< Let the frame through (allow-list entry).
-    Reject  ///< Drop the frame (block-list entry).
+    Reject ///< Drop the frame (block-list entry).
 };
 
 /// Which identifier formats a rule applies to.
-enum class CanFormatMatch : std::uint8_t {
-    Any,
-    StandardOnly,
-    ExtendedOnly
-};
+enum class CanFormatMatch : std::uint8_t { Any, StandardOnly, ExtendedOnly };
 
 /// Which directions a rule applies to.
-enum class CanDirectionMatch : std::uint8_t {
-    Any,
-    RxOnly,
-    TxOnly
-};
+enum class CanDirectionMatch : std::uint8_t { Any, RxOnly, TxOnly };
 
 /// One filter rule.
 ///
@@ -112,10 +104,14 @@ struct CanFilter final {
 
         switch (format) {
         case CanFormatMatch::StandardOnly:
-            if (frame.isExtended()) { return false; }
+            if (frame.isExtended()) {
+                return false;
+            }
             break;
         case CanFormatMatch::ExtendedOnly:
-            if (!frame.isExtended()) { return false; }
+            if (!frame.isExtended()) {
+                return false;
+            }
             break;
         case CanFormatMatch::Any:
             break;
@@ -123,10 +119,14 @@ struct CanFilter final {
 
         switch (direction) {
         case CanDirectionMatch::RxOnly:
-            if (!frame.isRx()) { return false; }
+            if (!frame.isRx()) {
+                return false;
+            }
             break;
         case CanDirectionMatch::TxOnly:
-            if (frame.isRx()) { return false; }
+            if (frame.isRx()) {
+                return false;
+            }
             break;
         case CanDirectionMatch::Any:
             break;

@@ -95,19 +95,20 @@ TEST_CASE("Mismatched port types name both ends", "[graph][validation]")
     // out which of the two blocks is the wrong one.
     NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
-    catalog.registerType(
-        NodeTypeInfo{.typeName = "test.signals",
-                     .displayName = "Signals",
-                     .category = "Test",
-                     .description = {},
-                     .inputs = {PortDescriptor{"signals", PortType::Signals}},
-                     .outputs = {},
-                     .parameters = {}},
-        [](const NodeParameters&, const NodeBuildContext&, std::string_view,
-           std::unique_ptr<IPipelineNode>& out) -> Result {
-            out = nullptr;
-            return Result::error(ErrorCode::NotImplemented, "test node");
-        });
+    catalog.registerType(NodeTypeInfo{.typeName = "test.signals",
+                                      .displayName = "Signals",
+                                      .category = "Test",
+                                      .description = {},
+                                      .inputs = {PortDescriptor{"signals", PortType::Signals}},
+                                      .outputs = {},
+                                      .parameters = {}},
+                         [](const NodeParameters&,
+                            const NodeBuildContext&,
+                            std::string_view,
+                            std::unique_ptr<IPipelineNode>& out) -> Result {
+                             out = nullptr;
+                             return Result::error(ErrorCode::NotImplemented, "test node");
+                         });
 
     GraphDescription description;
     description.addNode(node("can_1", "can.source"));
@@ -229,17 +230,18 @@ TEST_CASE("A described graph builds, compiles and runs", "[graph][build]")
     REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
 
     GraphDescription description;
-    description.addNode(node("can_1", "can.source",
-                             NodeParameters{{"channel", ParameterValue::fromInteger(0)}}));
     description.addNode(
-        node("ecu", "lua.ecu",
+        node("can_1", "can.source", NodeParameters{{"channel", ParameterValue::fromInteger(0)}}));
+    description.addNode(
+        node("ecu",
+             "lua.ecu",
              NodeParameters{
                  {"script",
                   ParameterValue::fromText(
                       R"(function on_message(id) if id == 0x100 then emit(0x101, "\1") end end)")},
              }));
-    description.addNode(node("tx", "can.transmit",
-                             NodeParameters{{"channel", ParameterValue::fromInteger(0)}}));
+    description.addNode(
+        node("tx", "can.transmit", NodeParameters{{"channel", ParameterValue::fromInteger(0)}}));
 
     description.addEdge(EdgeDescription{"can_1", 0, "ecu", 0});
     description.addEdge(EdgeDescription{"ecu", 0, "tx", 0});
@@ -267,8 +269,8 @@ TEST_CASE("A described graph builds, compiles and runs", "[graph][build]")
     engine.stop();
 
     const std::lock_guard lock{mutex};
-    const auto answers = std::count_if(received.begin(), received.end(),
-                                       [](const CanFrame& f) { return f.identifier == 0x101; });
+    const auto answers = std::count_if(
+        received.begin(), received.end(), [](const CanFrame& f) { return f.identifier == 0x101; });
     CHECK(answers >= 1);
 }
 
@@ -293,16 +295,18 @@ TEST_CASE("Two source nodes on one channel both see every frame", "[graph][build
     GraphDescription description;
     description.addNode(node("can_a", "can.source", channelZero));
     description.addNode(node("can_b", "can.source", channelZero));
-    description.addNode(
-        node("ecu_a", "lua.ecu",
-             NodeParameters{{"script", ParameterValue::fromText(
-                                           R"(function on_message(id)
+    description.addNode(node("ecu_a",
+                             "lua.ecu",
+                             NodeParameters{{"script",
+                                             ParameterValue::fromText(
+                                                 R"(function on_message(id)
                                                   if id == 0x100 then emit(0x201, "\1") end
                                               end)")}}));
-    description.addNode(
-        node("ecu_b", "lua.ecu",
-             NodeParameters{{"script", ParameterValue::fromText(
-                                           R"(function on_message(id)
+    description.addNode(node("ecu_b",
+                             "lua.ecu",
+                             NodeParameters{{"script",
+                                             ParameterValue::fromText(
+                                                 R"(function on_message(id)
                                                   if id == 0x100 then emit(0x202, "\1") end
                                               end)")}}));
     description.addNode(node("tx_a", "can.transmit", channelZero));
@@ -334,10 +338,9 @@ TEST_CASE("Two source nodes on one channel both see every frame", "[graph][build
 
     const std::lock_guard lock{mutex};
     const auto count = [&received](std::uint32_t identifier) {
-        return std::count_if(received.begin(), received.end(),
-                             [identifier](const CanFrame& f) {
-                                 return f.identifier == identifier;
-                             });
+        return std::count_if(received.begin(), received.end(), [identifier](const CanFrame& f) {
+            return f.identifier == identifier;
+        });
     };
 
     CHECK(count(0x201) >= 1);
@@ -365,13 +368,15 @@ TEST_CASE("One script becomes two ECUs through its parameters", "[graph][build][
     )";
 
     GraphDescription description;
-    description.addNode(node("ecu_a", "lua.ecu",
+    description.addNode(node("ecu_a",
+                             "lua.ecu",
                              NodeParameters{
                                  {"script", ParameterValue::fromText(script)},
                                  {"answer_id", ParameterValue::fromInteger(0x201)},
                                  {"payload", ParameterValue::fromInteger(0xAA)},
                              }));
-    description.addNode(node("ecu_b", "lua.ecu",
+    description.addNode(node("ecu_b",
+                             "lua.ecu",
                              NodeParameters{
                                  {"script", ParameterValue::fromText(script)},
                                  {"answer_id", ParameterValue::fromInteger(0x202)},
@@ -395,12 +400,12 @@ TEST_CASE("A script reads its settings from the parameters table", "[graph][buil
 
     GraphDescription description;
     description.addNode(node("src", "can.filter")); // Stand-in producer of nothing.
-    description.addNode(
-        node("ecu", "lua.ecu",
-             NodeParameters{
-                 // Every type the parameter bag carries, so the conversion into
-                 // Lua is checked rather than assumed for three of four.
-                 {"script", ParameterValue::fromText(R"(
+    description.addNode(node("ecu",
+                             "lua.ecu",
+                             NodeParameters{
+                                 // Every type the parameter bag carries, so the conversion into
+                                 // Lua is checked rather than assumed for three of four.
+                                 {"script", ParameterValue::fromText(R"(
                      function on_enable()
                          if parameters.count ~= 7 then error("integer lost") end
                          if math.abs(parameters.factor - 0.125) > 1e-9 then
@@ -413,11 +418,11 @@ TEST_CASE("A script reads its settings from the parameters table", "[graph][buil
                          end
                      end
                  )")},
-                 {"count", ParameterValue::fromInteger(7)},
-                 {"factor", ParameterValue::fromReal(0.125)},
-                 {"label", ParameterValue::fromText("engine")},
-                 {"active", ParameterValue::fromBoolean(true)},
-             }));
+                                 {"count", ParameterValue::fromInteger(7)},
+                                 {"factor", ParameterValue::fromReal(0.125)},
+                                 {"label", ParameterValue::fromText("engine")},
+                                 {"active", ParameterValue::fromBoolean(true)},
+                             }));
 
     PipelineGraph graph;
     REQUIRE(description.build(catalog, contextWith(store), graph).succeeded());
@@ -486,7 +491,7 @@ TEST_CASE("A block that cannot be built can be switched off", "[graph][validatio
     // A filter rather than a channel source, so the test needs no engine: the
     // subject is the disabled block, not what feeds it.
     description.addNode(node("filter", "can.filter"));
-    description.addNode(node("lua_ecu", "lua.ecu"));   // No script: cannot build.
+    description.addNode(node("lua_ecu", "lua.ecu")); // No script: cannot build.
     description.addNode(node("trace_1", "trace.sink"));
     description.addEdge(EdgeDescription{"filter", 0, "lua_ecu", 0});
     description.addEdge(EdgeDescription{"lua_ecu", 0, "trace_1", 0});
@@ -505,8 +510,7 @@ TEST_CASE("A block that cannot be built can be switched off", "[graph][validatio
     CHECK(graph.nodeIds().size() == 2);
 }
 
-TEST_CASE("A disabled node of a type this build does not have is not fatal",
-          "[graph][validation]")
+TEST_CASE("A disabled node of a type this build does not have is not fatal", "[graph][validation]")
 {
     // The same rule from the other side. A project saved on a machine with a
     // plugin, opened on one without it: switching that block off is the
@@ -522,8 +526,7 @@ TEST_CASE("A disabled node of a type this build does not have is not fatal",
     CHECK(description.validate(catalog).succeeded());
 }
 
-TEST_CASE("Two wires into one input are allowed when one source is disabled",
-          "[graph][validation]")
+TEST_CASE("Two wires into one input are allowed when one source is disabled", "[graph][validation]")
 {
     // Otherwise switching a node off would leave the project refusing to build
     // over a wire that will not exist.
@@ -554,8 +557,8 @@ TEST_CASE("A node naming a channel that is not configured says so in the user's 
     REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
 
     GraphDescription description;
-    description.addNode(node("can_3", "can.source",
-                             NodeParameters{{"channel", ParameterValue::fromInteger(2)}}));
+    description.addNode(
+        node("can_3", "can.source", NodeParameters{{"channel", ParameterValue::fromInteger(2)}}));
 
     engine.setGraphDescription(description, NodeCatalog::withBuiltinTypes());
 
@@ -574,7 +577,8 @@ TEST_CASE("A Lua node with both a script and a path is refused", "[graph][build]
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
     GraphDescription description;
-    description.addNode(node("ecu", "lua.ecu",
+    description.addNode(node("ecu",
+                             "lua.ecu",
                              NodeParameters{
                                  {"script", ParameterValue::fromText("function on_message() end")},
                                  {"scriptPath", ParameterValue::fromText("ecu.lua")},
@@ -593,11 +597,11 @@ TEST_CASE("A Lua node loads its script from a file", "[graph][build]")
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
     GraphDescription description;
-    description.addNode(
-        node("ecu", "lua.ecu",
-             NodeParameters{{"scriptPath",
-                             ParameterValue::fromText(TORQUEBUS_EXAMPLE_SCRIPT_DIR
-                                                      "/ecu_vehicle.lua")}}));
+    description.addNode(node("ecu",
+                             "lua.ecu",
+                             NodeParameters{{"scriptPath",
+                                             ParameterValue::fromText(TORQUEBUS_EXAMPLE_SCRIPT_DIR
+                                                                      "/ecu_vehicle.lua")}}));
 
     PipelineGraph graph;
     REQUIRE(description.build(catalog, contextWith(store), graph).succeeded());
@@ -614,9 +618,10 @@ TEST_CASE("A missing script file fails the build naming the node", "[graph][buil
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
     GraphDescription description;
-    description.addNode(node("ecu_motor", "lua.ecu",
-                             NodeParameters{{"scriptPath",
-                                             ParameterValue::fromText("no/such/script.lua")}}));
+    description.addNode(
+        node("ecu_motor",
+             "lua.ecu",
+             NodeParameters{{"scriptPath", ParameterValue::fromText("no/such/script.lua")}}));
 
     PipelineGraph graph;
     const Result result = description.build(catalog, contextWith(store), graph);
@@ -647,7 +652,8 @@ TEST_CASE("A filter node built from parameters actually filters", "[graph][build
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
     GraphDescription description;
-    description.addNode(node("filter", "can.filter",
+    description.addNode(node("filter",
+                             "can.filter",
                              NodeParameters{
                                  {"from", ParameterValue::fromInteger(0x100)},
                                  {"to", ParameterValue::fromInteger(0x1FF)},
@@ -680,8 +686,8 @@ TEST_CASE("A description survives being edited while a measurement runs", "[grap
     REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
 
     GraphDescription description;
-    description.addNode(node("can_1", "can.source",
-                             NodeParameters{{"channel", ParameterValue::fromInteger(0)}}));
+    description.addNode(
+        node("can_1", "can.source", NodeParameters{{"channel", ParameterValue::fromInteger(0)}}));
 
     engine.setGraphDescription(description, NodeCatalog::withBuiltinTypes());
     REQUIRE(engine.start().succeeded());
@@ -704,8 +710,7 @@ TEST_CASE("A description survives being edited while a measurement runs", "[grap
 // promises to report a problem while the user is still looking at the block,
 // and it was not looking at parameters at all.
 
-TEST_CASE("A block missing a required setting is caught before Start",
-          "[graph][validate]")
+TEST_CASE("A block missing a required setting is caught before Start", "[graph][validate]")
 {
     // Registered here rather than borrowed from the built-ins, and that is the
     // finding rather than a convenience: **no built-in type has a required
@@ -729,7 +734,9 @@ TEST_CASE("A block missing a required setting is caught before Start",
                                                .required = true,
                                                .description = "No default is possible."}},
         },
-        [](const NodeParameters&, const NodeBuildContext&, std::string_view,
+        [](const NodeParameters&,
+           const NodeBuildContext&,
+           std::string_view,
            std::unique_ptr<IPipelineNode>& out) -> Result {
             out = nullptr;
             return Result::ok();
@@ -770,8 +777,7 @@ TEST_CASE("A half-configured canvas is not an error", "[graph][validate]")
     CHECK(result.succeeded());
 }
 
-TEST_CASE("A Lua ECU with no script at all is caught before Start",
-          "[graph][validate][lua]")
+TEST_CASE("A Lua ECU with no script at all is caught before Start", "[graph][validate][lua]")
 {
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
@@ -820,11 +826,9 @@ TEST_CASE("A block whose settings are complete passes", "[graph][validate]")
         .id = "lua_ecu",
         .typeName = "lua.ecu",
         .parameters = {{"script", ParameterValue::fromText("function on_frame() end")}}});
-    graph.addNode(NodeDescription{
-        .id = "tx",
-        .typeName = "can.transmit",
-        .parameters = {{"channel", ParameterValue::fromInteger(0)}}});
-
+    graph.addNode(NodeDescription{.id = "tx",
+                                  .typeName = "can.transmit",
+                                  .parameters = {{"channel", ParameterValue::fromInteger(0)}}});
 
     const Result result = graph.validate(catalog);
     INFO(std::string{result.message()});
@@ -893,8 +897,7 @@ TEST_CASE("A decoder wired to a plot fills the plot's store", "[graph][build][pl
     REQUIRE(graph.compile().succeeded());
 }
 
-TEST_CASE("A plot block without a store fails rather than dropping samples",
-          "[graph][build][plot]")
+TEST_CASE("A plot block without a store fails rather than dropping samples", "[graph][build][plot]")
 {
     // The same shape as the trace node's own case, and for the same reason: a
     // node that silently accepted nowhere to write would produce an empty

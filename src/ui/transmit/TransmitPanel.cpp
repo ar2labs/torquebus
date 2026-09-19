@@ -160,8 +160,15 @@ void TransmitPanel::buildUi()
 
     m_table = new QTableWidget(this);
     m_table->setColumnCount(ColumnCountTotal);
-    m_table->setHorizontalHeaderLabels({tr("On"), tr("Ch"), tr("Name"), tr("ID"), tr("Fmt"),
-                                        tr("DLC"), tr("Data"), tr("Cyc"), tr("ms"),
+    m_table->setHorizontalHeaderLabels({tr("On"),
+                                        tr("Ch"),
+                                        tr("Name"),
+                                        tr("ID"),
+                                        tr("Fmt"),
+                                        tr("DLC"),
+                                        tr("Data"),
+                                        tr("Cyc"),
+                                        tr("ms"),
                                         tr("Count")});
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -191,8 +198,7 @@ void TransmitPanel::buildUi()
     layout->addWidget(m_status);
 
     connect(m_actionAdd, &QAction::triggered, this, &TransmitPanel::onAdd);
-    connect(m_actionAddFromMessage, &QAction::triggered, this,
-            &TransmitPanel::onAddFromMessage);
+    connect(m_actionAddFromMessage, &QAction::triggered, this, &TransmitPanel::onAddFromMessage);
     connect(m_actionRemove, &QAction::triggered, this, &TransmitPanel::onRemove);
     connect(m_actionSend, &QAction::triggered, this, &TransmitPanel::onSendSelected);
     connect(m_actionEditSignals, &QAction::triggered, this, &TransmitPanel::onEditSignals);
@@ -200,8 +206,7 @@ void TransmitPanel::buildUi()
     // Editing by name is only meaningful for a row that came from a message,
     // so the button follows the selection rather than being always live and
     // sometimes complaining.
-    connect(m_table, &QTableWidget::itemSelectionChanged, this,
-            [this] { updateActionState(); });
+    connect(m_table, &QTableWidget::itemSelectionChanged, this, [this] { updateActionState(); });
     connect(m_table, &QTableWidget::itemChanged, this, &TransmitPanel::onItemChanged);
 }
 
@@ -238,18 +243,18 @@ void TransmitPanel::reload()
         // 1-based, because the Project Explorer and the status bar both say
         // "CAN 1" for channel 0 and a panel that said 0 would be the only place
         // in the window counting differently.
-        m_table->setItem(row, ColumnChannel,
-                         new QTableWidgetItem{QString::number(entry.channel + 1)});
+        m_table->setItem(
+            row, ColumnChannel, new QTableWidgetItem{QString::number(entry.channel + 1)});
 
-        m_table->setItem(row, ColumnName,
-                         new QTableWidgetItem{QString::fromStdString(entry.name)});
-        m_table->setItem(row, ColumnIdentifier,
-                         new QTableWidgetItem{formatIdentifier(entry.frame)});
+        m_table->setItem(row, ColumnName, new QTableWidgetItem{QString::fromStdString(entry.name)});
+        m_table->setItem(
+            row, ColumnIdentifier, new QTableWidgetItem{formatIdentifier(entry.frame)});
 
-        m_table->setItem(row, ColumnFormat,
+        m_table->setItem(row,
+                         ColumnFormat,
                          new QTableWidgetItem{entry.frame.isExtended() ? tr("Ext") : tr("Std")});
-        m_table->setItem(row, ColumnLength,
-                         new QTableWidgetItem{QString::number(entry.frame.length)});
+        m_table->setItem(
+            row, ColumnLength, new QTableWidgetItem{QString::number(entry.frame.length)});
         m_table->setItem(row, ColumnData, new QTableWidgetItem{formatPayload(entry.frame)});
 
         auto* periodic = new QTableWidgetItem;
@@ -257,8 +262,7 @@ void TransmitPanel::reload()
         periodic->setCheckState(entry.isPeriodic() ? Qt::Checked : Qt::Unchecked);
         m_table->setItem(row, ColumnPeriodic, periodic);
 
-        m_table->setItem(row, ColumnCycle,
-                         new QTableWidgetItem{QString::number(entry.cycleMs)});
+        m_table->setItem(row, ColumnCycle, new QTableWidgetItem{QString::number(entry.cycleMs)});
 
         // The count is the executor's, so it is not editable here. A cell the
         // user can type into but that is overwritten five times a second is a
@@ -346,8 +350,8 @@ void TransmitPanel::onAddFromMessage()
     }
 
     bool accepted = false;
-    const QString picked = QInputDialog::getItem(this, tr("Add from message"),
-                                                 tr("Message:"), choices, 0, false, &accepted);
+    const QString picked = QInputDialog::getItem(
+        this, tr("Add from message"), tr("Message:"), choices, 0, false, &accepted);
     if (!accepted) {
         return;
     }
@@ -550,8 +554,8 @@ void TransmitPanel::commitRow(int row)
     }
 
     if (const QTableWidgetItem* item = m_table->item(row, ColumnPeriodic)) {
-        entry.trigger = item->checkState() == Qt::Checked ? TransmitTrigger::Periodic
-                                                          : TransmitTrigger::Manual;
+        entry.trigger =
+            item->checkState() == Qt::Checked ? TransmitTrigger::Periodic : TransmitTrigger::Manual;
     }
 
     if (const QTableWidgetItem* item = m_table->item(row, ColumnCycle)) {

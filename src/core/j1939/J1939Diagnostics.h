@@ -196,11 +196,11 @@ struct J1939Diagnostic final {
 /// Returns nothing when `pgn` is not a diagnostic message, or when the payload
 /// is too short to hold the lamps. A payload that holds the lamps but no whole
 /// code is a valid message with no faults.
-[[nodiscard]] std::optional<J1939Diagnostic> j1939DecodeDiagnostic(
-    std::uint32_t pgn,
-    std::uint8_t sourceAddress,
-    std::span<const std::uint8_t> payload,
-    J1939SpnReading reading,
-    std::uint64_t timestampNs);
+[[nodiscard]] std::optional<J1939Diagnostic>
+j1939DecodeDiagnostic(std::uint32_t pgn,
+                      std::uint8_t sourceAddress,
+                      std::span<const std::uint8_t> payload,
+                      J1939SpnReading reading,
+                      std::uint64_t timestampNs);
 
 } // namespace torquebus

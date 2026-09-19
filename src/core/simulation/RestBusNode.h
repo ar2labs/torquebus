@@ -80,10 +80,7 @@ public:
 
     RestBusNode() = default;
 
-    [[nodiscard]] std::string_view typeName() const noexcept override
-    {
-        return "sim.restbus";
-    }
+    [[nodiscard]] std::string_view typeName() const noexcept override { return "sim.restbus"; }
 
     [[nodiscard]] std::string displayName() const override { return "Rest Bus"; }
 
@@ -91,10 +88,7 @@ public:
     /// network would have sent, and what arrives on the bus does not change
     /// that. A rest bus that reacted to traffic would be an ECU, and there is a
     /// block for those.
-    [[nodiscard]] std::span<const PortDescriptor> inputs() const noexcept override
-    {
-        return {};
-    }
+    [[nodiscard]] std::span<const PortDescriptor> inputs() const noexcept override { return {}; }
 
     [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override
     {
@@ -110,35 +104,23 @@ public:
 
     /// Nodes whose messages are simulated. Empty means every node in the
     /// database that sends anything.
-    void setSimulatedNodes(std::vector<std::string> nodes)
-    {
-        m_included = std::move(nodes);
-    }
+    void setSimulatedNodes(std::vector<std::string> nodes) { m_included = std::move(nodes); }
 
     /// Nodes whose messages are **not** simulated - the ones on the bench.
     /// Applied after the include list, so a node in both is excluded: the
     /// question "is this ECU real?" has one answer, and the safe one is yes.
-    void setExcludedNodes(std::vector<std::string> nodes)
-    {
-        m_excluded = std::move(nodes);
-    }
+    void setExcludedNodes(std::vector<std::string> nodes) { m_excluded = std::move(nodes); }
 
     /// Cycle time for messages whose database declares none. Zero - the
     /// default - skips them; see the header comment for why that is not timid.
-    void setDefaultCycleMs(std::uint32_t milliseconds)
-    {
-        m_defaultCycleMs = milliseconds;
-    }
+    void setDefaultCycleMs(std::uint32_t milliseconds) { m_defaultCycleMs = milliseconds; }
 
     void setTransmitChannel(std::uint8_t channel) { m_channel = channel; }
 
     /// Signals that follow a variable. Names that are not in the database are
     /// reported by prepare() rather than ignored: a typo in a signal name is a
     /// control that does nothing, and finding that out on a bench is expensive.
-    void setDrivenSignals(std::vector<DrivenSignal> signals)
-    {
-        m_driven = std::move(signals);
-    }
+    void setDrivenSignals(std::vector<DrivenSignal> signals) { m_driven = std::move(signals); }
 
     void setSystemVariables(SystemVariables* variables) { m_variables = variables; }
 

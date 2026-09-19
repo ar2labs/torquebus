@@ -44,30 +44,34 @@ enum class PortType : std::uint8_t {
 [[nodiscard]] constexpr std::string_view toString(PortType type) noexcept
 {
     switch (type) {
-    case PortType::Frames:  return "Frames";
-    case PortType::Signals: return "Signals";
-    case PortType::Pgns:    return "Pgns";
-    case PortType::Events:  return "Events";
+    case PortType::Frames:
+        return "Frames";
+    case PortType::Signals:
+        return "Signals";
+    case PortType::Pgns:
+        return "Pgns";
+    case PortType::Events:
+        return "Events";
     }
     return "Unknown";
 }
 
 /// Maps a C++ payload type onto its port type, so a node can ask for the right
 /// span without repeating the enum at every call site.
-template <typename T>
+template<typename T>
 struct PortTraits;
 
-template <>
+template<>
 struct PortTraits<CanFrame> {
     static constexpr PortType kType = PortType::Frames;
 };
 
-template <>
+template<>
 struct PortTraits<DecodedSignal> {
     static constexpr PortType kType = PortType::Signals;
 };
 
-template <>
+template<>
 struct PortTraits<DiagnosticEvent> {
     static constexpr PortType kType = PortType::Events;
 };
@@ -87,13 +91,12 @@ class PortBatch final {
 public:
     PortBatch() = default;
 
-    template <typename T>
+    template<typename T>
     explicit PortBatch(std::span<const T> items) noexcept
         : m_type{PortTraits<T>::kType}
         , m_data{items.data()}
         , m_count{items.size()}
-    {
-    }
+    { }
 
     [[nodiscard]] PortType type() const noexcept { return m_type; }
     [[nodiscard]] std::size_t size() const noexcept { return m_count; }
@@ -103,7 +106,7 @@ public:
     /// so a mis-wired graph starves a node rather than reinterpreting bytes -
     /// the graph should have rejected the connection long before this, and this
     /// is the second line of defence.
-    template <typename T>
+    template<typename T>
     [[nodiscard]] std::span<const T> as() const noexcept
     {
         if (m_type != PortTraits<T>::kType || m_data == nullptr) {

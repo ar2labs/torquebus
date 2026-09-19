@@ -37,8 +37,7 @@ constexpr double kRippleReach = 5.0;
 constexpr double kRippleWidth = 2.0;
 
 /// The distance from a swatch's centre to the outermost pixel anything paints.
-constexpr double kPaintedRadius =
-    kSwatchDiameter / 2.0 + kRippleReach + kRippleWidth / 2.0;
+constexpr double kPaintedRadius = kSwatchDiameter / 2.0 + kRippleReach + kRippleWidth / 2.0;
 
 /// Margin around that, so nothing sits against the edge.
 constexpr double kMargin = 2.0;
@@ -115,8 +114,7 @@ QSize AccentSwatchRow::minimumSizeHint() const
 
 QPointF AccentSwatchRow::centreOf(int index) const
 {
-    return QPointF{kMargin + kSwatchDiameter / 2.0 + index * kSwatchSpacing,
-                   height() / 2.0};
+    return QPointF{kMargin + kSwatchDiameter / 2.0 + index * kSwatchSpacing, height() / 2.0};
 }
 
 int AccentSwatchRow::indexAt(const QPointF& position) const
@@ -265,8 +263,8 @@ void AccentSwatchRow::mouseMoveEvent(QMouseEvent* event)
     if (index >= 0) {
         // The name, because eight circles are eight circles: a user who wants
         // the one they picked last month needs it named, not recognised.
-        QToolTip::showText(event->globalPosition().toPoint(),
-                           accentDisplayName(accentAt(index)), this);
+        QToolTip::showText(
+            event->globalPosition().toPoint(), accentDisplayName(accentAt(index)), this);
     }
 
     update();

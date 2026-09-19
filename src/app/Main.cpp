@@ -60,16 +60,17 @@ int main(int argc, char* argv[])
     context.initialize();
 
     if (parser.isSet(resetLayoutOption)) {
-        context.settings().remove(
-            QString::fromLatin1(torquebus::services::keys::kDockLayout));
+        context.settings().remove(QString::fromLatin1(torquebus::services::keys::kDockLayout));
     }
 
     // The docking framework must be configured after QApplication and before
     // the first dock widget is created.
     torquebus::ui::configureDockingSystem();
 
-    torquebus::ui::MainWindow window{context.settings(), context.themes(),
-                                     context.catalog(), context.pluginLoader(),
+    torquebus::ui::MainWindow window{context.settings(),
+                                     context.themes(),
+                                     context.catalog(),
+                                     context.pluginLoader(),
                                      context.j1939Names()};
     window.show();
 

@@ -137,8 +137,7 @@ bool TransmitList::sendOnce(std::size_t index)
     return sendOnce(entry.frame, entry.channel);
 }
 
-void TransmitList::collectDue(std::uint64_t nowUs, std::uint8_t channel,
-                              std::vector<CanFrame>& out)
+void TransmitList::collectDue(std::uint64_t nowUs, std::uint8_t channel, std::vector<CanFrame>& out)
 {
     const std::lock_guard guard{m_mutex};
 

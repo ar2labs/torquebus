@@ -49,9 +49,8 @@ namespace {
     // the reason, which is what the lines below are for.
     //
     // The path must be absolute for these flags, which it is.
-    HMODULE handle = ::LoadLibraryExW(file.c_str(), nullptr,
-                                      LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR
-                                          | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+    HMODULE handle = ::LoadLibraryExW(
+        file.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     if (handle != nullptr) {
         return handle;
     }
@@ -69,8 +68,7 @@ namespace {
 
 [[nodiscard]] void* findSymbol(void* handle, const char* name)
 {
-    return reinterpret_cast<void*>(
-        ::GetProcAddress(static_cast<HMODULE>(handle), name));
+    return reinterpret_cast<void*>(::GetProcAddress(static_cast<HMODULE>(handle), name));
 }
 
 #else
@@ -201,7 +199,8 @@ void PluginLoader::loadOne(const std::filesystem::path& file, const PluginHost& 
     // reading a layout this build does not know.
     if (info->abiVersion != kPluginAbiVersion) {
         reject(std::format("was built for plugin ABI {} and this build is ABI {}",
-                           info->abiVersion, kPluginAbiVersion));
+                           info->abiVersion,
+                           kPluginAbiVersion));
         return;
     }
 
@@ -212,7 +211,8 @@ void PluginLoader::loadOne(const std::filesystem::path& file, const PluginHost& 
         // Both keys, because "incompatible" is not something anybody can act
         // on and the difference between the two strings usually names the fix.
         reject(std::format("was built as [{}] and this build is [{}]",
-                           key.empty() ? "no build key" : key, hostBuildKey()));
+                           key.empty() ? "no build key" : key,
+                           hostBuildKey()));
         return;
     }
 
@@ -241,8 +241,7 @@ void PluginLoader::loadOne(const std::filesystem::path& file, const PluginHost& 
         // driver whose SDK turned out not to be installed, most often. Recorded
         // so the plugin list can show it, without a second message repeating
         // what the plugin just said better.
-        m_rejected.push_back(
-            RejectedPlugin{.path = path, .reason = "declined to register itself"});
+        m_rejected.push_back(RejectedPlugin{.path = path, .reason = "declined to register itself"});
         return;
     }
 

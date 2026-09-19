@@ -133,17 +133,11 @@ public:
     /// The ECUs that announced they could not get an address. Kept apart from
     /// the table on purpose: 254 is not a seat, and listing them as occupants
     /// of it would put a phantom ECU at an address that does not exist.
-    [[nodiscard]] std::span<const J1939Defeated> defeated() const noexcept
-    {
-        return m_defeated;
-    }
+    [[nodiscard]] std::span<const J1939Defeated> defeated() const noexcept { return m_defeated; }
 
     [[nodiscard]] const J1939NetworkNode* find(std::uint8_t address) const noexcept;
 
-    [[nodiscard]] std::span<const J1939NetworkEvent> events() const noexcept
-    {
-        return m_events;
-    }
+    [[nodiscard]] std::span<const J1939NetworkEvent> events() const noexcept { return m_events; }
 
     void clearEvents() { m_events.clear(); }
 

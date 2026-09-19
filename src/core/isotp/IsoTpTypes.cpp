@@ -18,18 +18,16 @@ namespace {
 constexpr std::uint32_t kPhysicalBase = 0x18DA'0000U;
 constexpr std::uint32_t kFunctionalBase = 0x18DB'0000U;
 
-[[nodiscard]] constexpr std::uint32_t normalFixedId(std::uint32_t base,
-                                                    std::uint8_t target,
-                                                    std::uint8_t source) noexcept
+[[nodiscard]] constexpr std::uint32_t
+normalFixedId(std::uint32_t base, std::uint8_t target, std::uint8_t source) noexcept
 {
     return base | (static_cast<std::uint32_t>(target) << 8U) | source;
 }
 
 } // namespace
 
-IsoTpAddress IsoTpAddress::normalFixed(std::uint8_t source,
-                                       std::uint8_t target,
-                                       std::uint8_t channel)
+IsoTpAddress
+IsoTpAddress::normalFixed(std::uint8_t source, std::uint8_t target, std::uint8_t channel)
 {
     IsoTpAddress address;
     address.addressing = IsoTpAddressing::NormalFixed;
@@ -44,9 +42,8 @@ IsoTpAddress IsoTpAddress::normalFixed(std::uint8_t source,
     return address;
 }
 
-IsoTpAddress IsoTpAddress::normalFixedFunctional(std::uint8_t source,
-                                                 std::uint8_t target,
-                                                 std::uint8_t channel)
+IsoTpAddress
+IsoTpAddress::normalFixedFunctional(std::uint8_t source, std::uint8_t target, std::uint8_t channel)
 {
     IsoTpAddress address = normalFixed(source, target, channel);
 

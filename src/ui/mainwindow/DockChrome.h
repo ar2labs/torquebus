@@ -50,8 +50,7 @@ namespace torquebus::ui {
 /// have done at all.
 class StyledSeparator final : public KDDockWidgets::QtWidgets::Separator {
 public:
-    StyledSeparator(KDDockWidgets::Core::Separator* controller,
-                    KDDockWidgets::Core::View* parent);
+    StyledSeparator(KDDockWidgets::Core::Separator* controller, KDDockWidgets::Core::View* parent);
 
 protected:
     void paintEvent(QPaintEvent* event) override;

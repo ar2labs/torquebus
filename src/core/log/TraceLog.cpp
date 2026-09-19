@@ -22,12 +22,12 @@ constexpr std::size_t kRecordPrefixSize = 16;
 /// format, and every `.tblog` ever written would read differently.
 enum RecordFlag : std::uint8_t {
     FlagExtended = 1U << 0U,
-    FlagFd       = 1U << 1U,
-    FlagBrs      = 1U << 2U,
-    FlagEsi      = 1U << 3U,
-    FlagRtr      = 1U << 4U,
-    FlagError    = 1U << 5U,
-    FlagTx       = 1U << 6U,
+    FlagFd = 1U << 1U,
+    FlagBrs = 1U << 2U,
+    FlagEsi = 1U << 3U,
+    FlagRtr = 1U << 4U,
+    FlagError = 1U << 5U,
+    FlagTx = 1U << 6U,
 };
 
 // --- Little-endian, spelled out ------------------------------------------
@@ -85,21 +85,35 @@ void write64(std::byte*& out, std::uint64_t value)
 {
     std::uint8_t flags = 0;
 
-    if (frame.isExtended()) { flags |= FlagExtended; }
-    if (frame.fd)           { flags |= FlagFd; }
-    if (frame.brs)          { flags |= FlagBrs; }
-    if (frame.esi)          { flags |= FlagEsi; }
-    if (frame.rtr)          { flags |= FlagRtr; }
-    if (frame.error)        { flags |= FlagError; }
-    if (!frame.isRx())      { flags |= FlagTx; }
+    if (frame.isExtended()) {
+        flags |= FlagExtended;
+    }
+    if (frame.fd) {
+        flags |= FlagFd;
+    }
+    if (frame.brs) {
+        flags |= FlagBrs;
+    }
+    if (frame.esi) {
+        flags |= FlagEsi;
+    }
+    if (frame.rtr) {
+        flags |= FlagRtr;
+    }
+    if (frame.error) {
+        flags |= FlagError;
+    }
+    if (!frame.isRx()) {
+        flags |= FlagTx;
+    }
 
     return flags;
 }
 
 void applyFlags(CanFrame& frame, std::uint8_t flags)
 {
-    frame.format = (flags & FlagExtended) != 0 ? CanFrameFormat::Extended
-                                               : CanFrameFormat::Standard;
+    frame.format =
+        (flags & FlagExtended) != 0 ? CanFrameFormat::Extended : CanFrameFormat::Standard;
     frame.fd = (flags & FlagFd) != 0;
     frame.brs = (flags & FlagBrs) != 0;
     frame.esi = (flags & FlagEsi) != 0;
@@ -152,9 +166,9 @@ Result TraceLogWriter::open(const std::string& path, std::uint64_t startWallCloc
 
     write16(out, TraceLogHeader::kCurrentVersion);
     write16(out, static_cast<std::uint16_t>(TraceLogHeader::kSize));
-    write32(out, 0);                    // flags, reserved
+    write32(out, 0); // flags, reserved
     write64(out, startWallClockUs);
-    write64(out, 0);                    // reserved, so a later version has room
+    write64(out, 0); // reserved, so a later version has room
 
     m_file.write(reinterpret_cast<const char*>(header.data()),
                  static_cast<std::streamsize>(header.size()));
@@ -172,8 +186,7 @@ Result TraceLogWriter::open(const std::string& path, std::uint64_t startWallCloc
 Result TraceLogWriter::append(std::span<const CanFrame> frames)
 {
     if (!m_file.is_open()) {
-        return Result::error(ErrorCode::InvalidState,
-                             "append() called on a log that is not open");
+        return Result::error(ErrorCode::InvalidState, "append() called on a log that is not open");
     }
 
     for (const CanFrame& frame : frames) {
@@ -212,8 +225,7 @@ Result TraceLogWriter::append(std::span<const CanFrame> frames)
 Result TraceLogWriter::flush()
 {
     if (!m_file.is_open()) {
-        return Result::error(ErrorCode::InvalidState,
-                             "flush() called on a log that is not open");
+        return Result::error(ErrorCode::InvalidState, "flush() called on a log that is not open");
     }
 
     if (m_buffer.empty()) {
@@ -284,8 +296,7 @@ Result TraceLogReader::open(const std::string& path)
         if (*in++ != static_cast<std::byte>(letter)) {
             return Result::error(
                 ErrorCode::ParseError,
-                std::format("'{}' is not a TorqueBus log - it does not start with TBLOG",
-                            path));
+                std::format("'{}' is not a TorqueBus log - it does not start with TBLOG", path));
         }
     }
 
@@ -299,14 +310,17 @@ Result TraceLogReader::open(const std::string& path)
             ErrorCode::VersionMismatch,
             std::format("'{}' was written by a newer TorqueBus (log version {}, this build "
                         "understands {})",
-                        path, m_header.version, TraceLogHeader::kCurrentVersion));
+                        path,
+                        m_header.version,
+                        TraceLogHeader::kCurrentVersion));
     }
 
     if (m_header.headerSize < TraceLogHeader::kSize) {
         return Result::error(ErrorCode::ParseError,
                              std::format("'{}' declares a {}-byte header, which is smaller "
                                          "than the format allows",
-                                         path, m_header.headerSize));
+                                         path,
+                                         m_header.headerSize));
     }
 
     // A newer minor version may have a longer header. Skipping the part this
@@ -461,9 +475,8 @@ Result summarize(const std::string& path, TraceLogSummary& out)
     // Not simply last - first: a log written by a source whose clock went
     // backwards would otherwise produce a duration that underflows into
     // something astronomical, and a timeline is drawn from this number.
-    out.durationNs = out.lastTimestampNs > out.firstTimestampNs
-                         ? out.lastTimestampNs - out.firstTimestampNs
-                         : 0;
+    out.durationNs =
+        out.lastTimestampNs > out.firstTimestampNs ? out.lastTimestampNs - out.firstTimestampNs : 0;
 
     return Result::ok();
 }

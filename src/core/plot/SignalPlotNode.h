@@ -36,13 +36,9 @@ public:
     explicit SignalPlotNode(SignalSeriesStore& store, std::string label = "Signal Plot")
         : m_store{store}
         , m_label{std::move(label)}
-    {
-    }
+    { }
 
-    [[nodiscard]] std::string_view typeName() const noexcept override
-    {
-        return "signal.plot";
-    }
+    [[nodiscard]] std::string_view typeName() const noexcept override { return "signal.plot"; }
 
     [[nodiscard]] std::string displayName() const override { return m_label; }
 
@@ -51,10 +47,7 @@ public:
         return kInputs;
     }
 
-    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override
-    {
-        return {};
-    }
+    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override { return {}; }
 
     void process(NodeContext& context) override
     {

@@ -225,9 +225,9 @@ bool J1939Transport::onFrame(const CanFrame& frame, std::uint64_t nowNs)
 
         // An ETP sequence number restarts at one inside every offset window, so
         // the absolute position is the window plus the number within it.
-        onDataTransfer(*id, frame,
-                       found->second.packetOffset
-                           + static_cast<std::uint32_t>(frame.data[0]) - 1U,
+        onDataTransfer(*id,
+                       frame,
+                       found->second.packetOffset + static_cast<std::uint32_t>(frame.data[0]) - 1U,
                        nowNs);
 
         return true;
@@ -261,8 +261,7 @@ void J1939Transport::onConnectionManagement(const CanFrame& frame,
             // the control byte as byte 1.
             const auto role = static_cast<J1939AbortRole>(frame.data[2] & 0x03U);
 
-            fail(existing->second, J1939TransportError::AbortedByPeer, nowNs,
-                 frame.data[1], role);
+            fail(existing->second, J1939TransportError::AbortedByPeer, nowNs, frame.data[1], role);
         }
         return;
     }

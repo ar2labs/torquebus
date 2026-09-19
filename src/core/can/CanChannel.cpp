@@ -53,13 +53,11 @@ Result CanChannel::open()
 
     // The handler is installed before open() so that a backend which starts
     // delivering the moment it is opened cannot drop the first frames.
-    m_backend->setFrameHandler([this](std::span<const CanFrame> frames) noexcept {
-        onFramesReceived(frames);
-    });
+    m_backend->setFrameHandler(
+        [this](std::span<const CanFrame> frames) noexcept { onFramesReceived(frames); });
 
-    m_backend->setStatusHandler([this](const CanBusStatus& status) noexcept {
-        onStatusChanged(status);
-    });
+    m_backend->setStatusHandler(
+        [this](const CanBusStatus& status) noexcept { onStatusChanged(status); });
 
     if (Result result = m_backend->open(m_config); result.failed()) {
         return result;

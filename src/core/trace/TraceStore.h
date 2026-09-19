@@ -154,8 +154,8 @@ private:
     [[nodiscard]] static std::uint64_t keyFor(const CanFrame& frame) noexcept
     {
         return (static_cast<std::uint64_t>(frame.channel) << 40U)
-            | (static_cast<std::uint64_t>(frame.isExtended() ? 1U : 0U) << 32U)
-            | frame.identifier;
+               | (static_cast<std::uint64_t>(frame.isExtended() ? 1U : 0U) << 32U)
+               | frame.identifier;
     }
 
     void appendOne(const CanFrame& frame);

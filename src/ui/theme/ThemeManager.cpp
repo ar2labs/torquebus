@@ -120,8 +120,7 @@ void ThemeManager::applyVariant(ThemeVariant variant)
 
 void ThemeManager::toggleVariant()
 {
-    applyVariant(m_theme.variant == ThemeVariant::Dark ? ThemeVariant::Light
-                                                       : ThemeVariant::Dark);
+    applyVariant(m_theme.variant == ThemeVariant::Dark ? ThemeVariant::Light : ThemeVariant::Dark);
 }
 
 void ThemeManager::setAccent(AccentColor accent)
@@ -342,9 +341,8 @@ QString ThemeManager::buildStyleSheet() const
     // runtime there are two baked sets and the theme picks one. The suffix
     // names the background the glyph is drawn *on*, not the glyph's own
     // colour - "on-dark" is the light glyph.
-    const QString arrowSuffix = m_theme.variant == ThemeVariant::Dark
-        ? QStringLiteral("on-dark")
-        : QStringLiteral("on-light");
+    const QString arrowSuffix = m_theme.variant == ThemeVariant::Dark ? QStringLiteral("on-dark")
+                                                                      : QStringLiteral("on-light");
 
     const auto arrow = [&arrowSuffix](const char* direction) {
         return QStringLiteral(":/icons/chevron-%1-%2.svg")

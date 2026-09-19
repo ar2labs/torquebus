@@ -184,8 +184,7 @@ TEST_CASE("An answer to somebody else's request is not ours", "[uds]")
     CHECK(client.isBusy());
 }
 
-TEST_CASE("An answer to the wrong service is reported rather than ignored",
-          "[uds]")
+TEST_CASE("An answer to the wrong service is reported rather than ignored", "[uds]")
 {
     // On a bus where this happens - two testers, or an ECU answering late -
     // knowing that it happened is the whole diagnosis.
@@ -198,8 +197,7 @@ TEST_CASE("An answer to the wrong service is reported rather than ignored",
     CHECK(client.exchanges().front().outcome == UdsExchange::Outcome::Mismatch);
 }
 
-TEST_CASE("A session is believed from the answer, not from the request",
-          "[uds]")
+TEST_CASE("A session is believed from the answer, not from the request", "[uds]")
 {
     // An ECU may answer a request for the programming session with the extended
     // one. Believing the request is how a tester becomes certain of a session
@@ -291,8 +289,7 @@ TEST_CASE("The request builders put the bytes where the standard says", "[uds]")
     CHECK(securityAccessKey(0x01, {0xAA, 0xBB}) == Bytes{0x27, 0x02, 0xAA, 0xBB});
 }
 
-TEST_CASE("Trouble codes are named the way a workshop manual names them",
-          "[uds][dtc]")
+TEST_CASE("Trouble codes are named the way a workshop manual names them", "[uds][dtc]")
 {
     // The raw number is nothing like the form every scan tool shows: the first
     // two bits are the system letter and the next two the leading digit.

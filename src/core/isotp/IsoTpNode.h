@@ -50,10 +50,7 @@ public:
               std::uint32_t requestIntervalMs = 0,
               std::string label = "ISO-TP");
 
-    [[nodiscard]] std::string_view typeName() const noexcept override
-    {
-        return "isotp.transport";
-    }
+    [[nodiscard]] std::string_view typeName() const noexcept override { return "isotp.transport"; }
 
     [[nodiscard]] std::string displayName() const override { return m_label; }
 

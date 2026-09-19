@@ -11,11 +11,11 @@
 #include <QJsonObject>
 #include <QStringList>
 
-#include <algorithm>
 #include <QJsonParseError>
 #include <QJsonValue>
 #include <QObject>
 #include <QSaveFile>
+#include <algorithm>
 
 #include <format>
 
@@ -179,8 +179,8 @@ void payloadFromJson(const QString& text, CanFrame& frame)
     // std::min deduces one type from two, so a qsizetype and an int leave it
     // with nothing to deduce - and the error names the ambiguity rather than
     // the missing cast.
-    const qsizetype count = std::min<qsizetype>(packed.size() / 2,
-                                                static_cast<qsizetype>(kMaxCanPayload));
+    const qsizetype count =
+        std::min<qsizetype>(packed.size() / 2, static_cast<qsizetype>(kMaxCanPayload));
 
     frame.data = {};
     for (qsizetype i = 0; i < count; ++i) {
@@ -208,8 +208,8 @@ void payloadFromJson(const QString& text, CanFrame& frame)
 
     // A word, not the enum's number. A reordered enum would silently change
     // what every saved file means.
-    json[kTrigger] = entry.isPeriodic() ? QLatin1String(kTriggerPeriodic)
-                                        : QLatin1String(kTriggerManual);
+    json[kTrigger] =
+        entry.isPeriodic() ? QLatin1String(kTriggerPeriodic) : QLatin1String(kTriggerManual);
     json[kCycleMs] = static_cast<qint64>(entry.cycleMs);
     json[kEnabled] = entry.enabled;
 
@@ -229,8 +229,8 @@ void payloadFromJson(const QString& text, CanFrame& frame)
     entry.name = json.value(kName).toString().toStdString();
     entry.channel = static_cast<std::uint8_t>(json.value(kChannel).toInt(0));
     entry.frame.identifier = static_cast<std::uint32_t>(json.value(kId).toInteger(0));
-    entry.frame.format = json.value(kExtended).toBool(false) ? CanFrameFormat::Extended
-                                                             : CanFrameFormat::Standard;
+    entry.frame.format =
+        json.value(kExtended).toBool(false) ? CanFrameFormat::Extended : CanFrameFormat::Standard;
     payloadFromJson(json.value(kData).toString(), entry.frame);
 
     // Anything that is not the word "periodic" is manual - including a word
@@ -468,9 +468,9 @@ Result ProjectFile::load(const QString& path,
     const int version = root.value(kVersion).toInt(0);
 
     if (version <= 0) {
-        return Result::error(ErrorCode::ParseError,
-                             std::format("'{}' is not a TorqueBus project: no version",
-                                         path.toStdString()));
+        return Result::error(
+            ErrorCode::ParseError,
+            std::format("'{}' is not a TorqueBus project: no version", path.toStdString()));
     }
 
     if (version > kFormatVersion) {
@@ -479,7 +479,9 @@ Result ProjectFile::load(const QString& path,
             std::format("'{}' was written by a newer TorqueBus (format {}, this build "
                         "reads {}). Opening it here would silently drop whatever the "
                         "newer version added.",
-                        path.toStdString(), version, kFormatVersion));
+                        path.toStdString(),
+                        version,
+                        kFormatVersion));
     }
 
     // Built into a local first, and only assigned on success: a project that
@@ -498,9 +500,9 @@ Result ProjectFile::load(const QString& path,
         node.enabled = object.value(kEnabled).toBool(true);
 
         if (node.id.empty() || node.typeName.empty()) {
-            return Result::error(ErrorCode::ParseError,
-                                 std::format("'{}' has a node with no id or no type",
-                                             path.toStdString()));
+            return Result::error(
+                ErrorCode::ParseError,
+                std::format("'{}' has a node with no id or no type", path.toStdString()));
         }
 
         const QJsonObject position = object.value(kPosition).toObject();
@@ -532,7 +534,9 @@ Result ProjectFile::load(const QString& path,
                 ErrorCode::ParseError,
                 std::format("'{}' has a wire between '{}' and '{}', and at least one of "
                             "them is not in the file",
-                            path.toStdString(), edge.fromNode, edge.toNode));
+                            path.toStdString(),
+                            edge.fromNode,
+                            edge.toNode));
         }
 
         loaded.addEdge(std::move(edge));
@@ -595,9 +599,9 @@ Result ProjectFile::load(const QString& path,
     // drawn refuses the file rather than opening a project that shows an empty
     // panel and writes it back that way.
     if (Result result = panel.validate(); result.failed()) {
-        return Result::error(result.code(),
-                             std::format("'{}': {}", path.toStdString(),
-                                         std::string{result.message()}));
+        return Result::error(
+            result.code(),
+            std::format("'{}': {}", path.toStdString(), std::string{result.message()}));
     }
 
     pipeline = std::move(loaded);

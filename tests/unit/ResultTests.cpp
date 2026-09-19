@@ -21,8 +21,8 @@ TEST_CASE("A default-constructed Result is success", "[result]")
 
 TEST_CASE("A failure carries its code and its message", "[result]")
 {
-    const Result result = Result::error(ErrorCode::DeviceNotFound,
-                                        "canOpenChannel: canERR_NOTFOUND (-3)");
+    const Result result =
+        Result::error(ErrorCode::DeviceNotFound, "canOpenChannel: canERR_NOTFOUND (-3)");
 
     CHECK(result.failed());
     CHECK_FALSE(result.succeeded());
@@ -31,8 +31,7 @@ TEST_CASE("A failure carries its code and its message", "[result]")
     CHECK_FALSE(static_cast<bool>(result));
 }
 
-TEST_CASE("A failure without a message falls back to the code's description",
-          "[result]")
+TEST_CASE("A failure without a message falls back to the code's description", "[result]")
 {
     const Result result = Result::error(ErrorCode::BusOff);
 
@@ -46,15 +45,24 @@ TEST_CASE("Every error code has a description", "[result]")
     // is not Unknown - which is exactly how an error silently loses its
     // meaning on its way to the status bar.
     const ErrorCode codes[] = {
-        ErrorCode::Ok,                 ErrorCode::NotImplemented,
-        ErrorCode::InvalidArgument,    ErrorCode::InvalidState,
-        ErrorCode::Timeout,            ErrorCode::Cancelled,
-        ErrorCode::BackendUnavailable, ErrorCode::DeviceNotFound,
-        ErrorCode::DeviceBusy,         ErrorCode::ChannelNotOpen,
-        ErrorCode::UnsupportedFeature, ErrorCode::BitTimingRejected,
-        ErrorCode::TransmitFailed,     ErrorCode::BusOff,
-        ErrorCode::FileNotFound,       ErrorCode::FileAccessDenied,
-        ErrorCode::ParseError,         ErrorCode::VersionMismatch,
+        ErrorCode::Ok,
+        ErrorCode::NotImplemented,
+        ErrorCode::InvalidArgument,
+        ErrorCode::InvalidState,
+        ErrorCode::Timeout,
+        ErrorCode::Cancelled,
+        ErrorCode::BackendUnavailable,
+        ErrorCode::DeviceNotFound,
+        ErrorCode::DeviceBusy,
+        ErrorCode::ChannelNotOpen,
+        ErrorCode::UnsupportedFeature,
+        ErrorCode::BitTimingRejected,
+        ErrorCode::TransmitFailed,
+        ErrorCode::BusOff,
+        ErrorCode::FileNotFound,
+        ErrorCode::FileAccessDenied,
+        ErrorCode::ParseError,
+        ErrorCode::VersionMismatch,
     };
 
     for (const ErrorCode code : codes) {

@@ -24,10 +24,10 @@
 #include <QMap>
 #include <QPalette>
 #include <QSplitter>
-#include <QtGlobal>
 #include <QString>
 #include <QTreeWidget>
 #include <QVBoxLayout>
+#include <QtGlobal>
 
 namespace torquebus::ui {
 namespace {
@@ -105,9 +105,7 @@ constexpr int kTypeNameRole = Qt::UserRole + 1;
 
 } // namespace
 
-CanvasPanel::CanvasPanel(GraphDescription& description,
-                         const NodeCatalog& catalog,
-                         QWidget* parent)
+CanvasPanel::CanvasPanel(GraphDescription& description, const NodeCatalog& catalog, QWidget* parent)
     : QWidget{parent}
     , m_description{description}
     , m_catalog{catalog}
@@ -161,24 +159,31 @@ CanvasPanel::CanvasPanel(GraphDescription& description,
     // handling a drag that starts in one widget and ends in another; the double
     // click gets a node onto the canvas today, and the node is draggable the
     // moment it lands.
-    connect(m_palette, &QTreeWidget::itemDoubleClicked, this,
-            [this](QTreeWidgetItem* item, int) { addNodeFromPalette(item); });
+    connect(m_palette, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int) {
+        addNodeFromPalette(item);
+    });
 
-    connect(m_model.get(), &PipelineGraphModel::nodeCreated, this,
-            [this](QtNodes::NodeId) { Q_EMIT graphEdited(); });
-    connect(m_model.get(), &PipelineGraphModel::nodeDeleted, this,
-            [this](QtNodes::NodeId) { Q_EMIT graphEdited(); });
-    connect(m_model.get(), &PipelineGraphModel::connectionCreated, this,
+    connect(m_model.get(), &PipelineGraphModel::nodeCreated, this, [this](QtNodes::NodeId) {
+        Q_EMIT graphEdited();
+    });
+    connect(m_model.get(), &PipelineGraphModel::nodeDeleted, this, [this](QtNodes::NodeId) {
+        Q_EMIT graphEdited();
+    });
+    connect(m_model.get(),
+            &PipelineGraphModel::connectionCreated,
+            this,
             [this](QtNodes::ConnectionId) { Q_EMIT graphEdited(); });
-    connect(m_model.get(), &PipelineGraphModel::connectionDeleted, this,
+    connect(m_model.get(),
+            &PipelineGraphModel::connectionDeleted,
+            this,
             [this](QtNodes::ConnectionId) { Q_EMIT graphEdited(); });
 
     // Selection reaches the Properties panel by node id, not by pointer: the
     // canvas can be closed and reopened while a panel still shows a node.
-    connect(m_scene, &QtNodes::BasicGraphicsScene::nodeSelected, this,
-            [this](QtNodes::NodeId nodeId) {
-                Q_EMIT nodeSelected(QString::fromStdString(m_model->descriptionId(nodeId)));
-            });
+    connect(
+        m_scene, &QtNodes::BasicGraphicsScene::nodeSelected, this, [this](QtNodes::NodeId nodeId) {
+            Q_EMIT nodeSelected(QString::fromStdString(m_model->descriptionId(nodeId)));
+        });
 
     if (ThemeManager* themes = ThemeManager::instance()) {
         applyTheme(themes->theme());
@@ -266,8 +271,8 @@ void CanvasPanel::buildPalette()
             groups.insert(category, group);
         }
 
-        auto* entry = new QTreeWidgetItem{group,
-                                          QStringList{QString::fromStdString(info.displayName)}};
+        auto* entry =
+            new QTreeWidgetItem{group, QStringList{QString::fromStdString(info.displayName)}};
         entry->setData(0, kTypeNameRole, QString::fromStdString(info.typeName));
         entry->setToolTip(0, QString::fromStdString(info.description));
     }

@@ -18,13 +18,7 @@
 namespace torquebus::ui {
 namespace {
 
-enum Column : int {
-    ColumnSignal = 0,
-    ColumnValue,
-    ColumnUnit,
-    ColumnRange,
-    ColumnCountTotal
-};
+enum Column : int { ColumnSignal = 0, ColumnValue, ColumnUnit, ColumnRange, ColumnCountTotal };
 
 /// The signal a row stands for, kept on the row rather than looked up by name.
 constexpr int kSignalIndexRole = Qt::UserRole + 1;
@@ -111,8 +105,7 @@ void SignalValueDialog::reload()
     for (int row = 0; row < static_cast<int>(m_message.signalList.size()); ++row) {
         const CanSignal& signal = m_message.signalList[static_cast<std::size_t>(row)];
 
-        const bool carried =
-            std::find(present.begin(), present.end(), &signal) != present.end();
+        const bool carried = std::find(present.begin(), present.end(), &signal) != present.end();
         const bool fits = signal.fitsIn(m_frame.length);
         const bool editable = carried && fits;
 
@@ -139,8 +132,7 @@ void SignalValueDialog::reload()
                        ? QString::number(value, 'g', 10)
                        : QStringLiteral("%1  (%2)")
                              .arg(QString::number(value, 'g', 10),
-                                  QString::fromUtf8(named.data(),
-                                                    static_cast<int>(named.size())));
+                                  QString::fromUtf8(named.data(), static_cast<int>(named.size())));
         }
 
         auto* value = new QTableWidgetItem{text};

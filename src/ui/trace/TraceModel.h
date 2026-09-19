@@ -37,9 +37,9 @@
 #include <QAbstractTableModel>
 #include <QString>
 
+#include <QVariant>
 #include <memory>
 #include <vector>
-#include <QVariant>
 
 #include <cstddef>
 
@@ -58,11 +58,11 @@ public:
         Channel,
         Direction,
         Identifier,
-        Name,      ///< Message name, when a loaded database knows the identifier.
+        Name, ///< Message name, when a loaded database knows the identifier.
         Type,
         Dlc,
         Data,
-        Signals,   ///< The decoded values, in the order the database lists them.
+        Signals, ///< The decoded values, in the order the database lists them.
         Cycle,
         Count,
         Flags,
@@ -118,9 +118,8 @@ public:
     [[nodiscard]] int rowCount(const QModelIndex& parent = {}) const override;
     [[nodiscard]] int columnCount(const QModelIndex& parent = {}) const override;
     [[nodiscard]] QVariant data(const QModelIndex& index, int role) const override;
-    [[nodiscard]] QVariant headerData(int section,
-                                      Qt::Orientation orientation,
-                                      int role) const override;
+    [[nodiscard]] QVariant
+    headerData(int section, Qt::Orientation orientation, int role) const override;
 
 Q_SIGNALS:
     /// Emitted after rows were appended, so the view can decide whether to

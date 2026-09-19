@@ -115,8 +115,7 @@ TEST_CASE("A PDU1 sent to the global address is a broadcast too", "[j1939]")
     CHECK(id.isBroadcast());
 }
 
-TEST_CASE("The protocol PGNs decode to the numbers the standard gives them",
-          "[j1939]")
+TEST_CASE("The protocol PGNs decode to the numbers the standard gives them", "[j1939]")
 {
     // Named constants are only worth having if they are the right numbers.
     CHECK(kPgnRequest == 59904U);
@@ -138,14 +137,13 @@ TEST_CASE("The protocol PGNs decode to the numbers the standard gives them",
 
 TEST_CASE("An identifier survives being taken apart and put back", "[j1939]")
 {
-    for (const std::uint32_t original : {0x18FEE500U, 0x18EF0A0BU, 0x1CECFF00U,
-                                         0x18EEFF80U, 0x0CF00400U, 0x1FFFFFFFU}) {
+    for (const std::uint32_t original :
+         {0x18FEE500U, 0x18EF0A0BU, 0x1CECFF00U, 0x18EEFF80U, 0x0CF00400U, 0x1FFFFFFFU}) {
         CHECK(j1939Decompose(original).identifier() == original);
     }
 }
 
-TEST_CASE("Building an identifier puts the destination where the PDU allows",
-          "[j1939]")
+TEST_CASE("Building an identifier puts the destination where the PDU allows", "[j1939]")
 {
     // PDU1: the destination goes into the low byte.
     CHECK(j1939Identifier(kPgnRequest, 0x0BU, 0x0AU, 6U) == 0x18EA0A0BU);
@@ -154,8 +152,7 @@ TEST_CASE("Building an identifier puts the destination where the PDU allows",
     CHECK(j1939Identifier(kPgnDm1, 0x00U, 0x0AU, 6U) == 0x18FECA00U);
 }
 
-TEST_CASE("A PDU1 PGN carrying a stray low byte does not steer the message",
-          "[j1939]")
+TEST_CASE("A PDU1 PGN carrying a stray low byte does not steer the message", "[j1939]")
 {
     // 0xEA0A is not a PGN - the low byte of a PDU1 group is a destination, so a
     // PGN built with one set describes no group at all. The destination given
@@ -164,8 +161,7 @@ TEST_CASE("A PDU1 PGN carrying a stray low byte does not steer the message",
     CHECK(j1939Identifier(0xEA0AU, 0x0BU, 0xFFU) == j1939Identifier(kPgnRequest, 0x0BU, 0xFFU));
 }
 
-TEST_CASE("Priority is three bits, and a wider one cannot reach the page bits",
-          "[j1939]")
+TEST_CASE("Priority is three bits, and a wider one cannot reach the page bits", "[j1939]")
 {
     // Priority arrives from a parameter form somebody can type into. Eight is
     // one past the top, and letting it carry into EDP would silently move the

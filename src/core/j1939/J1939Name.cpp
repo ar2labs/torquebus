@@ -13,8 +13,7 @@ namespace {
 {
     const std::optional<J1939Id> id = j1939Decompose(frame);
 
-    return id.has_value() && id->pgn() == kPgnAddressClaimed
-           && frame.length >= kJ1939NameBytes;
+    return id.has_value() && id->pgn() == kPgnAddressClaimed && frame.length >= kJ1939NameBytes;
 }
 
 } // namespace
@@ -51,13 +50,20 @@ bool j1939IsCannotClaimAddress(const CanFrame& frame) noexcept
 std::string_view j1939IndustryGroupName(std::uint8_t industryGroup) noexcept
 {
     switch (industryGroup & 0x07U) {
-    case 0U: return "Global";
-    case 1U: return "On-Highway Equipment";
-    case 2U: return "Agricultural and Forestry Equipment";
-    case 3U: return "Construction Equipment";
-    case 4U: return "Marine";
-    case 5U: return "Industrial-Process Control";
-    default: break;
+    case 0U:
+        return "Global";
+    case 1U:
+        return "On-Highway Equipment";
+    case 2U:
+        return "Agricultural and Forestry Equipment";
+    case 3U:
+        return "Construction Equipment";
+    case 4U:
+        return "Marine";
+    case 5U:
+        return "Industrial-Process Control";
+    default:
+        break;
     }
 
     // Six and seven are reserved. Named as reserved rather than left blank: a

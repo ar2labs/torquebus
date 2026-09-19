@@ -84,8 +84,7 @@ TEST_CASE("The keyword list in NS_ is not a set of sections", "[dbc][parser]")
     CHECK(database.version == "1.0");
 }
 
-TEST_CASE("A message and its signals come back as the file describes them",
-          "[dbc][parser]")
+TEST_CASE("A message and its signals come back as the file describes them", "[dbc][parser]")
 {
     const CanDatabase database = parsed(kMotohawk);
 
@@ -114,8 +113,7 @@ TEST_CASE("A message and its signals come back as the file describes them",
     CHECK(message->findSignal("AverageRadius")->receivers.empty());
 }
 
-TEST_CASE("A parsed database decodes the vector the file was published with",
-          "[dbc][parser]")
+TEST_CASE("A parsed database decodes the vector the file was published with", "[dbc][parser]")
 {
     // The end-to-end check: file text in, physical values out. Every part of
     // the parse has to be right for this to pass, which is why it is worth
@@ -133,8 +131,7 @@ TEST_CASE("A parsed database decodes the vector the file was published with",
     CHECK(message->findSignal("Enable")->nameForValue(1) == "Enabled");
 }
 
-TEST_CASE("Bit 31 of the identifier is the frame format, not the identifier",
-          "[dbc][parser]")
+TEST_CASE("Bit 31 of the identifier is the frame format, not the identifier", "[dbc][parser]")
 {
     // 2566840064 is 0x98FEDF00: the extended flag in bit 31, plus the J1939
     // identifier 0x18FEDF00. Read as a plain identifier it is larger than any
@@ -159,8 +156,7 @@ BO_ 256 Standard: 8 ECU
     CHECK(database.find(0x100, CanFrameFormat::Extended) == nullptr);
 }
 
-TEST_CASE("Multiplexed signals are reported only for the frames that carry them",
-          "[dbc][parser]")
+TEST_CASE("Multiplexed signals are reported only for the frames that carry them", "[dbc][parser]")
 {
     const CanDatabase database = parsed(R"(
 BO_ 100 Multiplexed: 8 ECU
@@ -200,8 +196,7 @@ BO_ 100 Multiplexed: 8 ECU
     CHECK(message->signalsIn(unknown, 8).size() == 2);
 }
 
-TEST_CASE("Block comments that are not part of the format are tolerated",
-          "[dbc][parser]")
+TEST_CASE("Block comments that are not part of the format are tolerated", "[dbc][parser]")
 {
     // Not DBC syntax. Both hand-written databases this project is tested
     // against are full of them, and every other tool reads those files - so a
@@ -218,8 +213,7 @@ BO_ 257 VehicleSpeed: 8 ECU
     CHECK(database.findByName("VehicleSpeed") != nullptr);
 }
 
-TEST_CASE("A section this parser does not know is skipped, not rejected",
-          "[dbc][parser]")
+TEST_CASE("A section this parser does not know is skipped, not rejected", "[dbc][parser]")
 {
     // The format grows, and files are passed between tools. Refusing a file
     // because of a section nothing downstream reads would make this parser
@@ -271,8 +265,7 @@ TEST_CASE("A failed parse leaves the previous database intact", "[dbc][parser]")
     CHECK(database.findByName("ExampleMessage") != nullptr);
 }
 
-TEST_CASE("A comment spanning several lines does not swallow the file",
-          "[dbc][parser]")
+TEST_CASE("A comment spanning several lines does not swallow the file", "[dbc][parser]")
 {
     const CanDatabase database = parsed(R"(
 BO_ 256 Known: 8 ECU
@@ -306,8 +299,7 @@ BA_ "GenMsgCycleTime" BO_ 256 100;
     CHECK(database.findByName("Sporadic")->cycleTimeMs == 0);
 }
 
-TEST_CASE("A second definition of the same message replaces the first",
-          "[dbc][parser]")
+TEST_CASE("A second definition of the same message replaces the first", "[dbc][parser]")
 {
     // Merged databases contain duplicates. The last definition is the one the
     // tools that produced the file act on.
@@ -323,8 +315,7 @@ BO_ 256 New: 8 ECU
     CHECK(database.find(0x100, CanFrameFormat::Standard)->signalList[0].bitLength == 16);
 }
 
-TEST_CASE("A missing file is reported as missing, not as a parse error",
-          "[dbc][parser]")
+TEST_CASE("A missing file is reported as missing, not as a parse error", "[dbc][parser]")
 {
     CanDatabase database;
     const Result result = DbcParser::parseFile("no-such-database.dbc", database);

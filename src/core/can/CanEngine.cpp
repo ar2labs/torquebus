@@ -8,8 +8,8 @@
 #include "core/ThreadGuard.h"
 
 #include "core/pipeline/nodes/FrameNodes.h"
-#include "core/transmit/TransmitListNode.h"
 #include "core/trace/TraceSinkNode.h"
+#include "core/transmit/TransmitListNode.h"
 
 #include <algorithm>
 #include <format>
@@ -28,16 +28,15 @@ using Clock = std::chrono::steady_clock;
 /// read once, when a recording starts.
 [[nodiscard]] std::uint64_t wallClockMicroseconds()
 {
-    return static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::system_clock::now().time_since_epoch())
-            .count());
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                          std::chrono::system_clock::now().time_since_epoch())
+                                          .count());
 }
 
 /// Copies the sink list under the lock, so sinks are invoked without holding
 /// it. A sink that registers or removes another sink would otherwise deadlock,
 /// and a slow sink would block every registration in the application.
-template <typename RegistrationType>
+template<typename RegistrationType>
 [[nodiscard]] auto copySinks(std::mutex& mutex, const std::vector<RegistrationType>& source)
 {
     std::vector<decltype(RegistrationType::sink)> result;
@@ -51,21 +50,19 @@ template <typename RegistrationType>
     return result;
 }
 
-template <typename RegistrationType>
+template<typename RegistrationType>
 void eraseSink(std::mutex& mutex, std::vector<RegistrationType>& sinks, SinkId id)
 {
     const std::lock_guard lock{mutex};
-    std::erase_if(sinks, [id](const RegistrationType& registration) {
-        return registration.id == id;
-    });
+    std::erase_if(sinks,
+                  [id](const RegistrationType& registration) { return registration.id == id; });
 }
 
 } // namespace
 
 CanEngine::CanEngine()
     : CanEngine{Configuration{}}
-{
-}
+{ }
 
 CanEngine::CanEngine(Configuration configuration)
     : m_configuration{configuration}
@@ -104,7 +101,8 @@ Result CanEngine::addChannel(std::unique_ptr<ICanBackend> backend,
     const auto index = static_cast<std::uint8_t>(m_channels.size());
     config.applicationChannel = index;
 
-    m_channels.push_back(std::make_unique<CanChannel>(index, std::move(backend), std::move(config)));
+    m_channels.push_back(
+        std::make_unique<CanChannel>(index, std::move(backend), std::move(config)));
 
     if (assignedIndex != nullptr) {
         *assignedIndex = index;
@@ -169,11 +167,10 @@ Result CanEngine::start()
                     m_channels[index]->stop();
                 }
 
-                return Result::error(
-                    result.code(),
-                    std::format("{} failed to start: {}",
-                                channel->displayName(),
-                                std::string{result.message()}));
+                return Result::error(result.code(),
+                                     std::format("{} failed to start: {}",
+                                                 channel->displayName(),
+                                                 std::string{result.message()}));
             }
             ++started;
         }
@@ -195,7 +192,8 @@ Result CanEngine::start()
     // measurement.
     m_thread = std::thread{[this] {
         runWithoutEscaping(
-            "the dispatch loop", [this] { dispatchLoop(); },
+            "the dispatch loop",
+            [this] { dispatchLoop(); },
             [this](std::string_view reason) {
                 // Stopped first, reported second: whoever reads the message
                 // should not find a measurement that claims to still be running.
@@ -230,8 +228,7 @@ Result CanEngine::buildGraph()
         m_sourceNodes.reserve(m_channels.size());
 
         for (const std::unique_ptr<CanChannel>& channel : m_channels) {
-            m_sourceNodes.push_back(
-                m_graph.addNode(std::make_unique<ChannelSourceNode>(*channel)));
+            m_sourceNodes.push_back(m_graph.addNode(std::make_unique<ChannelSourceNode>(*channel)));
         }
     }
 
@@ -244,8 +241,8 @@ Result CanEngine::buildGraph()
 
     for (const auto& [id, callback] : sinks) {
         for (const NodeId source : m_sourceNodes) {
-            const NodeId sinkNode = m_graph.addNode(
-                std::make_unique<FrameSinkNode>(callback, "sink"));
+            const NodeId sinkNode =
+                m_graph.addNode(std::make_unique<FrameSinkNode>(callback, "sink"));
 
             m_sinkNodes.emplace_back(id, sinkNode);
 
@@ -265,8 +262,7 @@ Result CanEngine::buildGraph()
     // trace" has to look like; the executor's deterministic order is what keeps
     // the interleaving reproducible.
     for (const NodeId source : m_sourceNodes) {
-        const NodeId traceNode =
-            m_graph.addNode(std::make_unique<TraceSinkNode>(m_traceStore));
+        const NodeId traceNode = m_graph.addNode(std::make_unique<TraceSinkNode>(m_traceStore));
 
         if (Result result = m_graph.connect(PortRef{source, 0}, PortRef{traceNode, 0});
             result.failed()) {
@@ -328,61 +324,62 @@ void CanEngine::setGraphDescription(GraphDescription description,
 {
     // Captured by value into the builder, which is what makes the description
     // safe to edit while a measurement runs.
-    setGraphBuilder([this, description = std::move(description),
-                     catalog = std::move(catalog),
-                     basePath = std::move(basePath)](PipelineGraph& graph,
-                                                     std::span<const NodeId>) -> Result {
-        NodeBuildContext context;
-        context.basePath = basePath;
-        context.traceStore = &m_traceStore;
-        context.plotStore = &m_plotStore;
+    setGraphBuilder(
+        [this,
+         description = std::move(description),
+         catalog = std::move(catalog),
+         basePath = std::move(basePath)](PipelineGraph& graph, std::span<const NodeId>) -> Result {
+            NodeBuildContext context;
+            context.basePath = basePath;
+            context.traceStore = &m_traceStore;
+            context.plotStore = &m_plotStore;
 
-        // Cleared here rather than at Stop: what a panel shows between two runs
-        // should be the last run's position, not a bar that jumps to zero the
-        // moment a measurement ends.
-        m_replayControl.resetForRun();
-        context.replayControl = &m_replayControl;
+            // Cleared here rather than at Stop: what a panel shows between two runs
+            // should be the last run's position, not a bar that jumps to zero the
+            // moment a measurement ends.
+            m_replayControl.resetForRun();
+            context.replayControl = &m_replayControl;
 
-        // Cleared by the node's prepare() rather than here, because a graph
-        // with no UDS block should leave the console saying "nothing to ask
-        // through" instead of silently looking ready.
-        context.diagnosticSession = &m_diagnostics;
+            // Cleared by the node's prepare() rather than here, because a graph
+            // with no UDS block should leave the console saying "nothing to ask
+            // through" instead of silently looking ready.
+            context.diagnosticSession = &m_diagnostics;
 
-        // Cleared at every build, so that a reload offered against the last run
-        // - typed while the measurement was stopping, say - cannot land on this
-        // one, where it would arrive as a script nobody asked for.
-        m_scriptLibrary.clear();
-        context.scriptLibrary = &m_scriptLibrary;
+            // Cleared at every build, so that a reload offered against the last run
+            // - typed while the measurement was stopping, say - cannot land on this
+            // one, where it would arrive as a script nobody asked for.
+            m_scriptLibrary.clear();
+            context.scriptLibrary = &m_scriptLibrary;
 
-        // Not cleared here: the node's prepare() calls begin() when there is a
-        // sequence to run, and clearing here as well would wipe the last run's
-        // verdict off a panel the moment somebody pressed Start on a graph that
-        // has no test block - which reads as "the tests are gone" rather than
-        // "this graph has none".
-        context.testReport = &m_testReport;
+            // Not cleared here: the node's prepare() calls begin() when there is a
+            // sequence to run, and clearing here as well would wipe the last run's
+            // verdict off a panel the moment somebody pressed Start on a graph that
+            // has no test block - which reads as "the tests are gone" rather than
+            // "this graph has none".
+            context.testReport = &m_testReport;
 
-        // Cleared here, unlike the test report: the membership of a bus is a
-        // fact about the run that is starting, and last run's ECUs sitting in
-        // the panel while this one fills in would be read as this one's.
-        m_j1939Network.clear();
-        context.j1939Network = &m_j1939Network;
+            // Cleared here, unlike the test report: the membership of a bus is a
+            // fact about the run that is starting, and last run's ECUs sitting in
+            // the panel while this one fills in would be read as this one's.
+            m_j1939Network.clear();
+            context.j1939Network = &m_j1939Network;
 
-        // Deliberately not cleared here, unlike the script library: the values
-        // are the state of the simulated vehicle, and Start is not a reason to
-        // forget what somebody set.
-        context.variables = &m_variables;
+            // Deliberately not cleared here, unlike the script library: the values
+            // are the state of the simulated vehicle, and Start is not a reason to
+            // forget what somebody set.
+            context.variables = &m_variables;
 
-        // Null unless a recording was started, which is what makes a `can.log`
-        // block fail to build under Start and succeed under Record.
-        context.logWriter = m_logWriter.isOpen() ? &m_logWriter : nullptr;
-        context.transmitList = m_transmitList;
-        context.channel = [this](std::uint8_t index) { return channel(index); };
-        context.log = [this](const std::string& text, bool isError) {
-            reportToLogSinks(text, isError);
-        };
+            // Null unless a recording was started, which is what makes a `can.log`
+            // block fail to build under Start and succeed under Record.
+            context.logWriter = m_logWriter.isOpen() ? &m_logWriter : nullptr;
+            context.transmitList = m_transmitList;
+            context.channel = [this](std::uint8_t index) { return channel(index); };
+            context.log = [this](const std::string& text, bool isError) {
+                reportToLogSinks(text, isError);
+            };
 
-        return description.build(catalog, context, graph);
-    });
+            return description.build(catalog, context, graph);
+        });
 }
 
 NodeId CanEngine::sourceNode(std::uint8_t applicationChannel) const
@@ -570,9 +567,8 @@ void CanEngine::publishStatistics(std::uint64_t elapsedNs)
                 continue;
             }
 
-            reports.push_back(NodeReport{node->displayName(),
-                                         std::string{node->typeName()},
-                                         std::move(counters)});
+            reports.push_back(NodeReport{
+                node->displayName(), std::string{node->typeName()}, std::move(counters)});
         }
 
         const std::lock_guard lock{m_nodeStatisticsMutex};

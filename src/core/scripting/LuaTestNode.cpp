@@ -40,8 +40,7 @@ LuaTestNode::LuaTestNode(std::string source, std::string name, std::uint8_t tran
     : m_source{std::move(source)}
     , m_name{std::move(name)}
     , m_transmitChannel{transmitChannel}
-{
-}
+{ }
 
 LuaTestNode::~LuaTestNode() = default;
 
@@ -52,10 +51,9 @@ LuaTestNode* LuaTestNode::self(lua_State* state)
 
 std::uint64_t LuaTestNode::elapsedNs() const
 {
-    return static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now() - m_started)
-            .count());
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                          std::chrono::steady_clock::now() - m_started)
+                                          .count());
 }
 
 // ---------------------------------------------------------------------------
@@ -140,9 +138,8 @@ Result LuaTestNode::prepare(std::size_t maximumBatchSize)
                              std::format("{}: {}", m_name, std::string{result.message()}));
     }
 
-    m_declared = count.type == LuaValue::Type::Integer
-        ? static_cast<std::uint64_t>(count.integer)
-        : static_cast<std::uint64_t>(count.number);
+    m_declared = count.type == LuaValue::Type::Integer ? static_cast<std::uint64_t>(count.integer)
+                                                       : static_cast<std::uint64_t>(count.number);
 
     if (Result result = m_lua->call("__tb_begin"); result.failed()) {
         return Result::error(result.code(),
@@ -218,8 +215,7 @@ void LuaTestNode::process(NodeContext& context)
         // repeating the same error 200 times a second.
         m_faulted = true;
 
-        report(std::format("{}: the sequence stopped: {}", m_name,
-                           std::string{result.message()}),
+        report(std::format("{}: the sequence stopped: {}", m_name, std::string{result.message()}),
                true);
 
         if (m_report != nullptr) {
@@ -241,8 +237,12 @@ void LuaTestNode::process(NodeContext& context)
         // is one people learn to skim, and the zero is the reassuring part.
         const bool green = m_failed == 0 && m_errored == 0;
 
-        report(std::format("{}: {} of {} case(s) passed, {} failed, {} in error.", m_name,
-                           m_passed, m_declared, m_failed, m_errored),
+        report(std::format("{}: {} of {} case(s) passed, {} failed, {} in error.",
+                           m_name,
+                           m_passed,
+                           m_declared,
+                           m_failed,
+                           m_errored),
                !green);
     }
 
@@ -264,8 +264,10 @@ void LuaTestNode::finish()
         closeCase(TestOutcome::Errored, "the measurement stopped before this case finished");
     }
 
-    report(std::format("{}: stopped after {} of {} case(s).", m_name,
-                       m_passed + m_failed + m_errored, m_declared),
+    report(std::format("{}: stopped after {} of {} case(s).",
+                       m_name,
+                       m_passed + m_failed + m_errored,
+                       m_declared),
            true);
 
     if (m_report != nullptr) {
@@ -308,11 +310,14 @@ void LuaTestNode::closeCase(TestOutcome outcome, std::string message)
     // In the Output panel as well as in the report. Somebody watching a long
     // run wants to see it progress, and somebody reading a trace wants the
     // failure to appear beside the frames that caused it.
-    report(std::format("{}: {} - {}{}{}", m_name,
-                       outcome == TestOutcome::Passed ? "PASS"
-                           : outcome == TestOutcome::Failed ? "FAIL"
-                                                            : "ERROR",
-                       result.name, result.message.empty() ? "" : ": ", result.message),
+    report(std::format("{}: {} - {}{}{}",
+                       m_name,
+                       outcome == TestOutcome::Passed   ? "PASS"
+                       : outcome == TestOutcome::Failed ? "FAIL"
+                                                        : "ERROR",
+                       result.name,
+                       result.message.empty() ? "" : ": ",
+                       result.message),
            outcome != TestOutcome::Passed);
 
     if (m_report != nullptr) {
@@ -380,7 +385,8 @@ int LuaTestNode::luaSend(lua_State* state)
     if (length > maximum) {
         return luaL_error(state,
                           "send: %d bytes of payload, but a %s frame holds at most %d",
-                          static_cast<int>(length), isFd ? "CAN FD" : "classic CAN",
+                          static_cast<int>(length),
+                          isFd ? "CAN FD" : "classic CAN",
                           static_cast<int>(maximum));
     }
 
@@ -395,7 +401,8 @@ int LuaTestNode::luaSend(lua_State* state)
     frame.dlc = dlcFromPayloadLength(frame.length, isFd);
 
     if (!isValidIdentifier(frame.identifier, frame.format)) {
-        return luaL_error(state, "send: identifier 0x%X does not fit a %s frame",
+        return luaL_error(state,
+                          "send: identifier 0x%X does not fit a %s frame",
                           static_cast<unsigned>(frame.identifier),
                           extended ? "29-bit" : "11-bit");
     }
@@ -444,7 +451,8 @@ int LuaTestNode::luaWantTime(lua_State* state)
     const lua_Number milliseconds = luaL_checknumber(state, 1);
 
     if (!(milliseconds >= 0.0) || milliseconds > kMaximumWaitMs) {
-        return luaL_error(state, "wait: %f ms is not a wait between 0 and %d ms",
+        return luaL_error(state,
+                          "wait: %f ms is not a wait between 0 and %d ms",
                           static_cast<double>(milliseconds),
                           static_cast<int>(kMaximumWaitMs));
     }
@@ -452,7 +460,8 @@ int LuaTestNode::luaWantTime(lua_State* state)
     node->m_want = Want{};
     node->m_want.active = true;
     node->m_want.wantsFrame = false;
-    node->m_want.deadline = std::chrono::steady_clock::now()
+    node->m_want.deadline =
+        std::chrono::steady_clock::now()
         + std::chrono::microseconds{static_cast<std::int64_t>(milliseconds * 1000.0)};
 
     return 0;
@@ -469,8 +478,10 @@ int LuaTestNode::luaWantFrame(lua_State* state)
     const lua_Number within = luaL_checknumber(state, 2);
 
     if (!(within > 0.0) || within > kMaximumWaitMs) {
-        return luaL_error(state, "expect: %f ms is not a timeout between 0 and %d ms",
-                          static_cast<double>(within), static_cast<int>(kMaximumWaitMs));
+        return luaL_error(state,
+                          "expect: %f ms is not a timeout between 0 and %d ms",
+                          static_cast<double>(within),
+                          static_cast<int>(kMaximumWaitMs));
     }
 
     node->m_want = Want{};
@@ -484,7 +495,7 @@ int LuaTestNode::luaWantFrame(lua_State* state)
     }
 
     node->m_want.deadline = std::chrono::steady_clock::now()
-        + std::chrono::microseconds{static_cast<std::int64_t>(within * 1000.0)};
+                            + std::chrono::microseconds{static_cast<std::int64_t>(within * 1000.0)};
 
     return 0;
 }

@@ -98,8 +98,8 @@ StyledTabBar::StyledTabBar(KDDockWidgets::Core::TabBar* controller, QWidget* par
     // currentChanged rather than a paint-time read of currentIndex(): the
     // marker has to know where it is coming *from*, and by the time a paint
     // happens the old index is gone.
-    connect(this, &QTabBar::currentChanged, this,
-            [this](int index) { moveMarkerTo(index, false); });
+    connect(
+        this, &QTabBar::currentChanged, this, [this](int index) { moveMarkerTo(index, false); });
 
     moveMarkerTo(currentIndex(), true);
 }

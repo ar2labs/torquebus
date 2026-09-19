@@ -31,11 +31,11 @@ constexpr std::uint64_t kMillisecond = 1'000'000ULL;
 {
     UdsServer ecu;
 
-    ecu.setIdentifier(0xF190, UdsIdentifier{{'W', 'V', 'W', 'Z', 'Z', 'Z'}, false,
-                                            UdsSession::Default, false});
+    ecu.setIdentifier(
+        0xF190, UdsIdentifier{{'W', 'V', 'W', 'Z', 'Z', 'Z'}, false, UdsSession::Default, false});
 
-    ecu.setIdentifier(0xF187, UdsIdentifier{{'0', '4', 'E', '9'}, false,
-                                            UdsSession::Default, false});
+    ecu.setIdentifier(0xF187,
+                      UdsIdentifier{{'0', '4', 'E', '9'}, false, UdsSession::Default, false});
 
     // A calibration: writeable, extended session, and locked.
     ecu.setIdentifier(0x2001, UdsIdentifier{{0x00, 0x64}, true, UdsSession::Extended, true});
@@ -57,12 +57,10 @@ TEST_CASE("An identifier the ECU has is answered with its value", "[uds][server]
 {
     UdsServer ecu = engineEcu();
 
-    CHECK(ask(ecu, {0x22, 0xF1, 0x90})
-          == Bytes{0x62, 0xF1, 0x90, 'W', 'V', 'W', 'Z', 'Z', 'Z'});
+    CHECK(ask(ecu, {0x22, 0xF1, 0x90}) == Bytes{0x62, 0xF1, 0x90, 'W', 'V', 'W', 'Z', 'Z', 'Z'});
 }
 
-TEST_CASE("An identifier the ECU does not have is refused, not ignored",
-          "[uds][server]")
+TEST_CASE("An identifier the ECU does not have is refused, not ignored", "[uds][server]")
 {
     // The commonest answer a real ECU gives a tester that guessed - and silence
     // here would teach a tester that a missing DID looks like a dead ECU.
@@ -72,24 +70,24 @@ TEST_CASE("An identifier the ECU does not have is refused, not ignored",
           == Bytes{0x7F, 0x22, static_cast<std::uint8_t>(UdsNegativeResponse::RequestOutOfRange)});
 }
 
-TEST_CASE("A DID that needs the extended session says so in the default one",
-          "[uds][server]")
+TEST_CASE("A DID that needs the extended session says so in the default one", "[uds][server]")
 {
     UdsServer ecu = engineEcu();
 
     CHECK(ask(ecu, {0x22, 0x20, 0x01})
-          == Bytes{0x7F, 0x22,
-                   static_cast<std::uint8_t>(
-                       UdsNegativeResponse::ServiceNotSupportedInActiveSession)});
+          == Bytes{
+              0x7F,
+              0x22,
+              static_cast<std::uint8_t>(UdsNegativeResponse::ServiceNotSupportedInActiveSession)});
 
     // In the extended session it is the security that is missing, which is a
     // different refusal and has to be a different code - a tester works through
     // these in order.
     REQUIRE_FALSE(ask(ecu, {0x10, 0x03}).empty());
 
-    CHECK(ask(ecu, {0x22, 0x20, 0x01})
-          == Bytes{0x7F, 0x22,
-                   static_cast<std::uint8_t>(UdsNegativeResponse::SecurityAccessDenied)});
+    CHECK(
+        ask(ecu, {0x22, 0x20, 0x01})
+        == Bytes{0x7F, 0x22, static_cast<std::uint8_t>(UdsNegativeResponse::SecurityAccessDenied)});
 }
 
 TEST_CASE("A read-only identifier refuses a write", "[uds][server]")
@@ -104,8 +102,7 @@ TEST_CASE("A read-only identifier refuses a write", "[uds][server]")
     CHECK(ask(ecu, {0x22, 0xF1, 0x87}) == Bytes{0x62, 0xF1, 0x87, '0', '4', 'E', '9'});
 }
 
-TEST_CASE("Seed and key unlock the ECU, and a wrong key does not",
-          "[uds][server]")
+TEST_CASE("Seed and key unlock the ECU, and a wrong key does not", "[uds][server]")
 {
     UdsServer ecu = engineEcu();
 
@@ -152,9 +149,9 @@ TEST_CASE("A key with no seed behind it is a sequence error", "[uds][server]")
     UdsServer ecu = engineEcu();
     ecu.setSecurityAlgorithm([](std::span<const std::uint8_t>) { return Bytes{0x01}; });
 
-    CHECK(ask(ecu, {0x27, 0x02, 0x01})
-          == Bytes{0x7F, 0x27,
-                   static_cast<std::uint8_t>(UdsNegativeResponse::RequestSequenceError)});
+    CHECK(
+        ask(ecu, {0x27, 0x02, 0x01})
+        == Bytes{0x7F, 0x27, static_cast<std::uint8_t>(UdsNegativeResponse::RequestSequenceError)});
 }
 
 TEST_CASE("An ECU with no algorithm is locked rather than open", "[uds][server]")
@@ -162,9 +159,9 @@ TEST_CASE("An ECU with no algorithm is locked rather than open", "[uds][server]"
     // Answering a seed no key can match would leave a tester trying for ever.
     UdsServer ecu = engineEcu();
 
-    CHECK(ask(ecu, {0x27, 0x01})
-          == Bytes{0x7F, 0x27,
-                   static_cast<std::uint8_t>(UdsNegativeResponse::ConditionsNotCorrect)});
+    CHECK(
+        ask(ecu, {0x27, 0x01})
+        == Bytes{0x7F, 0x27, static_cast<std::uint8_t>(UdsNegativeResponse::ConditionsNotCorrect)});
 }
 
 TEST_CASE("The session expires after five seconds of silence", "[uds][server]")
@@ -184,8 +181,7 @@ TEST_CASE("The session expires after five seconds of silence", "[uds][server]")
     CHECK_FALSE(ecu.isUnlocked());
 }
 
-TEST_CASE("Any request holds the session open, not only TesterPresent",
-          "[uds][server]")
+TEST_CASE("Any request holds the session open, not only TesterPresent", "[uds][server]")
 {
     // S3 is a silence timer, not a heartbeat counter - which is what the
     // standard says and what a real ECU does.
@@ -268,8 +264,7 @@ TEST_CASE("Stored faults are reported and cleared", "[uds][server][dtc]")
     CHECK(parseDtcResponse(ask(ecu, {0x19, 0x02, 0xFF})).empty());
 }
 
-TEST_CASE("Setting a fault twice updates it rather than storing it twice",
-          "[uds][server][dtc]")
+TEST_CASE("Setting a fault twice updates it rather than storing it twice", "[uds][server][dtc]")
 {
     // A script calling this from a timer would otherwise fill memory.
     UdsServer ecu;
@@ -295,23 +290,21 @@ TEST_CASE("A reset answers first and keeps the stored faults", "[uds][server]")
     CHECK(ecu.troubleCodes().size() == 1);
 }
 
-TEST_CASE("A service the ECU does not implement is refused, not met with silence",
-          "[uds][server]")
+TEST_CASE("A service the ECU does not implement is refused, not met with silence", "[uds][server]")
 {
     // A tester cannot tell silence from a broken wire.
     UdsServer ecu = engineEcu();
 
-    CHECK(ask(ecu, {0x31, 0x01, 0x02, 0x03})
-          == Bytes{0x7F, 0x31,
-                   static_cast<std::uint8_t>(UdsNegativeResponse::ServiceNotSupported)});
+    CHECK(
+        ask(ecu, {0x31, 0x01, 0x02, 0x03})
+        == Bytes{0x7F, 0x31, static_cast<std::uint8_t>(UdsNegativeResponse::ServiceNotSupported)});
 }
 
 TEST_CASE("The script gets first refusal on everything", "[uds][server]")
 {
     UdsServer ecu = engineEcu();
 
-    ecu.setHandler([](std::span<const std::uint8_t> request,
-                      std::vector<std::uint8_t>& response) {
+    ecu.setHandler([](std::span<const std::uint8_t> request, std::vector<std::uint8_t>& response) {
         // A routine this ECU does implement, which the server knows nothing
         // about - the whole reason the hook is there.
         if (!request.empty() && request[0] == 0x31) {
@@ -325,8 +318,7 @@ TEST_CASE("The script gets first refusal on everything", "[uds][server]")
     CHECK(ask(ecu, {0x31, 0x01, 0x02, 0x03}) == Bytes{0x71, 0x01, 0x02, 0x03});
 
     // And everything it does not claim still works.
-    CHECK(ask(ecu, {0x22, 0xF1, 0x90})
-          == Bytes{0x62, 0xF1, 0x90, 'W', 'V', 'W', 'Z', 'Z', 'Z'});
+    CHECK(ask(ecu, {0x22, 0xF1, 0x90}) == Bytes{0x62, 0xF1, 0x90, 'W', 'V', 'W', 'Z', 'Z', 'Z'});
 }
 
 TEST_CASE("A script can make the ECU go quiet", "[uds][server]")

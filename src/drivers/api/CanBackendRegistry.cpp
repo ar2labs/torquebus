@@ -33,8 +33,8 @@ void CanBackendRegistry::registerBackend(std::string name,
         available = probe->isAvailable();
     }
 
-    const auto existing = std::ranges::find_if(
-        m_entries, [&name](const Entry& entry) { return entry.name == name; });
+    const auto existing =
+        std::ranges::find_if(m_entries, [&name](const Entry& entry) { return entry.name == name; });
 
     Entry entry{std::move(name), std::move(displayName), std::move(factory), available};
 
@@ -64,8 +64,8 @@ void CanBackendRegistry::registerBuiltins()
     //
     // What is left is the backend that needs nothing installed, so that an
     // application with no plugins still has a bus to run against.
-    registerBackend("virtual", "TorqueBus Virtual Bus",
-                    [] { return std::make_unique<VirtualCanBackend>(); });
+    registerBackend(
+        "virtual", "TorqueBus Virtual Bus", [] { return std::make_unique<VirtualCanBackend>(); });
 }
 
 std::unique_ptr<ICanBackend> CanBackendRegistry::create(std::string_view name) const

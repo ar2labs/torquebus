@@ -40,7 +40,7 @@ class QTreeWidgetItem;
 namespace torquebus {
 class TestReport;
 struct TestCaseResult;
-}
+} // namespace torquebus
 
 namespace torquebus::ui {
 

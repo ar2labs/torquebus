@@ -10,15 +10,15 @@
 #include <QEvent>
 #include <QFileDialog>
 #include <QFormLayout>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLayoutItem>
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSpinBox>
-#include <QFrame>
-#include <QLayoutItem>
 #include <QVBoxLayout>
 
 #include <limits>
@@ -191,8 +191,8 @@ void NodePropertiesEditor::showNode(const QString& descriptionId)
 
 void NodePropertiesEditor::store(const std::string& name, ParameterValue value)
 {
-    NodeDescription* node = const_cast<NodeDescription*>(
-        m_description.find(m_nodeId.toStdString()));
+    NodeDescription* node =
+        const_cast<NodeDescription*>(m_description.find(m_nodeId.toStdString()));
 
     if (node == nullptr) {
         return;
@@ -212,9 +212,8 @@ void NodePropertiesEditor::rebuild()
         delete item;
     }
 
-    const NodeDescription* node = m_nodeId.isEmpty()
-        ? nullptr
-        : m_description.find(m_nodeId.toStdString());
+    const NodeDescription* node =
+        m_nodeId.isEmpty() ? nullptr : m_description.find(m_nodeId.toStdString());
 
     const NodeTypeInfo* info = node == nullptr ? nullptr : m_catalog.find(node->typeName);
 
@@ -254,9 +253,8 @@ void NodePropertiesEditor::addDeclaredRow(const NodeDescription& node,
                                           const ParameterDescriptor& parameter)
 {
     const std::string name{parameter.name};
-    const QString label = parameter.required
-        ? tr("%1 *").arg(toQt(parameter.displayName))
-        : toQt(parameter.displayName);
+    const QString label = parameter.required ? tr("%1 *").arg(toQt(parameter.displayName))
+                                             : toQt(parameter.displayName);
 
     const NodeParameters& values = node.parameters;
 
@@ -277,8 +275,7 @@ void NodePropertiesEditor::addDeclaredRow(const NodeDescription& node,
         // A CAN identifier does not fit in a default 0-99 range, and a
         // spin box that silently clamps 0x18FEE500 to 99 is worse than no
         // editor at all.
-        spin->setRange(std::numeric_limits<int>::min(),
-                       std::numeric_limits<int>::max());
+        spin->setRange(std::numeric_limits<int>::min(), std::numeric_limits<int>::max());
         spin->setValue(static_cast<int>(values.integer(name)));
         spin->setToolTip(toQt(parameter.description));
         connect(spin, &QSpinBox::valueChanged, this, [this, name](int value) {
@@ -341,8 +338,8 @@ void NodePropertiesEditor::addDeclaredRow(const NodeDescription& node,
             browse->setFixedWidth(28);
             browse->setToolTip(choice.title);
             connect(browse, &QPushButton::clicked, this, [this, name, edit, choice] {
-                const QString chosen = QFileDialog::getOpenFileName(
-                    this, choice.title, edit->text(), choice.filter);
+                const QString chosen =
+                    QFileDialog::getOpenFileName(this, choice.title, edit->text(), choice.filter);
 
                 if (!chosen.isEmpty()) {
                     edit->setText(chosen);
@@ -389,8 +386,8 @@ void NodePropertiesEditor::addScriptParameterRows(const NodeDescription& node,
         // - that is the whole point of these - so the value carries its own
         // type, and the project file preserved it precisely so this works.
         auto* edit = new QLineEdit(scriptValueText(value));
-        edit->setToolTip(tr("Read by the script as parameters.%1")
-                             .arg(QString::fromStdString(name)));
+        edit->setToolTip(
+            tr("Read by the script as parameters.%1").arg(QString::fromStdString(name)));
 
         const std::string key = name;
         connect(edit, &QLineEdit::editingFinished, this, [this, key, edit] {

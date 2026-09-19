@@ -121,8 +121,7 @@ public:
     /// When there are more samples in range than `out` can hold, the *newest*
     /// are kept - a plot that fell behind should show what is happening now,
     /// not where the window began.
-    [[nodiscard]] std::size_t copySince(std::uint64_t sinceNs,
-                                        std::span<SignalSample> out) const;
+    [[nodiscard]] std::size_t copySince(std::uint64_t sinceNs, std::span<SignalSample> out) const;
 
     /// The lowest and highest value in the whole series.
     ///
@@ -225,8 +224,7 @@ public:
     /// the wrong shape for that question - it copies a window into a buffer,
     /// which is what a plot needs and what a needle does not, and a gauge
     /// asking it would fill a vector to look at its last element.
-    [[nodiscard]] bool latest(SeriesId id, double& value,
-                              std::uint64_t& timestampNs) const;
+    [[nodiscard]] bool latest(SeriesId id, double& value, std::uint64_t& timestampNs) const;
 
     /// The newest timestamp in any series, or zero when nothing has arrived.
     ///

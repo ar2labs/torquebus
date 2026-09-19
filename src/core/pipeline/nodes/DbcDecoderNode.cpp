@@ -45,12 +45,14 @@ Result DbcDecoderNode::prepare(std::size_t maximumBatchSize)
     // somebody to read it, rather than at the first pass.
     constexpr std::size_t kMaximumBufferedSignals = 8u * 1024u * 1024u;
     if (worstCase > kMaximumBufferedSignals) {
-        return Result::error(
-            ErrorCode::InvalidArgument,
-            std::format("Decoder '{}' would need room for {} signals per pass "
-                        "({} frames times {} signals in the widest message), "
-                        "which is more than any real bus produces",
-                        m_label, worstCase, maximumBatchSize, widest));
+        return Result::error(ErrorCode::InvalidArgument,
+                             std::format("Decoder '{}' would need room for {} signals per pass "
+                                         "({} frames times {} signals in the widest message), "
+                                         "which is more than any real bus produces",
+                                         m_label,
+                                         worstCase,
+                                         maximumBatchSize,
+                                         widest));
     }
 
     m_buffer.resize(worstCase);

@@ -133,8 +133,7 @@ TEST_CASE("A window resets the rate counters but not the totals", "[statistics]"
     CHECK(statistics.snapshot().rxFrames == 100);
 }
 
-TEST_CASE("Bus load is derived from frame bits, not from the driver",
-          "[statistics][busload]")
+TEST_CASE("Bus load is derived from frame bits, not from the driver", "[statistics][busload]")
 {
     // An adapter-reported percentage means different things on different
     // adapters. Computing it ourselves is the only way the number stays
@@ -196,8 +195,7 @@ TEST_CASE("Peak bus load survives quieter windows", "[statistics][busload]")
     CHECK(statistics.snapshot().peakBusLoadPercent == Approx(peak));
 }
 
-TEST_CASE("Filtered and dropped frames are tracked apart from delivered ones",
-          "[statistics]")
+TEST_CASE("Filtered and dropped frames are tracked apart from delivered ones", "[statistics]")
 {
     // "The filter removed it" and "we could not keep up" are different
     // diagnoses and must never be collapsed into one number.
@@ -240,8 +238,7 @@ TEST_CASE("reset() clears everything", "[statistics]")
     CHECK(snapshot.framesPerSecond == Approx(0.0));
 }
 
-TEST_CASE("A zero-length window is ignored rather than dividing by zero",
-          "[statistics]")
+TEST_CASE("A zero-length window is ignored rather than dividing by zero", "[statistics]")
 {
     CanStatistics statistics;
     statistics.recordFrame(frame());

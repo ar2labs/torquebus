@@ -28,10 +28,10 @@ using CanBackendFactory = std::function<std::unique_ptr<ICanBackend>()>;
 class CanBackendRegistry final {
 public:
     struct Entry final {
-        std::string name;         ///< "kvaser", "peak", "virtual"
-        std::string displayName;  ///< "Kvaser CANlib"
+        std::string name; ///< "kvaser", "peak", "virtual"
+        std::string displayName; ///< "Kvaser CANlib"
         CanBackendFactory factory;
-        bool available{false};    ///< Vendor SDK present on this machine.
+        bool available{false}; ///< Vendor SDK present on this machine.
     };
 
     /// Process-wide registry.

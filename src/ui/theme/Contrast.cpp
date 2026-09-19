@@ -27,9 +27,8 @@ double relativeLuminance(const QColor& color)
 {
     const QColor rgb = color.toRgb();
 
-    return 0.2126 * linearise(rgb.redF())
-         + 0.7152 * linearise(rgb.greenF())
-         + 0.0722 * linearise(rgb.blueF());
+    return 0.2126 * linearise(rgb.redF()) + 0.7152 * linearise(rgb.greenF())
+           + 0.0722 * linearise(rgb.blueF());
 }
 
 double contrastRatio(const QColor& first, const QColor& second)

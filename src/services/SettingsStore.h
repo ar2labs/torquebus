@@ -77,20 +77,20 @@ private:
 /// rather than a silently forgotten preference.
 namespace keys {
 
-inline constexpr auto kTheme            = "ui/theme";
-inline constexpr auto kAccent           = "ui/accent";
+inline constexpr auto kTheme = "ui/theme";
+inline constexpr auto kAccent = "ui/accent";
 inline constexpr auto kFollowSystemTheme = "ui/followSystemTheme";
-inline constexpr auto kDensity          = "ui/density";
+inline constexpr auto kDensity = "ui/density";
 
 /// Splitters *inside* a panel. The dock layout saver knows about docks and the
 /// boundaries between them; a splitter a panel put inside itself is invisible
 /// to it, so each one that exists is stored here by name.
-inline constexpr auto kCanvasSplitter     = "ui/canvas/splitter";
+inline constexpr auto kCanvasSplitter = "ui/canvas/splitter";
 inline constexpr auto kStatisticsSplitter = "ui/statistics/splitter";
-inline constexpr auto kGraphSplitter      = "ui/graph/splitter";
+inline constexpr auto kGraphSplitter = "ui/graph/splitter";
 
-inline constexpr auto kTraceRefreshMs      = "trace/refreshMs";
-inline constexpr auto kDecimalIdentifiers  = "trace/decimalIdentifiers";
+inline constexpr auto kTraceRefreshMs = "trace/refreshMs";
+inline constexpr auto kDecimalIdentifiers = "trace/decimalIdentifiers";
 
 /// Prefix for the bitrate chosen for one interface: "can/bitrate/peak:usb0".
 ///
@@ -100,15 +100,15 @@ inline constexpr auto kDecimalIdentifiers  = "trace/decimalIdentifiers";
 /// back in second, and it keeps its rate.
 inline constexpr auto kBitratePrefix = "can/bitrate/";
 
-inline constexpr auto kWindowGeometry   = "ui/window/geometry";
-inline constexpr auto kWindowState      = "ui/window/state";
-inline constexpr auto kDockLayout       = "ui/window/dockLayout";
+inline constexpr auto kWindowGeometry = "ui/window/geometry";
+inline constexpr auto kWindowState = "ui/window/state";
+inline constexpr auto kDockLayout = "ui/window/dockLayout";
 inline constexpr auto kDockLayoutVersion = "ui/window/dockLayoutVersion";
-inline constexpr auto kLastProject      = "project/lastOpened";
-inline constexpr auto kRecentProjects   = "project/recent";
+inline constexpr auto kLastProject = "project/lastOpened";
+inline constexpr auto kRecentProjects = "project/recent";
 inline constexpr auto kRestoreLastProject = "project/restoreLastOnStart";
-inline constexpr auto kRestoreLayout    = "ui/window/restoreLayout";
-inline constexpr auto kSettingsVersion  = "meta/version";
+inline constexpr auto kRestoreLayout = "ui/window/restoreLayout";
+inline constexpr auto kSettingsVersion = "meta/version";
 
 } // namespace keys
 

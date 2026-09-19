@@ -26,22 +26,26 @@ std::string UdsExchange::describe() const
 
     switch (outcome) {
     case Outcome::Positive:
-        return std::format("{}: {} ({:.1f} ms{})", describeService(service),
-                           toHexBytes(response), milliseconds,
+        return std::format("{}: {} ({:.1f} ms{})",
+                           describeService(service),
+                           toHexBytes(response),
+                           milliseconds,
                            pendingCount > 0 ? std::format(", {} x pending", pendingCount)
                                             : std::string{});
 
     case Outcome::Negative:
-        return std::format("{} refused: {} ({:.1f} ms)", describeService(service),
-                           describeNegativeResponse(negativeResponse), milliseconds);
+        return std::format("{} refused: {} ({:.1f} ms)",
+                           describeService(service),
+                           describeNegativeResponse(negativeResponse),
+                           milliseconds);
 
     case Outcome::Timeout:
-        return std::format("{}: no answer in {:.0f} ms", describeService(service),
-                           milliseconds);
+        return std::format("{}: no answer in {:.0f} ms", describeService(service), milliseconds);
 
     case Outcome::Mismatch:
         return std::format("{}: the ECU answered something else - {}",
-                           describeService(service), toHexBytes(response));
+                           describeService(service),
+                           toHexBytes(response));
     }
 
     return {};
@@ -49,16 +53,14 @@ std::string UdsExchange::describe() const
 
 UdsClient::UdsClient(UdsTiming timing)
     : m_timing{timing}
-{
-}
+{ }
 
 Result UdsClient::request(std::vector<std::uint8_t> message, std::uint64_t nowNs)
 {
     if (m_busy) {
         // One question at a time on one address. A queue here would hide an ECU
         // that answered none of them, which is the thing worth knowing.
-        return Result::error(ErrorCode::InvalidState,
-                             "This client is still waiting for an answer");
+        return Result::error(ErrorCode::InvalidState, "This client is still waiting for an answer");
     }
 
     if (message.empty()) {
@@ -116,8 +118,9 @@ void UdsClient::finish(UdsExchange::Outcome outcome,
 void UdsClient::noteSessionChange(const std::vector<std::uint8_t>& response, std::uint64_t nowNs)
 {
     if (response.size() < 2
-        || response[0] != static_cast<std::uint8_t>(
-               static_cast<std::uint8_t>(UdsService::DiagnosticSessionControl) + 0x40U)) {
+        || response[0]
+               != static_cast<std::uint8_t>(
+                   static_cast<std::uint8_t>(UdsService::DiagnosticSessionControl) + 0x40U)) {
         return;
     }
 

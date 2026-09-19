@@ -78,8 +78,7 @@ TEST_CASE("A manual entry never sends by itself", "[transmit]")
     CHECK(out.empty());
 }
 
-TEST_CASE("A periodic entry sends immediately and then on its period",
-          "[transmit]")
+TEST_CASE("A periodic entry sends immediately and then on its period", "[transmit]")
 {
     TransmitList list;
     (void)list.add(periodic(0x100, 100));
@@ -136,8 +135,7 @@ TEST_CASE("A late pass sends once, not a burst to catch up", "[transmit]")
     CHECK(out.size() == 3);
 }
 
-TEST_CASE("A disabled entry stops, and re-enabling starts the period again",
-          "[transmit]")
+TEST_CASE("A disabled entry stops, and re-enabling starts the period again", "[transmit]")
 {
     // Turning one row off to see what changes is the most common thing anyone
     // does with a transmit list, which is why this is not just "delete the row".
@@ -159,8 +157,7 @@ TEST_CASE("A disabled entry stops, and re-enabling starts the period again",
     CHECK(out.size() == 2);
 }
 
-TEST_CASE("A one-shot goes out on the next pass whatever the schedule says",
-          "[transmit]")
+TEST_CASE("A one-shot goes out on the next pass whatever the schedule says", "[transmit]")
 {
     TransmitList list;
     const std::size_t index = list.add(manual(0x200));
@@ -193,8 +190,7 @@ TEST_CASE("A one-shot on a disabled row is refused", "[transmit]")
     CHECK(out.empty());
 }
 
-TEST_CASE("Editing a row keeps the counters the run has accumulated",
-          "[transmit]")
+TEST_CASE("Editing a row keeps the counters the run has accumulated", "[transmit]")
 {
     // The panel reads a row, the user changes a byte, the panel writes it back.
     // Without this, sentCount rewinds to whatever it was when the editor
@@ -221,8 +217,7 @@ TEST_CASE("Editing a row keeps the counters the run has accumulated",
     CHECK(after.frame.data[0] == 0x99);
 }
 
-TEST_CASE("Restarting a measurement does not fire every row at once",
-          "[transmit]")
+TEST_CASE("Restarting a measurement does not fire every row at once", "[transmit]")
 {
     // A list that ran yesterday would otherwise consider all of its rows
     // overdue on the first pass of today's run.
@@ -248,8 +243,7 @@ TEST_CASE("Restarting a measurement does not fire every row at once",
     CHECK(entry.sentCount == 1);
 }
 
-TEST_CASE("A period below the dispatch loop's resolution is clamped",
-          "[transmit]")
+TEST_CASE("A period below the dispatch loop's resolution is clamped", "[transmit]")
 {
     // Zero would mean "every pass", which is not a period at all: the list
     // would be promising a rate the loop cannot hold, and the trace would show
@@ -293,8 +287,7 @@ TEST_CASE("Removing a row does not shift another row's schedule", "[transmit]")
     CHECK(out.front().identifier == 0x101);
 }
 
-TEST_CASE("A row goes out on the channel it names, and on no other",
-          "[transmit][channel]")
+TEST_CASE("A row goes out on the channel it names, and on no other", "[transmit][channel]")
 {
     // One list serves every bus. Each channel's node collects only the rows
     // addressed to it, which is what stops a row going out twice - once per
@@ -352,8 +345,7 @@ TEST_CASE("A one-shot waits for its own channel's pass", "[transmit][channel]")
     CHECK(channelOne.front().identifier == 0x300);
 }
 
-TEST_CASE("A press made while stopped does not fire when the run starts",
-          "[transmit]")
+TEST_CASE("A press made while stopped does not fire when the run starts", "[transmit]")
 {
     // Send is pressed, nothing is running, the frame waits. Ten minutes later
     // somebody presses Start - and a press from ten minutes ago is not a

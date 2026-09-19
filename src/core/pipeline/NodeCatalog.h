@@ -20,12 +20,12 @@
 #pragma once
 
 #include "core/Result.h"
-#include "core/pipeline/NodeParameters.h"
-#include "core/pipeline/PipelineNode.h"
-#include "core/pipeline/PortType.h"
 #include "core/diagnostics/DiagnosticSession.h"
 #include "core/log/ReplayControl.h"
 #include "core/log/TraceLog.h"
+#include "core/pipeline/NodeParameters.h"
+#include "core/pipeline/PipelineNode.h"
+#include "core/pipeline/PortType.h"
 #include "core/plot/SignalSeries.h"
 
 #include <functional>
@@ -188,8 +188,8 @@ using NodeCreator = std::function<Result(const NodeParameters& parameters,
 /// has nowhere else to live.
 ///
 /// Optional. A type whose parameters are independent registers none.
-using NodeValidator = std::function<Result(const NodeParameters& parameters,
-                                           std::string_view nodeId)>;
+using NodeValidator =
+    std::function<Result(const NodeParameters& parameters, std::string_view nodeId)>;
 
 class NodeCatalog final {
 public:

@@ -36,15 +36,9 @@ inline constexpr std::uint32_t kMaxStandardIdentifier = 0x7FFU;
 /// Highest identifier representable in the 29-bit extended format.
 inline constexpr std::uint32_t kMaxExtendedIdentifier = 0x1FFF'FFFFU;
 
-enum class CanDirection : std::uint8_t {
-    Rx,
-    Tx
-};
+enum class CanDirection : std::uint8_t { Rx, Tx };
 
-enum class CanFrameFormat : std::uint8_t {
-    Standard,
-    Extended
-};
+enum class CanFrameFormat : std::uint8_t { Standard, Extended };
 
 /// A single CAN / CAN FD frame.
 ///
@@ -74,11 +68,11 @@ struct CanFrame final {
     CanDirection direction{CanDirection::Rx};
     CanFrameFormat format{CanFrameFormat::Standard};
 
-    bool fd{};      ///< CAN FD frame.
-    bool brs{};     ///< Bit rate switch (CAN FD only).
-    bool esi{};     ///< Error state indicator (CAN FD only).
-    bool rtr{};     ///< Remote transmission request (classic CAN only).
-    bool error{};   ///< Error frame.
+    bool fd{}; ///< CAN FD frame.
+    bool brs{}; ///< Bit rate switch (CAN FD only).
+    bool esi{}; ///< Error state indicator (CAN FD only).
+    bool rtr{}; ///< Remote transmission request (classic CAN only).
+    bool error{}; ///< Error frame.
 
     std::array<std::uint8_t, kMaxCanPayload> data{};
 
@@ -87,10 +81,7 @@ struct CanFrame final {
         return format == CanFrameFormat::Extended;
     }
 
-    [[nodiscard]] constexpr bool isRx() const noexcept
-    {
-        return direction == CanDirection::Rx;
-    }
+    [[nodiscard]] constexpr bool isRx() const noexcept { return direction == CanDirection::Rx; }
 };
 
 static_assert(std::is_trivially_copyable_v<CanFrame>,
@@ -108,14 +99,22 @@ static_assert(std::is_trivially_copyable_v<CanFrame>,
     }
 
     switch (dlc) {
-    case 9U:  return 12U;
-    case 10U: return 16U;
-    case 11U: return 20U;
-    case 12U: return 24U;
-    case 13U: return 32U;
-    case 14U: return 48U;
-    case 15U: return 64U;
-    default:  return dlc > 15U ? std::uint8_t{64U} : dlc;
+    case 9U:
+        return 12U;
+    case 10U:
+        return 16U;
+    case 11U:
+        return 20U;
+    case 12U:
+        return 24U;
+    case 13U:
+        return 32U;
+    case 14U:
+        return 48U;
+    case 15U:
+        return 64U;
+    default:
+        return dlc > 15U ? std::uint8_t{64U} : dlc;
     }
 }
 
@@ -129,13 +128,27 @@ static_assert(std::is_trivially_copyable_v<CanFrame>,
         return length > 8U ? std::uint8_t{8U} : length;
     }
 
-    if (length <= 8U)  { return length; }
-    if (length <= 12U) { return 9U; }
-    if (length <= 16U) { return 10U; }
-    if (length <= 20U) { return 11U; }
-    if (length <= 24U) { return 12U; }
-    if (length <= 32U) { return 13U; }
-    if (length <= 48U) { return 14U; }
+    if (length <= 8U) {
+        return length;
+    }
+    if (length <= 12U) {
+        return 9U;
+    }
+    if (length <= 16U) {
+        return 10U;
+    }
+    if (length <= 20U) {
+        return 11U;
+    }
+    if (length <= 24U) {
+        return 12U;
+    }
+    if (length <= 32U) {
+        return 13U;
+    }
+    if (length <= 48U) {
+        return 14U;
+    }
     return 15U;
 }
 

@@ -20,8 +20,8 @@ namespace {
 {
     const std::uint64_t microseconds = nanoseconds / 1000ULL;
     return microseconds > std::numeric_limits<std::uint32_t>::max()
-        ? std::numeric_limits<std::uint32_t>::max()
-        : static_cast<std::uint32_t>(microseconds);
+               ? std::numeric_limits<std::uint32_t>::max()
+               : static_cast<std::uint32_t>(microseconds);
 }
 
 /// Bitmask of payload bytes that differ between two frames.
@@ -29,8 +29,8 @@ namespace {
                                             const CanFrame& current) noexcept
 {
     std::uint64_t mask = 0;
-    const std::size_t length = std::min<std::size_t>(
-        std::max(previous.length, current.length), kMaxCanPayload);
+    const std::size_t length =
+        std::min<std::size_t>(std::max(previous.length, current.length), kMaxCanPayload);
 
     for (std::size_t index = 0; index < length; ++index) {
         const std::uint8_t before = index < previous.length ? previous.data[index] : 0U;
@@ -86,8 +86,7 @@ void TraceStore::appendOne(const CanFrame& frame)
 
         stats.changedBytes = changedByteMask(stats.lastFrame, frame);
         stats.lastCycleUs = cycleUs;
-        stats.minCycleUs = stats.minCycleUs == 0 ? cycleUs
-                                                 : std::min(stats.minCycleUs, cycleUs);
+        stats.minCycleUs = stats.minCycleUs == 0 ? cycleUs : std::min(stats.minCycleUs, cycleUs);
         stats.maxCycleUs = std::max(stats.maxCycleUs, cycleUs);
         stats.lastFrame = frame;
     } else {
@@ -111,8 +110,8 @@ void TraceStore::appendOne(const CanFrame& frame)
     row.cycleUs = cycleUs;
     row.occurrence = occurrence;
     row.deltaUs = (m_totalAppended == 0 || frame.timestampNs < m_previousTimestampNs)
-        ? 0U
-        : toMicroseconds(frame.timestampNs - m_previousTimestampNs);
+                      ? 0U
+                      : toMicroseconds(frame.timestampNs - m_previousTimestampNs);
 
     m_previousTimestampNs = frame.timestampNs;
 

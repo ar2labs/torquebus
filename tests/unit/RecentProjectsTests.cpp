@@ -65,8 +65,7 @@ TEST_CASE("The most recently opened project is first", "[recent]")
     CHECK(recent.paths().first().endsWith(QStringLiteral("two.tbsproj")));
 }
 
-TEST_CASE("Opening a project again moves it up rather than adding it twice",
-          "[recent]")
+TEST_CASE("Opening a project again moves it up rather than adding it twice", "[recent]")
 {
     // Order is use, not time. Somebody who alternates between two projects
     // should find both at the top, not one of them buried under nine copies of
@@ -176,8 +175,7 @@ TEST_CASE("Clearing the list empties the setting too", "[recent]")
 
     SettingsStore reopened{settings.store().filePath()};
     REQUIRE(reopened.load());
-    CHECK(reopened.stringListValue(
-                  QString::fromLatin1(torquebus::services::keys::kRecentProjects))
+    CHECK(reopened.stringListValue(QString::fromLatin1(torquebus::services::keys::kRecentProjects))
               .isEmpty());
 }
 
@@ -189,10 +187,8 @@ TEST_CASE("A hand-edited settings file cannot put rubbish in the menu", "[recent
     const ScopedSettings settings;
 
     QStringList written;
-    written << settings.path(QStringLiteral("real.tbsproj"))
-            << QString{}
-            << settings.path(QStringLiteral("real.tbsproj"))
-            << QStringLiteral("  ");
+    written << settings.path(QStringLiteral("real.tbsproj")) << QString{}
+            << settings.path(QStringLiteral("real.tbsproj")) << QStringLiteral("  ");
 
     for (int index = 0; index < 20; ++index) {
         written << settings.path(QStringLiteral("filler%1.tbsproj").arg(index));

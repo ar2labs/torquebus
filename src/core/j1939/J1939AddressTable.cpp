@@ -68,10 +68,11 @@ bool J1939AddressTable::onFrame(const CanFrame& frame, std::uint64_t nowNs)
 
 J1939NetworkNode& J1939AddressTable::nodeFor(std::uint8_t address, std::uint64_t nowNs)
 {
-    const auto position = std::lower_bound(m_nodes.begin(), m_nodes.end(), address,
-                                           [](const J1939NetworkNode& node, std::uint8_t wanted) {
-                                               return node.address < wanted;
-                                           });
+    const auto position = std::lower_bound(
+        m_nodes.begin(),
+        m_nodes.end(),
+        address,
+        [](const J1939NetworkNode& node, std::uint8_t wanted) { return node.address < wanted; });
 
     if (position != m_nodes.end() && position->address == address) {
         return *position;
@@ -87,9 +88,7 @@ J1939NetworkNode& J1939AddressTable::nodeFor(std::uint8_t address, std::uint64_t
     return *m_nodes.insert(position, node);
 }
 
-void J1939AddressTable::onClaim(std::uint8_t address,
-                                const J1939Name& name,
-                                std::uint64_t nowNs)
+void J1939AddressTable::onClaim(std::uint8_t address, const J1939Name& name, std::uint64_t nowNs)
 {
     J1939NetworkNode& node = nodeFor(address, nowNs);
 
@@ -151,10 +150,10 @@ void J1939AddressTable::onClaim(std::uint8_t address,
 
 void J1939AddressTable::onCannotClaim(const J1939Name& name, std::uint64_t nowNs)
 {
-    const auto found = std::find_if(m_defeated.begin(), m_defeated.end(),
-                                    [&name](const J1939Defeated& entry) {
-                                        return entry.name.value() == name.value();
-                                    });
+    const auto found =
+        std::find_if(m_defeated.begin(), m_defeated.end(), [&name](const J1939Defeated& entry) {
+            return entry.name.value() == name.value();
+        });
 
     if (found != m_defeated.end()) {
         found->lastSeenNs = nowNs;
@@ -181,10 +180,11 @@ void J1939AddressTable::onCannotClaim(const J1939Name& name, std::uint64_t nowNs
 
 const J1939NetworkNode* J1939AddressTable::find(std::uint8_t address) const noexcept
 {
-    const auto position = std::lower_bound(m_nodes.begin(), m_nodes.end(), address,
-                                           [](const J1939NetworkNode& node, std::uint8_t wanted) {
-                                               return node.address < wanted;
-                                           });
+    const auto position = std::lower_bound(
+        m_nodes.begin(),
+        m_nodes.end(),
+        address,
+        [](const J1939NetworkNode& node, std::uint8_t wanted) { return node.address < wanted; });
 
     if (position == m_nodes.end() || position->address != address) {
         return nullptr;

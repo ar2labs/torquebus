@@ -124,10 +124,7 @@ public:
     /// Where it was loaded from, for the UI to show and for error messages.
     std::string sourcePath;
 
-    [[nodiscard]] const std::vector<CanMessage>& messages() const noexcept
-    {
-        return m_messages;
-    }
+    [[nodiscard]] const std::vector<CanMessage>& messages() const noexcept { return m_messages; }
 
     [[nodiscard]] std::size_t messageCount() const noexcept { return m_messages.size(); }
 
@@ -166,8 +163,7 @@ private:
     [[nodiscard]] static constexpr std::uint64_t keyFor(std::uint32_t identifier,
                                                         CanFrameFormat format) noexcept
     {
-        return (static_cast<std::uint64_t>(format == CanFrameFormat::Extended) << 32U)
-               | identifier;
+        return (static_cast<std::uint64_t>(format == CanFrameFormat::Extended) << 32U) | identifier;
     }
 
     std::vector<CanMessage> m_messages;

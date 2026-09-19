@@ -44,8 +44,7 @@ private:
 
 } // namespace
 
-TEST_CASE("An interface nobody has configured is used, at the default rate",
-          "[hardware]")
+TEST_CASE("An interface nobody has configured is used, at the default rate", "[hardware]")
 {
     // The defaults are what the application did before this class existed:
     // every detected interface bound, at 250 kbit/s. Somebody who has just
@@ -54,8 +53,7 @@ TEST_CASE("An interface nobody has configured is used, at the default rate",
     const ScopedSettings settings;
     const HardwareProfile profile{settings.store()};
 
-    const ChannelPreferences preferences =
-        profile.preferencesFor(QStringLiteral("peak:usb0"));
+    const ChannelPreferences preferences = profile.preferencesFor(QStringLiteral("peak:usb0"));
 
     CHECK(preferences.enabled);
     CHECK(preferences.bitrate == torquebus::kDefaultBitrate);
@@ -113,15 +111,13 @@ TEST_CASE("Bit rate switching without FD is not stored as a setting", "[hardware
     CHECK_FALSE(profile.preferencesFor(QStringLiteral("peak:usb0")).bitRateSwitch);
 }
 
-TEST_CASE("A rate no backend has timing for falls back to the default",
-          "[hardware]")
+TEST_CASE("A rate no backend has timing for falls back to the default", "[hardware]")
 {
     // The settings file is JSON so that people can edit it, which makes a
     // number in it input rather than data. A rate nothing can be opened at
     // would produce a channel that emits error frames instead of failing.
     const ScopedSettings settings;
-    settings.store().setIntValue(
-        torquebus::services::bitrateKey(QStringLiteral("peak:usb0")), 137);
+    settings.store().setIntValue(torquebus::services::bitrateKey(QStringLiteral("peak:usb0")), 137);
 
     const HardwareProfile profile{settings.store()};
 
@@ -158,8 +154,7 @@ TEST_CASE("A newly plugged adapter becomes the last channel", "[hardware]")
     // the channels somebody has been reading all morning - and that their
     // project's transmit rows point at - is the sort of surprise that makes a
     // tool untrustworthy.
-    const QStringList detected{QStringLiteral("new"), QStringLiteral("a"),
-                               QStringLiteral("b")};
+    const QStringList detected{QStringLiteral("new"), QStringLiteral("a"), QStringLiteral("b")};
     const QStringList stored{QStringLiteral("a"), QStringLiteral("b")};
 
     const QStringList arranged = HardwareProfile::arrange(detected, stored);
@@ -179,12 +174,10 @@ TEST_CASE("No saved order means enumeration order", "[hardware]")
     CHECK(HardwareProfile::arrange(detected, {}) == detected);
 }
 
-TEST_CASE("A duplicated handle in a hand-edited order is bound once",
-          "[hardware]")
+TEST_CASE("A duplicated handle in a hand-edited order is bound once", "[hardware]")
 {
     const QStringList detected{QStringLiteral("a"), QStringLiteral("b")};
-    const QStringList stored{QStringLiteral("a"), QStringLiteral("a"),
-                             QStringLiteral("b")};
+    const QStringList stored{QStringLiteral("a"), QStringLiteral("a"), QStringLiteral("b")};
 
     const QStringList arranged = HardwareProfile::arrange(detected, stored);
 

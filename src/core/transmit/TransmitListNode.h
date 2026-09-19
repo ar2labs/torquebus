@@ -44,22 +44,15 @@ public:
         : m_list{list}
         , m_channel{channel}
         , m_label{std::move(label)}
-    {
-    }
+    { }
 
     [[nodiscard]] std::uint8_t channel() const noexcept { return m_channel; }
 
-    [[nodiscard]] std::string_view typeName() const noexcept override
-    {
-        return "transmit.list";
-    }
+    [[nodiscard]] std::string_view typeName() const noexcept override { return "transmit.list"; }
 
     [[nodiscard]] std::string displayName() const override { return m_label; }
 
-    [[nodiscard]] std::span<const PortDescriptor> inputs() const noexcept override
-    {
-        return {};
-    }
+    [[nodiscard]] std::span<const PortDescriptor> inputs() const noexcept override { return {}; }
 
     [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override
     {

@@ -20,8 +20,7 @@ constexpr auto kNamesKey = "ui/workspaces";
 
 Workspaces::Workspaces(SettingsStore& settings)
     : m_settings{settings}
-{
-}
+{ }
 
 bool Workspaces::isValidName(const QString& name)
 {

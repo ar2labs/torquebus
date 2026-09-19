@@ -14,8 +14,8 @@
 
 #include <QColor>
 #include <QComboBox>
-#include <QFormLayout>
 #include <QFontDatabase>
+#include <QFormLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -23,12 +23,12 @@
 #include <QPushButton>
 #include <QScrollBar>
 #include <QSignalBlocker>
+#include <QStyle>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTime>
 #include <QTimer>
 #include <QVBoxLayout>
-#include <QStyle>
 #include <QVariant>
 
 #include <string>
@@ -140,17 +140,16 @@ void DiagnosticsPanel::buildUi()
     m_service->addItem(tr("Raw hex"), -1);
 
     for (const UdsServiceTemplate& service : serviceTemplates()) {
-        m_service->addItem(QString::fromUtf8(service.name.data(),
-                                             static_cast<qsizetype>(service.name.size())),
-                           static_cast<int>(service.service));
+        m_service->addItem(
+            QString::fromUtf8(service.name.data(), static_cast<qsizetype>(service.name.size())),
+            static_cast<int>(service.service));
     }
 
     m_service->setToolTip(tr("Fills in the form below and writes the bytes into the box. "
                              "Nothing is sent until you press Send - a request that fires "
                              "from a menu is one somebody sends by accident."));
 
-    connect(m_service, &QComboBox::currentIndexChanged, this,
-            &DiagnosticsPanel::onServiceChanged);
+    connect(m_service, &QComboBox::currentIndexChanged, this, &DiagnosticsPanel::onServiceChanged);
     row->addWidget(m_service);
 
     m_request = new QLineEdit;
@@ -209,9 +208,8 @@ void DiagnosticsPanel::setSession(DiagnosticSession* session)
 
 void DiagnosticsPanel::setTarget(const QString& description)
 {
-    m_targetLabel->setText(description.isEmpty()
-                               ? tr("No UDS Client block is running.")
-                               : description);
+    m_targetLabel->setText(description.isEmpty() ? tr("No UDS Client block is running.")
+                                                 : description);
 }
 
 void DiagnosticsPanel::updateAvailability()
@@ -256,8 +254,7 @@ void DiagnosticsPanel::onRequestChanged(const QString& text)
 
     // Said while it is being typed rather than when Send is pressed: half a hex
     // byte is a mistake somebody can see the moment they make it.
-    m_request->setProperty("torquebusState",
-                           valid ? QStringLiteral("") : QStringLiteral("error"));
+    m_request->setProperty("torquebusState", valid ? QStringLiteral("") : QStringLiteral("error"));
 
     style()->unpolish(m_request);
     style()->polish(m_request);
@@ -311,13 +308,12 @@ void DiagnosticsPanel::buildForm()
     }
 
     for (const UdsField& field : form->fields) {
-        const QString name = QString::fromUtf8(field.name.data(),
-                                               static_cast<qsizetype>(field.name.size()));
-        const QString help = QString::fromUtf8(field.help.data(),
-                                               static_cast<qsizetype>(field.help.size()));
+        const QString name =
+            QString::fromUtf8(field.name.data(), static_cast<qsizetype>(field.name.size()));
+        const QString help =
+            QString::fromUtf8(field.help.data(), static_cast<qsizetype>(field.help.size()));
         const QString initial =
-            QString::fromUtf8(field.initial.data(),
-                              static_cast<qsizetype>(field.initial.size()));
+            QString::fromUtf8(field.initial.data(), static_cast<qsizetype>(field.initial.size()));
 
         QWidget* editor = nullptr;
 
@@ -327,20 +323,19 @@ void DiagnosticsPanel::buildForm()
             auto* box = new QComboBox;
 
             for (const UdsChoice& choice : form->choices) {
-                box->addItem(QStringLiteral("%1  (%2)")
-                                 .arg(QString::fromUtf8(
-                                          choice.label.data(),
-                                          static_cast<qsizetype>(choice.label.size())))
-                                 .arg(choice.value, 2, 16, QLatin1Char('0')),
-                             QStringLiteral("%1").arg(choice.value, 2, 16, QLatin1Char('0')));
+                box->addItem(
+                    QStringLiteral("%1  (%2)")
+                        .arg(QString::fromUtf8(choice.label.data(),
+                                               static_cast<qsizetype>(choice.label.size())))
+                        .arg(choice.value, 2, 16, QLatin1Char('0')),
+                    QStringLiteral("%1").arg(choice.value, 2, 16, QLatin1Char('0')));
             }
 
             if (const int found = box->findData(initial); found >= 0) {
                 box->setCurrentIndex(found);
             }
 
-            connect(box, &QComboBox::currentIndexChanged, this,
-                    &DiagnosticsPanel::onFieldChanged);
+            connect(box, &QComboBox::currentIndexChanged, this, &DiagnosticsPanel::onFieldChanged);
 
             editor = box;
         } else {
@@ -400,9 +395,8 @@ void DiagnosticsPanel::assembleFromForm()
     // the box is what gets sent.
     const QSignalBlocker blocker{m_request};
 
-    m_request->setText(result.succeeded()
-                           ? QString::fromStdString(toHexBytes(request))
-                           : QString{});
+    m_request->setText(result.succeeded() ? QString::fromStdString(toHexBytes(request))
+                                          : QString{});
 
     if (result.failed()) {
         // Named, and while it is being typed: "Identifier: 1 byte(s) given, 2
@@ -435,7 +429,8 @@ void DiagnosticsPanel::onSend()
     appendRow(QTime::currentTime().toString(QStringLiteral("HH:mm:ss.zzz")),
               QStringLiteral("TX"),
               QString::fromStdString(toHexBytes(request)),
-              QString::fromStdString(describeService(request.front())), theme.tx);
+              QString::fromStdString(describeService(request.front())),
+              theme.tx);
 
     m_session->postRequest(std::move(request));
     updateAvailability();
@@ -521,10 +516,10 @@ void DiagnosticsPanel::appendExchange(const UdsExchange& exchange)
 
     appendRow(QTime::currentTime().toString(QStringLiteral("HH:mm:ss.zzz")),
               QStringLiteral("RX"),
-              exchange.response.empty()
-                  ? tr("-")
-                  : QString::fromStdString(toHexBytes(exchange.response)),
-              meaning, tint);
+              exchange.response.empty() ? tr("-")
+                                        : QString::fromStdString(toHexBytes(exchange.response)),
+              meaning,
+              tint);
 }
 
 void DiagnosticsPanel::refresh()
@@ -551,12 +546,12 @@ void DiagnosticsPanel::refresh()
 
     m_sessionLabel->setText(m_session->isBusy()
                                 ? tr("Waiting for the ECU...")
-                                : tr("Session: %1").arg(session == 0x01   ? tr("default")
-                                                        : session == 0x02 ? tr("programming")
-                                                        : session == 0x03 ? tr("extended")
-                                                                          : tr("0x%1").arg(
-                                                                                session, 2, 16,
-                                                                                QLatin1Char('0'))));
+                                : tr("Session: %1")
+                                      .arg(session == 0x01   ? tr("default")
+                                           : session == 0x02 ? tr("programming")
+                                           : session == 0x03
+                                               ? tr("extended")
+                                               : tr("0x%1").arg(session, 2, 16, QLatin1Char('0'))));
 
     // Send is greyed while an answer is outstanding, because UDS is one
     // question at a time and a second one would only queue behind the first.

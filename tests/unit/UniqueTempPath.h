@@ -45,9 +45,8 @@ namespace torquebus::tests {
 
 /// `<temp>/<stem>_<tag>_<serial><extension>`, where `extension` carries its own
 /// dot. The serial keeps names apart inside one process, the tag across them.
-[[nodiscard]] inline std::filesystem::path uniqueTempPath(const std::string& stem,
-                                                          int serial,
-                                                          const std::string& extension)
+[[nodiscard]] inline std::filesystem::path
+uniqueTempPath(const std::string& stem, int serial, const std::string& extension)
 {
     return std::filesystem::temp_directory_path()
            / (stem + "_" + processTag() + "_" + std::to_string(serial) + extension);
@@ -59,4 +58,4 @@ namespace torquebus::tests {
     return std::filesystem::temp_directory_path() / (stem + "_" + processTag());
 }
 
-}  // namespace torquebus::tests
+} // namespace torquebus::tests

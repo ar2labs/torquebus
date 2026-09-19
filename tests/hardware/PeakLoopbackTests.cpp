@@ -135,8 +135,7 @@ TEST_CASE("Opening a handle that names nothing fails without hanging", "[peak][h
     CHECK_FALSE(backend.isOpen());
 }
 
-TEST_CASE("A channel opens, starts, stops and closes in that order",
-          "[peak][hardware]")
+TEST_CASE("A channel opens, starts, stops and closes in that order", "[peak][hardware]")
 {
     if (!peakUsable()) {
         SKIP("no peakcan plugin");
@@ -188,8 +187,7 @@ TEST_CASE("A channel opens, starts, stops and closes in that order",
     backend.close();
 }
 
-TEST_CASE("Frames sent on a bus with no other node come back as our own echo",
-          "[peak][hardware]")
+TEST_CASE("Frames sent on a bus with no other node come back as our own echo", "[peak][hardware]")
 {
     if (!peakUsable()) {
         SKIP("no peakcan plugin");

@@ -44,9 +44,8 @@ bool registerWith(const torquebus::plugins::PluginHost& host)
     // CanBackendRegistry::instance(). See PluginApi.h: the registry lives in a
     // static library that both sides link, so instance() here would be a second
     // registry that nobody reads.
-    host.backends->registerBackend("kvaser", "Kvaser CANlib", [] {
-        return std::make_unique<torquebus::KvaserCanBackend>();
-    });
+    host.backends->registerBackend(
+        "kvaser", "Kvaser CANlib", [] { return std::make_unique<torquebus::KvaserCanBackend>(); });
 
     return true;
 }

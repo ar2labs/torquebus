@@ -18,14 +18,22 @@ namespace {
 [[nodiscard]] double hueFor(AccentColor accent)
 {
     switch (accent) {
-    case AccentColor::TorqueBus: return 189.0;
-    case AccentColor::Red:       return 4.0;
-    case AccentColor::Orange:    return 28.0;
-    case AccentColor::Yellow:    return 48.0;
-    case AccentColor::Green:     return 145.0;
-    case AccentColor::Blue:      return 210.0;
-    case AccentColor::Purple:    return 268.0;
-    case AccentColor::Pink:      return 322.0;
+    case AccentColor::TorqueBus:
+        return 189.0;
+    case AccentColor::Red:
+        return 4.0;
+    case AccentColor::Orange:
+        return 28.0;
+    case AccentColor::Yellow:
+        return 48.0;
+    case AccentColor::Green:
+        return 145.0;
+    case AccentColor::Blue:
+        return 210.0;
+    case AccentColor::Purple:
+        return 268.0;
+    case AccentColor::Pink:
+        return 322.0;
     }
     return 189.0;
 }
@@ -53,9 +61,14 @@ constexpr double kMaximumLightness = 0.95;
 
 std::array<AccentColor, 8> accentColors()
 {
-    return {AccentColor::TorqueBus, AccentColor::Red,    AccentColor::Orange,
-            AccentColor::Yellow,    AccentColor::Green,  AccentColor::Blue,
-            AccentColor::Purple,    AccentColor::Pink};
+    return {AccentColor::TorqueBus,
+            AccentColor::Red,
+            AccentColor::Orange,
+            AccentColor::Yellow,
+            AccentColor::Green,
+            AccentColor::Blue,
+            AccentColor::Purple,
+            AccentColor::Pink};
 }
 
 QString accentDisplayName(AccentColor accent)
@@ -84,14 +97,22 @@ QString accentDisplayName(AccentColor accent)
 QString toString(AccentColor accent)
 {
     switch (accent) {
-    case AccentColor::TorqueBus: return QStringLiteral("torquebus");
-    case AccentColor::Red:       return QStringLiteral("red");
-    case AccentColor::Orange:    return QStringLiteral("orange");
-    case AccentColor::Yellow:    return QStringLiteral("yellow");
-    case AccentColor::Green:     return QStringLiteral("green");
-    case AccentColor::Blue:      return QStringLiteral("blue");
-    case AccentColor::Purple:    return QStringLiteral("purple");
-    case AccentColor::Pink:      return QStringLiteral("pink");
+    case AccentColor::TorqueBus:
+        return QStringLiteral("torquebus");
+    case AccentColor::Red:
+        return QStringLiteral("red");
+    case AccentColor::Orange:
+        return QStringLiteral("orange");
+    case AccentColor::Yellow:
+        return QStringLiteral("yellow");
+    case AccentColor::Green:
+        return QStringLiteral("green");
+    case AccentColor::Blue:
+        return QStringLiteral("blue");
+    case AccentColor::Purple:
+        return QStringLiteral("purple");
+    case AccentColor::Pink:
+        return QStringLiteral("pink");
     }
     return QStringLiteral("torquebus");
 }
@@ -147,10 +168,8 @@ AccentPair accentPairFor(AccentColor accent, ThemeVariant variant)
     // readable under the label that will be drawn on top of it. A hue that
     // starts out compliant - most of them do - never enters the loop.
     while (lightness > kMinimumLightness && lightness < kMaximumLightness) {
-        const bool visible =
-            contrastRatio(color, reference.panel) >= kMinimumUiContrast;
-        const bool readable =
-            contrastRatio(color, reference.textInverted) >= kMinimumTextContrast;
+        const bool visible = contrastRatio(color, reference.panel) >= kMinimumUiContrast;
+        const bool readable = contrastRatio(color, reference.textInverted) >= kMinimumTextContrast;
 
         if (visible && readable) {
             break;

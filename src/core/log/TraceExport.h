@@ -66,9 +66,8 @@ public:
     /// `startWallClockUs` is the recording's start, for the date line ASC
     /// carries. Zero writes the epoch, which is honest about not knowing rather
     /// than quietly writing today's date onto a file recorded last month.
-    [[nodiscard]] Result open(const std::string& path,
-                              Format format,
-                              std::uint64_t startWallClockUs = 0);
+    [[nodiscard]] Result
+    open(const std::string& path, Format format, std::uint64_t startWallClockUs = 0);
 
     [[nodiscard]] bool isOpen() const noexcept { return m_file.is_open(); }
 

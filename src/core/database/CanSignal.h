@@ -39,7 +39,7 @@ namespace torquebus {
 
 enum class ByteOrder : std::uint8_t {
     Motorola, ///< `@0` in a .dbc. Big-endian.
-    Intel     ///< `@1` in a .dbc. Little-endian.
+    Intel ///< `@1` in a .dbc. Little-endian.
 };
 
 /// A named value for a signal, from a `VAL_` entry.
@@ -51,8 +51,7 @@ struct SignalValueName final {
     std::int64_t value{};
     std::string name;
 
-    [[nodiscard]] friend bool operator==(const SignalValueName&,
-                                         const SignalValueName&) = default;
+    [[nodiscard]] friend bool operator==(const SignalValueName&, const SignalValueName&) = default;
 };
 
 /// One signal definition, as a .dbc `SG_` line describes it.
@@ -133,9 +132,8 @@ struct CanSignal final {
     ///
     /// Returns false and writes nothing when the signal does not fit the
     /// payload.
-    [[nodiscard]] bool encodeRaw(std::int64_t raw,
-                                 std::uint8_t* payload,
-                                 std::size_t payloadLength) const noexcept;
+    [[nodiscard]] bool
+    encodeRaw(std::int64_t raw, std::uint8_t* payload, std::size_t payloadLength) const noexcept;
 
     /// Writes a physical value: `raw = round((physical - offset) / factor)`.
     ///
@@ -149,9 +147,8 @@ struct CanSignal final {
     /// reason they are not enforced in decode: silently clamping a wrong value
     /// hides the fault that produced it. Only the physical width of the field
     /// is a hard limit.
-    [[nodiscard]] bool encode(double physical,
-                              std::uint8_t* payload,
-                              std::size_t payloadLength) const noexcept;
+    [[nodiscard]] bool
+    encode(double physical, std::uint8_t* payload, std::size_t payloadLength) const noexcept;
 
     /// The range the signal's bits can actually hold, before factor and offset.
     [[nodiscard]] std::int64_t minimumRaw() const noexcept;

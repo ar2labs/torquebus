@@ -48,14 +48,13 @@ ProjectExplorerPanel::ProjectExplorerPanel(QWidget* parent)
 
     buildSkeleton();
 
-    connect(m_tree, &QTreeWidget::currentItemChanged,
-            this, [this](QTreeWidgetItem* current, QTreeWidgetItem*) {
-                onCurrentItemChanged(current);
-            });
+    connect(m_tree,
+            &QTreeWidget::currentItemChanged,
+            this,
+            [this](QTreeWidgetItem* current, QTreeWidgetItem*) { onCurrentItemChanged(current); });
 
     if (ThemeManager* themes = ThemeManager::instance()) {
-        connect(themes, &ThemeManager::themeChanged, this,
-                [this] { onThemeChanged(); });
+        connect(themes, &ThemeManager::themeChanged, this, [this] { onThemeChanged(); });
     }
 }
 
@@ -65,19 +64,19 @@ void ProjectExplorerPanel::buildSkeleton()
     m_root->setText(0, tr("Untitled project"));
     m_root->setExpanded(true);
 
-    m_hardware      = addCategory(m_root, tr("Hardware"));
-    m_databases     = addCategory(m_root, tr("Databases"));
+    m_hardware = addCategory(m_root, tr("Hardware"));
+    m_databases = addCategory(m_root, tr("Databases"));
     m_transmitLists = addCategory(m_root, tr("Transmit lists"));
-    m_scripts       = addCategory(m_root, tr("Scripts"));
-    m_logs          = addCategory(m_root, tr("Logs"));
+    m_scripts = addCategory(m_root, tr("Scripts"));
+    m_logs = addCategory(m_root, tr("Logs"));
 
     m_itemIcons = {
-        {m_root,          QStringLiteral("project")},
-        {m_hardware,      QStringLiteral("hardware")},
-        {m_databases,     QStringLiteral("database")},
+        {m_root, QStringLiteral("project")},
+        {m_hardware, QStringLiteral("hardware")},
+        {m_databases, QStringLiteral("database")},
         {m_transmitLists, QStringLiteral("transmit")},
-        {m_scripts,       QStringLiteral("console")},
-        {m_logs,          QStringLiteral("save")},
+        {m_scripts, QStringLiteral("console")},
+        {m_logs, QStringLiteral("save")},
     };
 
     applyIcons();
@@ -138,9 +137,8 @@ void ProjectExplorerPanel::setDevices(const CanDeviceInfoList& devices)
         // The user works with application channels (CAN 1, CAN 2), never with
         // "hardware channel 4" - see PLAN.md section 13. The hardware name is
         // shown as the subtitle, not as the identity.
-        item->setText(0, tr("CAN %1  -  %2")
-                             .arg(index + 1)
-                             .arg(QString::fromStdString(device.name)));
+        item->setText(0,
+                      tr("CAN %1  -  %2").arg(index + 1).arg(QString::fromStdString(device.name)));
         item->setToolTip(0, QString::fromStdString(device.handle));
         item->setData(0, kDeviceIndexRole, index);
 
