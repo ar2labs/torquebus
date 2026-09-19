@@ -450,6 +450,19 @@ void MainWindow::createPanels()
     connect(m_canvas, &CanvasPanel::nodeSelected, this, &MainWindow::onCanvasNodeSelected);
     connect(m_canvas, &CanvasPanel::graphEdited, this, &MainWindow::onGraphEdited);
 
+    // "Edit script" from the canvas: show the block, then bring the editor
+    // forward. Selection alone already does the first half - the second is the
+    // whole point of the menu entry, and the reason it is not just another way
+    // to select.
+    connect(m_canvas, &CanvasPanel::editScriptRequested, this, [this](const QString& id) {
+        if (m_scriptEditor != nullptr) {
+            m_scriptEditor->showNode(id);
+        }
+        if (m_scriptDock != nullptr) {
+            m_scriptDock->setAsCurrentTab();
+        }
+    });
+
     m_pipelineDock =
         createDockWidget(dockName(kDockPipeline), tr("Pipeline"), m_canvas, icon("graph"));
 

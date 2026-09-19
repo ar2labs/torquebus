@@ -1138,6 +1138,44 @@ physical adapter.
 
 ---
 
+## 6b. Putting an ECU on the bus
+
+Three gestures the canvas gained, all of them borrowed from CANoe's Simulation
+Setup, and none of them verifiable by anything but a person: they are mouse
+interactions with a menu, and the test suite links no widgets.
+
+1. **Right-click empty canvas.** A menu appears with the same categories the
+   palette has - Sources, Transforms, Simulation, Sinks, Diagnostics - and the
+   same blocks under each. There was no menu here at all before; if nothing
+   appears, `createSceneMenu` is not reaching the panel.
+2. Pick any block. It lands **where you clicked**, not in the middle of the
+   view, and arrives selected with its settings in the Block editor.
+3. **Right-click a CAN Channel block.** The menu names the block at the top and
+   offers *Attach simulated ECU*.
+4. Use it. Three things must be true at once: a Lua ECU block appears to the
+   right, a CAN Transmit block appears to the right of that, and **both wires
+   are drawn**. The ECU is selected and the Block editor is showing it, because
+   the ECU is the one that still needs a script.
+5. Check the transmit block's **Channel**. It must be the channel the source
+   reads. An ECU that hears CAN 1 and answers on CAN 0 looks exactly like a
+   script that does not work.
+6. Attach a **second** ECU to the same channel. It must reuse the transmit block
+   from step 4 rather than adding another - two transmit blocks on one channel
+   is not wrong, but it is two things to keep in step for nothing.
+7. **Right-click the Lua ECU** and choose *Edit script*. The Script panel comes
+   forward with that block loaded. Selecting the node already loads it; the
+   entry exists to bring the panel to the front, so a Script panel that was
+   behind another tab and stayed there is the failure.
+8. *Edit script* must **not** appear on a filter, a decoder or a channel. It
+   appears on Lua ECU and Test Sequence only.
+9. Point the ECU at `examples\scripts\ecu_vehicle.lua`, press Start, and watch
+   the trace. 0x101 and 0x102 arrive. That is the whole gesture paying off: from
+   an empty canvas to a simulated ECU on the bus without drawing a wire.
+
+**Worked:** context menu opens on empty canvas and on nodes, *Attach simulated ECU* wires the ECU and transmit block on the matching channel, and *Edit script* brings the Script panel forward.
+
+---
+
 ## 7. The package, not the build tree
 
 What people download is the zip, and a build tree that works proves nothing
