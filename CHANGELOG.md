@@ -184,6 +184,23 @@ against what it does, which turned up more than expected.
   packaging check confirms the file is present and says nothing about what is in
   it.
 
+- **The canvas has a context menu.** It had none at all — the only way to add a
+  block was a double click in the palette. Right-clicking empty canvas now
+  offers every block type, grouped as the palette groups them, and puts the one
+  you pick **where you clicked**. Right-clicking a node names it and offers its
+  settings and deletion.
+- **"Attach simulated ECU" on a CAN Channel block.** CANoe's Simulation Setup
+  lets a node be dropped on a bus and be on it, both directions, with no wire
+  drawn; here that was an ECU block, a transmit block and two wires — six
+  actions, twenty-four for a rest bus of eight. One menu entry now does it,
+  matching the transmit block's channel to the source's and reusing one that is
+  already there. Still two edges in the graph afterwards, visible and deletable
+  like any others.
+- **"Edit script" on a Lua block**, which brings the Script panel forward. The
+  editor already followed selection; what it did not do was come to the front,
+  and an editor behind another tab is an editor the user does not know they
+  have. CANoe puts a pencil on the node for the same reason.
+
 ### Changed
 
 - **The README's throughput figure now has a source, and the right one.** It

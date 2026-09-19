@@ -16,12 +16,14 @@
 #include <QtNodes/internal/NodeGraphicsObject.hpp>
 
 #include <QAbstractItemView>
+#include <QAction>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMap>
+#include <QMenu>
 #include <QPalette>
 #include <QSplitter>
 #include <QString>
@@ -29,11 +31,44 @@
 #include <QVBoxLayout>
 #include <QtGlobal>
 
+#include <functional>
+#include <utility>
+
 namespace torquebus::ui {
 namespace {
 
 /// The role holding a palette entry's catalog type name.
 constexpr int kTypeNameRole = Qt::UserRole + 1;
+
+/// A scene that asks the panel what its context menu should be.
+///
+/// QtNodes puts the hook here and not on the view: GraphicsView, given a right
+/// click on empty canvas, calls scene->createSceneMenu(scenePos) and shows
+/// whatever comes back. The base returns nothing, which is why the canvas had
+/// no menu at all - not a decision anybody made, just a virtual nobody had
+/// overridden.
+///
+/// No Q_OBJECT: this adds an override and no signals of its own, and keeping it
+/// that way is what lets it live in an anonymous namespace next to the panel
+/// that supplies the menu.
+class CanvasScene final : public QtNodes::BasicGraphicsScene {
+public:
+    using MenuFactory = std::function<QMenu*(QPointF)>;
+
+    CanvasScene(QtNodes::AbstractGraphModel& model, MenuFactory factory, QObject* parent)
+        : QtNodes::BasicGraphicsScene{model, parent}
+        , m_factory{std::move(factory)}
+    {
+    }
+
+    QMenu* createSceneMenu(QPointF scenePos) override
+    {
+        return m_factory ? m_factory(scenePos) : nullptr;
+    }
+
+private:
+    MenuFactory m_factory;
+};
 
 /// QtNodes reads its styles from JSON, so the theme has to be rendered into it.
 ///
@@ -128,8 +163,21 @@ CanvasPanel::CanvasPanel(GraphDescription& description, const NodeCatalog& catal
         applyStyles(themes->theme());
     }
 
-    m_scene = new QtNodes::BasicGraphicsScene{*m_model, this};
+    // The scene asks this panel for its menus. Built before the view, which
+    // takes the scene in its constructor.
+    auto* scene = new CanvasScene{
+        *m_model, [this](QPointF scenePosition) { return buildSceneMenu(scenePosition); }, this};
+
+    m_scene = scene;
     m_view = new QtNodes::GraphicsView{m_scene};
+
+    // A right click on a node reaches the panel through the scene, because
+    // that is where QtNodes raises it: NodeGraphicsObject does nothing with the
+    // event except emit this.
+    connect(m_scene,
+            &QtNodes::BasicGraphicsScene::nodeContextMenu,
+            this,
+            [this](QtNodes::NodeId nodeId, QPointF position) { showNodeMenu(nodeId, position); });
 
     m_palette = new QTreeWidget;
     m_palette->setHeaderHidden(true);
@@ -293,16 +341,18 @@ void CanvasPanel::addNodeFromPalette(QTreeWidgetItem* item)
         return; // A category heading.
     }
 
-    const QtNodes::NodeId nodeId = m_model->addNode(typeName);
+    // The centre of what the user is currently looking at, rather than the
+    // origin. A node dropped off-screen looks like nothing happened, and the
+    // canvas scrolls.
+    addNodeAt(typeName, m_view->mapToScene(m_view->viewport()->rect().center()));
+}
+
+void CanvasPanel::addNodeAt(const QString& typeName, const QPointF& scenePosition)
+{
+    const QtNodes::NodeId nodeId = addNodeAtReturning(typeName, scenePosition);
     if (nodeId == QtNodes::InvalidNodeId) {
         return;
     }
-
-    // Placed at the centre of what the user is currently looking at, rather
-    // than at the origin. A node dropped off-screen looks like nothing
-    // happened, and the canvas scrolls.
-    const QPointF centre = m_view->mapToScene(m_view->viewport()->rect().center());
-    m_model->setNodeData(nodeId, QtNodes::NodeRole::Position, centre);
 
     // Selected, and announced. A block is dropped in order to be configured,
     // and most of them arrive incomplete on purpose - so the settings for the
@@ -317,6 +367,234 @@ void CanvasPanel::addNodeFromPalette(QTreeWidgetItem* item)
     // Emitted by hand because QtNodes only raises nodeSelected from a mouse
     // press: selecting the item above tells the user's eye and nothing else.
     Q_EMIT nodeSelected(QString::fromStdString(m_model->descriptionId(nodeId)));
+}
+
+QMenu* CanvasPanel::buildSceneMenu(const QPointF& scenePosition)
+{
+    // Ownership: QtNodes' GraphicsView calls exec() on what comes back and then
+    // leaves it. Parenting to the view means the menu dies with the panel
+    // rather than at the next right click, which is a leak of one menu per
+    // click - small, and the kind that is never noticed and never fixed.
+    auto* menu = new QMenu{m_view};
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+
+    // The same grouping as the palette, from the same source, in the same
+    // order. Two lists of block types that could disagree would be one list too
+    // many.
+    QMap<QString, QMenu*> groups;
+
+    for (const NodeTypeInfo& info : m_catalog.types()) {
+        const QString category = QString::fromStdString(info.category);
+
+        QMenu* group = groups.value(category, nullptr);
+        if (group == nullptr) {
+            group = menu->addMenu(category);
+            groups.insert(category, group);
+        }
+
+        const QString typeName = QString::fromStdString(info.typeName);
+
+        QAction* action = group->addAction(QString::fromStdString(info.displayName));
+        action->setToolTip(QString::fromStdString(info.description));
+
+        // At the click, not at the centre of the view. Right-clicking a spot is
+        // saying where you want the block, and putting it somewhere else makes
+        // the gesture a lie.
+        connect(action, &QAction::triggered, this, [this, typeName, scenePosition] {
+            addNodeAt(typeName, scenePosition);
+        });
+    }
+
+    return menu;
+}
+
+void CanvasPanel::showNodeMenu(QtNodes::NodeId nodeId, const QPointF& scenePosition)
+{
+    if (!m_model || m_view == nullptr) {
+        return;
+    }
+
+    const std::string descriptionId = m_model->descriptionId(nodeId);
+    if (descriptionId.empty()) {
+        return;
+    }
+
+    QMenu menu{m_view};
+
+    // Named, because a menu that opens over a canvas of twelve blocks should
+    // say which one it is about.
+    QAction* heading =
+        menu.addAction(m_model->nodeData(nodeId, QtNodes::NodeRole::Caption).toString());
+    heading->setEnabled(false);
+    menu.addSeparator();
+
+    const std::string typeName = nodeTypeName(descriptionId);
+
+    // Only for blocks that have one. Offering "Edit script" on a filter and
+    // opening an empty editor would be worse than not offering it.
+    if (typeName == "lua.ecu" || typeName == "lua.test") {
+        QAction* edit = menu.addAction(tr("Edit script"));
+        connect(edit, &QAction::triggered, this, [this, descriptionId] {
+            Q_EMIT editScriptRequested(QString::fromStdString(descriptionId));
+        });
+        menu.addSeparator();
+    }
+
+    // Only on a CAN Channel block, because that is the only place the gesture
+    // means anything: "put an ECU on this bus" needs a bus to name.
+    if (typeName == "can.source") {
+        QAction* attach = menu.addAction(tr("Attach simulated ECU"));
+        connect(attach, &QAction::triggered, this, [this, nodeId] { attachEcuTo(nodeId); });
+        menu.addSeparator();
+    }
+
+    QAction* properties = menu.addAction(tr("Settings"));
+    connect(properties, &QAction::triggered, this, [this, descriptionId] {
+        Q_EMIT nodeSelected(QString::fromStdString(descriptionId));
+    });
+
+    menu.addSeparator();
+
+    QAction* remove = menu.addAction(tr("Delete"));
+    connect(remove, &QAction::triggered, this, [this, nodeId] {
+        if (m_model) {
+            m_model->deleteNode(nodeId);
+        }
+    });
+
+    menu.exec(m_view->mapToGlobal(m_view->mapFromScene(scenePosition)));
+}
+
+std::string CanvasPanel::nodeTypeName(const std::string& descriptionId) const
+{
+    for (const NodeDescription& node : m_description.nodes()) {
+        if (node.id == descriptionId) {
+            return node.typeName;
+        }
+    }
+    return {};
+}
+
+QtNodes::NodeId CanvasPanel::findNodeOnChannel(const std::string& typeName,
+                                               std::int64_t channel) const
+{
+    if (!m_model) {
+        return QtNodes::InvalidNodeId;
+    }
+
+    for (const NodeDescription& node : m_description.nodes()) {
+        if (node.typeName != typeName) {
+            continue;
+        }
+        if (node.parameters.integer("channel", -1) != channel) {
+            continue;
+        }
+        return m_model->canvasId(node.id);
+    }
+
+    return QtNodes::InvalidNodeId;
+}
+
+void CanvasPanel::attachEcuTo(QtNodes::NodeId sourceNodeId)
+{
+    if (!m_model || m_view == nullptr) {
+        return;
+    }
+
+    const std::string sourceId = m_model->descriptionId(sourceNodeId);
+    if (sourceId.empty()) {
+        return;
+    }
+
+    // The channel the source reads. Everything below has to agree with it: an
+    // ECU that hears CAN 1 and answers on CAN 0 is a bug that looks like a
+    // script that does not work.
+    std::int64_t channel = 0;
+    QPointF sourcePosition;
+
+    for (const NodeDescription& node : m_description.nodes()) {
+        if (node.id == sourceId) {
+            channel = node.parameters.integer("channel", 0);
+            sourcePosition = QPointF{node.x, node.y};
+            break;
+        }
+    }
+
+    // Laid out to the right of the source, which is the direction the graph
+    // already reads in. Not on top of it, and not at the origin.
+    constexpr qreal kStep = 220.0;
+
+    const QtNodes::NodeId ecu =
+        addNodeAtReturning(QStringLiteral("lua.ecu"), sourcePosition + QPointF{kStep, 0.0});
+    if (ecu == QtNodes::InvalidNodeId) {
+        return;
+    }
+
+    // Reused if it is already there. Two transmit blocks on one channel is not
+    // wrong, but it is two things to keep in step for no gain.
+    QtNodes::NodeId transmit = findNodeOnChannel("can.transmit", channel);
+    const bool created = transmit == QtNodes::InvalidNodeId;
+
+    if (created) {
+        transmit = addNodeAtReturning(QStringLiteral("can.transmit"),
+                                      sourcePosition + QPointF{2.0 * kStep, 0.0});
+        if (transmit == QtNodes::InvalidNodeId) {
+            return;
+        }
+
+        const std::string transmitId = m_model->descriptionId(transmit);
+        for (NodeDescription& node : m_description.nodes()) {
+            if (node.id == transmitId) {
+                node.parameters.set("channel", ParameterValue::fromInteger(channel));
+                break;
+            }
+        }
+    }
+
+    connectPorts(sourceNodeId, ecu);
+    connectPorts(ecu, transmit);
+
+    // The ECU and not the transmit block, because the ECU is the one that
+    // arrives empty: it needs a script before it does anything.
+    if (QtNodes::NodeGraphicsObject* object = m_scene->nodeGraphicsObject(ecu); object != nullptr) {
+        m_scene->clearSelection();
+        object->setSelected(true);
+    }
+
+    Q_EMIT nodeSelected(QString::fromStdString(m_model->descriptionId(ecu)));
+    Q_EMIT graphEdited();
+}
+
+void CanvasPanel::connectPorts(QtNodes::NodeId from, QtNodes::NodeId to)
+{
+    if (!m_model) {
+        return;
+    }
+
+    // Port 0 to port 0. Every block this gesture touches carries exactly one
+    // Frames port on each side; a block with more would need the user to say
+    // which, and that is a wire they should draw themselves.
+    const QtNodes::ConnectionId connection{from, 0, to, 0};
+
+    if (m_model->connectionPossible(connection)) {
+        m_model->addConnection(connection);
+    }
+}
+
+QtNodes::NodeId CanvasPanel::addNodeAtReturning(const QString& typeName,
+                                                const QPointF& scenePosition)
+{
+    if (!m_model) {
+        return QtNodes::InvalidNodeId;
+    }
+
+    const QtNodes::NodeId nodeId = m_model->addNode(typeName);
+    if (nodeId == QtNodes::InvalidNodeId) {
+        return QtNodes::InvalidNodeId;
+    }
+
+    m_model->setNodeData(nodeId, QtNodes::NodeRole::Position, scenePosition);
+    return nodeId;
 }
 
 void CanvasPanel::reload()
