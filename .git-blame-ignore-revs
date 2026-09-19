@@ -1,0 +1,16 @@
+# Commits that changed formatting and nothing else.
+#
+# git blame skips these, so a line's history points at whoever wrote it rather
+# than at the day a tool reflowed it. Configure it once:
+#
+#     git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# GitHub, GitLab and Bitbucket read this file by name with no configuration.
+#
+# Only add a commit here if it is *provably* mechanical. The one below was
+# checked by comparing every file with all whitespace stripped: 172 of 210 were
+# byte-identical, and the other 38 differed only by reordered #include lines,
+# reflowed comments, and one reordered block of using-declarations.
+
+# Reformatação mecânica: clang-format sobre as 210 divergentes
+aab8b4dca87bdb54f1a81d2983e399d5a4269035

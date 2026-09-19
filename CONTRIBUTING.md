@@ -81,17 +81,24 @@ useful information — open an issue and say so.
 
 ## Code style
 
-**Do not run `clang-format -i` over a file you touched.** The advice used to be
-exactly that, and it is a trap: this codebase is hand-formatted, with line
-breaks chosen for meaning in places where clang-format would join the line
-because it fits. `clang-format` 21 would rewrite 246 of our 263 files.
-Reformatting one to fix three lines buries your change in a diff nobody can
-review.
+`clang-format` decides formatting, and the tree is clean against it. Run it
+before pushing:
 
-`.clang-format` is kept as a reference for the choices that *are* mechanical -
-four-space indent, 100 columns, pointers left, no space before a braced init -
-and the CI step reports what it would change without blocking the merge. Match
-the file you are editing; that is the standard.
+```powershell
+clang-format -i <your files>
+```
+
+This advice was the opposite until the tree was reformatted: 250 of 267 files
+disagreed with the config, so running it over a file you touched rewrote the
+whole file and buried your change. That is fixed — the reformat happened in one
+commit, deliberately, and `git blame` skips it with
+`--ignore-rev aab8b4d`.
+
+Two of the config's inherited settings were corrected first, because they
+contradicted this codebase completely: assignment stays at the end of a wrapped
+line (107 places did it, none did the opposite) and a class brace stays on the
+declaration's line (102 to nil). The style the tool enforces is the one that was
+already here.
 
 Beyond formatting:
 

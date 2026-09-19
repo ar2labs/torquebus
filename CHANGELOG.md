@@ -201,6 +201,16 @@ against what it does, which turned up more than expected.
   J1939-21 (MAY2022), J1939-73 (AUG2022) and ISO 11783-3 (2018). The ETP PGNs
   were wrong from memory, which meant extended transfers were never recognised
   and fell through to ordinary decoding.
+- **The tree is formatted, and the formatting check is a gate.** 250 of 267
+  files disagreed with `.clang-format`, which made the check unfailable and the
+  config a description of nothing. Two of its inherited WebKit settings were
+  corrected first, by counting what the code had actually decided: assignment
+  stays at the end of a wrapped line (107 places to nil) and a class brace stays
+  on the declaration's line (102 to nil). Then one mechanical commit, 210 files.
+  Verified inert — 172 files byte-identical with whitespace stripped, the other
+  38 differing only by reordered includes, reflowed comments and one block of
+  `using` declarations — and `.git-blame-ignore-revs` keeps `git blame` pointing
+  at whoever wrote each line.
 
 ### Removed
 
