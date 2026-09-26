@@ -10,7 +10,7 @@
 // guess a project file had - and it fails by building an empty graph rather
 // than by saying anything.
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
@@ -73,27 +73,25 @@ private:
 
 } // namespace
 
-TEST_CASE("A relative path resolves against the project, not the working directory",
-          "[project][paths]")
+TEST(NodePathTests, ARelativePathResolvesAgainstTheProjectNotTheWorkingDirectory)
 {
     const ProjectFolder project;
 
     // The whole point: this string is what a portable .tbsproj contains, and it
     // has to work with the process started from anywhere at all.
-    CHECK(buildDecoder("databases/vehicle.dbc", project.root()).succeeded());
+    EXPECT_TRUE(buildDecoder("databases/vehicle.dbc", project.root()).succeeded());
 }
 
-TEST_CASE("Without a base path a relative name still means the working directory",
-          "[project][paths]")
+TEST(NodePathTests, WithoutABasePathARelativeNameStillMeansTheWorkingDirectory)
 {
     const ProjectFolder project;
 
     // A graph built with no project behind it - from a test, or from a headless
     // run - keeps the old behaviour rather than resolving against nothing.
-    CHECK(buildDecoder("databases/vehicle.dbc", "").failed());
+    EXPECT_TRUE(buildDecoder("databases/vehicle.dbc", "").failed());
 }
 
-TEST_CASE("An absolute path is left exactly as it was written", "[project][paths]")
+TEST(NodePathTests, AnAbsolutePathIsLeftExactlyAsItWasWritten)
 {
     const ProjectFolder project;
 
@@ -102,21 +100,21 @@ TEST_CASE("An absolute path is left exactly as it was written", "[project][paths
     // would break a path that had been working.
     const std::string absolute = project.root() + "/databases/vehicle.dbc";
 
-    CHECK(buildDecoder(absolute, project.root()).succeeded());
-    CHECK(buildDecoder(absolute, "/some/other/project").succeeded());
+    EXPECT_TRUE(buildDecoder(absolute, project.root()).succeeded());
+    EXPECT_TRUE(buildDecoder(absolute, "/some/other/project").succeeded());
 }
 
-TEST_CASE("A missing file still fails, and names the path it looked for", "[project][paths]")
+TEST(NodePathTests, AMissingFileStillFailsAndNamesThePathItLookedFor)
 {
     const ProjectFolder project;
 
     const Result result = buildDecoder("databases/absent.dbc", project.root());
 
-    REQUIRE(result.failed());
+    ASSERT_TRUE(result.failed());
 
     // The resolved path, not the one from the file: "Cannot open
     // databases/absent.dbc" sends the reader looking in the wrong directory.
     const std::string message{result.message()};
-    CHECK(message.find("absent.dbc") != std::string::npos);
-    CHECK(message.find("databases") != std::string::npos);
+    EXPECT_TRUE(message.find("absent.dbc") != std::string::npos);
+    EXPECT_TRUE(message.find("databases") != std::string::npos);
 }

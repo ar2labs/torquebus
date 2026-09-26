@@ -10,7 +10,7 @@
 #include "services/RecentProjects.h"
 #include "services/SettingsStore.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <QDir>
 #include <QStringList>
@@ -29,10 +29,10 @@ class ScopedSettings final {
 public:
     ScopedSettings()
     {
-        REQUIRE(m_directory.isValid());
+        EXPECT_TRUE(m_directory.isValid());
         m_store = std::make_unique<SettingsStore>(
             QDir{m_directory.path()}.filePath(QStringLiteral("settings.json")));
-        REQUIRE(m_store->load());
+        EXPECT_TRUE(m_store->load());
     }
 
     [[nodiscard]] SettingsStore& store() const noexcept { return *m_store; }
@@ -51,21 +51,21 @@ private:
 
 } // namespace
 
-TEST_CASE("The most recently opened project is first", "[recent]")
+TEST(RecentProjectsTests, TheMostRecentlyOpenedProjectIsFirst)
 {
     const ScopedSettings settings;
     RecentProjects recent{settings.store()};
 
-    CHECK(recent.isEmpty());
+    EXPECT_TRUE(recent.isEmpty());
 
     recent.add(settings.path(QStringLiteral("one.tbsproj")));
     recent.add(settings.path(QStringLiteral("two.tbsproj")));
 
-    REQUIRE(recent.paths().size() == 2);
-    CHECK(recent.paths().first().endsWith(QStringLiteral("two.tbsproj")));
+    ASSERT_TRUE(recent.paths().size() == 2);
+    EXPECT_TRUE(recent.paths().first().endsWith(QStringLiteral("two.tbsproj")));
 }
 
-TEST_CASE("Opening a project again moves it up rather than adding it twice", "[recent]")
+TEST(RecentProjectsTests, OpeningAProjectAgainMovesItUpRatherThanAddingItTwice)
 {
     // Order is use, not time. Somebody who alternates between two projects
     // should find both at the top, not one of them buried under nine copies of
@@ -77,11 +77,11 @@ TEST_CASE("Opening a project again moves it up rather than adding it twice", "[r
     recent.add(settings.path(QStringLiteral("b.tbsproj")));
     recent.add(settings.path(QStringLiteral("a.tbsproj")));
 
-    REQUIRE(recent.paths().size() == 2);
-    CHECK(recent.paths().first().endsWith(QStringLiteral("a.tbsproj")));
+    ASSERT_TRUE(recent.paths().size() == 2);
+    EXPECT_TRUE(recent.paths().first().endsWith(QStringLiteral("a.tbsproj")));
 }
 
-TEST_CASE("The same file spelled two ways is one entry", "[recent]")
+TEST(RecentProjectsTests, TheSameFileSpelledTwoWaysIsOneEntry)
 {
     // Paths reach this class from a file dialog, a command line and a settings
     // file written by an older build. They differ in separators long before
@@ -94,10 +94,10 @@ TEST_CASE("The same file spelled two ways is one entry", "[recent]")
     recent.add(native);
     recent.add(QDir::fromNativeSeparators(native));
 
-    CHECK(recent.paths().size() == 1);
+    EXPECT_TRUE(recent.paths().size() == 1);
 }
 
-TEST_CASE("The list stops at ten", "[recent]")
+TEST(RecentProjectsTests, TheListStopsAtTen)
 {
     const ScopedSettings settings;
     RecentProjects recent{settings.store()};
@@ -106,14 +106,14 @@ TEST_CASE("The list stops at ten", "[recent]")
         recent.add(settings.path(QStringLiteral("project%1.tbsproj").arg(index)));
     }
 
-    REQUIRE(recent.paths().size() == RecentProjects::kMaximum);
+    ASSERT_TRUE(recent.paths().size() == RecentProjects::kMaximum);
 
     // The oldest went, not the newest.
-    CHECK(recent.paths().first().endsWith(QStringLiteral("project14.tbsproj")));
-    CHECK_FALSE(recent.paths().last().endsWith(QStringLiteral("project0.tbsproj")));
+    EXPECT_TRUE(recent.paths().first().endsWith(QStringLiteral("project14.tbsproj")));
+    EXPECT_FALSE(recent.paths().last().endsWith(QStringLiteral("project0.tbsproj")));
 }
 
-TEST_CASE("A project that has never been saved is not remembered", "[recent]")
+TEST(RecentProjectsTests, AProjectThatHasNeverBeenSavedIsNotRemembered)
 {
     // Save on an untitled project goes through Save As, and the moment before
     // that is not a project worth putting in a menu.
@@ -123,10 +123,10 @@ TEST_CASE("A project that has never been saved is not remembered", "[recent]")
     recent.add(QString{});
     recent.add(QStringLiteral("   "));
 
-    CHECK(recent.isEmpty());
+    EXPECT_TRUE(recent.isEmpty());
 }
 
-TEST_CASE("The list survives a restart", "[recent]")
+TEST(RecentProjectsTests, TheListSurvivesARestart)
 {
     // Written through on every change rather than at exit: the list is worth
     // least in exactly the case where an exit does not happen.
@@ -138,14 +138,14 @@ TEST_CASE("The list survives a restart", "[recent]")
     }
 
     SettingsStore reopened{settings.store().filePath()};
-    REQUIRE(reopened.load());
+    ASSERT_TRUE(reopened.load());
 
     const RecentProjects recent{reopened};
-    REQUIRE(recent.paths().size() == 1);
-    CHECK(recent.paths().first().endsWith(QStringLiteral("kept.tbsproj")));
+    ASSERT_TRUE(recent.paths().size() == 1);
+    EXPECT_TRUE(recent.paths().first().endsWith(QStringLiteral("kept.tbsproj")));
 }
 
-TEST_CASE("An entry is only forgotten when asked", "[recent]")
+TEST(RecentProjectsTests, AnEntryIsOnlyForgottenWhenAsked)
 {
     // A project on a network share is not gone because it is unreachable this
     // morning. Nothing here checks whether a file exists - the window removes
@@ -156,13 +156,13 @@ TEST_CASE("An entry is only forgotten when asked", "[recent]")
     const QString missing = settings.path(QStringLiteral("never-created.tbsproj"));
 
     recent.add(missing);
-    CHECK(recent.paths().size() == 1);
+    EXPECT_TRUE(recent.paths().size() == 1);
 
     recent.remove(missing);
-    CHECK(recent.isEmpty());
+    EXPECT_TRUE(recent.isEmpty());
 }
 
-TEST_CASE("Clearing the list empties the setting too", "[recent]")
+TEST(RecentProjectsTests, ClearingTheListEmptiesTheSettingToo)
 {
     const ScopedSettings settings;
 
@@ -170,16 +170,17 @@ TEST_CASE("Clearing the list empties the setting too", "[recent]")
         RecentProjects recent{settings.store()};
         recent.add(settings.path(QStringLiteral("gone.tbsproj")));
         recent.clear();
-        CHECK(recent.isEmpty());
+        EXPECT_TRUE(recent.isEmpty());
     }
 
     SettingsStore reopened{settings.store().filePath()};
-    REQUIRE(reopened.load());
-    CHECK(reopened.stringListValue(QString::fromLatin1(torquebus::services::keys::kRecentProjects))
-              .isEmpty());
+    ASSERT_TRUE(reopened.load());
+    EXPECT_TRUE(
+        reopened.stringListValue(QString::fromLatin1(torquebus::services::keys::kRecentProjects))
+            .isEmpty());
 }
 
-TEST_CASE("A hand-edited settings file cannot put rubbish in the menu", "[recent]")
+TEST(RecentProjectsTests, AHandEditedSettingsFileCannotPutRubbishInTheMenu)
 {
     // The settings file is JSON on purpose, so somebody will edit it. Blanks,
     // duplicates and a list longer than the maximum are all cleaned on the way
@@ -199,15 +200,15 @@ TEST_CASE("A hand-edited settings file cannot put rubbish in the menu", "[recent
 
     const RecentProjects recent{settings.store()};
 
-    CHECK(recent.paths().size() == RecentProjects::kMaximum);
-    CHECK(recent.paths().first().endsWith(QStringLiteral("real.tbsproj")));
+    EXPECT_TRUE(recent.paths().size() == RecentProjects::kMaximum);
+    EXPECT_TRUE(recent.paths().first().endsWith(QStringLiteral("real.tbsproj")));
 
     for (const QString& path : recent.paths()) {
-        CHECK_FALSE(path.trimmed().isEmpty());
+        EXPECT_FALSE(path.trimmed().isEmpty());
     }
 }
 
-TEST_CASE("A string list survives being stored and read back", "[settings]")
+TEST(RecentProjectsTests, AStringListSurvivesBeingStoredAndReadBack)
 {
     // Stored as a JSON array rather than a joined string, so a path containing
     // a semicolon - legal on every platform this runs on - cannot split in two.
@@ -217,10 +218,10 @@ TEST_CASE("A string list survives being stored and read back", "[settings]")
                                QStringLiteral("/home/me/c.tbsproj")};
 
     settings.store().setStringListValue(QStringLiteral("test/list"), original);
-    REQUIRE(settings.store().save());
+    ASSERT_TRUE(settings.store().save());
 
     SettingsStore reopened{settings.store().filePath()};
-    REQUIRE(reopened.load());
+    ASSERT_TRUE(reopened.load());
 
-    CHECK(reopened.stringListValue(QStringLiteral("test/list")) == original);
+    EXPECT_TRUE(reopened.stringListValue(QStringLiteral("test/list")) == original);
 }

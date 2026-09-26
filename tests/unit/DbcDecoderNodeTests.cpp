@@ -9,7 +9,7 @@
 // this milestone actually added, which is that Signals is a port type the
 // executor can carry and typecheck.
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include "core/database/DbcParser.h"
 #include "core/pipeline/PipelineGraph.h"
@@ -36,7 +36,7 @@ BO_ 258 EngineTemp: 8 ECU
 [[nodiscard]] std::shared_ptr<CanDatabase> vehicleDatabase()
 {
     auto database = std::make_shared<CanDatabase>();
-    REQUIRE(DbcParser::parse(kVehicle, *database).succeeded());
+    EXPECT_TRUE(DbcParser::parse(kVehicle, *database).succeeded());
     return database;
 }
 
@@ -137,9 +137,9 @@ public:
                 }
             }));
 
-        REQUIRE(m_graph.connect(PortRef{source, 0}, PortRef{decoderId, 0}).succeeded());
-        REQUIRE(m_graph.connect(PortRef{decoderId, 0}, PortRef{sink, 0}).succeeded());
-        REQUIRE(m_graph.compile().succeeded());
+        EXPECT_TRUE(m_graph.connect(PortRef{source, 0}, PortRef{decoderId, 0}).succeeded());
+        EXPECT_TRUE(m_graph.connect(PortRef{decoderId, 0}, PortRef{sink, 0}).succeeded());
+        EXPECT_TRUE(m_graph.compile().succeeded());
 
         m_graph.execute();
     }
@@ -163,28 +163,28 @@ private:
 
 } // namespace
 
-TEST_CASE("Frames go in and named signal values come out", "[dbc][pipeline]")
+TEST(DbcDecoderNodeTests, FramesGoInAndNamedSignalValuesComeOut)
 {
     // 850 raw at 0.1 is 85.0 km/h; 0x6E unsigned with offset -40 is 70 degC.
     const DecodedPass pass{vehicleDatabase(),
                            {frame(0x101, {0x52, 0x03}), frame(0x102, {0x6E, 0x02})}};
     const std::vector<Captured>& captured = pass.captured();
 
-    REQUIRE(captured.size() == 3);
+    ASSERT_TRUE(captured.size() == 3);
 
-    CHECK(captured[0].message == "VehicleSpeed");
-    CHECK(captured[0].name == "SpeedKmh");
-    CHECK(near(captured[0].value, 85.0));
-    CHECK(captured[0].raw == 850);
+    EXPECT_TRUE(captured[0].message == "VehicleSpeed");
+    EXPECT_TRUE(captured[0].name == "SpeedKmh");
+    EXPECT_TRUE(near(captured[0].value, 85.0));
+    EXPECT_TRUE(captured[0].raw == 850);
 
-    CHECK(captured[1].name == "EngTemp");
-    CHECK(near(captured[1].value, 70.0));
+    EXPECT_TRUE(captured[1].name == "EngTemp");
+    EXPECT_TRUE(near(captured[1].value, 70.0));
 
-    CHECK(captured[2].name == "Warning");
-    CHECK(near(captured[2].value, 2.0));
+    EXPECT_TRUE(captured[2].name == "Warning");
+    EXPECT_TRUE(near(captured[2].value, 2.0));
 }
 
-TEST_CASE("A frame the database does not describe is counted, not decoded", "[dbc][pipeline]")
+TEST(DbcDecoderNodeTests, AFrameTheDatabaseDoesNotDescribeIsCountedNotDecoded)
 {
     // Most traffic on a real bus is outside any one database. Logging each one
     // would bury the line that mattered; a count that reaches 100% of the
@@ -193,13 +193,13 @@ TEST_CASE("A frame the database does not describe is counted, not decoded", "[db
         vehicleDatabase(),
         {frame(0x101, {0x52, 0x03}), frame(0x7FF, {0xFF}), frame(0x300, {0x01})}};
 
-    CHECK(pass.captured().size() == 1);
-    CHECK(pass.decoder().decodedFrames() == 1);
-    CHECK(pass.decoder().unknownFrames() == 2);
-    CHECK(pass.decoder().emittedSignals() == 1);
+    EXPECT_TRUE(pass.captured().size() == 1);
+    EXPECT_TRUE(pass.decoder().decodedFrames() == 1);
+    EXPECT_TRUE(pass.decoder().unknownFrames() == 2);
+    EXPECT_TRUE(pass.decoder().emittedSignals() == 1);
 }
 
-TEST_CASE("A frame shorter than the database says is flagged, not silently zero", "[dbc][pipeline]")
+TEST(DbcDecoderNodeTests, AFrameShorterThanTheDatabaseSaysIsFlaggedNotSilentlyZero)
 {
     // The distinction a decoder returning only a number would destroy: "the
     // sensor reads zero" and "we could not read the sensor" have to look
@@ -207,15 +207,15 @@ TEST_CASE("A frame shorter than the database says is flagged, not silently zero"
     // a fault in the setup.
     const DecodedPass pass{vehicleDatabase(), {frame(0x101, {0x52})}};
 
-    REQUIRE(pass.captured().size() == 1);
-    CHECK(pass.captured()[0].name == "SpeedKmh");
-    CHECK(pass.captured()[0].truncated);
-    CHECK(pass.captured()[0].raw == 0);
+    ASSERT_TRUE(pass.captured().size() == 1);
+    EXPECT_TRUE(pass.captured()[0].name == "SpeedKmh");
+    EXPECT_TRUE(pass.captured()[0].truncated);
+    EXPECT_TRUE(pass.captured()[0].raw == 0);
 
-    CHECK(pass.decoder().truncatedSignals() == 1);
+    EXPECT_TRUE(pass.decoder().truncatedSignals() == 1);
 }
 
-TEST_CASE("Remote and error frames carry nothing to decode", "[dbc][pipeline]")
+TEST(DbcDecoderNodeTests, RemoteAndErrorFramesCarryNothingToDecode)
 {
     // A remote frame has a length but no payload. Decoding it would produce a
     // full set of plausible zeroes, which is the worst possible output: it
@@ -228,15 +228,15 @@ TEST_CASE("Remote and error frames carry nothing to decode", "[dbc][pipeline]")
 
     const DecodedPass pass{vehicleDatabase(), {remote, errored}};
 
-    CHECK(pass.captured().empty());
+    EXPECT_TRUE(pass.captured().empty());
 
     // And they are not counted as unknown either - the database knows them
     // perfectly well.
-    CHECK(pass.decoder().unknownFrames() == 0);
-    CHECK(pass.decoder().decodedFrames() == 0);
+    EXPECT_TRUE(pass.decoder().unknownFrames() == 0);
+    EXPECT_TRUE(pass.decoder().decodedFrames() == 0);
 }
 
-TEST_CASE("A Signals output cannot be wired to a Frames input", "[dbc][pipeline][types]")
+TEST(DbcDecoderNodeTests, ASignalsOutputCannotBeWiredToAFramesInput)
 {
     // The reason PortType exists, and the first time it has had two producers
     // to tell apart. A decoder emits signals; a channel transmits frames.
@@ -252,38 +252,38 @@ TEST_CASE("A Signals output cannot be wired to a Frames input", "[dbc][pipeline]
         std::make_unique<SignalSinkNode>([](std::span<const DecodedSignal>) { }, "signals"));
 
     const Result mismatch = graph.connect(PortRef{decoder, 0}, PortRef{frameSink, 0});
-    CHECK(mismatch.failed());
+    EXPECT_TRUE(mismatch.failed());
 
     // The message has to name both types, or it sends the reader back to the
     // header to work out what they wired together.
     const std::string message{mismatch.message()};
-    CHECK(message.find("Signals") != std::string::npos);
-    CHECK(message.find("Frames") != std::string::npos);
+    EXPECT_TRUE(message.find("Signals") != std::string::npos);
+    EXPECT_TRUE(message.find("Frames") != std::string::npos);
 
-    CHECK(graph.connect(PortRef{decoder, 0}, PortRef{signalSink, 0}).succeeded());
+    EXPECT_TRUE(graph.connect(PortRef{decoder, 0}, PortRef{signalSink, 0}).succeeded());
 }
 
-TEST_CASE("A decoder with no database compiles and decodes nothing", "[dbc][pipeline]")
+TEST(DbcDecoderNodeTests, ADecoderWithNoDatabaseCompilesAndDecodesNothing)
 {
     // What a block just dropped on the canvas is. Refusing to compile would
     // mean a project can only be built up in one order, which is not how
     // anybody uses a diagram.
     const DecodedPass pass{nullptr, {frame(0x101, {0x52, 0x03})}};
 
-    CHECK(pass.captured().empty());
+    EXPECT_TRUE(pass.captured().empty());
 }
 
-TEST_CASE("A multiplexed message emits only the signals the frame carries", "[dbc][pipeline]")
+TEST(DbcDecoderNodeTests, AMultiplexedMessageEmitsOnlyTheSignalsTheFrameCarries)
 {
     auto database = std::make_shared<CanDatabase>();
-    REQUIRE(DbcParser::parse(R"(
+    ASSERT_TRUE(DbcParser::parse(R"(
 BO_ 300 Muxed: 8 ECU
  SG_ Page M : 0|8@1+ (1,0) [0|255] "" ECM
  SG_ Voltage m0 : 8|16@1+ (0.001,0) [0|65.535] "V" ECM
  SG_ Current m1 : 8|16@1+ (0.01,-100) [-100|555.35] "A" ECM
 )",
-                             *database)
-                .succeeded());
+                                 *database)
+                    .succeeded());
 
     // Page 0 then page 1, in one batch, from the same bytes. The switch has to
     // be read per frame, not once per pass.
@@ -291,22 +291,21 @@ BO_ 300 Muxed: 8 ECU
                            {frame(0x12C, {0x00, 0xE8, 0x03}), frame(0x12C, {0x01, 0xE8, 0x03})}};
     const std::vector<Captured>& captured = pass.captured();
 
-    REQUIRE(captured.size() == 4);
-    CHECK(captured[1].name == "Voltage");
-    CHECK(near(captured[1].value, 1.0));
-    CHECK(captured[3].name == "Current");
-    CHECK(near(captured[3].value, -90.0));
+    ASSERT_TRUE(captured.size() == 4);
+    EXPECT_TRUE(captured[1].name == "Voltage");
+    EXPECT_TRUE(near(captured[1].value, 1.0));
+    EXPECT_TRUE(captured[3].name == "Current");
+    EXPECT_TRUE(near(captured[3].value, -90.0));
 }
 
-TEST_CASE("The buffer is sized for the worst case, so a full batch is not clipped",
-          "[dbc][pipeline]")
+TEST(DbcDecoderNodeTests, TheBufferIsSizedForTheWorstCaseSoAFullBatchIsNotClipped)
 {
     // A decoder that quietly stops decoding when the bus gets busy is worse
     // than no decoder, because the gap looks like the signal went away. This
     // fills a batch with the widest message in the database and checks that
     // every signal of every frame came out.
     auto database = std::make_shared<CanDatabase>();
-    REQUIRE(DbcParser::parse(kVehicle, *database).succeeded());
+    ASSERT_TRUE(DbcParser::parse(kVehicle, *database).succeeded());
 
     constexpr std::size_t kFrames = 512;
     std::vector<CanFrame> frames;
@@ -318,6 +317,6 @@ TEST_CASE("The buffer is sized for the worst case, so a full batch is not clippe
     const DecodedPass pass{database, std::move(frames)};
 
     // EngineTemp carries two signals.
-    CHECK(pass.captured().size() == kFrames * 2);
-    CHECK(pass.decoder().emittedSignals() == kFrames * 2);
+    EXPECT_TRUE(pass.captured().size() == kFrames * 2);
+    EXPECT_TRUE(pass.decoder().emittedSignals() == kFrames * 2);
 }

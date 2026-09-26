@@ -5,7 +5,7 @@
 
 #include "core/can/CanFrame.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <cstring>
 
@@ -30,104 +30,99 @@ CanFrame makeFrame(std::uint32_t identifier, CanFrameFormat format, std::uint8_t
 
 } // namespace
 
-TEST_CASE("CanFrame stays cheap to copy", "[canframe]")
+TEST(CanFrameTests, CanFrameStaysCheapToCopy)
 {
     // Rule #5: the pipeline moves millions of these. The moment CanFrame stops
     // being trivially copyable, the trace store stops being a flat buffer.
-    STATIC_REQUIRE(std::is_trivially_copyable_v<CanFrame>);
-    STATIC_REQUIRE(sizeof(CanFrame) <= 96);
+    static_assert(std::is_trivially_copyable_v<CanFrame>);
+    static_assert(sizeof(CanFrame) <= 96);
 }
 
-TEST_CASE("A default frame is a zeroed standard Rx frame", "[canframe]")
+TEST(CanFrameTests, ADefaultFrameIsAZeroedStandardRxFrame)
 {
     const CanFrame frame;
 
-    CHECK(frame.identifier == 0);
-    CHECK(frame.length == 0);
-    CHECK(frame.dlc == 0);
-    CHECK(frame.direction == CanDirection::Rx);
-    CHECK(frame.format == CanFrameFormat::Standard);
-    CHECK_FALSE(frame.fd);
-    CHECK_FALSE(frame.isExtended());
-    CHECK(frame.isRx());
+    EXPECT_TRUE(frame.identifier == 0);
+    EXPECT_TRUE(frame.length == 0);
+    EXPECT_TRUE(frame.dlc == 0);
+    EXPECT_TRUE(frame.direction == CanDirection::Rx);
+    EXPECT_TRUE(frame.format == CanFrameFormat::Standard);
+    EXPECT_FALSE(frame.fd);
+    EXPECT_FALSE(frame.isExtended());
+    EXPECT_TRUE(frame.isRx());
 }
 
-TEST_CASE("DLC expansion follows ISO 11898-1", "[canframe][dlc]")
+TEST(CanFrameTests, DLCExpansionFollowsISO118981)
 {
-    SECTION("classic CAN never exceeds eight bytes")
     {
         for (std::uint8_t dlc = 0; dlc <= 8; ++dlc) {
-            CHECK(payloadLengthFromDlc(dlc, false) == dlc);
+            EXPECT_TRUE(payloadLengthFromDlc(dlc, false) == dlc);
         }
         for (std::uint8_t dlc = 9; dlc <= 15; ++dlc) {
-            CHECK(payloadLengthFromDlc(dlc, false) == 8);
+            EXPECT_TRUE(payloadLengthFromDlc(dlc, false) == 8);
         }
     }
-
-    SECTION("CAN FD uses the quantised steps")
     {
-        CHECK(payloadLengthFromDlc(8, true) == 8);
-        CHECK(payloadLengthFromDlc(9, true) == 12);
-        CHECK(payloadLengthFromDlc(10, true) == 16);
-        CHECK(payloadLengthFromDlc(11, true) == 20);
-        CHECK(payloadLengthFromDlc(12, true) == 24);
-        CHECK(payloadLengthFromDlc(13, true) == 32);
-        CHECK(payloadLengthFromDlc(14, true) == 48);
-        CHECK(payloadLengthFromDlc(15, true) == 64);
+        EXPECT_TRUE(payloadLengthFromDlc(8, true) == 8);
+        EXPECT_TRUE(payloadLengthFromDlc(9, true) == 12);
+        EXPECT_TRUE(payloadLengthFromDlc(10, true) == 16);
+        EXPECT_TRUE(payloadLengthFromDlc(11, true) == 20);
+        EXPECT_TRUE(payloadLengthFromDlc(12, true) == 24);
+        EXPECT_TRUE(payloadLengthFromDlc(13, true) == 32);
+        EXPECT_TRUE(payloadLengthFromDlc(14, true) == 48);
+        EXPECT_TRUE(payloadLengthFromDlc(15, true) == 64);
     }
-
-    SECTION("length -> DLC -> length is stable on the exact steps")
     {
         for (const int step : {0, 1, 8, 12, 16, 20, 24, 32, 48, 64}) {
             const auto length = static_cast<std::uint8_t>(step);
             const std::uint8_t dlc = dlcFromPayloadLength(length, true);
-            CHECK(payloadLengthFromDlc(dlc, true) == length);
+            EXPECT_TRUE(payloadLengthFromDlc(dlc, true) == length);
         }
     }
-
-    SECTION("a length between two steps rounds up, never down")
     {
         // Rounding down would silently truncate the payload of a CAN FD frame,
         // which is the kind of bug that only shows up on a real ECU.
-        CHECK(payloadLengthFromDlc(dlcFromPayloadLength(9, true), true) == 12);
-        CHECK(payloadLengthFromDlc(dlcFromPayloadLength(33, true), true) == 48);
-        CHECK(payloadLengthFromDlc(dlcFromPayloadLength(63, true), true) == 64);
+        EXPECT_TRUE(payloadLengthFromDlc(dlcFromPayloadLength(9, true), true) == 12);
+        EXPECT_TRUE(payloadLengthFromDlc(dlcFromPayloadLength(33, true), true) == 48);
+        EXPECT_TRUE(payloadLengthFromDlc(dlcFromPayloadLength(63, true), true) == 64);
     }
 }
 
-TEST_CASE("Identifier validation respects the frame format", "[canframe][identifier]")
+TEST(CanFrameTests, IdentifierValidationRespectsTheFrameFormat)
 {
-    CHECK(isValidIdentifier(0x000, CanFrameFormat::Standard));
-    CHECK(isValidIdentifier(0x7FF, CanFrameFormat::Standard));
-    CHECK_FALSE(isValidIdentifier(0x800, CanFrameFormat::Standard));
+    EXPECT_TRUE(isValidIdentifier(0x000, CanFrameFormat::Standard));
+    EXPECT_TRUE(isValidIdentifier(0x7FF, CanFrameFormat::Standard));
+    EXPECT_FALSE(isValidIdentifier(0x800, CanFrameFormat::Standard));
 
-    CHECK(isValidIdentifier(0x800, CanFrameFormat::Extended));
-    CHECK(isValidIdentifier(0x1FFF'FFFF, CanFrameFormat::Extended));
-    CHECK_FALSE(isValidIdentifier(0x2000'0000, CanFrameFormat::Extended));
+    EXPECT_TRUE(isValidIdentifier(0x800, CanFrameFormat::Extended));
+    EXPECT_TRUE(isValidIdentifier(0x1FFF'FFFF, CanFrameFormat::Extended));
+    EXPECT_FALSE(isValidIdentifier(0x2000'0000, CanFrameFormat::Extended));
 }
 
-TEST_CASE("Identifiers are formatted the way automotive tools print them", "[canframe][format]")
+TEST(CanFrameTests, IdentifiersAreFormattedTheWayAutomotiveToolsPrintThem)
 {
-    CHECK(toIdentifierString(makeFrame(0x100, CanFrameFormat::Standard, 0)) == "100");
-    CHECK(toIdentifierString(makeFrame(0x7, CanFrameFormat::Standard, 0)) == "007");
-    CHECK(toIdentifierString(makeFrame(0x18FF50E5, CanFrameFormat::Extended, 0)) == "18FF50E5");
-    CHECK(toIdentifierString(makeFrame(0xCF00400, CanFrameFormat::Extended, 0)) == "0CF00400");
+    EXPECT_TRUE(toIdentifierString(makeFrame(0x100, CanFrameFormat::Standard, 0)) == "100");
+    EXPECT_TRUE(toIdentifierString(makeFrame(0x7, CanFrameFormat::Standard, 0)) == "007");
+    EXPECT_TRUE(toIdentifierString(makeFrame(0x18FF50E5, CanFrameFormat::Extended, 0))
+                == "18FF50E5");
+    EXPECT_TRUE(toIdentifierString(makeFrame(0xCF00400, CanFrameFormat::Extended, 0))
+                == "0CF00400");
 }
 
-TEST_CASE("Payloads are formatted as spaced uppercase hex", "[canframe][format]")
+TEST(CanFrameTests, PayloadsAreFormattedAsSpacedUppercaseHex)
 {
-    CHECK(toHexString(makeFrame(0x100, CanFrameFormat::Standard, 0)).empty());
-    CHECK(toHexString(makeFrame(0x100, CanFrameFormat::Standard, 1)) == "01");
-    CHECK(toHexString(makeFrame(0x100, CanFrameFormat::Standard, 4)) == "01 02 03 04");
+    EXPECT_TRUE(toHexString(makeFrame(0x100, CanFrameFormat::Standard, 0)).empty());
+    EXPECT_TRUE(toHexString(makeFrame(0x100, CanFrameFormat::Standard, 1)) == "01");
+    EXPECT_TRUE(toHexString(makeFrame(0x100, CanFrameFormat::Standard, 4)) == "01 02 03 04");
 
     CanFrame frame = makeFrame(0x100, CanFrameFormat::Standard, 3);
     frame.data[0] = 0x00;
     frame.data[1] = 0xAB;
     frame.data[2] = 0xFF;
-    CHECK(toHexString(frame) == "00 AB FF");
+    EXPECT_TRUE(toHexString(frame) == "00 AB FF");
 }
 
-TEST_CASE("Bus load accounting counts overhead, payload and stuffing", "[canframe][statistics]")
+TEST(CanFrameTests, BusLoadAccountingCountsOverheadPayloadAndStuffing)
 {
     const CanFrame standard = makeFrame(0x100, CanFrameFormat::Standard, 8);
     const CanFrame extended = makeFrame(0x18FF50E5, CanFrameFormat::Extended, 8);
@@ -142,11 +137,11 @@ TEST_CASE("Bus load accounting counts overhead, payload and stuffing", "[canfram
     // The bound here used to be `< 130`, which excluded the value the function
     // actually produces - the comment had confused 111 bits (unstuffed) with
     // the worst case, and the number was picked to match the confusion.
-    CHECK(standardBits > 47 + 64);
-    CHECK(standardBits <= 135);
-    CHECK(extendedBits > standardBits);
+    EXPECT_TRUE(standardBits > 47 + 64);
+    EXPECT_TRUE(standardBits <= 135);
+    EXPECT_TRUE(extendedBits > standardBits);
 
     // An empty frame still costs its overhead: a bus flooded with zero-length
     // frames is not a free bus.
-    CHECK(approximateFrameBitCount(makeFrame(0x100, CanFrameFormat::Standard, 0)) > 40);
+    EXPECT_TRUE(approximateFrameBitCount(makeFrame(0x100, CanFrameFormat::Standard, 0)) > 40);
 }

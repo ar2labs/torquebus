@@ -36,7 +36,7 @@ rmdir /s /q build
 cmake --preset windows-msvc-debug
 ```
 
-The first configure clones KDDockWidgets 2.2.5, QtNodes 3.0.16 and Catch2 3.7.1,
+The first configure clones KDDockWidgets 2.2.5, QtNodes 3.0.16 and GoogleTest 1.15.2,
 so it needs network access and takes a few minutes.
 
 **Worked:** the summary block at the end reads, with the version being the last
@@ -86,7 +86,7 @@ one is a new mistake.
 ## 3. Tests
 
 Step 2 has to have run. `ctest` on an unbuilt tree reports three failures named
-`<target>_NOT_BUILT-<hash>` - that is Catch2's placeholder for "this executable
+`<target>_NOT_BUILT` - that is GoogleTest's placeholder for "this executable
 does not exist yet", not a broken test.
 
 ```bat

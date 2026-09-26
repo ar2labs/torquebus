@@ -12,7 +12,7 @@
 #include "core/database/CanSignal.h"
 #include "core/plot/SignalSeries.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <array>
 #include <atomic>
@@ -63,22 +63,22 @@ struct Definitions final {
 
 } // namespace
 
-TEST_CASE("A fresh series holds nothing and claims no range", "[plot]")
+TEST(SignalSeriesTests, AFreshSeriesHoldsNothingAndClaimsNoRange)
 {
     const SignalSeries series{"EngineData.EngineSpeed", "rpm", 8};
 
-    CHECK(series.empty());
-    CHECK(series.size() == 0);
-    CHECK(series.capacity() == 8);
-    CHECK(series.discarded() == 0);
+    EXPECT_TRUE(series.empty());
+    EXPECT_TRUE(series.size() == 0);
+    EXPECT_TRUE(series.capacity() == 8);
+    EXPECT_TRUE(series.discarded() == 0);
 
     // Not ±infinity. An empty series that claimed a range would give an axis
     // to a plot with nothing on it.
-    CHECK(series.minimum() == 0.0);
-    CHECK(series.maximum() == 0.0);
+    EXPECT_TRUE(series.minimum() == 0.0);
+    EXPECT_TRUE(series.maximum() == 0.0);
 }
 
-TEST_CASE("Samples come back oldest first", "[plot]")
+TEST(SignalSeriesTests, SamplesComeBackOldestFirst)
 {
     SignalSeries series{"s", "", 8};
 
@@ -86,14 +86,14 @@ TEST_CASE("Samples come back oldest first", "[plot]")
     series.append(20, 2.0);
     series.append(30, 3.0);
 
-    REQUIRE(series.size() == 3);
-    CHECK(series.at(0).timestampNs == 10);
-    CHECK(series.at(2).timestampNs == 30);
-    CHECK(series.oldest().value == 1.0);
-    CHECK(series.newest().value == 3.0);
+    ASSERT_TRUE(series.size() == 3);
+    EXPECT_TRUE(series.at(0).timestampNs == 10);
+    EXPECT_TRUE(series.at(2).timestampNs == 30);
+    EXPECT_TRUE(series.oldest().value == 1.0);
+    EXPECT_TRUE(series.newest().value == 3.0);
 }
 
-TEST_CASE("A full ring drops the oldest and counts it", "[plot]")
+TEST(SignalSeriesTests, AFullRingDropsTheOldestAndCountsIt)
 {
     SignalSeries series{"s", "", 4};
 
@@ -103,15 +103,15 @@ TEST_CASE("A full ring drops the oldest and counts it", "[plot]")
 
     // Bounded: a measurement left running overnight must not decide how much
     // memory the application uses.
-    CHECK(series.size() == 4);
-    CHECK(series.discarded() == 6);
+    EXPECT_TRUE(series.size() == 4);
+    EXPECT_TRUE(series.discarded() == 6);
 
     // And it is the *oldest* that went.
-    CHECK(series.oldest().timestampNs == 6);
-    CHECK(series.newest().timestampNs == 9);
+    EXPECT_TRUE(series.oldest().timestampNs == 6);
+    EXPECT_TRUE(series.newest().timestampNs == 9);
 }
 
-TEST_CASE("The range does not shrink as history falls off the back", "[plot]")
+TEST(SignalSeriesTests, TheRangeDoesNotShrinkAsHistoryFallsOffTheBack)
 {
     // Deliberately an over-estimate. An axis that shrank as the peak aged out
     // would make a steady signal look like it was growing - which is a lie
@@ -124,12 +124,12 @@ TEST_CASE("The range does not shrink as history falls off the back", "[plot]")
         series.append(index, 5.0);
     }
 
-    CHECK(series.discarded() > 0);
-    CHECK(series.maximum() == 100.0);
-    CHECK(series.minimum() == 5.0);
+    EXPECT_TRUE(series.discarded() > 0);
+    EXPECT_TRUE(series.maximum() == 100.0);
+    EXPECT_TRUE(series.minimum() == 5.0);
 }
 
-TEST_CASE("A window copies the samples at or after its start", "[plot]")
+TEST(SignalSeriesTests, AWindowCopiesTheSamplesAtOrAfterItsStart)
 {
     SignalSeries series{"s", "", 16};
 
@@ -141,17 +141,17 @@ TEST_CASE("A window copies the samples at or after its start", "[plot]")
 
     const std::size_t copied = series.copySince(500, buffer);
 
-    REQUIRE(copied == 5);
-    CHECK(buffer[0].timestampNs == 500);
-    CHECK(buffer[4].timestampNs == 900);
+    ASSERT_TRUE(copied == 5);
+    EXPECT_TRUE(buffer[0].timestampNs == 500);
+    EXPECT_TRUE(buffer[4].timestampNs == 900);
 
     // A start before everything is the whole series; a start after everything
     // is nothing. Both are ordinary while a plot is being scrolled.
-    CHECK(series.copySince(0, buffer) == 10);
-    CHECK(series.copySince(10'000, buffer) == 0);
+    EXPECT_TRUE(series.copySince(0, buffer) == 10);
+    EXPECT_TRUE(series.copySince(10'000, buffer) == 0);
 }
 
-TEST_CASE("A window too small keeps the newest samples", "[plot]")
+TEST(SignalSeriesTests, AWindowTooSmallKeepsTheNewestSamples)
 {
     // A plot that fell behind should show what is happening now, not where the
     // window began. Keeping the oldest would freeze the line at the moment the
@@ -164,12 +164,12 @@ TEST_CASE("A window too small keeps the newest samples", "[plot]")
 
     std::array<SignalSample, 3> buffer{};
 
-    REQUIRE(series.copySince(0, buffer) == 3);
-    CHECK(buffer[0].timestampNs == 17);
-    CHECK(buffer[2].timestampNs == 19);
+    ASSERT_TRUE(series.copySince(0, buffer) == 3);
+    EXPECT_TRUE(buffer[0].timestampNs == 17);
+    EXPECT_TRUE(buffer[2].timestampNs == 19);
 }
 
-TEST_CASE("A window over a wrapped ring reads in time order", "[plot]")
+TEST(SignalSeriesTests, AWindowOverAWrappedRingReadsInTimeOrder)
 {
     // The case the bisection in copySince has to survive: the newest sample is
     // physically before the oldest one in the underlying vector.
@@ -179,19 +179,19 @@ TEST_CASE("A window over a wrapped ring reads in time order", "[plot]")
         series.append(index * 10, static_cast<double>(index));
     }
 
-    REQUIRE(series.size() == 4);
+    ASSERT_TRUE(series.size() == 4);
 
     std::array<SignalSample, 8> buffer{};
     const std::size_t copied = series.copySince(0, buffer);
 
-    REQUIRE(copied == 4);
+    ASSERT_TRUE(copied == 4);
     for (std::size_t index = 1; index < copied; ++index) {
-        INFO("index " << index);
-        CHECK(buffer[index].timestampNs > buffer[index - 1].timestampNs);
+        SCOPED_TRACE(::testing::Message() << "index " << index);
+        EXPECT_TRUE(buffer[index].timestampNs > buffer[index - 1].timestampNs);
     }
 }
 
-TEST_CASE("A store gives each signal its own history", "[plot][store]")
+TEST(SignalSeriesTests, AStoreGivesEachSignalItsOwnHistory)
 {
     const Definitions definitions;
     SignalSeriesStore store{16};
@@ -204,26 +204,26 @@ TEST_CASE("A store gives each signal its own history", "[plot][store]")
 
     store.append(batch);
 
-    REQUIRE(store.seriesCount() == 2);
+    ASSERT_TRUE(store.seriesCount() == 2);
 
     const SeriesId speed = store.find("EngineData.EngineSpeed");
-    REQUIRE(speed != kNoSeries);
+    ASSERT_TRUE(speed != kNoSeries);
 
     const std::vector<SeriesInfo> infos = store.listSeries();
-    REQUIRE(infos.size() == 2);
-    CHECK(infos[speed].size == 2);
-    CHECK(infos[speed].unit == "rpm");
+    ASSERT_TRUE(infos.size() == 2);
+    EXPECT_TRUE(infos[speed].size == 2);
+    EXPECT_TRUE(infos[speed].unit == "rpm");
 
     const SeriesId temperature = store.find("EngineData.CoolantTemp");
-    REQUIRE(temperature != kNoSeries);
-    CHECK(infos[temperature].size == 1);
+    ASSERT_TRUE(temperature != kNoSeries);
+    EXPECT_TRUE(infos[temperature].size == 1);
 
     // Qualified by the message, because two databases can use one name for two
     // different things and a legend showing "Speed" twice would be unreadable.
-    CHECK(store.find("EngineSpeed") == kNoSeries);
+    EXPECT_TRUE(store.find("EngineSpeed") == kNoSeries);
 }
 
-TEST_CASE("A signal too short to read is counted, not plotted as zero", "[plot][store]")
+TEST(SignalSeriesTests, ASignalTooShortToReadIsCountedNotPlottedAsZero)
 {
     // The distinction DecodedSignal::truncated exists to preserve. A frame that
     // could not hold the signal did not report zero; a line drawn through those
@@ -240,18 +240,18 @@ TEST_CASE("A signal too short to read is counted, not plotted as zero", "[plot][
     store.append(batch);
 
     const SeriesId speed = store.find("EngineData.EngineSpeed");
-    REQUIRE(speed != kNoSeries);
+    ASSERT_TRUE(speed != kNoSeries);
 
     std::vector<SeriesWindow> windows;
     store.readWindows(std::array<SeriesId, 1>{speed}, 0, 64, windows);
 
-    REQUIRE(windows.size() == 1);
-    CHECK(windows[0].samples.size() == 2);
-    CHECK(windows[0].minimum == 800.0);
-    CHECK(store.truncated() == 1);
+    ASSERT_TRUE(windows.size() == 1);
+    EXPECT_TRUE(windows[0].samples.size() == 2);
+    EXPECT_TRUE(windows[0].minimum == 800.0);
+    EXPECT_TRUE(store.truncated() == 1);
 }
 
-TEST_CASE("Series keep their order of first sighting", "[plot][store]")
+TEST(SignalSeriesTests, SeriesKeepTheirOrderOfFirstSighting)
 {
     // So a legend's order is the order the bus introduced the signals, rather
     // than a hash - two runs of the same measurement should read the same way.
@@ -264,12 +264,12 @@ TEST_CASE("Series keep their order of first sighting", "[plot][store]")
     });
 
     const std::vector<SeriesInfo> infos = store.listSeries();
-    REQUIRE(infos.size() == 2);
-    CHECK(infos[0].name == "EngineData.CoolantTemp");
-    CHECK(infos[1].name == "EngineData.EngineSpeed");
+    ASSERT_TRUE(infos.size() == 2);
+    EXPECT_TRUE(infos[0].name == "EngineData.CoolantTemp");
+    EXPECT_TRUE(infos[1].name == "EngineData.EngineSpeed");
 }
 
-TEST_CASE("Clearing samples keeps the signals", "[plot][store]")
+TEST(SignalSeriesTests, ClearingSamplesKeepsTheSignals)
 {
     // Restarting a measurement must not lose the plot's selection and colours,
     // which are keyed by series. A new *project* is what reset() is for.
@@ -277,19 +277,19 @@ TEST_CASE("Clearing samples keeps the signals", "[plot][store]")
     SignalSeriesStore store{16};
 
     store.append(std::vector<DecodedSignal>{sample(definitions, definitions.speed, 10, 700.0)});
-    REQUIRE(store.seriesCount() == 1);
+    ASSERT_TRUE(store.seriesCount() == 1);
 
     store.clearSamples();
-    CHECK(store.seriesCount() == 1);
-    CHECK(store.listSeries()[0].size == 0);
-    CHECK(store.truncated() == 0);
+    EXPECT_TRUE(store.seriesCount() == 1);
+    EXPECT_TRUE(store.listSeries()[0].size == 0);
+    EXPECT_TRUE(store.truncated() == 0);
 
     store.reset();
-    CHECK(store.seriesCount() == 0);
-    CHECK(store.find("EngineData.EngineSpeed") == kNoSeries);
+    EXPECT_TRUE(store.seriesCount() == 0);
+    EXPECT_TRUE(store.find("EngineData.EngineSpeed") == kNoSeries);
 }
 
-TEST_CASE("A store survives a database being swapped underneath it", "[plot][store]")
+TEST(SignalSeriesTests, AStoreSurvivesADatabaseBeingSwappedUnderneathIt)
 {
     // The reason names are copied on first sighting rather than read through
     // the definition pointer. Reloading a .dbc mid-measurement is an ordinary
@@ -304,19 +304,19 @@ TEST_CASE("A store survives a database being swapped underneath it", "[plot][sto
 
     // The definitions are gone. The series is not.
     const SeriesId speed = store.find("EngineData.EngineSpeed");
-    REQUIRE(speed != kNoSeries);
+    ASSERT_TRUE(speed != kNoSeries);
 
     std::vector<SeriesWindow> windows;
     store.readWindows(std::array<SeriesId, 1>{speed}, 0, 64, windows);
 
-    REQUIRE(windows.size() == 1);
-    CHECK(windows[0].name == "EngineData.EngineSpeed");
-    CHECK(windows[0].unit == "rpm");
-    REQUIRE(windows[0].samples.size() == 1);
-    CHECK(windows[0].samples[0].value == 700.0);
+    ASSERT_TRUE(windows.size() == 1);
+    EXPECT_TRUE(windows[0].name == "EngineData.EngineSpeed");
+    EXPECT_TRUE(windows[0].unit == "rpm");
+    ASSERT_TRUE(windows[0].samples.size() == 1);
+    EXPECT_TRUE(windows[0].samples[0].value == 700.0);
 }
 
-TEST_CASE("Reading a window while the executor appends is safe", "[plot][store][threads]")
+TEST(SignalSeriesTests, ReadingAWindowWhileTheExecutorAppendsIsSafe)
 {
     // The claim the store's mutex exists to make, and the reason it exists at
     // all where TraceStore has none: a plot is read by *walking a ring*, and a
@@ -373,12 +373,13 @@ TEST_CASE("Reading a window while the executor appends is safe", "[plot][store][
             // Whatever was read has to be internally consistent: in time order,
             // and inside the range that was read alongside it.
             for (std::size_t index = 1; index < window.samples.size(); ++index) {
-                REQUIRE(window.samples[index].timestampNs >= window.samples[index - 1].timestampNs);
+                ASSERT_TRUE(window.samples[index].timestampNs
+                            >= window.samples[index - 1].timestampNs);
             }
 
             for (const SignalSample& point : window.samples) {
-                REQUIRE(point.value >= window.minimum);
-                REQUIRE(point.value <= window.maximum);
+                ASSERT_TRUE(point.value >= window.minimum);
+                ASSERT_TRUE(point.value <= window.maximum);
             }
         }
 
@@ -389,6 +390,6 @@ TEST_CASE("Reading a window while the executor appends is safe", "[plot][store][
     writer.join();
 
     // The test is worthless if it never actually read anything.
-    CHECK(reads > 10);
-    CHECK(store.discarded() > 0);
+    EXPECT_TRUE(reads > 10);
+    EXPECT_TRUE(store.discarded() > 0);
 }

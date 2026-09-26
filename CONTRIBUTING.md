@@ -190,21 +190,20 @@ the instantiation trace — so it is easy to read as a standard-library problem.
 GCC and Clang do not warn at all, because they still see the constant. Name the
 type at the call site.
 
-### `SECTION` re-runs the whole test body
+### `ASSERT_*` returns from the current function
 
-Catch2 runs a test case once per `SECTION`, from the top each time. A later
-section does not inherit anything a previous one did - not a wait, not a
-counter, not a side effect.
+GoogleTest implements `ASSERT_TRUE` and `ASSERT_FALSE` as an early `return;`
+from the current function. In a helper function that returns a value, or inside
+a constructor, use `EXPECT_TRUE` / `EXPECT_FALSE` instead so the compiler does
+not reject a bare `return;`.
 
-That is easy to forget in a test for asynchronous delivery:
+In tests for asynchronous delivery, always wait for the expected condition
+before asserting on the collected count:
 
 ```cpp
-REQUIRE(node.transmit(frame).succeeded());
+ASSERT_TRUE(node.transmit(frame).succeeded());
 
-SECTION("the receiver gets it")  { REQUIRE(receiver.waitFor(1)); ... }
-SECTION("the sender sees the echo") { REQUIRE(sender.count() == 1); }  // races
+ASSERT_TRUE(receiver.waitFor(1));
+ASSERT_TRUE(sender.waitFor(1));
+EXPECT_EQ(sender.count(), 1U);
 ```
-
-The second section transmits again, on its own pass, and checks a count that
-nothing has waited for. Every section that observes an asynchronous result needs
-its own wait.

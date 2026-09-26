@@ -5,41 +5,41 @@
 
 #include "core/Result.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 using namespace torquebus;
 
-TEST_CASE("A default-constructed Result is success", "[result]")
+TEST(ResultTests, ADefaultConstructedResultIsSuccess)
 {
     const Result result;
 
-    CHECK(result.succeeded());
-    CHECK_FALSE(result.failed());
-    CHECK(result.code() == ErrorCode::Ok);
-    CHECK(static_cast<bool>(result));
+    EXPECT_TRUE(result.succeeded());
+    EXPECT_FALSE(result.failed());
+    EXPECT_TRUE(result.code() == ErrorCode::Ok);
+    EXPECT_TRUE(static_cast<bool>(result));
 }
 
-TEST_CASE("A failure carries its code and its message", "[result]")
+TEST(ResultTests, AFailureCarriesItsCodeAndItsMessage)
 {
     const Result result =
         Result::error(ErrorCode::DeviceNotFound, "canOpenChannel: canERR_NOTFOUND (-3)");
 
-    CHECK(result.failed());
-    CHECK_FALSE(result.succeeded());
-    CHECK(result.code() == ErrorCode::DeviceNotFound);
-    CHECK(result.message() == "canOpenChannel: canERR_NOTFOUND (-3)");
-    CHECK_FALSE(static_cast<bool>(result));
+    EXPECT_TRUE(result.failed());
+    EXPECT_FALSE(result.succeeded());
+    EXPECT_TRUE(result.code() == ErrorCode::DeviceNotFound);
+    EXPECT_TRUE(result.message() == "canOpenChannel: canERR_NOTFOUND (-3)");
+    EXPECT_FALSE(static_cast<bool>(result));
 }
 
-TEST_CASE("A failure without a message falls back to the code's description", "[result]")
+TEST(ResultTests, AFailureWithoutAMessageFallsBackToTheCodeSDescription)
 {
     const Result result = Result::error(ErrorCode::BusOff);
 
-    CHECK(result.failed());
-    CHECK(result.message() == "Bus off");
+    EXPECT_TRUE(result.failed());
+    EXPECT_TRUE(result.message() == "Bus off");
 }
 
-TEST_CASE("Every error code has a description", "[result]")
+TEST(ResultTests, EveryErrorCodeHasADescription)
 {
     // A missing case in toString() would return "Unknown error" for a code that
     // is not Unknown - which is exactly how an error silently loses its
@@ -67,8 +67,8 @@ TEST_CASE("Every error code has a description", "[result]")
 
     for (const ErrorCode code : codes) {
         const std::string_view description = toString(code);
-        INFO("code = " << static_cast<int>(code));
-        CHECK_FALSE(description.empty());
-        CHECK(description != "Unknown error");
+        SCOPED_TRACE(::testing::Message() << "code = " << static_cast<int>(code));
+        EXPECT_FALSE(description.empty());
+        EXPECT_TRUE(description != "Unknown error");
     }
 }

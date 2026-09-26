@@ -42,7 +42,7 @@
 
 # Gives `out_variable` the directory to put on the DLL search path.
 #
-# Handed to catch_discover_tests as DL_PATHS, which covers *both* moments the
+# Handed to gtest_discover_tests as DL_PATHS, which covers *both* moments the
 # binary runs: the enumeration at build time and the tests under ctest. That
 # distinction cost a build. The first version of this set
 # ENVIRONMENT_MODIFICATION on the tests, which fixed ctest and left the
@@ -50,9 +50,9 @@
 # Studio preset from a prompt with no Qt on PATH failed there with
 # STATUS_DLL_NOT_FOUND, before a single test had a chance to pass or fail.
 #
-# It also cannot be applied after catch_discover_tests returns: that call does
+# It also cannot be applied after gtest_discover_tests returns: that call does
 # not create the tests at configure time, it writes a script that enumerates the
-# binary's TEST_CASEs when the binary is built. At configure time the
+# binary's TESTs when the binary is built. At configure time the
 # directory's TESTS property is empty, so a loop over it sets properties on
 # nothing - which an even earlier version of this file did, silently.
 function(torquebus_test_dl_paths out_variable)

@@ -19,7 +19,7 @@
 #include "core/pipeline/PipelineGraph.h"
 #include "core/simulation/RestBusNode.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <chrono>
 #include <memory>
@@ -127,7 +127,7 @@ struct Bench final {
         collector = sink.get();
         const NodeId sinkId = graph.addNode(std::move(sink));
 
-        REQUIRE(graph.connect(PortRef{busId, 0}, PortRef{sinkId, 0}).succeeded());
+        EXPECT_TRUE(graph.connect(PortRef{busId, 0}, PortRef{sinkId, 0}).succeeded());
     }
 
     void run(int milliseconds)
@@ -157,11 +157,11 @@ struct Bench final {
 
 } // namespace
 
-TEST_CASE("The rest bus sends what the network would have sent", "[restbus]")
+TEST(RestBusTests, TheRestBusSendsWhatTheNetworkWouldHaveSent)
 {
     Bench bench;
 
-    REQUIRE(bench.graph.compile().succeeded());
+    ASSERT_TRUE(bench.graph.compile().succeeded());
 
     bench.run(200);
 
@@ -169,19 +169,19 @@ TEST_CASE("The rest bus sends what the network would have sent", "[restbus]")
     const std::size_t engine = bench.countOf(0x100);
     const std::size_t doors = bench.countOf(0x200);
 
-    INFO(engine);
-    INFO(doors);
+    SCOPED_TRACE(::testing::Message() << engine);
+    SCOPED_TRACE(::testing::Message() << doors);
 
-    CHECK(engine >= 8);
-    CHECK(doors >= 4);
-    CHECK(engine > doors);
+    EXPECT_TRUE(engine >= 8);
+    EXPECT_TRUE(doors >= 4);
+    EXPECT_TRUE(engine > doors);
 
     // And they are transmissions, not something that looks received.
-    REQUIRE_FALSE(bench.collector->frames.empty());
-    CHECK(bench.collector->frames.front().direction == CanDirection::Tx);
+    ASSERT_FALSE(bench.collector->frames.empty());
+    EXPECT_TRUE(bench.collector->frames.front().direction == CanDirection::Tx);
 }
 
-TEST_CASE("A node on the bench does not have its messages sent for it", "[restbus]")
+TEST(RestBusTests, ANodeOnTheBenchDoesNotHaveItsMessagesSentForIt)
 {
     // The case that matters most. Two of an ECU on one bus is a fault that
     // looks like a busy trace, and the engineer's own messages coming back at
@@ -189,15 +189,15 @@ TEST_CASE("A node on the bench does not have its messages sent for it", "[restbu
     Bench bench;
     bench.bus->setExcludedNodes({"Engine"});
 
-    REQUIRE(bench.graph.compile().succeeded());
+    ASSERT_TRUE(bench.graph.compile().succeeded());
 
     bench.run(150);
 
-    CHECK(bench.countOf(0x100) == 0);
-    CHECK(bench.countOf(0x200) >= 2);
+    EXPECT_TRUE(bench.countOf(0x100) == 0);
+    EXPECT_TRUE(bench.countOf(0x200) >= 2);
 }
 
-TEST_CASE("Excluding beats including", "[restbus]")
+TEST(RestBusTests, ExcludingBeatsIncluding)
 {
     // A node in both lists is the one on the bench. The question "is this ECU
     // real?" has one answer, and the safe one is yes.
@@ -205,39 +205,39 @@ TEST_CASE("Excluding beats including", "[restbus]")
     bench.bus->setSimulatedNodes({"Engine", "BodyController"});
     bench.bus->setExcludedNodes({"Engine"});
 
-    REQUIRE(bench.graph.compile().succeeded());
+    ASSERT_TRUE(bench.graph.compile().succeeded());
 
     bench.run(120);
 
-    CHECK(bench.countOf(0x100) == 0);
-    CHECK(bench.countOf(0x200) >= 2);
+    EXPECT_TRUE(bench.countOf(0x100) == 0);
+    EXPECT_TRUE(bench.countOf(0x200) >= 2);
 }
 
-TEST_CASE("Only the named nodes are simulated", "[restbus]")
+TEST(RestBusTests, OnlyTheNamedNodesAreSimulated)
 {
     Bench bench;
     bench.bus->setSimulatedNodes({"BodyController"});
 
-    REQUIRE(bench.graph.compile().succeeded());
+    ASSERT_TRUE(bench.graph.compile().succeeded());
 
     bench.run(120);
 
-    CHECK(bench.countOf(0x100) == 0);
-    CHECK(bench.countOf(0x200) >= 2);
+    EXPECT_TRUE(bench.countOf(0x100) == 0);
+    EXPECT_TRUE(bench.countOf(0x200) >= 2);
 }
 
-TEST_CASE("A message with no cycle time is not invented into a periodic one", "[restbus]")
+TEST(RestBusTests, AMessageWithNoCycleTimeIsNotInventedIntoAPeriodicOne)
 {
     // A database that declares no GenMsgCycleTime is not saying "every 100 ms".
     // Traffic the real network never carries is worse than missing traffic,
     // because it looks right.
     Bench bench;
 
-    REQUIRE(bench.graph.compile().succeeded());
+    ASSERT_TRUE(bench.graph.compile().succeeded());
 
     bench.run(200);
 
-    CHECK(bench.countOf(0x300) == 0);
+    EXPECT_TRUE(bench.countOf(0x300) == 0);
 
     // And it was counted, so a rest bus that sends nothing says why rather than
     // looking broken.
@@ -249,46 +249,46 @@ TEST_CASE("A message with no cycle time is not invented into a periodic one", "[
         }
     }
 
-    CHECK(skipped == 1);
+    EXPECT_TRUE(skipped == 1);
 }
 
-TEST_CASE("A default cycle time is how you opt in", "[restbus]")
+TEST(RestBusTests, ADefaultCycleTimeIsHowYouOptIn)
 {
     Bench bench;
     bench.bus->setDefaultCycleMs(20);
 
-    REQUIRE(bench.graph.compile().succeeded());
+    ASSERT_TRUE(bench.graph.compile().succeeded());
 
     bench.run(150);
 
-    CHECK(bench.countOf(0x300) >= 2);
+    EXPECT_TRUE(bench.countOf(0x300) >= 2);
 }
 
-TEST_CASE("Signals hold their default until something drives them", "[restbus]")
+TEST(RestBusTests, SignalsHoldTheirDefaultUntilSomethingDrivesThem)
 {
     // Raw zero, which is `offset` in physical terms. Definite rather than
     // uninitialised: a signal the caller did not set has to be something, and
     // zero is the one value anybody can predict.
     Bench bench;
 
-    REQUIRE(bench.graph.compile().succeeded());
+    ASSERT_TRUE(bench.graph.compile().succeeded());
 
     bench.run(60);
 
-    REQUIRE_FALSE(bench.collector->frames.empty());
+    ASSERT_FALSE(bench.collector->frames.empty());
 
     for (const CanFrame& frame : bench.collector->frames) {
         if (frame.identifier != 0x100) {
             continue;
         }
 
-        CHECK(frame.data[0] == 0);
-        CHECK(frame.data[1] == 0);
-        CHECK(frame.length == 8);
+        EXPECT_TRUE(frame.data[0] == 0);
+        EXPECT_TRUE(frame.data[1] == 0);
+        EXPECT_TRUE(frame.length == 8);
     }
 }
 
-TEST_CASE("A driven signal follows its variable", "[restbus][variables]")
+TEST(RestBusTests, ADrivenSignalFollowsItsVariable)
 {
     // The interactive half: a dashboard slider or a Lua script writes the
     // variable, and the rest bus carries it.
@@ -298,14 +298,14 @@ TEST_CASE("A driven signal follows its variable", "[restbus][variables]")
     bench.bus->setSystemVariables(&variables);
     bench.bus->setDrivenSignals({{"EngineData", "EngineSpeed", "engine_speed"}});
 
-    REQUIRE(bench.graph.compile().succeeded());
+    ASSERT_TRUE(bench.graph.compile().succeeded());
 
     // 2400 rpm at a factor of 0.125 is raw 19200 = 0x4B00, little-endian.
     variables.set("engine_speed", 2400.0);
 
     bench.run(80);
 
-    REQUIRE_FALSE(bench.collector->frames.empty());
+    ASSERT_FALSE(bench.collector->frames.empty());
 
     bool sawValue = false;
 
@@ -319,7 +319,7 @@ TEST_CASE("A driven signal follows its variable", "[restbus][variables]")
         }
     }
 
-    CHECK(sawValue);
+    EXPECT_TRUE(sawValue);
 
     // And it keeps following: the value written now appears in the frames sent
     // after it, not only in the ones built at Start.
@@ -328,7 +328,7 @@ TEST_CASE("A driven signal follows its variable", "[restbus][variables]")
 
     bench.run(80);
 
-    REQUIRE_FALSE(bench.collector->frames.empty());
+    ASSERT_FALSE(bench.collector->frames.empty());
 
     // 800 / 0.125 = 6400 = 0x1900.
     bool sawNewValue = false;
@@ -339,10 +339,10 @@ TEST_CASE("A driven signal follows its variable", "[restbus][variables]")
         }
     }
 
-    CHECK(sawNewValue);
+    EXPECT_TRUE(sawNewValue);
 }
 
-TEST_CASE("A driven signal defaults to a variable named after it", "[restbus][variables]")
+TEST(RestBusTests, ADrivenSignalDefaultsToAVariableNamedAfterIt)
 {
     SystemVariables variables;
 
@@ -350,10 +350,10 @@ TEST_CASE("A driven signal defaults to a variable named after it", "[restbus][va
     bench.bus->setSystemVariables(&variables);
     bench.bus->setDrivenSignals({{"EngineData", "CoolantTemp", ""}});
 
-    REQUIRE(bench.graph.compile().succeeded());
+    ASSERT_TRUE(bench.graph.compile().succeeded());
 
     // Created by prepare(), which is what gives a dashboard a name to bind to.
-    CHECK(variables.find("EngineData.CoolantTemp") != SystemVariables::kUnknown);
+    EXPECT_TRUE(variables.find("EngineData.CoolantTemp") != SystemVariables::kUnknown);
 
     variables.set("EngineData.CoolantTemp", 90.0);
 
@@ -368,10 +368,10 @@ TEST_CASE("A driven signal defaults to a variable named after it", "[restbus][va
         }
     }
 
-    CHECK(sawValue);
+    EXPECT_TRUE(sawValue);
 }
 
-TEST_CASE("A signal that is not there is named, not ignored", "[restbus]")
+TEST(RestBusTests, ASignalThatIsNotThereIsNamedNotIgnored)
 {
     // A typo in a signal name is a control that does nothing, and finding that
     // out on a bench is expensive.
@@ -384,12 +384,12 @@ TEST_CASE("A signal that is not there is named, not ignored", "[restbus]")
 
     const Result result = node.prepare(64);
 
-    REQUIRE(result.failed());
-    INFO(std::string{result.message()});
-    CHECK(std::string{result.message()}.find("EngineSpeeed") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("EngineSpeeed") != std::string::npos);
 }
 
-TEST_CASE("A signal on a message this block does not send is named", "[restbus]")
+TEST(RestBusTests, ASignalOnAMessageThisBlockDoesNotSendIsNamed)
 {
     // Including the case that is nobody's typo: the message is excluded, so the
     // control would silently do nothing.
@@ -403,22 +403,22 @@ TEST_CASE("A signal on a message this block does not send is named", "[restbus]"
 
     const Result result = node.prepare(64);
 
-    REQUIRE(result.failed());
-    INFO(std::string{result.message()});
-    CHECK(std::string{result.message()}.find("EngineData") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("EngineData") != std::string::npos);
 }
 
-TEST_CASE("A rest bus with no database says so", "[restbus]")
+TEST(RestBusTests, ARestBusWithNoDatabaseSaysSo)
 {
     RestBusNode node;
 
     const Result result = node.prepare(64);
 
-    REQUIRE(result.failed());
-    CHECK(std::string{result.message()}.find("database") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    EXPECT_TRUE(std::string{result.message()}.find("database") != std::string::npos);
 }
 
-TEST_CASE("Messages do not all fall due in the same pass", "[restbus]")
+TEST(RestBusTests, MessagesDoNotAllFallDueInTheSamePass)
 {
     // A real network does not start in lockstep, and a rest bus that put every
     // message in one pass every cycle would produce a trace with two hundred
@@ -426,10 +426,10 @@ TEST_CASE("Messages do not all fall due in the same pass", "[restbus]")
     Bench bench;
     bench.bus->setDefaultCycleMs(20);
 
-    REQUIRE(bench.graph.compile().succeeded());
+    ASSERT_TRUE(bench.graph.compile().succeeded());
 
     // One pass only: at t=0 nothing should be due for every message at once.
     bench.graph.execute();
 
-    CHECK(bench.collector->frames.size() <= 2);
+    EXPECT_TRUE(bench.collector->frames.size() <= 2);
 }

@@ -13,9 +13,9 @@ green test suite.
 | **Qt 6.11.2** | Install via the Qt Online Installer. Select `MSVC 2022 64-bit` **and** the **Qt Serial Bus** module — the PEAK backend needs it. |
 | **CMake ≥ 3.24** | Bundled with Visual Studio, or install separately. |
 | **Ninja** | Bundled with Visual Studio. |
-| **Git** | Needed at configure time: KDDockWidgets and Catch2 are fetched from GitHub. |
+| **Git** | Needed at configure time: KDDockWidgets and GoogleTest are fetched from GitHub. |
 
-Nothing else needs installing. KDDockWidgets and Catch2 are built from source
+Nothing else needs installing. KDDockWidgets and GoogleTest are built from source
 into your build tree on the first configure.
 
 CMake finds Qt on its own if it is at `C:\Qt\6.11.2\msvc2022_64` (the installer
@@ -49,7 +49,7 @@ cmake --preset windows-msvc-vs
 cmake --build --preset windows-msvc-vs
 ```
 
-The first configure takes a few minutes while KDDockWidgets and Catch2 are
+The first configure takes a few minutes while KDDockWidgets and GoogleTest are
 cloned and built. Subsequent configures are fast.
 
 Result: `build/windows-msvc-vs/bin/Debug/TorqueBusStudio.exe`
@@ -180,11 +180,10 @@ does not - is in [`validation.md`](validation.md).
 **`Could not find executable torquebus_unit_tests_NOT_BUILT-<hash>`** — the
 tests have not been built yet. Nothing is wrong with the code.
 
-`catch_discover_tests` asks the test executable for its list of cases *after*
+`gtest_discover_tests` asks the test executable for its list of cases *after*
 that executable is linked. Until then it registers one placeholder test per
-target, named `<target>_NOT_BUILT-<hash>`, whose only job is to fail so that a
-`ctest` run on an unbuilt tree does not report success. The name is Catch2's, and
-it is a poor one - it reads like a missing file rather than a missing build.
+target, named `<target>_NOT_BUILT`, whose only job is to fail so that a
+`ctest` run on an unbuilt tree does not report success.
 
 ```bat
 cmake --build --preset windows-msvc-debug

@@ -13,7 +13,7 @@
 
 #include "core/ThreadGuard.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <stdexcept>
 #include <string>
@@ -21,7 +21,7 @@
 
 using namespace torquebus;
 
-TEST_CASE("A body that does not throw is simply run", "[threadguard]")
+TEST(ThreadGuardTests, ABodyThatDoesNotThrowIsSimplyRun)
 {
     bool ran = false;
     bool reported = false;
@@ -29,14 +29,14 @@ TEST_CASE("A body that does not throw is simply run", "[threadguard]")
     runWithoutEscaping(
         "the test", [&ran] { ran = true; }, [&reported](std::string_view) { reported = true; });
 
-    CHECK(ran);
+    EXPECT_TRUE(ran);
 
     // The reporter is for failures. Calling it on success would put a line in
     // the Output panel every time a measurement ended normally.
-    CHECK_FALSE(reported);
+    EXPECT_FALSE(reported);
 }
 
-TEST_CASE("A std::exception is caught and its reason reaches the reporter", "[threadguard]")
+TEST(ThreadGuardTests, AStdExceptionIsCaughtAndItsReasonReachesTheReporter)
 {
     std::string message;
 
@@ -48,11 +48,11 @@ TEST_CASE("A std::exception is caught and its reason reaches the reporter", "[th
     // Both halves matter. The thread's name is what tells somebody reading the
     // Output panel which of the four threads died; the exception's text is what
     // tells them why.
-    CHECK(message.find("the dispatch loop") != std::string::npos);
-    CHECK(message.find("a node gave up") != std::string::npos);
+    EXPECT_TRUE(message.find("the dispatch loop") != std::string::npos);
+    EXPECT_TRUE(message.find("a node gave up") != std::string::npos);
 }
 
-TEST_CASE("Something that is not a std::exception still produces a reason", "[threadguard]")
+TEST(ThreadGuardTests, SomethingThatIsNotAStdExceptionStillProducesAReason)
 {
     std::string message;
 
@@ -63,12 +63,12 @@ TEST_CASE("Something that is not a std::exception still produces a reason", "[th
 
     // Not an empty string: "a thread stopped" with no reason at all is barely
     // better than the silence this replaces.
-    CHECK_FALSE(message.empty());
-    CHECK(message.find("the Kvaser receive thread") != std::string::npos);
-    CHECK(message.find("not a std::exception") != std::string::npos);
+    EXPECT_FALSE(message.empty());
+    EXPECT_TRUE(message.find("the Kvaser receive thread") != std::string::npos);
+    EXPECT_TRUE(message.find("not a std::exception") != std::string::npos);
 }
 
-TEST_CASE("A reporter that throws does not defeat the guard", "[threadguard]")
+TEST(ThreadGuardTests, AReporterThatThrowsDoesNotDefeatTheGuard)
 {
     // The case that would otherwise be embarrassing: the code that exists to
     // stop a crash, crashing. If this were wrong the test process would
@@ -83,10 +83,10 @@ TEST_CASE("A reporter that throws does not defeat the guard", "[threadguard]")
             throw std::runtime_error{"the reporter is broken too"};
         });
 
-    CHECK(attempts == 1);
+    EXPECT_TRUE(attempts == 1);
 }
 
-TEST_CASE("Nothing escapes a real thread", "[threadguard]")
+TEST(ThreadGuardTests, NothingEscapesARealThread)
 {
     // The shape the production code actually uses. Without the guard this
     // std::thread would call std::terminate and take the test binary with it.
@@ -99,11 +99,11 @@ TEST_CASE("Nothing escapes a real thread", "[threadguard]")
 
     worker.join();
 
-    CHECK(message.find("the virtual receive thread") != std::string::npos);
-    CHECK(message.find("the bus went away") != std::string::npos);
+    EXPECT_TRUE(message.find("the virtual receive thread") != std::string::npos);
+    EXPECT_TRUE(message.find("the bus went away") != std::string::npos);
 }
 
-TEST_CASE("A guarded thread that finishes normally reports nothing", "[threadguard]")
+TEST(ThreadGuardTests, AGuardedThreadThatFinishesNormallyReportsNothing)
 {
     bool reported = false;
     int counted = 0;
@@ -119,6 +119,6 @@ TEST_CASE("A guarded thread that finishes normally reports nothing", "[threadgua
 
     worker.join();
 
-    CHECK(counted == 499500);
-    CHECK_FALSE(reported);
+    EXPECT_TRUE(counted == 499500);
+    EXPECT_FALSE(reported);
 }

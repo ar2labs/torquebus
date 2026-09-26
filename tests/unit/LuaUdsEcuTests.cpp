@@ -19,7 +19,7 @@
 #include "core/pipeline/PipelineGraph.h"
 #include "core/scripting/LuaEcuNode.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <chrono>
 #include <memory>
@@ -133,9 +133,9 @@ struct Bench final {
         fromTester = testerOut.get();
         const NodeId testerOutId = tester.addNode(std::move(testerOut));
 
-        REQUIRE(tester.connect(PortRef{testerInId, 0}, PortRef{clientId, 0}).succeeded());
-        REQUIRE(tester.connect(PortRef{clientId, 0}, PortRef{testerOutId, 0}).succeeded());
-        REQUIRE(tester.compile().succeeded());
+        EXPECT_TRUE(tester.connect(PortRef{testerInId, 0}, PortRef{clientId, 0}).succeeded());
+        EXPECT_TRUE(tester.connect(PortRef{clientId, 0}, PortRef{testerOutId, 0}).succeeded());
+        EXPECT_TRUE(tester.compile().succeeded());
 
         // --- the ECU ------------------------------------------------------
         auto ecuIn = std::make_unique<SourceNode>();
@@ -156,9 +156,9 @@ struct Bench final {
         fromEcu = ecuOut.get();
         const NodeId ecuOutId = ecu.addNode(std::move(ecuOut));
 
-        REQUIRE(ecu.connect(PortRef{ecuInId, 0}, PortRef{scriptedId, 0}).succeeded());
-        REQUIRE(ecu.connect(PortRef{scriptedId, 0}, PortRef{ecuOutId, 0}).succeeded());
-        REQUIRE(ecu.compile().succeeded());
+        EXPECT_TRUE(ecu.connect(PortRef{ecuInId, 0}, PortRef{scriptedId, 0}).succeeded());
+        EXPECT_TRUE(ecu.connect(PortRef{scriptedId, 0}, PortRef{ecuOutId, 0}).succeeded());
+        EXPECT_TRUE(ecu.compile().succeeded());
     }
 
     /// One pass of each, carrying what came out of one into the other.
@@ -182,7 +182,7 @@ struct Bench final {
 
 } // namespace
 
-TEST_CASE("A Lua ECU answers a real tester", "[lua][uds]")
+TEST(LuaUdsEcuTests, ALuaECUAnswersARealTester)
 {
     Bench bench{R"(
         function on_enable()
@@ -195,18 +195,18 @@ TEST_CASE("A Lua ECU answers a real tester", "[lua][uds]")
 
     const std::vector<UdsExchange> exchanges = bench.session.takeExchanges();
 
-    REQUIRE(exchanges.size() == 1);
-    CHECK(exchanges.front().outcome == UdsExchange::Outcome::Positive);
+    ASSERT_TRUE(exchanges.size() == 1);
+    EXPECT_TRUE(exchanges.front().outcome == UdsExchange::Outcome::Positive);
 
     // Seventeen characters of VIN: a first frame, a flow control and two
     // consecutive frames, and none of that is visible from the script.
     const Bytes& response = exchanges.front().response;
-    REQUIRE(response.size() == 3 + 17);
-    CHECK(response[0] == 0x62);
-    CHECK(std::string(response.begin() + 3, response.end()) == "WVWZZZ1KZAW000001");
+    ASSERT_TRUE(response.size() == 3 + 17);
+    EXPECT_TRUE(response[0] == 0x62);
+    EXPECT_TRUE(std::string(response.begin() + 3, response.end()) == "WVWZZZ1KZAW000001");
 }
 
-TEST_CASE("An identifier the script did not declare is refused", "[lua][uds]")
+TEST(LuaUdsEcuTests, AnIdentifierTheScriptDidNotDeclareIsRefused)
 {
     // The server answers, not the script - which is the point of having one:
     // the ordinary refusals are right without anybody writing them.
@@ -221,13 +221,13 @@ TEST_CASE("An identifier the script did not declare is refused", "[lua][uds]")
 
     const std::vector<UdsExchange> exchanges = bench.session.takeExchanges();
 
-    REQUIRE(exchanges.size() == 1);
-    CHECK(exchanges.front().outcome == UdsExchange::Outcome::Negative);
-    CHECK(exchanges.front().negativeResponse
-          == static_cast<std::uint8_t>(UdsNegativeResponse::RequestOutOfRange));
+    ASSERT_TRUE(exchanges.size() == 1);
+    EXPECT_TRUE(exchanges.front().outcome == UdsExchange::Outcome::Negative);
+    EXPECT_TRUE(exchanges.front().negativeResponse
+                == static_cast<std::uint8_t>(UdsNegativeResponse::RequestOutOfRange));
 }
 
-TEST_CASE("A script can answer a service the server does not implement", "[lua][uds]")
+TEST(LuaUdsEcuTests, AScriptCanAnswerAServiceTheServerDoesNotImplement)
 {
     // RoutineControl, which UdsServer knows nothing about. Three lines of Lua
     // rather than a change to the C++, which is the whole reason the hook
@@ -245,12 +245,12 @@ TEST_CASE("A script can answer a service the server does not implement", "[lua][
 
     const std::vector<UdsExchange> exchanges = bench.session.takeExchanges();
 
-    REQUIRE(exchanges.size() == 1);
-    CHECK(exchanges.front().outcome == UdsExchange::Outcome::Positive);
-    CHECK(exchanges.front().response == Bytes{0x71, 0x01, 0x02, 0x03});
+    ASSERT_TRUE(exchanges.size() == 1);
+    EXPECT_TRUE(exchanges.front().outcome == UdsExchange::Outcome::Positive);
+    EXPECT_TRUE((exchanges.front().response == Bytes{0x71, 0x01, 0x02, 0x03}));
 }
 
-TEST_CASE("A script can make the ECU go silent", "[lua][uds]")
+TEST(LuaUdsEcuTests, AScriptCanMakeTheECUGoSilent)
 {
     // Returning false means "say nothing" - a dead ECU, which is the case a
     // tester has to survive and the only one nothing else can simulate. The
@@ -273,11 +273,11 @@ TEST_CASE("A script can make the ECU go silent", "[lua][uds]")
 
     const std::vector<UdsExchange> exchanges = bench.session.takeExchanges();
 
-    REQUIRE(exchanges.size() == 1);
-    CHECK(exchanges.front().outcome == UdsExchange::Outcome::Timeout);
+    ASSERT_TRUE(exchanges.size() == 1);
+    EXPECT_TRUE(exchanges.front().outcome == UdsExchange::Outcome::Timeout);
 }
 
-TEST_CASE("A script that returns nothing lets the server answer", "[lua][uds]")
+TEST(LuaUdsEcuTests, AScriptThatReturnsNothingLetsTheServerAnswer)
 {
     // The three-valued verdict: bytes decide, false silences, nothing declines.
     // A handler that only cares about one service must not swallow the rest.
@@ -298,12 +298,12 @@ TEST_CASE("A script that returns nothing lets the server answer", "[lua][uds]")
 
     const std::vector<UdsExchange> exchanges = bench.session.takeExchanges();
 
-    REQUIRE(exchanges.size() == 1);
-    CHECK(exchanges.front().outcome == UdsExchange::Outcome::Positive);
-    CHECK(exchanges.front().response == Bytes{0x62, 0xF1, 0x90, 'A', 'B', 'C', 'D'});
+    ASSERT_TRUE(exchanges.size() == 1);
+    EXPECT_TRUE(exchanges.front().outcome == UdsExchange::Outcome::Positive);
+    EXPECT_TRUE((exchanges.front().response == Bytes{0x62, 0xF1, 0x90, 'A', 'B', 'C', 'D'}));
 }
 
-TEST_CASE("Session and security come from the script's own algorithm", "[lua][uds]")
+TEST(LuaUdsEcuTests, SessionAndSecurityComeFromTheScriptSOwnAlgorithm)
 {
     Bench bench{R"(
         function on_enable()
@@ -325,9 +325,10 @@ TEST_CASE("Session and security come from the script's own algorithm", "[lua][ud
     bench.run(12);
 
     std::vector<UdsExchange> exchanges = bench.session.takeExchanges();
-    REQUIRE(exchanges.size() == 1);
-    CHECK(exchanges.front().negativeResponse
-          == static_cast<std::uint8_t>(UdsNegativeResponse::ServiceNotSupportedInActiveSession));
+    ASSERT_TRUE(exchanges.size() == 1);
+    EXPECT_TRUE(
+        exchanges.front().negativeResponse
+        == static_cast<std::uint8_t>(UdsNegativeResponse::ServiceNotSupportedInActiveSession));
 
     // Extended session, then a seed.
     bench.session.postRequest(diagnosticSessionControl(UdsSession::Extended));
@@ -338,11 +339,11 @@ TEST_CASE("Session and security come from the script's own algorithm", "[lua][ud
     bench.run(12);
 
     exchanges = bench.session.takeExchanges();
-    REQUIRE(exchanges.size() == 1);
-    REQUIRE(exchanges.front().outcome == UdsExchange::Outcome::Positive);
+    ASSERT_TRUE(exchanges.size() == 1);
+    ASSERT_TRUE(exchanges.front().outcome == UdsExchange::Outcome::Positive);
 
     const Bytes& seed = exchanges.front().response;
-    REQUIRE(seed.size() > 2);
+    ASSERT_TRUE(seed.size() > 2);
 
     Bytes key;
     for (std::size_t index = 2; index < seed.size(); ++index) {
@@ -353,19 +354,19 @@ TEST_CASE("Session and security come from the script's own algorithm", "[lua][ud
     bench.run(12);
 
     exchanges = bench.session.takeExchanges();
-    REQUIRE(exchanges.size() == 1);
-    CHECK(exchanges.front().outcome == UdsExchange::Outcome::Positive);
+    ASSERT_TRUE(exchanges.size() == 1);
+    EXPECT_TRUE(exchanges.front().outcome == UdsExchange::Outcome::Positive);
 
     // And now the calibration is readable.
     bench.session.postRequest(readDataByIdentifier(0x2001));
     bench.run(12);
 
     exchanges = bench.session.takeExchanges();
-    REQUIRE(exchanges.size() == 1);
-    CHECK(exchanges.front().response == Bytes{0x62, 0x20, 0x01, 0x00, 0x64});
+    ASSERT_TRUE(exchanges.size() == 1);
+    EXPECT_TRUE((exchanges.front().response == Bytes{0x62, 0x20, 0x01, 0x00, 0x64}));
 }
 
-TEST_CASE("A script sees the faults it stored come back as a DTC list", "[lua][uds]")
+TEST(LuaUdsEcuTests, AScriptSeesTheFaultsItStoredComeBackAsADTCList)
 {
     Bench bench{R"(
         function on_enable()
@@ -378,20 +379,20 @@ TEST_CASE("A script sees the faults it stored come back as a DTC list", "[lua][u
     bench.run(12);
 
     const std::vector<UdsExchange> exchanges = bench.session.takeExchanges();
-    REQUIRE(exchanges.size() == 1);
+    ASSERT_TRUE(exchanges.size() == 1);
 
     const std::vector<DiagnosticTroubleCode> codes = parseDtcResponse(exchanges.front().response);
 
-    REQUIRE(codes.size() == 2);
-    CHECK(codes[0].name() == "P0128");
-    CHECK(codes[1].name() == "U0035");
+    ASSERT_TRUE(codes.size() == 2);
+    EXPECT_TRUE(codes[0].name() == "P0128");
+    EXPECT_TRUE(codes[1].name() == "U0035");
 
     // The default status is "confirmed", which is what a script that just wants
     // a fault to exist means.
-    CHECK(codes[1].status == 0x08);
+    EXPECT_TRUE(codes[1].status == 0x08);
 }
 
-TEST_CASE("A script with no diagnostic addresses has no uds functions", "[lua][uds]")
+TEST(LuaUdsEcuTests, AScriptWithNoDiagnosticAddressesHasNoUdsFunctions)
 {
     // An ordinary ECU pays nothing for a layer it does not use - and a script
     // that calls uds_did on one does not quietly do nothing. It fails at
@@ -406,11 +407,11 @@ TEST_CASE("A script with no diagnostic addresses has no uds functions", "[lua][u
     )",
                     "plain.lua"};
 
-    CHECK_FALSE(node.answersDiagnostics());
+    EXPECT_FALSE(node.answersDiagnostics());
 
     const Result result = node.prepare(64);
 
-    REQUIRE(result.failed());
-    INFO(std::string{result.message()});
-    CHECK(std::string{result.message()}.find("uds_did") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("uds_did") != std::string::npos);
 }

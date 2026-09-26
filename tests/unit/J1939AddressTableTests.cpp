@@ -11,7 +11,7 @@
 
 #include "core/j1939/J1939AddressTable.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <cstdint>
 
@@ -66,25 +66,25 @@ claimFrame(const J1939Name& name, std::uint8_t source, std::uint8_t length = kJ1
 
 } // namespace
 
-TEST_CASE("A claim seats an ECU at an address", "[j1939][network]")
+TEST(J1939AddressTableTests, AClaimSeatsAnECUAtAnAddress)
 {
     J1939AddressTable table;
-    CHECK(table.onFrame(claimFrame(nameWith(100U), kEngine), 1000U));
+    EXPECT_TRUE(table.onFrame(claimFrame(nameWith(100U), kEngine), 1000U));
 
-    REQUIRE(table.nodes().size() == 1U);
+    ASSERT_TRUE(table.nodes().size() == 1U);
 
     const J1939NetworkNode& node = table.nodes()[0];
-    CHECK(node.address == kEngine);
-    CHECK(node.claimSeen);
-    REQUIRE(node.name.has_value());
-    CHECK(node.name->identityNumber == 100U);
-    CHECK(node.firstSeenNs == 1000U);
+    EXPECT_TRUE(node.address == kEngine);
+    EXPECT_TRUE(node.claimSeen);
+    ASSERT_TRUE(node.name.has_value());
+    EXPECT_TRUE(node.name->identityNumber == 100U);
+    EXPECT_TRUE(node.firstSeenNs == 1000U);
 
-    REQUIRE(table.events().size() == 1U);
-    CHECK(table.events()[0].kind == J1939NetworkEvent::Kind::AddressClaimed);
+    ASSERT_TRUE(table.events().size() == 1U);
+    EXPECT_TRUE(table.events()[0].kind == J1939NetworkEvent::Kind::AddressClaimed);
 }
 
-TEST_CASE("The same ECU announcing itself again is not a contest", "[j1939][network]")
+TEST(J1939AddressTableTests, TheSameECUAnnouncingItselfAgainIsNotAContest)
 {
     // ECUs re-announce on request and after a contest. Reporting each one as a
     // dispute would fill the panel with events that say nothing happened.
@@ -94,12 +94,12 @@ TEST_CASE("The same ECU announcing itself again is not a contest", "[j1939][netw
 
     table.onFrame(claimFrame(nameWith(100U), kEngine), 2000U);
 
-    CHECK(table.events().empty());
-    CHECK(table.nodes().size() == 1U);
-    CHECK(table.nodes()[0].lastSeenNs == 2000U);
+    EXPECT_TRUE(table.events().empty());
+    EXPECT_TRUE(table.nodes().size() == 1U);
+    EXPECT_TRUE(table.nodes()[0].lastSeenNs == 2000U);
 }
 
-TEST_CASE("The lower NAME takes the address", "[j1939][network]")
+TEST(J1939AddressTableTests, TheLowerNAMETakesTheAddress)
 {
     J1939AddressTable table;
     table.onFrame(claimFrame(nameWith(200U), kEngine), 1000U);
@@ -107,22 +107,22 @@ TEST_CASE("The lower NAME takes the address", "[j1939][network]")
 
     table.onFrame(claimFrame(nameWith(100U), kEngine), 2000U);
 
-    REQUIRE(table.events().size() == 2U);
-    CHECK(table.events()[0].kind == J1939NetworkEvent::Kind::AddressContested);
-    CHECK(table.events()[1].kind == J1939NetworkEvent::Kind::AddressTaken);
+    ASSERT_TRUE(table.events().size() == 2U);
+    EXPECT_TRUE(table.events()[0].kind == J1939NetworkEvent::Kind::AddressContested);
+    EXPECT_TRUE(table.events()[1].kind == J1939NetworkEvent::Kind::AddressTaken);
 
     // Both sides of the contest are carried, because "who lost it" is the
     // question somebody is actually asking.
-    REQUIRE(table.events()[1].name.has_value());
-    REQUIRE(table.events()[1].previousName.has_value());
-    CHECK(table.events()[1].name->identityNumber == 100U);
-    CHECK(table.events()[1].previousName->identityNumber == 200U);
+    ASSERT_TRUE(table.events()[1].name.has_value());
+    ASSERT_TRUE(table.events()[1].previousName.has_value());
+    EXPECT_TRUE(table.events()[1].name->identityNumber == 100U);
+    EXPECT_TRUE(table.events()[1].previousName->identityNumber == 200U);
 
-    REQUIRE(table.nodes()[0].name.has_value());
-    CHECK(table.nodes()[0].name->identityNumber == 100U);
+    ASSERT_TRUE(table.nodes()[0].name.has_value());
+    EXPECT_TRUE(table.nodes()[0].name->identityNumber == 100U);
 }
 
-TEST_CASE("A higher NAME loses, and the seat does not change", "[j1939][network]")
+TEST(J1939AddressTableTests, AHigherNAMELosesAndTheSeatDoesNotChange)
 {
     // The loser is required to stop using the address. Whether it actually does
     // is exactly what somebody is watching this table to find out - so the
@@ -133,14 +133,14 @@ TEST_CASE("A higher NAME loses, and the seat does not change", "[j1939][network]
 
     table.onFrame(claimFrame(nameWith(200U), kEngine), 2000U);
 
-    REQUIRE(table.events().size() == 1U);
-    CHECK(table.events()[0].kind == J1939NetworkEvent::Kind::AddressContested);
+    ASSERT_TRUE(table.events().size() == 1U);
+    EXPECT_TRUE(table.events()[0].kind == J1939NetworkEvent::Kind::AddressContested);
 
-    REQUIRE(table.nodes()[0].name.has_value());
-    CHECK(table.nodes()[0].name->identityNumber == 100U);
+    ASSERT_TRUE(table.nodes()[0].name.has_value());
+    EXPECT_TRUE(table.nodes()[0].name->identityNumber == 100U);
 }
 
-TEST_CASE("An ECU with no address is not seated at 254", "[j1939][network]")
+TEST(J1939AddressTableTests, AnECUWithNoAddressIsNotSeatedAt254)
 {
     // 254 is not a seat. Listing a defeated ECU as its occupant would put a
     // phantom at an address that does not exist, and the next person to read
@@ -148,59 +148,59 @@ TEST_CASE("An ECU with no address is not seated at 254", "[j1939][network]")
     J1939AddressTable table;
     table.onFrame(claimFrame(nameWith(100U), kJ1939NullAddress), 1000U);
 
-    CHECK(table.nodes().empty());
-    CHECK(table.find(kJ1939NullAddress) == nullptr);
+    EXPECT_TRUE(table.nodes().empty());
+    EXPECT_TRUE(table.find(kJ1939NullAddress) == nullptr);
 
-    REQUIRE(table.defeated().size() == 1U);
-    CHECK(table.defeated()[0].name.identityNumber == 100U);
-    CHECK(table.defeated()[0].announcements == 1U);
+    ASSERT_TRUE(table.defeated().size() == 1U);
+    EXPECT_TRUE(table.defeated()[0].name.identityNumber == 100U);
+    EXPECT_TRUE(table.defeated()[0].announcements == 1U);
 
-    REQUIRE(table.events().size() == 1U);
-    CHECK(table.events()[0].kind == J1939NetworkEvent::Kind::CannotClaim);
+    ASSERT_TRUE(table.events().size() == 1U);
+    EXPECT_TRUE(table.events()[0].kind == J1939NetworkEvent::Kind::CannotClaim);
 
     // Announcing defeat again counts, without a second event.
     table.clearEvents();
     table.onFrame(claimFrame(nameWith(100U), kJ1939NullAddress), 2000U);
 
-    CHECK(table.events().empty());
-    REQUIRE(table.defeated().size() == 1U);
-    CHECK(table.defeated()[0].announcements == 2U);
-    CHECK(table.defeated()[0].lastSeenNs == 2000U);
+    EXPECT_TRUE(table.events().empty());
+    ASSERT_TRUE(table.defeated().size() == 1U);
+    EXPECT_TRUE(table.defeated()[0].announcements == 2U);
+    EXPECT_TRUE(table.defeated()[0].lastSeenNs == 2000U);
 }
 
-TEST_CASE("There is no seat at the global address", "[j1939][network]")
+TEST(J1939AddressTableTests, ThereIsNoSeatAtTheGlobalAddress)
 {
     // A claim from 255 is malformed. Recording it would create an occupant of
     // every address at once.
     J1939AddressTable table;
     table.onFrame(claimFrame(nameWith(100U), kJ1939GlobalAddress), 1000U);
 
-    CHECK(table.nodes().empty());
-    CHECK(table.defeated().empty());
-    CHECK(table.events().empty());
+    EXPECT_TRUE(table.nodes().empty());
+    EXPECT_TRUE(table.defeated().empty());
+    EXPECT_TRUE(table.events().empty());
 }
 
-TEST_CASE("Traffic from an address with no claim is reported once", "[j1939][network]")
+TEST(J1939AddressTableTests, TrafficFromAnAddressWithNoClaimIsReportedOnce)
 {
     J1939AddressTable table;
     table.onFrame(trafficFrame(kGearbox), 1000U);
     table.onFrame(trafficFrame(kGearbox), 2000U);
     table.onFrame(trafficFrame(kGearbox), 3000U);
 
-    REQUIRE(table.events().size() == 1U);
-    CHECK(table.events()[0].kind == J1939NetworkEvent::Kind::UnclaimedTraffic);
-    CHECK(table.events()[0].address == kGearbox);
+    ASSERT_TRUE(table.events().size() == 1U);
+    EXPECT_TRUE(table.events()[0].kind == J1939NetworkEvent::Kind::UnclaimedTraffic);
+    EXPECT_TRUE(table.events()[0].address == kGearbox);
 
     // The event is about not knowing a NAME, so it does not carry one.
-    CHECK_FALSE(table.events()[0].name.has_value());
+    EXPECT_FALSE(table.events()[0].name.has_value());
 
-    REQUIRE(table.nodes().size() == 1U);
-    CHECK(table.nodes()[0].trafficSeen);
-    CHECK_FALSE(table.nodes()[0].claimSeen);
-    CHECK(table.nodes()[0].framesSeen == 3U);
+    ASSERT_TRUE(table.nodes().size() == 1U);
+    EXPECT_TRUE(table.nodes()[0].trafficSeen);
+    EXPECT_FALSE(table.nodes()[0].claimSeen);
+    EXPECT_TRUE(table.nodes()[0].framesSeen == 3U);
 }
 
-TEST_CASE("Traffic from an ECU that already claimed is not called unclaimed", "[j1939][network]")
+TEST(J1939AddressTableTests, TrafficFromAnECUThatAlreadyClaimedIsNotCalledUnclaimed)
 {
     J1939AddressTable table;
     table.onFrame(claimFrame(nameWith(100U), kEngine), 1000U);
@@ -208,12 +208,12 @@ TEST_CASE("Traffic from an ECU that already claimed is not called unclaimed", "[
 
     table.onFrame(trafficFrame(kEngine), 2000U);
 
-    CHECK(table.events().empty());
-    CHECK(table.nodes()[0].claimSeen);
-    CHECK(table.nodes()[0].trafficSeen);
+    EXPECT_TRUE(table.events().empty());
+    EXPECT_TRUE(table.nodes()[0].claimSeen);
+    EXPECT_TRUE(table.nodes()[0].trafficSeen);
 }
 
-TEST_CASE("A claim arriving after the traffic fills in the NAME", "[j1939][network]")
+TEST(J1939AddressTableTests, AClaimArrivingAfterTheTrafficFillsInTheNAME)
 {
     // The ordinary shape of a measurement started before an ECU was reset: the
     // traffic comes first and the claim explains it afterwards.
@@ -221,20 +221,20 @@ TEST_CASE("A claim arriving after the traffic fills in the NAME", "[j1939][netwo
     table.onFrame(trafficFrame(kEngine), 1000U);
     table.onFrame(claimFrame(nameWith(100U), kEngine), 2000U);
 
-    REQUIRE(table.events().size() == 2U);
-    CHECK(table.events()[0].kind == J1939NetworkEvent::Kind::UnclaimedTraffic);
-    CHECK(table.events()[1].kind == J1939NetworkEvent::Kind::AddressClaimed);
+    ASSERT_TRUE(table.events().size() == 2U);
+    EXPECT_TRUE(table.events()[0].kind == J1939NetworkEvent::Kind::UnclaimedTraffic);
+    EXPECT_TRUE(table.events()[1].kind == J1939NetworkEvent::Kind::AddressClaimed);
 
-    REQUIRE(table.nodes().size() == 1U);
-    CHECK(table.nodes()[0].claimSeen);
-    REQUIRE(table.nodes()[0].name.has_value());
-    CHECK(table.nodes()[0].name->identityNumber == 100U);
+    ASSERT_TRUE(table.nodes().size() == 1U);
+    EXPECT_TRUE(table.nodes()[0].claimSeen);
+    ASSERT_TRUE(table.nodes()[0].name.has_value());
+    EXPECT_TRUE(table.nodes()[0].name->identityNumber == 100U);
 
     // And the first sighting is still the traffic, not the claim.
-    CHECK(table.nodes()[0].firstSeenNs == 1000U);
+    EXPECT_TRUE(table.nodes()[0].firstSeenNs == 1000U);
 }
 
-TEST_CASE("Addresses come out in order, whatever order they arrived in", "[j1939][network]")
+TEST(J1939AddressTableTests, AddressesComeOutInOrderWhateverOrderTheyArrivedIn)
 {
     J1939AddressTable table;
     for (const std::uint8_t address :
@@ -242,28 +242,28 @@ TEST_CASE("Addresses come out in order, whatever order they arrived in", "[j1939
         table.onFrame(trafficFrame(address), 1000U);
     }
 
-    REQUIRE(table.nodes().size() == 4U);
-    CHECK(table.nodes()[0].address == 0x00U);
-    CHECK(table.nodes()[1].address == 0x03U);
-    CHECK(table.nodes()[2].address == 0x30U);
-    CHECK(table.nodes()[3].address == 0xF0U);
+    ASSERT_TRUE(table.nodes().size() == 4U);
+    EXPECT_TRUE(table.nodes()[0].address == 0x00U);
+    EXPECT_TRUE(table.nodes()[1].address == 0x03U);
+    EXPECT_TRUE(table.nodes()[2].address == 0x30U);
+    EXPECT_TRUE(table.nodes()[3].address == 0xF0U);
 
-    CHECK(table.find(0x30U) != nullptr);
-    CHECK(table.find(0x31U) == nullptr);
+    EXPECT_TRUE(table.find(0x30U) != nullptr);
+    EXPECT_TRUE(table.find(0x31U) == nullptr);
 }
 
-TEST_CASE("A claim too short to hold a NAME records nothing", "[j1939][network]")
+TEST(J1939AddressTableTests, AClaimTooShortToHoldANAMERecordsNothing)
 {
     // The NAME layer refuses to invent the missing bytes, and a claim without a
     // NAME names nobody - so there is no ECU to seat.
     J1939AddressTable table;
-    CHECK(table.onFrame(claimFrame(nameWith(100U), kEngine, 7U), 1000U));
+    EXPECT_TRUE(table.onFrame(claimFrame(nameWith(100U), kEngine, 7U), 1000U));
 
-    CHECK(table.nodes().empty());
-    CHECK(table.events().empty());
+    EXPECT_TRUE(table.nodes().empty());
+    EXPECT_TRUE(table.events().empty());
 }
 
-TEST_CASE("An 11-bit frame teaches the table nothing", "[j1939][network]")
+TEST(J1939AddressTableTests, An11BitFrameTeachesTheTableNothing)
 {
     CanFrame standard;
     standard.identifier = 0x7E0U;
@@ -272,11 +272,11 @@ TEST_CASE("An 11-bit frame teaches the table nothing", "[j1939][network]")
     standard.dlc = 8;
 
     J1939AddressTable table;
-    CHECK_FALSE(table.onFrame(standard, 1000U));
-    CHECK(table.nodes().empty());
+    EXPECT_FALSE(table.onFrame(standard, 1000U));
+    EXPECT_TRUE(table.nodes().empty());
 }
 
-TEST_CASE("Starting a measurement forgets the bus", "[j1939][network]")
+TEST(J1939AddressTableTests, StartingAMeasurementForgetsTheBus)
 {
     // The membership of a bus is a fact about the run, not about the tool.
     J1939AddressTable table;
@@ -285,7 +285,7 @@ TEST_CASE("Starting a measurement forgets the bus", "[j1939][network]")
 
     table.reset();
 
-    CHECK(table.nodes().empty());
-    CHECK(table.defeated().empty());
-    CHECK(table.events().empty());
+    EXPECT_TRUE(table.nodes().empty());
+    EXPECT_TRUE(table.defeated().empty());
+    EXPECT_TRUE(table.events().empty());
 }

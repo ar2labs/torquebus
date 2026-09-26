@@ -17,7 +17,7 @@ target_link_libraries(torquebus_hardware_tests
             torquebus::driver_kvaser
             torquebus::driver_peak
             torquebus::warnings
-            Catch2::Catch2WithMain
+            GTest::gtest_main
 )
 
 find_package(Threads REQUIRED)
@@ -30,7 +30,7 @@ set_target_properties(torquebus_hardware_tests PROPERTIES FOLDER "Tests")
 # ctest. See the module's header - covering only the second cost a build.
 torquebus_test_dl_paths(TORQUEBUS_TEST_DL_PATHS)
 
-catch_discover_tests(torquebus_hardware_tests
+gtest_discover_tests(torquebus_hardware_tests
     DL_PATHS ${TORQUEBUS_TEST_DL_PATHS}
     PROPERTIES
         LABELS "hardware"

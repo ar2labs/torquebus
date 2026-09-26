@@ -23,7 +23,9 @@
 #include "core/can/CanFrame.h"
 #include "plugins/driver-peak/PeakCanBackend.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
+
+#include <iostream>
 
 #include <chrono>
 #include <mutex>
@@ -40,14 +42,20 @@ namespace {
 [[nodiscard]] bool peakUsable()
 {
     if (!PeakCanBackend::isCompiledIn()) {
-        WARN("Built without Qt SerialBus - the PEAK backend is a stub in this build.");
+        std::cout << (::testing::Message()
+                      << "Built without Qt SerialBus - the PEAK backend is a stub in this build.")
+                         .GetString()
+                  << '\n';
         return false;
     }
 
     const PeakCanBackend backend;
     if (!backend.isAvailable()) {
-        WARN("Qt SerialBus has no 'peakcan' plugin here. Install the PEAK-System "
-             "driver (PCANBasic.dll) to run these.");
+        std::cout << (::testing::Message()
+                      << "Qt SerialBus has no 'peakcan' plugin here. Install the PEAK-System "
+                         "driver (PCANBasic.dll) to run these.")
+                         .GetString()
+                  << '\n';
         return false;
     }
 
@@ -64,7 +72,7 @@ namespace {
 
 } // namespace
 
-TEST_CASE("A build without Qt SerialBus still constructs a PEAK backend", "[peak]")
+TEST(PeakLoopbackTests, ABuildWithoutQtSerialBusStillConstructsAPEAKBackend)
 {
     // The stub contract, and the reason it exists: the registry, the Hardware
     // Manager and this test are identical in both builds. Nothing here asks
@@ -72,52 +80,52 @@ TEST_CASE("A build without Qt SerialBus still constructs a PEAK backend", "[peak
     // still get this far.
     PeakCanBackend backend;
 
-    CHECK(backend.name() == "peak");
-    CHECK_FALSE(backend.isOpen());
-    CHECK(PeakCanBackend::pluginName() == "peakcan");
+    EXPECT_TRUE(backend.name() == "peak");
+    EXPECT_FALSE(backend.isOpen());
+    EXPECT_TRUE(PeakCanBackend::pluginName() == "peakcan");
 
     // Enumerating an unavailable backend is an empty list, never an error.
-    CHECK(backend.enumerate().empty());
+    EXPECT_TRUE(backend.enumerate().empty());
 
     if (!PeakCanBackend::isCompiledIn()) {
         // And opening it says why, rather than failing silently or crashing.
         const Result result = backend.open(CanChannelConfig{});
-        CHECK(result.failed());
-        CHECK(result.code() == ErrorCode::BackendUnavailable);
+        EXPECT_TRUE(result.failed());
+        EXPECT_TRUE(result.code() == ErrorCode::BackendUnavailable);
     }
 }
 
-TEST_CASE("Enumeration produces handles that name themselves", "[peak][hardware]")
+TEST(PeakLoopbackTests, EnumerationProducesHandlesThatNameThemselves)
 {
     if (!peakUsable()) {
-        SKIP("no peakcan plugin");
+        GTEST_SKIP() << "no peakcan plugin";
     }
 
     PeakCanBackend backend;
 
     for (const CanDeviceInfo& device : backend.enumerate()) {
-        INFO("device " << device.handle);
+        SCOPED_TRACE(::testing::Message() << "device " << device.handle);
 
         // The handle is persisted in .tbsproj files and handed back to open()
         // on a later run, so its shape is a format, not a convenience.
-        CHECK(device.handle.starts_with("peak:"));
-        CHECK(device.handle.size() > 5);
-        CHECK(device.backend == "peak");
-        CHECK_FALSE(device.name.empty());
+        EXPECT_TRUE(device.handle.starts_with("peak:"));
+        EXPECT_TRUE(device.handle.size() > 5);
+        EXPECT_TRUE(device.backend == "peak");
+        EXPECT_FALSE(device.name.empty());
 
         // Classic CAN always; FD only when the adapter says so. An adapter
         // advertising BRS without FD would be a contradiction worth catching.
-        CHECK(device.capabilities.canClassic);
+        EXPECT_TRUE(device.capabilities.canClassic);
         if (device.capabilities.canFdBrs) {
-            CHECK(device.capabilities.canFd);
+            EXPECT_TRUE(device.capabilities.canFd);
         }
     }
 }
 
-TEST_CASE("Opening a handle that names nothing fails without hanging", "[peak][hardware]")
+TEST(PeakLoopbackTests, OpeningAHandleThatNamesNothingFailsWithoutHanging)
 {
     if (!peakUsable()) {
-        SKIP("no peakcan plugin");
+        GTEST_SKIP() << "no peakcan plugin";
     }
 
     PeakCanBackend backend;
@@ -131,19 +139,19 @@ TEST_CASE("Opening a handle that names nothing fails without hanging", "[peak][h
     // typo'd handle, which is a thing a user does.
     const Result result = backend.open(config);
 
-    CHECK(result.failed());
-    CHECK_FALSE(backend.isOpen());
+    EXPECT_TRUE(result.failed());
+    EXPECT_FALSE(backend.isOpen());
 }
 
-TEST_CASE("A channel opens, starts, stops and closes in that order", "[peak][hardware]")
+TEST(PeakLoopbackTests, AChannelOpensStartsStopsAndClosesInThatOrder)
 {
     if (!peakUsable()) {
-        SKIP("no peakcan plugin");
+        GTEST_SKIP() << "no peakcan plugin";
     }
 
     const std::string handle = firstHandle();
     if (handle.empty()) {
-        SKIP("peakcan plugin present, but no PCAN adapter is connected");
+        GTEST_SKIP() << "peakcan plugin present, but no PCAN adapter is connected";
     }
 
     PeakCanBackend backend;
@@ -153,49 +161,49 @@ TEST_CASE("A channel opens, starts, stops and closes in that order", "[peak][har
     config.applicationChannel = 0;
     config.timing.bitrate = kDefaultBitrate;
 
-    REQUIRE(backend.open(config).succeeded());
-    CHECK(backend.isOpen());
+    ASSERT_TRUE(backend.open(config).succeeded());
+    EXPECT_TRUE(backend.isOpen());
 
     // Off the bus until started, which is the contract open() advertises.
-    CHECK(backend.status().state == CanBusState::Offline);
+    EXPECT_TRUE(backend.status().state == CanBusState::Offline);
 
     const Result started = backend.start();
-    INFO("start: " << std::string{started.message()});
-    REQUIRE(started.succeeded());
+    SCOPED_TRACE(::testing::Message() << "start: " << std::string{started.message()});
+    ASSERT_TRUE(started.succeeded());
 
     // Let the plugin settle before asking the controller anything.
     std::this_thread::sleep_for(200ms);
 
     const CanBusStatus busStatus = backend.status();
-    INFO("state: " << toString(busStatus.state));
-    CHECK(busStatus.state != CanBusState::BusOff);
+    SCOPED_TRACE(::testing::Message() << "state: " << toString(busStatus.state));
+    EXPECT_TRUE(busStatus.state != CanBusState::BusOff);
 
     backend.stop();
-    CHECK(backend.status().state == CanBusState::Offline);
+    EXPECT_TRUE(backend.status().state == CanBusState::Offline);
 
     // Still open after stop(): the contract says a stopped channel can be
     // started again without reapplying the configuration.
-    CHECK(backend.isOpen());
-    REQUIRE(backend.start().succeeded());
+    EXPECT_TRUE(backend.isOpen());
+    ASSERT_TRUE(backend.start().succeeded());
     backend.stop();
 
     backend.close();
-    CHECK_FALSE(backend.isOpen());
+    EXPECT_FALSE(backend.isOpen());
 
     // Closing twice is a no-op, not a crash. The destructor closes too, so any
     // path that survives only one close would take the process down on exit.
     backend.close();
 }
 
-TEST_CASE("Frames sent on a bus with no other node come back as our own echo", "[peak][hardware]")
+TEST(PeakLoopbackTests, FramesSentOnABusWithNoOtherNodeComeBackAsOurOwnEcho)
 {
     if (!peakUsable()) {
-        SKIP("no peakcan plugin");
+        GTEST_SKIP() << "no peakcan plugin";
     }
 
     const std::string handle = firstHandle();
     if (handle.empty()) {
-        SKIP("peakcan plugin present, but no PCAN adapter is connected");
+        GTEST_SKIP() << "peakcan plugin present, but no PCAN adapter is connected";
     }
 
     std::mutex mutex;
@@ -211,8 +219,8 @@ TEST_CASE("Frames sent on a bus with no other node come back as our own echo", "
     config.deviceHandle = handle;
     config.timing.bitrate = kDefaultBitrate;
 
-    REQUIRE(backend.open(config).succeeded());
-    REQUIRE(backend.start().succeeded());
+    ASSERT_TRUE(backend.open(config).succeeded());
+    ASSERT_TRUE(backend.start().succeeded());
 
     CanFrame frame;
     frame.identifier = 0x123;
@@ -223,7 +231,7 @@ TEST_CASE("Frames sent on a bus with no other node come back as our own echo", "
     frame.data[2] = 0xBE;
 
     const Result sent = backend.transmit(frame);
-    INFO("transmit: " << std::string{sent.message()});
+    SCOPED_TRACE(::testing::Message() << "transmit: " << std::string{sent.message()});
 
     // On a bus with nothing to acknowledge, the controller will not complete
     // the frame - so a failure here is the bus talking, not the backend. What
@@ -241,15 +249,15 @@ TEST_CASE("Frames sent on a bus with no other node come back as our own echo", "
         //
         // Which means it does not depend on the bus at all: if transmit()
         // reported success, the echo is there.
-        REQUIRE_FALSE(received.empty());
+        ASSERT_FALSE(received.empty());
 
         const CanFrame& echo = received.front();
-        CHECK(echo.identifier == 0x123);
-        CHECK(echo.length == 3);
-        CHECK(echo.data[0] == 0xDE);
+        EXPECT_TRUE(echo.identifier == 0x123);
+        EXPECT_TRUE(echo.length == 3);
+        EXPECT_TRUE(echo.data[0] == 0xDE);
 
         // The whole point of synthesising it.
-        CHECK_FALSE(echo.isRx());
+        EXPECT_FALSE(echo.isRx());
     }
 
     backend.close();

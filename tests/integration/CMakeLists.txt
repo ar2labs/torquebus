@@ -11,7 +11,7 @@ add_executable(torquebus_integration_tests
 target_link_libraries(torquebus_integration_tests
     PRIVATE torquebus::drivers
             torquebus::warnings
-            Catch2::Catch2WithMain
+            GTest::gtest_main
 )
 
 find_package(Threads REQUIRED)
@@ -33,7 +33,7 @@ target_compile_definitions(torquebus_integration_tests
 # ctest. See the module's header - covering only the second cost a build.
 torquebus_test_dl_paths(TORQUEBUS_TEST_DL_PATHS)
 
-catch_discover_tests(torquebus_integration_tests
+gtest_discover_tests(torquebus_integration_tests
     DL_PATHS ${TORQUEBUS_TEST_DL_PATHS}
     PROPERTIES
         LABELS "integration"

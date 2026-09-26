@@ -5,7 +5,7 @@
 //
 // A temporary path that is unique across processes, not only within one.
 //
-// catch_discover_tests registers every TEST_CASE as its own CTest test, so each
+// gtest_discover_tests registers every TEST as its own CTest test, so each
 // case runs in a fresh process and any function-local counter restarts at one.
 // Serially that is harmless - a case finishes and cleans up before the next one
 // starts. Under `ctest -j` it is not: two cases run at the same time, pick the

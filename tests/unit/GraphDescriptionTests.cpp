@@ -8,7 +8,7 @@
 // which node, which port, and what was wrong in terms the user recognises -
 // they are looking at blocks with names on them, not at C++ types.
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include "core/can/CanEngine.h"
 #include "core/pipeline/GraphDescription.h"
@@ -49,7 +49,7 @@ namespace {
 
 } // namespace
 
-TEST_CASE("The catalog declares ports before anything is instantiated", "[graph][catalog]")
+TEST(GraphDescriptionTests, TheCatalogDeclaresPortsBeforeAnythingIsInstantiated)
 {
     // This is what a node palette draws from: it must be able to show that a
     // CAN Channel has one Frames output without an engine, a channel, or a
@@ -57,24 +57,24 @@ TEST_CASE("The catalog declares ports before anything is instantiated", "[graph]
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
     const NodeTypeInfo* source = catalog.find("can.source");
-    REQUIRE(source != nullptr);
-    CHECK(source->displayName == "CAN Channel");
-    CHECK(source->category == "Sources");
-    CHECK(source->inputs.empty());
-    REQUIRE(source->outputs.size() == 1);
-    CHECK(source->outputs.front().type == PortType::Frames);
+    ASSERT_TRUE(source != nullptr);
+    EXPECT_TRUE(source->displayName == "CAN Channel");
+    EXPECT_TRUE(source->category == "Sources");
+    EXPECT_TRUE(source->inputs.empty());
+    ASSERT_TRUE(source->outputs.size() == 1);
+    EXPECT_TRUE(source->outputs.front().type == PortType::Frames);
 
     const NodeTypeInfo* ecu = catalog.find("lua.ecu");
-    REQUIRE(ecu != nullptr);
-    CHECK(ecu->inputs.size() == 1);
-    CHECK(ecu->outputs.size() == 1);
+    ASSERT_TRUE(ecu != nullptr);
+    EXPECT_TRUE(ecu->inputs.size() == 1);
+    EXPECT_TRUE(ecu->outputs.size() == 1);
 
     // And the parameter list is what the properties panel builds its fields
     // from, so a new node type needs no UI change to become editable.
-    CHECK_FALSE(ecu->parameters.empty());
+    EXPECT_FALSE(ecu->parameters.empty());
 }
 
-TEST_CASE("An unknown type names what it was given and what exists", "[graph][catalog]")
+TEST(GraphDescriptionTests, AnUnknownTypeNamesWhatItWasGivenAndWhatExists)
 {
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
@@ -83,13 +83,13 @@ TEST_CASE("An unknown type names what it was given and what exists", "[graph][ca
 
     const Result result = description.validate(catalog);
 
-    REQUIRE(result.failed());
+    ASSERT_TRUE(result.failed());
     const std::string message{result.message()};
-    CHECK(message.find("trace_1") != std::string::npos);
-    CHECK(message.find("can.trace") != std::string::npos);
+    EXPECT_TRUE(message.find("trace_1") != std::string::npos);
+    EXPECT_TRUE(message.find("can.trace") != std::string::npos);
 }
 
-TEST_CASE("Mismatched port types name both ends", "[graph][validation]")
+TEST(GraphDescriptionTests, MismatchedPortTypesNameBothEnds)
 {
     // Both ends and both types: "cannot connect" alone leaves the user to work
     // out which of the two blocks is the wrong one.
@@ -117,15 +117,15 @@ TEST_CASE("Mismatched port types name both ends", "[graph][validation]")
 
     const Result result = description.validate(catalog);
 
-    REQUIRE(result.failed());
+    ASSERT_TRUE(result.failed());
     const std::string message{result.message()};
-    CHECK(message.find("can_1") != std::string::npos);
-    CHECK(message.find("plot") != std::string::npos);
-    CHECK(message.find("Frames") != std::string::npos);
-    CHECK(message.find("Signals") != std::string::npos);
+    EXPECT_TRUE(message.find("can_1") != std::string::npos);
+    EXPECT_TRUE(message.find("plot") != std::string::npos);
+    EXPECT_TRUE(message.find("Frames") != std::string::npos);
+    EXPECT_TRUE(message.find("Signals") != std::string::npos);
 }
 
-TEST_CASE("A port that does not exist is caught before building", "[graph][validation]")
+TEST(GraphDescriptionTests, APortThatDoesNotExistIsCaughtBeforeBuilding)
 {
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
@@ -136,11 +136,11 @@ TEST_CASE("A port that does not exist is caught before building", "[graph][valid
 
     const Result result = description.validate(catalog);
 
-    REQUIRE(result.failed());
-    CHECK(std::string{result.message()}.find("port 3") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    EXPECT_TRUE(std::string{result.message()}.find("port 3") != std::string::npos);
 }
 
-TEST_CASE("An edge to a node that is not there is caught", "[graph][validation]")
+TEST(GraphDescriptionTests, AnEdgeToANodeThatIsNotThereIsCaught)
 {
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
@@ -150,11 +150,11 @@ TEST_CASE("An edge to a node that is not there is caught", "[graph][validation]"
 
     const Result result = description.validate(catalog);
 
-    REQUIRE(result.failed());
-    CHECK(std::string{result.message()}.find("trace_1") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    EXPECT_TRUE(std::string{result.message()}.find("trace_1") != std::string::npos);
 }
 
-TEST_CASE("Two wires into one input are refused", "[graph][validation]")
+TEST(GraphDescriptionTests, TwoWiresIntoOneInputAreRefused)
 {
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
@@ -167,13 +167,13 @@ TEST_CASE("Two wires into one input are refused", "[graph][validation]")
 
     const Result result = description.validate(catalog);
 
-    REQUIRE(result.failed());
+    ASSERT_TRUE(result.failed());
     // The message says why, not just no: merging needs a policy, and the user
     // should learn that here rather than from a forum post.
-    CHECK(std::string{result.message()}.find("merging") != std::string::npos);
+    EXPECT_TRUE(std::string{result.message()}.find("merging") != std::string::npos);
 }
 
-TEST_CASE("Duplicate ids are refused", "[graph][validation]")
+TEST(GraphDescriptionTests, DuplicateIdsAreRefused)
 {
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
@@ -183,11 +183,11 @@ TEST_CASE("Duplicate ids are refused", "[graph][validation]")
 
     const Result result = description.validate(catalog);
 
-    REQUIRE(result.failed());
-    CHECK(std::string{result.message()}.find("'ecu'") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    EXPECT_TRUE(std::string{result.message()}.find("'ecu'") != std::string::npos);
 }
 
-TEST_CASE("Removing a node removes the wires that touched it", "[graph]")
+TEST(GraphDescriptionTests, RemovingANodeRemovesTheWiresThatTouchedIt)
 {
     // The one inconsistency a description must never be able to hold: an edge
     // pointing at something that is gone fails at build time, long after the
@@ -201,25 +201,25 @@ TEST_CASE("Removing a node removes the wires that touched it", "[graph]")
 
     description.removeNode("ecu");
 
-    CHECK(description.nodes().size() == 2);
-    CHECK(description.edges().empty());
-    CHECK(description.find("ecu") == nullptr);
+    EXPECT_TRUE(description.nodes().size() == 2);
+    EXPECT_TRUE(description.edges().empty());
+    EXPECT_TRUE(description.find("ecu") == nullptr);
 }
 
-TEST_CASE("uniqueId numbers from the second one", "[graph]")
+TEST(GraphDescriptionTests, UniqueIdNumbersFromTheSecondOne)
 {
     GraphDescription description;
 
-    CHECK(description.uniqueId("ecu") == "ecu");
+    EXPECT_TRUE(description.uniqueId("ecu") == "ecu");
 
     description.addNode(node("ecu", "lua.ecu"));
-    CHECK(description.uniqueId("ecu") == "ecu_2");
+    EXPECT_TRUE(description.uniqueId("ecu") == "ecu_2");
 
     description.addNode(node("ecu_2", "lua.ecu"));
-    CHECK(description.uniqueId("ecu") == "ecu_3");
+    EXPECT_TRUE(description.uniqueId("ecu") == "ecu_3");
 }
 
-TEST_CASE("A described graph builds, compiles and runs", "[graph][build]")
+TEST(GraphDescriptionTests, ADescribedGraphBuildsCompilesAndRuns)
 {
     // The whole point, end to end: a graph made of data - the shape a project
     // file holds - becomes a running pipeline that moves frames.
@@ -227,7 +227,7 @@ TEST_CASE("A described graph builds, compiles and runs", "[graph][build]")
     CanChannelConfig config;
     config.deviceHandle = "virtual:0";
     config.timing.bitrate = 500'000;
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
+    ASSERT_TRUE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
 
     GraphDescription description;
     description.addNode(
@@ -246,7 +246,7 @@ TEST_CASE("A described graph builds, compiles and runs", "[graph][build]")
     description.addEdge(EdgeDescription{"can_1", 0, "ecu", 0});
     description.addEdge(EdgeDescription{"ecu", 0, "tx", 0});
 
-    REQUIRE(description.validate(NodeCatalog::withBuiltinTypes()).succeeded());
+    ASSERT_TRUE(description.validate(NodeCatalog::withBuiltinTypes()).succeeded());
 
     std::vector<CanFrame> received;
     std::mutex mutex;
@@ -257,13 +257,13 @@ TEST_CASE("A described graph builds, compiles and runs", "[graph][build]")
 
     engine.setGraphDescription(description, NodeCatalog::withBuiltinTypes());
 
-    REQUIRE(engine.start().succeeded());
+    ASSERT_TRUE(engine.start().succeeded());
 
     CanFrame request;
     request.identifier = 0x100;
     request.length = 1;
     request.dlc = 1;
-    REQUIRE(engine.transmit(0, request).succeeded());
+    ASSERT_TRUE(engine.transmit(0, request).succeeded());
 
     std::this_thread::sleep_for(std::chrono::milliseconds{100});
     engine.stop();
@@ -271,10 +271,10 @@ TEST_CASE("A described graph builds, compiles and runs", "[graph][build]")
     const std::lock_guard lock{mutex};
     const auto answers = std::count_if(
         received.begin(), received.end(), [](const CanFrame& f) { return f.identifier == 0x101; });
-    CHECK(answers >= 1);
+    EXPECT_TRUE(answers >= 1);
 }
 
-TEST_CASE("Two source nodes on one channel both see every frame", "[graph][build]")
+TEST(GraphDescriptionTests, TwoSourceNodesOnOneChannelBothSeeEveryFrame)
 {
     // The regression this pins: draining consumes, so a described graph with
     // its own can.source for CAN 1 used to answer nothing - the engine's
@@ -288,7 +288,7 @@ TEST_CASE("Two source nodes on one channel both see every frame", "[graph][build
     CanChannelConfig config;
     config.deviceHandle = "virtual:0";
     config.timing.bitrate = 500'000;
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
+    ASSERT_TRUE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
 
     const NodeParameters channelZero{{"channel", ParameterValue::fromInteger(0)}};
 
@@ -325,13 +325,13 @@ TEST_CASE("Two source nodes on one channel both see every frame", "[graph][build
     });
 
     engine.setGraphDescription(description, NodeCatalog::withBuiltinTypes());
-    REQUIRE(engine.start().succeeded());
+    ASSERT_TRUE(engine.start().succeeded());
 
     CanFrame request;
     request.identifier = 0x100;
     request.length = 1;
     request.dlc = 1;
-    REQUIRE(engine.transmit(0, request).succeeded());
+    ASSERT_TRUE(engine.transmit(0, request).succeeded());
 
     std::this_thread::sleep_for(std::chrono::milliseconds{100});
     engine.stop();
@@ -343,15 +343,15 @@ TEST_CASE("Two source nodes on one channel both see every frame", "[graph][build
         });
     };
 
-    CHECK(count(0x201) >= 1);
-    CHECK(count(0x202) >= 1);
+    EXPECT_TRUE(count(0x201) >= 1);
+    EXPECT_TRUE(count(0x202) >= 1);
 
     // And the trace saw the request too, so the engine's own default path was
     // not starved by the user's blocks either.
-    CHECK(engine.traceStore().size() >= 1);
+    EXPECT_TRUE(engine.traceStore().size() >= 1);
 }
 
-TEST_CASE("One script becomes two ECUs through its parameters", "[graph][build][lua]")
+TEST(GraphDescriptionTests, OneScriptBecomesTwoECUsThroughItsParameters)
 {
     // The point of the parameters table, borrowed from cansim: without it every
     // number a script needs is a constant in the file, and running the same
@@ -384,16 +384,16 @@ TEST_CASE("One script becomes two ECUs through its parameters", "[graph][build][
                              }));
 
     PipelineGraph graph;
-    REQUIRE(description.build(catalog, contextWith(store), graph).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(description.build(catalog, contextWith(store), graph).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 
     graph.execute();
 
     const auto ids = graph.nodeIds();
-    REQUIRE(ids.size() == 2);
+    ASSERT_TRUE(ids.size() == 2);
 }
 
-TEST_CASE("A script reads its settings from the parameters table", "[graph][build][lua]")
+TEST(GraphDescriptionTests, AScriptReadsItsSettingsFromTheParametersTable)
 {
     TraceStore store{1024};
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
@@ -425,15 +425,15 @@ TEST_CASE("A script reads its settings from the parameters table", "[graph][buil
                              }));
 
     PipelineGraph graph;
-    REQUIRE(description.build(catalog, contextWith(store), graph).succeeded());
+    ASSERT_TRUE(description.build(catalog, contextWith(store), graph).succeeded());
 
     // on_enable runs during compile, and it raises if anything above is wrong.
     const Result result = graph.compile();
-    INFO(std::string{result.message()});
-    REQUIRE(result.succeeded());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    ASSERT_TRUE(result.succeeded());
 }
 
-TEST_CASE("A script with no parameters still gets an empty table", "[graph][build][lua]")
+TEST(GraphDescriptionTests, AScriptWithNoParametersStillGetsAnEmptyTable)
 {
     // So that `parameters.can_id or 0x100` works without first testing that the
     // table exists. A nil global here would make every example script two lines
@@ -446,10 +446,10 @@ TEST_CASE("A script with no parameters still gets an empty table", "[graph][buil
     )",
                     "bare.lua"};
 
-    REQUIRE(node.prepare(64).succeeded());
+    ASSERT_TRUE(node.prepare(64).succeeded());
 }
 
-TEST_CASE("A disabled node is skipped, and so are its wires", "[graph][build]")
+TEST(GraphDescriptionTests, ADisabledNodeIsSkippedAndSoAreItsWires)
 {
     // Switching a node off must not require rewiring around it: deleting it to
     // try the measurement without it, then drawing it again, loses its settings
@@ -465,15 +465,15 @@ TEST_CASE("A disabled node is skipped, and so are its wires", "[graph][build]")
     description.nodes()[1].enabled = false;
 
     PipelineGraph graph;
-    REQUIRE(description.build(catalog, contextWith(store), graph).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(description.build(catalog, contextWith(store), graph).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 
     // The filter is there; the trace is not, and the wire between them was not
     // an error on the way out.
-    CHECK(graph.nodeIds().size() == 1);
+    EXPECT_TRUE(graph.nodeIds().size() == 1);
 }
 
-TEST_CASE("A block that cannot be built can be switched off", "[graph][validation]")
+TEST(GraphDescriptionTests, ABlockThatCannotBeBuiltCanBeSwitchedOff)
 {
     // Reported from the running application: drop a Lua ECU, do not fill it in
     // yet, and Start is refused - correctly. Untick Enabled, which is the
@@ -496,21 +496,21 @@ TEST_CASE("A block that cannot be built can be switched off", "[graph][validatio
     description.addEdge(EdgeDescription{"filter", 0, "lua_ecu", 0});
     description.addEdge(EdgeDescription{"lua_ecu", 0, "trace_1", 0});
 
-    REQUIRE(description.validate(catalog).failed());
+    ASSERT_TRUE(description.validate(catalog).failed());
 
     description.nodes()[1].enabled = false;
 
-    INFO(std::string{description.validate(catalog).message()});
-    CHECK(description.validate(catalog).succeeded());
+    SCOPED_TRACE(::testing::Message() << std::string{description.validate(catalog).message()});
+    EXPECT_TRUE(description.validate(catalog).succeeded());
 
     // And it really does build - the half of the claim a validate()-only test
     // would leave unchecked.
     PipelineGraph graph;
-    REQUIRE(description.build(catalog, contextWith(store), graph).succeeded());
-    CHECK(graph.nodeIds().size() == 2);
+    ASSERT_TRUE(description.build(catalog, contextWith(store), graph).succeeded());
+    EXPECT_TRUE(graph.nodeIds().size() == 2);
 }
 
-TEST_CASE("A disabled node of a type this build does not have is not fatal", "[graph][validation]")
+TEST(GraphDescriptionTests, ADisabledNodeOfATypeThisBuildDoesNotHaveIsNotFatal)
 {
     // The same rule from the other side. A project saved on a machine with a
     // plugin, opened on one without it: switching that block off is the
@@ -520,13 +520,13 @@ TEST_CASE("A disabled node of a type this build does not have is not fatal", "[g
     GraphDescription description;
     description.addNode(node("mystery", "plugin.not.installed"));
 
-    CHECK(description.validate(catalog).failed());
+    EXPECT_TRUE(description.validate(catalog).failed());
 
     description.nodes()[0].enabled = false;
-    CHECK(description.validate(catalog).succeeded());
+    EXPECT_TRUE(description.validate(catalog).succeeded());
 }
 
-TEST_CASE("Two wires into one input are allowed when one source is disabled", "[graph][validation]")
+TEST(GraphDescriptionTests, TwoWiresIntoOneInputAreAllowedWhenOneSourceIsDisabled)
 {
     // Otherwise switching a node off would leave the project refusing to build
     // over a wire that will not exist.
@@ -539,14 +539,13 @@ TEST_CASE("Two wires into one input are allowed when one source is disabled", "[
     description.addEdge(EdgeDescription{"can_1", 0, "trace_1", 0});
     description.addEdge(EdgeDescription{"can_2", 0, "trace_1", 0});
 
-    CHECK(description.validate(catalog).failed());
+    EXPECT_TRUE(description.validate(catalog).failed());
 
     description.nodes()[1].enabled = false;
-    CHECK(description.validate(catalog).succeeded());
+    EXPECT_TRUE(description.validate(catalog).succeeded());
 }
 
-TEST_CASE("A node naming a channel that is not configured says so in the user's numbering",
-          "[graph][build]")
+TEST(GraphDescriptionTests, ANodeNamingAChannelThatIsNotConfiguredSaysSoInTheUserSNumbering)
 {
     // "CAN 3", not "channel 2". A message using the internal index when the
     // panel shows a different number costs somebody ten minutes.
@@ -554,7 +553,7 @@ TEST_CASE("A node naming a channel that is not configured says so in the user's 
     CanChannelConfig config;
     config.deviceHandle = "virtual:0";
     config.timing.bitrate = 500'000;
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
+    ASSERT_TRUE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
 
     GraphDescription description;
     description.addNode(
@@ -564,12 +563,12 @@ TEST_CASE("A node naming a channel that is not configured says so in the user's 
 
     const Result result = engine.start();
 
-    REQUIRE(result.failed());
-    CHECK(std::string{result.message()}.find("CAN 3") != std::string::npos);
-    CHECK_FALSE(engine.isRunning());
+    ASSERT_TRUE(result.failed());
+    EXPECT_TRUE(std::string{result.message()}.find("CAN 3") != std::string::npos);
+    EXPECT_FALSE(engine.isRunning());
 }
 
-TEST_CASE("A Lua node with both a script and a path is refused", "[graph][build]")
+TEST(GraphDescriptionTests, ALuaNodeWithBothAScriptAndAPathIsRefused)
 {
     // A project holding one copy of a script and a stale path to another is a
     // bug that only appears on the machine where the path happens to resolve.
@@ -587,11 +586,11 @@ TEST_CASE("A Lua node with both a script and a path is refused", "[graph][build]
     PipelineGraph graph;
     const Result result = description.build(catalog, contextWith(store), graph);
 
-    REQUIRE(result.failed());
-    CHECK(std::string{result.message()}.find("Keep one") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    EXPECT_TRUE(std::string{result.message()}.find("Keep one") != std::string::npos);
 }
 
-TEST_CASE("A Lua node loads its script from a file", "[graph][build]")
+TEST(GraphDescriptionTests, ALuaNodeLoadsItsScriptFromAFile)
 {
     TraceStore store{1024};
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
@@ -604,15 +603,15 @@ TEST_CASE("A Lua node loads its script from a file", "[graph][build]")
                                                                       "/ecu_vehicle.lua")}}));
 
     PipelineGraph graph;
-    REQUIRE(description.build(catalog, contextWith(store), graph).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(description.build(catalog, contextWith(store), graph).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 
     // Named after the file and not the node id, because that is what the user
     // has open when they read the error.
-    CHECK(graph.node(graph.executionOrder().front())->displayName() == "ecu_vehicle.lua");
+    EXPECT_TRUE(graph.node(graph.executionOrder().front())->displayName() == "ecu_vehicle.lua");
 }
 
-TEST_CASE("A missing script file fails the build naming the node", "[graph][build]")
+TEST(GraphDescriptionTests, AMissingScriptFileFailsTheBuildNamingTheNode)
 {
     TraceStore store{1024};
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
@@ -626,11 +625,11 @@ TEST_CASE("A missing script file fails the build naming the node", "[graph][buil
     PipelineGraph graph;
     const Result result = description.build(catalog, contextWith(store), graph);
 
-    REQUIRE(result.failed());
-    CHECK(std::string{result.message()}.find("ecu_motor") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    EXPECT_TRUE(std::string{result.message()}.find("ecu_motor") != std::string::npos);
 }
 
-TEST_CASE("A trace node without a store fails rather than dropping frames", "[graph][build]")
+TEST(GraphDescriptionTests, ATraceNodeWithoutAStoreFailsRatherThanDroppingFrames)
 {
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
@@ -642,11 +641,11 @@ TEST_CASE("A trace node without a store fails rather than dropping frames", "[gr
 
     const Result result = description.build(catalog, context, graph);
 
-    REQUIRE(result.failed());
-    CHECK(std::string{result.message()}.find("trace_1") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    EXPECT_TRUE(std::string{result.message()}.find("trace_1") != std::string::npos);
 }
 
-TEST_CASE("A filter node built from parameters actually filters", "[graph][build]")
+TEST(GraphDescriptionTests, AFilterNodeBuiltFromParametersActuallyFilters)
 {
     TraceStore store{1024};
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
@@ -662,19 +661,19 @@ TEST_CASE("A filter node built from parameters actually filters", "[graph][build
     description.addEdge(EdgeDescription{"filter", 0, "trace_1", 0});
 
     PipelineGraph graph;
-    REQUIRE(description.build(catalog, contextWith(store), graph).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(description.build(catalog, contextWith(store), graph).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 
     // The parameters reached the filter: two frames in, one inside the range.
     const NodeId filterNode = graph.executionOrder().front();
     auto* filter = graph.nodeAs<FrameFilterNode>(filterNode);
-    REQUIRE(filter != nullptr);
-    REQUIRE(filter->filters().size() == 1);
-    CHECK(filter->filters().filters().front().identifierFrom == 0x100U);
-    CHECK(filter->filters().filters().front().identifierTo == 0x1FFU);
+    ASSERT_TRUE(filter != nullptr);
+    ASSERT_TRUE(filter->filters().size() == 1);
+    EXPECT_TRUE(filter->filters().filters().front().identifierFrom == 0x100U);
+    EXPECT_TRUE(filter->filters().filters().front().identifierTo == 0x1FFU);
 }
 
-TEST_CASE("A description survives being edited while a measurement runs", "[graph][build]")
+TEST(GraphDescriptionTests, ADescriptionSurvivesBeingEditedWhileAMeasurementRuns)
 {
     // The engine takes a copy, so the canvas can go on being edited during a
     // recording without changing what is currently running. What runs is what
@@ -683,20 +682,20 @@ TEST_CASE("A description survives being edited while a measurement runs", "[grap
     CanChannelConfig config;
     config.deviceHandle = "virtual:0";
     config.timing.bitrate = 500'000;
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
+    ASSERT_TRUE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
 
     GraphDescription description;
     description.addNode(
         node("can_1", "can.source", NodeParameters{{"channel", ParameterValue::fromInteger(0)}}));
 
     engine.setGraphDescription(description, NodeCatalog::withBuiltinTypes());
-    REQUIRE(engine.start().succeeded());
+    ASSERT_TRUE(engine.start().succeeded());
 
     // An edit that would not build - a node with an unknown type - must not
     // affect the running measurement at all.
     description.addNode(node("nonsense", "no.such.type"));
 
-    CHECK(engine.isRunning());
+    EXPECT_TRUE(engine.isRunning());
     engine.stop();
 }
 
@@ -710,7 +709,7 @@ TEST_CASE("A description survives being edited while a measurement runs", "[grap
 // promises to report a problem while the user is still looking at the block,
 // and it was not looking at parameters at all.
 
-TEST_CASE("A block missing a required setting is caught before Start", "[graph][validate]")
+TEST(GraphDescriptionTests, ABlockMissingARequiredSettingIsCaughtBeforeStart)
 {
     // Registered here rather than borrowed from the built-ins, and that is the
     // finding rather than a convenience: **no built-in type has a required
@@ -746,20 +745,20 @@ TEST_CASE("A block missing a required setting is caught before Start", "[graph][
     graph.addNode(NodeDescription{.id = "reader", .typeName = "test.needsPath"});
 
     const Result result = graph.validate(catalog);
-    REQUIRE(result.failed());
+    ASSERT_TRUE(result.failed());
 
     // Named by the label the properties editor shows, because the person
     // reading this is looking at a form with an empty field in it - and by the
     // block's id, because a graph with forty blocks has to say which one.
-    INFO(std::string{result.message()});
-    CHECK(std::string{result.message()}.find("File") != std::string::npos);
-    CHECK(std::string{result.message()}.find("reader") != std::string::npos);
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("File") != std::string::npos);
+    EXPECT_TRUE(std::string{result.message()}.find("reader") != std::string::npos);
 
     graph.nodes()[0].parameters.set("path", ParameterValue::fromText("somewhere.txt"));
-    CHECK(graph.validate(catalog).succeeded());
+    EXPECT_TRUE(graph.validate(catalog).succeeded());
 }
 
-TEST_CASE("A half-configured canvas is not an error", "[graph][validate]")
+TEST(GraphDescriptionTests, AHalfConfiguredCanvasIsNotAnError)
 {
     // The decision this whole area turns on, written down in NodeCatalog.cpp
     // and worth a test of its own: a block dropped and not yet filled in must
@@ -773,11 +772,11 @@ TEST_CASE("A half-configured canvas is not an error", "[graph][validate]")
     graph.addNode(NodeDescription{.id = "tx", .typeName = "can.transmit"});
 
     const Result result = graph.validate(catalog);
-    INFO(std::string{result.message()});
-    CHECK(result.succeeded());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(result.succeeded());
 }
 
-TEST_CASE("A Lua ECU with no script at all is caught before Start", "[graph][validate][lua]")
+TEST(GraphDescriptionTests, ALuaECUWithNoScriptAtAllIsCaughtBeforeStart)
 {
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
@@ -786,19 +785,18 @@ TEST_CASE("A Lua ECU with no script at all is caught before Start", "[graph][val
 
     const Result result = graph.validate(catalog);
 
-    REQUIRE(result.failed());
+    ASSERT_TRUE(result.failed());
 
     // And it says what to do about it. "has no script" was true and useless.
-    INFO(std::string{result.message()});
-    CHECK(std::string{result.message()}.find("Script") != std::string::npos);
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("Script") != std::string::npos);
 
     // Both ways out, not just the one. Somebody who wanted the rest of the
     // pipeline running today should not have to delete the block to get it.
-    CHECK(std::string{result.message()}.find("Enabled") != std::string::npos);
+    EXPECT_TRUE(std::string{result.message()}.find("Enabled") != std::string::npos);
 }
 
-TEST_CASE("A Lua ECU with both a script and a path is caught before Start",
-          "[graph][validate][lua]")
+TEST(GraphDescriptionTests, ALuaECUWithBothAScriptAndAPathIsCaughtBeforeStart)
 {
     // Neither parameter is required on its own and exactly one is required
     // together - a sentence about two parameters, which no ParameterDescriptor
@@ -812,10 +810,10 @@ TEST_CASE("A Lua ECU with both a script and a path is caught before Start",
         .parameters = {{"script", ParameterValue::fromText("function on_frame() end")},
                        {"scriptPath", ParameterValue::fromText("ecu.lua")}}});
 
-    CHECK(graph.validate(catalog).failed());
+    EXPECT_TRUE(graph.validate(catalog).failed());
 }
 
-TEST_CASE("A block whose settings are complete passes", "[graph][validate]")
+TEST(GraphDescriptionTests, ABlockWhoseSettingsAreCompletePasses)
 {
     // The other half of the same claim: a check that only ever refuses would
     // pass the three cases above and be worthless.
@@ -831,12 +829,11 @@ TEST_CASE("A block whose settings are complete passes", "[graph][validate]")
                                   .parameters = {{"channel", ParameterValue::fromInteger(0)}}});
 
     const Result result = graph.validate(catalog);
-    INFO(std::string{result.message()});
-    CHECK(result.succeeded());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(result.succeeded());
 }
 
-TEST_CASE("Validating settings twice is what the creator still does anyway",
-          "[graph][validate][lua]")
+TEST(GraphDescriptionTests, ValidatingSettingsTwiceIsWhatTheCreatorStillDoesAnyway)
 {
     // The creator does not assume anybody validated first. A caller can build
     // a description it never validated - the engine does, on a project file -
@@ -849,11 +846,11 @@ TEST_CASE("Validating settings twice is what the creator still does anyway",
 
     const Result result = catalog.create("lua.ecu", NodeParameters{}, context, "lua_ecu", node);
 
-    CHECK(result.failed());
-    CHECK(node == nullptr);
+    EXPECT_TRUE(result.failed());
+    EXPECT_TRUE(node == nullptr);
 }
 
-TEST_CASE("A decoder wired to a plot fills the plot's store", "[graph][build][plot]")
+TEST(GraphDescriptionTests, ADecoderWiredToAPlotFillsThePlotSStore)
 {
     // The wire this whole port existed for. PortType has carried Signals since
     // v0.5; DbcDecoderNode started producing them in v0.8; and until now the
@@ -890,14 +887,14 @@ TEST_CASE("A decoder wired to a plot fills the plot's store", "[graph][build][pl
     description.addNode(node("plot", "signal.plot"));
     description.addEdge(EdgeDescription{"decoder", 0, "plot", 0});
 
-    REQUIRE(description.validate(catalog).succeeded());
+    ASSERT_TRUE(description.validate(catalog).succeeded());
 
     PipelineGraph graph;
-    REQUIRE(description.build(catalog, context, graph).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(description.build(catalog, context, graph).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 }
 
-TEST_CASE("A plot block without a store fails rather than dropping samples", "[graph][build][plot]")
+TEST(GraphDescriptionTests, APlotBlockWithoutAStoreFailsRatherThanDroppingSamples)
 {
     // The same shape as the trace node's own case, and for the same reason: a
     // node that silently accepted nowhere to write would produce an empty
@@ -910,7 +907,7 @@ TEST_CASE("A plot block without a store fails rather than dropping samples", "[g
     PipelineGraph graph;
     const Result result = description.build(catalog, NodeBuildContext{}, graph);
 
-    CHECK(result.failed());
-    INFO(std::string{result.message()});
-    CHECK(std::string{result.message()}.find("plot") != std::string::npos);
+    EXPECT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("plot") != std::string::npos);
 }

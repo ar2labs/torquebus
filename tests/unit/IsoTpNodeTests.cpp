@@ -14,7 +14,7 @@
 #include "core/pipeline/PipelineGraph.h"
 #include "core/trace/TraceStore.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <string>
 #include <vector>
@@ -31,44 +31,44 @@ namespace {
 
 } // namespace
 
-TEST_CASE("Hex is read the way people write it", "[isotp][hex]")
+TEST(IsoTpNodeTests, HexIsReadTheWayPeopleWriteIt)
 {
     std::vector<std::uint8_t> bytes;
 
-    REQUIRE(parseHexBytes("22 F1 90", bytes));
-    CHECK(bytes == std::vector<std::uint8_t>{0x22, 0xF1, 0x90});
+    ASSERT_TRUE(parseHexBytes("22 F1 90", bytes));
+    EXPECT_TRUE((bytes == std::vector<std::uint8_t>{0x22, 0xF1, 0x90}));
 
-    REQUIRE(parseHexBytes("22f190", bytes));
-    CHECK(bytes == std::vector<std::uint8_t>{0x22, 0xF1, 0x90});
+    ASSERT_TRUE(parseHexBytes("22f190", bytes));
+    EXPECT_TRUE((bytes == std::vector<std::uint8_t>{0x22, 0xF1, 0x90}));
 
-    REQUIRE(parseHexBytes("0x22, 0xF1, 0x90", bytes));
-    CHECK(bytes == std::vector<std::uint8_t>{0x22, 0xF1, 0x90});
+    ASSERT_TRUE(parseHexBytes("0x22, 0xF1, 0x90", bytes));
+    EXPECT_TRUE((bytes == std::vector<std::uint8_t>{0x22, 0xF1, 0x90}));
 
-    REQUIRE(parseHexBytes("22-F1-90", bytes));
-    CHECK(bytes == std::vector<std::uint8_t>{0x22, 0xF1, 0x90});
+    ASSERT_TRUE(parseHexBytes("22-F1-90", bytes));
+    EXPECT_TRUE((bytes == std::vector<std::uint8_t>{0x22, 0xF1, 0x90}));
 
     // An odd number of digits is the one mistake guessing cannot resolve:
     // "2 2F 19 0" and "22 F1 90" are different requests.
-    CHECK_FALSE(parseHexBytes("22 F1 9", bytes));
-    CHECK_FALSE(parseHexBytes("", bytes));
-    CHECK_FALSE(parseHexBytes("zz", bytes));
+    EXPECT_FALSE(parseHexBytes("22 F1 9", bytes));
+    EXPECT_FALSE(parseHexBytes("", bytes));
+    EXPECT_FALSE(parseHexBytes("zz", bytes));
 }
 
-TEST_CASE("A message is shown as bytes, and says when it was cut", "[isotp][hex]")
+TEST(IsoTpNodeTests, AMessageIsShownAsBytesAndSaysWhenItWasCut)
 {
-    CHECK(toHexBytes({0x62, 0xF1, 0x90}) == "62 F1 90");
+    EXPECT_TRUE(toHexBytes({0x62, 0xF1, 0x90}) == "62 F1 90");
 
     const std::vector<std::uint8_t> long_(40, 0xAB);
     const std::string text = toHexBytes(long_, 4);
 
-    CHECK(text.starts_with("AB AB AB AB"));
+    EXPECT_TRUE(text.starts_with("AB AB AB AB"));
 
     // Said rather than silently truncated - a log line that stops mid-message
     // without saying so is one somebody will quote as the whole response.
-    CHECK(text.find("40") != std::string::npos);
+    EXPECT_TRUE(text.find("40") != std::string::npos);
 }
 
-TEST_CASE("A request typed into the block reaches the bus", "[isotp][graph]")
+TEST(IsoTpNodeTests, ARequestTypedIntoTheBlockReachesTheBus)
 {
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
@@ -81,26 +81,26 @@ TEST_CASE("A request typed into the block reaches the bus", "[isotp][graph]")
     description.addNode(NodeDescription{.id = "trace", .typeName = "trace.sink"});
     description.addEdge(EdgeDescription{"tp", 0, "trace", 0});
 
-    REQUIRE(description.validate(catalog).succeeded());
+    ASSERT_TRUE(description.validate(catalog).succeeded());
 
     PipelineGraph graph;
-    REQUIRE(description.build(catalog, context, graph).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(description.build(catalog, context, graph).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 
     graph.execute();
 
-    REQUIRE(store.size() == 1);
+    ASSERT_TRUE(store.size() == 1);
 
     const CanFrame& frame = store.row(0).frame;
 
-    CHECK(frame.identifier == 0x7E0);
-    CHECK(frame.data[0] == 0x03);
-    CHECK(frame.data[1] == 0x22);
-    CHECK(frame.data[3] == 0x90);
-    CHECK(frame.length == 8); // Padded, which is what most ECUs need.
+    EXPECT_TRUE(frame.identifier == 0x7E0);
+    EXPECT_TRUE(frame.data[0] == 0x03);
+    EXPECT_TRUE(frame.data[1] == 0x22);
+    EXPECT_TRUE(frame.data[3] == 0x90);
+    EXPECT_TRUE(frame.length == 8); // Padded, which is what most ECUs need.
 }
 
-TEST_CASE("Asked once means once", "[isotp][graph]")
+TEST(IsoTpNodeTests, AskedOnceMeansOnce)
 {
     // An interval of zero is a question asked when the measurement begins and
     // not again - a tester that repeats a request nobody asked it to repeat is
@@ -117,17 +117,17 @@ TEST_CASE("Asked once means once", "[isotp][graph]")
     description.addEdge(EdgeDescription{"tp", 0, "trace", 0});
 
     PipelineGraph graph;
-    REQUIRE(description.build(catalog, context, graph).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(description.build(catalog, context, graph).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 
     for (int pass = 0; pass < 10; ++pass) {
         graph.execute();
     }
 
-    CHECK(store.size() == 1);
+    EXPECT_TRUE(store.size() == 1);
 }
 
-TEST_CASE("A block with no request carries only what it is asked to", "[isotp][graph]")
+TEST(IsoTpNodeTests, ABlockWithNoRequestCarriesOnlyWhatItIsAskedTo)
 {
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
@@ -141,16 +141,16 @@ TEST_CASE("A block with no request carries only what it is asked to", "[isotp][g
     description.addEdge(EdgeDescription{"tp", 0, "trace", 0});
 
     PipelineGraph graph;
-    REQUIRE(description.build(catalog, context, graph).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(description.build(catalog, context, graph).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 
     graph.execute();
     graph.execute();
 
-    CHECK(store.empty());
+    EXPECT_TRUE(store.empty());
 }
 
-TEST_CASE("Half a hex byte is refused while the block is on screen", "[isotp][validate]")
+TEST(IsoTpNodeTests, HalfAHexByteIsRefusedWhileTheBlockIsOnScreen)
 {
     // At validate time, not at Start: the user is looking at the block they
     // just typed into.
@@ -161,12 +161,12 @@ TEST_CASE("Half a hex byte is refused while the block is on screen", "[isotp][va
 
     const Result result = description.validate(catalog);
 
-    REQUIRE(result.failed());
-    INFO(std::string{result.message()});
-    CHECK(std::string{result.message()}.find("hex") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("hex") != std::string::npos);
 }
 
-TEST_CASE("A separation time outside the protocol's range is refused", "[isotp][validate]")
+TEST(IsoTpNodeTests, ASeparationTimeOutsideTheProtocolSRangeIsRefused)
 {
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
@@ -175,12 +175,12 @@ TEST_CASE("A separation time outside the protocol's range is refused", "[isotp][
 
     const Result result = description.validate(catalog);
 
-    REQUIRE(result.failed());
-    INFO(std::string{result.message()});
-    CHECK(std::string{result.message()}.find("127") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("127") != std::string::npos);
 }
 
-TEST_CASE("The transport's ports are typed, so a wrong wire cannot be drawn", "[isotp][graph]")
+TEST(IsoTpNodeTests, TheTransportSPortsAreTypedSoAWrongWireCannotBeDrawn)
 {
     // Frames in and out, Events in and out. The graph refuses a signal wire
     // into a transport for the same reason it refuses one into a logger: the
@@ -189,15 +189,15 @@ TEST_CASE("The transport's ports are typed, so a wrong wire cannot be drawn", "[
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
     const NodeTypeInfo* info = catalog.find("isotp.transport");
-    REQUIRE(info != nullptr);
+    ASSERT_TRUE(info != nullptr);
 
-    REQUIRE(info->inputs.size() == 2);
-    CHECK(info->inputs[0].type == PortType::Frames);
-    CHECK(info->inputs[1].type == PortType::Events);
+    ASSERT_TRUE(info->inputs.size() == 2);
+    EXPECT_TRUE(info->inputs[0].type == PortType::Frames);
+    EXPECT_TRUE(info->inputs[1].type == PortType::Events);
 
-    REQUIRE(info->outputs.size() == 2);
-    CHECK(info->outputs[0].type == PortType::Frames);
-    CHECK(info->outputs[1].type == PortType::Events);
+    ASSERT_TRUE(info->outputs.size() == 2);
+    EXPECT_TRUE(info->outputs[0].type == PortType::Frames);
+    EXPECT_TRUE(info->outputs[1].type == PortType::Events);
 
     GraphDescription description;
     description.addNode(isotp({}));
@@ -206,5 +206,5 @@ TEST_CASE("The transport's ports are typed, so a wrong wire cannot be drawn", "[
     // Messages into a trace: the trace takes frames.
     description.addEdge(EdgeDescription{"tp", 1, "trace", 0});
 
-    CHECK(description.validate(catalog).failed());
+    EXPECT_TRUE(description.validate(catalog).failed());
 }

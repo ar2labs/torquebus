@@ -20,7 +20,7 @@
 #include "core/can/CanFrame.h"
 #include "plugins/driver-kvaser/KvaserCanBackend.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <algorithm>
 #include <chrono>
@@ -131,53 +131,54 @@ struct VirtualPair final {
 
 } // namespace
 
-TEST_CASE("Kvaser CANlib is present and enumerates channels", "[kvaser]")
+TEST(KvaserVirtualTests, KvaserCANlibIsPresentAndEnumeratesChannels)
 {
     KvaserCanBackend backend;
 
     if (!KvaserCanBackend::isCompiledIn()) {
-        SKIP("This build was configured without Kvaser CANlib.");
+        GTEST_SKIP() << "This build was configured without Kvaser CANlib.";
     }
 
     if (!backend.isAvailable()) {
-        SKIP("Kvaser CANlib is linked but no channels are present - the driver is "
-             "probably not installed.");
+        GTEST_SKIP() << "Kvaser CANlib is linked but no channels are present - the driver is "
+                        "probably not installed.";
     }
 
     const CanDeviceInfoList devices = backend.enumerate();
-    REQUIRE_FALSE(devices.empty());
+    ASSERT_FALSE(devices.empty());
 
     for (const CanDeviceInfo& device : devices) {
-        INFO("device: " << device.name << " (" << device.handle << ")");
-        CHECK(device.backend == "kvaser");
-        CHECK(device.handle.starts_with("kvaser:"));
-        CHECK_FALSE(device.name.empty());
-        CHECK(device.capabilities.canClassic);
+        SCOPED_TRACE(::testing::Message()
+                     << "device: " << device.name << " (" << device.handle << ")");
+        EXPECT_TRUE(device.backend == "kvaser");
+        EXPECT_TRUE(device.handle.starts_with("kvaser:"));
+        EXPECT_FALSE(device.name.empty());
+        EXPECT_TRUE(device.capabilities.canClassic);
     }
 }
 
-TEST_CASE("A Kvaser handle that is not ours is refused", "[kvaser]")
+TEST(KvaserVirtualTests, AKvaserHandleThatIsNotOursIsRefused)
 {
     if (!KvaserCanBackend::isCompiledIn()) {
-        SKIP("Built without Kvaser CANlib.");
+        GTEST_SKIP() << "Built without Kvaser CANlib.";
     }
 
     KvaserCanBackend backend;
-    CHECK(backend.open(configFor("virtual:0", 0)).code() == ErrorCode::DeviceNotFound);
-    CHECK(backend.open(configFor("", 0)).code() == ErrorCode::DeviceNotFound);
+    EXPECT_TRUE(backend.open(configFor("virtual:0", 0)).code() == ErrorCode::DeviceNotFound);
+    EXPECT_TRUE(backend.open(configFor("", 0)).code() == ErrorCode::DeviceNotFound);
 }
 
-TEST_CASE("A non-standard bitrate is refused with an explanation", "[kvaser]")
+TEST(KvaserVirtualTests, ANonStandardBitrateIsRefusedWithAnExplanation)
 {
     // Better a clear refusal than a channel that opens and then produces error
     // frames because we guessed its segment timing.
     if (!KvaserCanBackend::isCompiledIn()) {
-        SKIP("Built without Kvaser CANlib.");
+        GTEST_SKIP() << "Built without Kvaser CANlib.";
     }
 
     const VirtualPair pair = findVirtualPair();
     if (!pair.found) {
-        SKIP("No Kvaser virtual channels available.");
+        GTEST_SKIP() << "No Kvaser virtual channels available.";
     }
 
     CanChannelConfig config = configFor(pair.first, 0);
@@ -186,22 +187,23 @@ TEST_CASE("A non-standard bitrate is refused with an explanation", "[kvaser]")
     KvaserCanBackend backend;
     const Result result = backend.open(config);
 
-    CHECK(result.code() == ErrorCode::BitTimingRejected);
-    CHECK(result.message().find("333333") != std::string_view::npos);
+    EXPECT_TRUE(result.code() == ErrorCode::BitTimingRejected);
+    EXPECT_TRUE(result.message().find("333333") != std::string_view::npos);
 }
 
-TEST_CASE("Kvaser Virtual 0 reaches Kvaser Virtual 1", "[kvaser][loopback]")
+TEST(KvaserVirtualTests, KvaserVirtual0ReachesKvaserVirtual1)
 {
     if (!KvaserCanBackend::isCompiledIn()) {
-        SKIP("Built without Kvaser CANlib.");
+        GTEST_SKIP() << "Built without Kvaser CANlib.";
     }
 
     const VirtualPair pair = findVirtualPair();
     if (!pair.found) {
-        SKIP("Fewer than two Kvaser virtual channels - install the Kvaser drivers.");
+        GTEST_SKIP() << "Fewer than two Kvaser virtual channels - install the Kvaser drivers.";
     }
 
-    INFO("sending on " << pair.first << ", listening on " << pair.second);
+    SCOPED_TRACE(::testing::Message()
+                 << "sending on " << pair.first << ", listening on " << pair.second);
 
     FrameCollector sender;
     FrameCollector receiver;
@@ -212,54 +214,54 @@ TEST_CASE("Kvaser Virtual 0 reaches Kvaser Virtual 1", "[kvaser][loopback]")
     nodeA.setFrameHandler(sender.handler());
     nodeB.setFrameHandler(receiver.handler());
 
-    REQUIRE(nodeA.open(configFor(pair.first, 0)).succeeded());
-    REQUIRE(nodeB.open(configFor(pair.second, 1)).succeeded());
+    ASSERT_TRUE(nodeA.open(configFor(pair.first, 0)).succeeded());
+    ASSERT_TRUE(nodeB.open(configFor(pair.second, 1)).succeeded());
 
-    REQUIRE(nodeA.start().succeeded());
-    REQUIRE(nodeB.start().succeeded());
+    ASSERT_TRUE(nodeA.start().succeeded());
+    ASSERT_TRUE(nodeB.start().succeeded());
 
-    REQUIRE(nodeA.transmit(frame(0x18FF50E5)).succeeded());
+    ASSERT_TRUE(nodeA.transmit(frame(0x18FF50E5)).succeeded());
 
-    REQUIRE(receiver.waitFor(1, 3s));
+    ASSERT_TRUE(receiver.waitFor(1, 3s));
 
     const std::vector<CanFrame> received = receiver.frames();
-    REQUIRE_FALSE(received.empty());
+    ASSERT_FALSE(received.empty());
 
     const CanFrame& first = received.front();
-    CHECK(first.identifier == 0x18FF50E5);
-    CHECK(first.isExtended());
-    CHECK(first.direction == CanDirection::Rx);
-    CHECK(first.channel == 1);
-    CHECK(first.length == 8);
-    CHECK(first.data[0] == 0xA0);
+    EXPECT_TRUE(first.identifier == 0x18FF50E5);
+    EXPECT_TRUE(first.isExtended());
+    EXPECT_TRUE(first.direction == CanDirection::Rx);
+    EXPECT_TRUE(first.channel == 1);
+    EXPECT_TRUE(first.length == 8);
+    EXPECT_TRUE(first.data[0] == 0xA0);
 
     // Hardware timestamps are relative to the start of the measurement, so the
     // only thing worth asserting is that they are moving.
-    CHECK(first.timestampNs > 0);
+    EXPECT_TRUE(first.timestampNs > 0);
 
     // The sender must see its own frame come back as Tx, whether the driver
     // echoed it or the backend synthesised the echo. That the test cannot tell
     // which happened is the point.
-    REQUIRE(sender.waitFor(1, 1s));
-    CHECK(sender.frames().front().direction == CanDirection::Tx);
-    CHECK(sender.frames().front().channel == 0);
+    ASSERT_TRUE(sender.waitFor(1, 1s));
+    EXPECT_TRUE(sender.frames().front().direction == CanDirection::Tx);
+    EXPECT_TRUE(sender.frames().front().channel == 0);
 
     nodeA.stop();
     nodeB.stop();
 }
 
-TEST_CASE("Timestamps advance monotonically across a burst", "[kvaser][timestamps]")
+TEST(KvaserVirtualTests, TimestampsAdvanceMonotonicallyAcrossABurst)
 {
     // The driver hands back a 32-bit tick count that the backend widens to 64
     // bits. A burst is not long enough to wrap it, but it is enough to catch a
     // conversion that goes backwards or stands still.
     if (!KvaserCanBackend::isCompiledIn()) {
-        SKIP("Built without Kvaser CANlib.");
+        GTEST_SKIP() << "Built without Kvaser CANlib.";
     }
 
     const VirtualPair pair = findVirtualPair();
     if (!pair.found) {
-        SKIP("No Kvaser virtual channels available.");
+        GTEST_SKIP() << "No Kvaser virtual channels available.";
     }
 
     FrameCollector receiver;
@@ -268,50 +270,52 @@ TEST_CASE("Timestamps advance monotonically across a burst", "[kvaser][timestamp
     KvaserCanBackend listener;
     listener.setFrameHandler(receiver.handler());
 
-    REQUIRE(sender.open(configFor(pair.first, 0)).succeeded());
-    REQUIRE(listener.open(configFor(pair.second, 1)).succeeded());
-    REQUIRE(sender.start().succeeded());
-    REQUIRE(listener.start().succeeded());
+    ASSERT_TRUE(sender.open(configFor(pair.first, 0)).succeeded());
+    ASSERT_TRUE(listener.open(configFor(pair.second, 1)).succeeded());
+    ASSERT_TRUE(sender.start().succeeded());
+    ASSERT_TRUE(listener.start().succeeded());
 
     constexpr int kBurst = 50;
     for (int index = 0; index < kBurst; ++index) {
-        REQUIRE(sender.transmit(frame(0x100 + static_cast<std::uint32_t>(index), 8)).succeeded());
+        ASSERT_TRUE(
+            sender.transmit(frame(0x100 + static_cast<std::uint32_t>(index), 8)).succeeded());
     }
 
-    REQUIRE(receiver.waitFor(kBurst, 5s));
+    ASSERT_TRUE(receiver.waitFor(kBurst, 5s));
 
     const std::vector<CanFrame> frames = receiver.frames();
-    REQUIRE(frames.size() >= kBurst);
+    ASSERT_TRUE(frames.size() >= kBurst);
 
-    CHECK(std::is_sorted(frames.begin(), frames.end(), [](const CanFrame& a, const CanFrame& b) {
-        return a.timestampNs < b.timestampNs;
-    }));
+    EXPECT_TRUE(
+        std::is_sorted(frames.begin(), frames.end(), [](const CanFrame& a, const CanFrame& b) {
+            return a.timestampNs < b.timestampNs;
+        }));
 
-    CHECK(frames.back().timestampNs > frames.front().timestampNs);
+    EXPECT_TRUE(frames.back().timestampNs > frames.front().timestampNs);
 
     sender.stop();
     listener.stop();
 }
 
-TEST_CASE("Listen-only channels never transmit", "[kvaser][listenonly]")
+TEST(KvaserVirtualTests, ListenOnlyChannelsNeverTransmit)
 {
     if (!KvaserCanBackend::isCompiledIn()) {
-        SKIP("Built without Kvaser CANlib.");
+        GTEST_SKIP() << "Built without Kvaser CANlib.";
     }
 
     const VirtualPair pair = findVirtualPair();
     if (!pair.found) {
-        SKIP("No Kvaser virtual channels available.");
+        GTEST_SKIP() << "No Kvaser virtual channels available.";
     }
 
     CanChannelConfig config = configFor(pair.first, 0);
     config.listenOnly = true;
 
     KvaserCanBackend backend;
-    REQUIRE(backend.open(config).succeeded());
-    REQUIRE(backend.start().succeeded());
+    ASSERT_TRUE(backend.open(config).succeeded());
+    ASSERT_TRUE(backend.start().succeeded());
 
-    CHECK(backend.transmit(frame(0x100, 1)).code() == ErrorCode::InvalidState);
+    EXPECT_TRUE(backend.transmit(frame(0x100, 1)).code() == ErrorCode::InvalidState);
 
     backend.stop();
 }

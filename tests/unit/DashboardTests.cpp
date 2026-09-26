@@ -17,7 +17,7 @@
 #include "core/pipeline/PipelineGraph.h"
 #include "core/scripting/LuaEcuNode.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <chrono>
 #include <memory>
@@ -46,7 +46,7 @@ namespace {
 
 } // namespace
 
-TEST_CASE("A dashboard of bound widgets validates", "[dashboard]")
+TEST(DashboardTests, ADashboardOfBoundWidgetsValidates)
 {
     DashboardDescription dashboard;
     dashboard.add(goodGauge());
@@ -66,11 +66,11 @@ TEST_CASE("A dashboard of bound widgets validates", "[dashboard]")
     label.title = "Powertrain";
     dashboard.add(label);
 
-    INFO(std::string{dashboard.validate().message()});
-    CHECK(dashboard.validate().succeeded());
+    SCOPED_TRACE(::testing::Message() << std::string{dashboard.validate().message()});
+    EXPECT_TRUE(dashboard.validate().succeeded());
 }
 
-TEST_CASE("A widget bound to nothing is refused", "[dashboard]")
+TEST(DashboardTests, AWidgetBoundToNothingIsRefused)
 {
     // A gauge bound to nothing is a picture of a gauge, and it is the mistake
     // somebody makes on the way to binding it - so the message has to say what
@@ -83,12 +83,12 @@ TEST_CASE("A widget bound to nothing is refused", "[dashboard]")
 
     const Result result = dashboard.validate();
 
-    REQUIRE(result.failed());
-    INFO(std::string{result.message()});
-    CHECK(std::string{result.message()}.find("bound") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("bound") != std::string::npos);
 }
 
-TEST_CASE("A label needs no binding", "[dashboard]")
+TEST(DashboardTests, ALabelNeedsNoBinding)
 {
     // The one kind with nothing to show but itself. Held to the same rule as
     // the others, it would be impossible to put a heading on a dashboard.
@@ -99,10 +99,10 @@ TEST_CASE("A label needs no binding", "[dashboard]")
     label.kind = DashboardWidgetKind::Label;
     dashboard.add(label);
 
-    CHECK(dashboard.validate().succeeded());
+    EXPECT_TRUE(dashboard.validate().succeeded());
 }
 
-TEST_CASE("A control bound to a CAN signal is refused, and told why", "[dashboard]")
+TEST(DashboardTests, AControlBoundToACANSignalIsRefusedAndToldWhy)
 {
     // The refusal that saves an afternoon. A slider bound to a signal looks
     // reasonable, moves under the mouse, and changes nothing on the bus - and
@@ -119,14 +119,14 @@ TEST_CASE("A control bound to a CAN signal is refused, and told why", "[dashboar
 
     const Result result = dashboard.validate();
 
-    REQUIRE(result.failed());
-    INFO(std::string{result.message()});
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
 
     // Names the way out, not only the problem.
-    CHECK(std::string{result.message()}.find("variable") != std::string::npos);
+    EXPECT_TRUE(std::string{result.message()}.find("variable") != std::string::npos);
 }
 
-TEST_CASE("A signal binding carries its message", "[dashboard]")
+TEST(DashboardTests, ASignalBindingCarriesItsMessage)
 {
     // Signal names are only unique within a message, and two ECUs on one bus
     // routinely publish a "Temperature".
@@ -138,12 +138,12 @@ TEST_CASE("A signal binding carries its message", "[dashboard]")
 
     const Result result = dashboard.validate();
 
-    REQUIRE(result.failed());
-    INFO(std::string{result.message()});
-    CHECK(std::string{result.message()}.find("message") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("message") != std::string::npos);
 }
 
-TEST_CASE("A range a needle cannot sweep is refused", "[dashboard]")
+TEST(DashboardTests, ARangeANeedleCannotSweepIsRefused)
 {
     DashboardDescription dashboard;
 
@@ -152,7 +152,7 @@ TEST_CASE("A range a needle cannot sweep is refused", "[dashboard]")
     widget.maximum = 100.0;
     dashboard.add(widget);
 
-    CHECK(dashboard.validate().failed());
+    EXPECT_TRUE(dashboard.validate().failed());
 
     // A lamp has only a threshold, so an empty range is not its problem.
     DashboardDescription lamps;
@@ -166,32 +166,32 @@ TEST_CASE("A range a needle cannot sweep is refused", "[dashboard]")
     lamp.maximum = 0.0;
     lamps.add(lamp);
 
-    CHECK(lamps.validate().succeeded());
+    EXPECT_TRUE(lamps.validate().succeeded());
 }
 
-TEST_CASE("Two widgets cannot share an id", "[dashboard]")
+TEST(DashboardTests, TwoWidgetsCannotShareAnId)
 {
     DashboardDescription dashboard;
     dashboard.add(goodGauge("speed"));
     dashboard.add(goodGauge("speed"));
 
-    CHECK(dashboard.validate().failed());
+    EXPECT_TRUE(dashboard.validate().failed());
 }
 
-TEST_CASE("A new id does not read as a copy of the first", "[dashboard]")
+TEST(DashboardTests, ANewIdDoesNotReadAsACopyOfTheFirst)
 {
     DashboardDescription dashboard;
 
-    CHECK(dashboard.uniqueId("gauge") == "gauge");
+    EXPECT_TRUE(dashboard.uniqueId("gauge") == "gauge");
 
     dashboard.add(goodGauge("gauge"));
-    CHECK(dashboard.uniqueId("gauge") == "gauge_2");
+    EXPECT_TRUE(dashboard.uniqueId("gauge") == "gauge_2");
 
     dashboard.add(goodGauge("gauge_2"));
-    CHECK(dashboard.uniqueId("gauge") == "gauge_3");
+    EXPECT_TRUE(dashboard.uniqueId("gauge") == "gauge_3");
 }
 
-TEST_CASE("Removing a widget removes that one", "[dashboard]")
+TEST(DashboardTests, RemovingAWidgetRemovesThatOne)
 {
     DashboardDescription dashboard;
     dashboard.add(goodGauge("a"));
@@ -199,12 +199,12 @@ TEST_CASE("Removing a widget removes that one", "[dashboard]")
 
     dashboard.remove("a");
 
-    CHECK(dashboard.widgets().size() == 1);
-    CHECK(dashboard.find("a") == nullptr);
-    REQUIRE(dashboard.find("b") != nullptr);
+    EXPECT_TRUE(dashboard.widgets().size() == 1);
+    EXPECT_TRUE(dashboard.find("a") == nullptr);
+    ASSERT_TRUE(dashboard.find("b") != nullptr);
 }
 
-TEST_CASE("Widget kinds survive the round trip through their names", "[dashboard]")
+TEST(DashboardTests, WidgetKindsSurviveTheRoundTripThroughTheirNames)
 {
     // The names go into project files, so a kind that does not come back is a
     // dashboard that opens with the wrong widget on it.
@@ -222,51 +222,51 @@ TEST_CASE("Widget kinds survive the round trip through their names", "[dashboard
     for (const DashboardWidgetKind kind : kAll) {
         DashboardWidgetKind parsed{};
 
-        INFO(std::string{nameOf(kind)});
-        REQUIRE(kindFromName(nameOf(kind), parsed));
-        CHECK(parsed == kind);
+        SCOPED_TRACE(::testing::Message() << std::string{nameOf(kind)});
+        ASSERT_TRUE(kindFromName(nameOf(kind), parsed));
+        EXPECT_TRUE(parsed == kind);
     }
 
     DashboardWidgetKind unused{};
-    CHECK_FALSE(kindFromName("hologram", unused));
+    EXPECT_FALSE(kindFromName("hologram", unused));
 }
 
-TEST_CASE("Controls are the kinds that write", "[dashboard]")
+TEST(DashboardTests, ControlsAreTheKindsThatWrite)
 {
-    CHECK(writesItsBinding(DashboardWidgetKind::Slider));
-    CHECK(writesItsBinding(DashboardWidgetKind::Knob));
-    CHECK(writesItsBinding(DashboardWidgetKind::Button));
-    CHECK(writesItsBinding(DashboardWidgetKind::Switch));
+    EXPECT_TRUE(writesItsBinding(DashboardWidgetKind::Slider));
+    EXPECT_TRUE(writesItsBinding(DashboardWidgetKind::Knob));
+    EXPECT_TRUE(writesItsBinding(DashboardWidgetKind::Button));
+    EXPECT_TRUE(writesItsBinding(DashboardWidgetKind::Switch));
 
-    CHECK_FALSE(writesItsBinding(DashboardWidgetKind::Gauge));
-    CHECK_FALSE(writesItsBinding(DashboardWidgetKind::Numeric));
-    CHECK_FALSE(writesItsBinding(DashboardWidgetKind::Lamp));
-    CHECK_FALSE(writesItsBinding(DashboardWidgetKind::Label));
+    EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Gauge));
+    EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Numeric));
+    EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Lamp));
+    EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Label));
 }
 
 // ---------------------------------------------------------------------------
 // System variables
 // ---------------------------------------------------------------------------
 
-TEST_CASE("A variable remembers what was written to it", "[dashboard][variables]")
+TEST(DashboardTests, AVariableRemembersWhatWasWrittenToIt)
 {
     SystemVariables variables;
 
     const SystemVariables::Handle pedal = variables.resolve("brake_pedal");
 
-    CHECK(variables.value(pedal) == 0.0);
+    EXPECT_TRUE(variables.value(pedal) == 0.0);
 
     variables.set(pedal, 0.75);
-    CHECK(variables.value(pedal) == 0.75);
+    EXPECT_TRUE(variables.value(pedal) == 0.75);
 
     // By name, which is how a panel reaches it.
-    CHECK(variables.value("brake_pedal") == 0.75);
+    EXPECT_TRUE(variables.value("brake_pedal") == 0.75);
 
     variables.set("brake_pedal", 0.25);
-    CHECK(variables.value(pedal) == 0.25);
+    EXPECT_TRUE(variables.value(pedal) == 0.25);
 }
 
-TEST_CASE("The same name is the same variable", "[dashboard][variables]")
+TEST(DashboardTests, TheSameNameIsTheSameVariable)
 {
     // A script and a dashboard widget name the same variable without either
     // being "first". If resolve() handed out two slots, the slider would move
@@ -276,25 +276,25 @@ TEST_CASE("The same name is the same variable", "[dashboard][variables]")
     const SystemVariables::Handle first = variables.resolve("speed");
     const SystemVariables::Handle second = variables.resolve("speed");
 
-    CHECK(first == second);
-    CHECK(variables.count() == 1);
+    EXPECT_TRUE(first == second);
+    EXPECT_TRUE(variables.count() == 1);
 }
 
-TEST_CASE("An unknown name reads as zero rather than failing", "[dashboard][variables]")
+TEST(DashboardTests, AnUnknownNameReadsAsZeroRatherThanFailing)
 {
     SystemVariables variables;
 
-    CHECK(variables.find("nothing") == SystemVariables::kUnknown);
-    CHECK(variables.value("nothing") == 0.0);
-    CHECK(variables.value(SystemVariables::kUnknown) == 0.0);
+    EXPECT_TRUE(variables.find("nothing") == SystemVariables::kUnknown);
+    EXPECT_TRUE(variables.value("nothing") == 0.0);
+    EXPECT_TRUE(variables.value(SystemVariables::kUnknown) == 0.0);
 
     // And writing through a bad handle is ignored rather than corrupting a slot
     // that belongs to something else.
     variables.set(SystemVariables::kUnknown, 42.0);
-    CHECK(variables.count() == 0);
+    EXPECT_TRUE(variables.count() == 0);
 }
 
-TEST_CASE("Writing counts, even when the value did not change", "[dashboard][variables]")
+TEST(DashboardTests, WritingCountsEvenWhenTheValueDidNotChange)
 {
     // "The number is the same" and "nothing happened" are different questions.
     // A script writing 0 every cycle is doing something, and a gauge that
@@ -308,10 +308,10 @@ TEST_CASE("Writing counts, even when the value did not change", "[dashboard][var
     variables.set(handle, 0.0);
     variables.set(handle, 0.0);
 
-    CHECK(variables.revision(handle) == before + 2);
+    EXPECT_TRUE(variables.revision(handle) == before + 2);
 }
 
-TEST_CASE("Names come back in the order they were first seen", "[dashboard][variables]")
+TEST(DashboardTests, NamesComeBackInTheOrderTheyWereFirstSeen)
 {
     SystemVariables variables;
 
@@ -321,31 +321,31 @@ TEST_CASE("Names come back in the order they were first seen", "[dashboard][vari
 
     const std::vector<std::string> names = variables.names();
 
-    REQUIRE(names.size() == 3);
-    CHECK(names[0] == "zebra");
-    CHECK(names[1] == "alpha");
-    CHECK(names[2] == "middle");
+    ASSERT_TRUE(names.size() == 3);
+    EXPECT_TRUE(names[0] == "zebra");
+    EXPECT_TRUE(names[1] == "alpha");
+    EXPECT_TRUE(names[2] == "middle");
 }
 
-TEST_CASE("The table says when it is full instead of losing a name", "[dashboard][variables]")
+TEST(DashboardTests, TheTableSaysWhenItIsFullInsteadOfLosingAName)
 {
     SystemVariables variables;
 
     for (std::size_t index = 0; index < SystemVariables::kMaximumVariables; ++index) {
         const SystemVariables::Handle handle = variables.resolve("v" + std::to_string(index));
 
-        REQUIRE(handle != SystemVariables::kUnknown);
+        ASSERT_TRUE(handle != SystemVariables::kUnknown);
     }
 
-    CHECK(variables.isFull());
-    CHECK(variables.resolve("one_too_many") == SystemVariables::kUnknown);
+    EXPECT_TRUE(variables.isFull());
+    EXPECT_TRUE(variables.resolve("one_too_many") == SystemVariables::kUnknown);
 
     // A name already in the table still resolves when it is full: the limit is
     // on how many there are, not on how often they are asked for.
-    CHECK(variables.resolve("v0") == 0);
+    EXPECT_TRUE(variables.resolve("v0") == 0);
 }
 
-TEST_CASE("A reader and a writer do not need a lock between them", "[dashboard][variables]")
+TEST(DashboardTests, AReaderAndAWriterDoNotNeedALockBetweenThem)
 {
     // Not a proof - a race is not proved absent by running it - but it does
     // exercise the path under a thread sanitizer, which is where this would be
@@ -369,12 +369,11 @@ TEST_CASE("A reader and a writer do not need a lock between them", "[dashboard][
 
     writer.join();
 
-    CHECK(last >= 0.0);
-    CHECK(variables.value(handle) == 19'999.0);
+    EXPECT_TRUE(last >= 0.0);
+    EXPECT_TRUE(variables.value(handle) == 19'999.0);
 }
 
-TEST_CASE("A script reads what a slider wrote, and writes what a gauge shows",
-          "[dashboard][variables][lua]")
+TEST(DashboardTests, AScriptReadsWhatASliderWroteAndWritesWhatAGaugeShows)
 {
     // The whole point of the layer, end to end: somebody's hand moves a
     // control, a simulated ECU reads it and answers.
@@ -391,14 +390,13 @@ TEST_CASE("A script reads what a slider wrote, and writes what a gauge shows",
 
     node.setSystemVariables(&variables);
 
-    REQUIRE(node.prepare(64).succeeded());
+    ASSERT_TRUE(node.prepare(64).succeeded());
 
-    CHECK(variables.value("brake_light") == 1.0);
-    CHECK(variables.value("doubled") == 0.8);
+    EXPECT_TRUE(variables.value("brake_light") == 1.0);
+    EXPECT_TRUE(variables.value("doubled") == 0.8);
 }
 
-TEST_CASE("A script with no variables behind it is told, not given zeroes",
-          "[dashboard][variables][lua]")
+TEST(DashboardTests, AScriptWithNoVariablesBehindItIsToldNotGivenZeroes)
 {
     // Reading zero off a table that does not exist would look like a pedal
     // nobody is pressing, which is a fault that looks like data.
@@ -411,12 +409,12 @@ TEST_CASE("A script with no variables behind it is told, not given zeroes",
 
     const Result result = node.prepare(64);
 
-    REQUIRE(result.failed());
-    INFO(std::string{result.message()});
-    CHECK(std::string{result.message()}.find("var_set") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("var_set") != std::string::npos);
 }
 
-TEST_CASE("A variable read every pass costs no lock", "[dashboard][variables][lua]")
+TEST(DashboardTests, AVariableReadEveryPassCostsNoLock)
 {
     // Not a timing assertion - it is that the path works at all when a script
     // touches a variable from a timer, which is where a per-call resolve()
@@ -440,7 +438,7 @@ TEST_CASE("A variable read every pass costs no lock", "[dashboard][variables][lu
     PipelineGraph graph;
     static_cast<void>(graph.addNode(std::move(owned)));
 
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 
     const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds{60};
     while (std::chrono::steady_clock::now() < until) {
@@ -448,23 +446,23 @@ TEST_CASE("A variable read every pass costs no lock", "[dashboard][variables][lu
         std::this_thread::sleep_for(std::chrono::milliseconds{2});
     }
 
-    CHECK(variables.value("ticks") >= 2.0);
+    EXPECT_TRUE(variables.value("ticks") >= 2.0);
 }
 
-TEST_CASE("Clearing forgets the values as well as the names", "[dashboard][variables]")
+TEST(DashboardTests, ClearingForgetsTheValuesAsWellAsTheNames)
 {
     SystemVariables variables;
 
     variables.set("speed", 42.0);
-    REQUIRE(variables.count() == 1);
+    ASSERT_TRUE(variables.count() == 1);
 
     variables.clear();
 
-    CHECK(variables.count() == 0);
-    CHECK(variables.value("speed") == 0.0);
+    EXPECT_TRUE(variables.count() == 0);
+    EXPECT_TRUE(variables.value("speed") == 0.0);
 
     // And the slot is reusable, with no memory of what it held.
     const SystemVariables::Handle handle = variables.resolve("speed");
-    CHECK(variables.value(handle) == 0.0);
-    CHECK(variables.revision(handle) == 0);
+    EXPECT_TRUE(variables.value(handle) == 0.0);
+    EXPECT_TRUE(variables.revision(handle) == 0);
 }

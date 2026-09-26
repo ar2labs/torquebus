@@ -30,7 +30,7 @@
 #include "core/testing/TestReport.h"
 #include "drivers/virtual/VirtualCanBackend.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <algorithm>
 #include <chrono>
@@ -57,10 +57,10 @@ namespace {
 [[nodiscard]] std::string readScript(const char* name)
 {
     const std::filesystem::path path = scriptPath(name);
-    REQUIRE(std::filesystem::exists(path));
+    EXPECT_TRUE(std::filesystem::exists(path));
 
     std::ifstream file{path, std::ios::binary};
-    REQUIRE(file.is_open());
+    EXPECT_TRUE(file.is_open());
 
     std::ostringstream text;
     text << file.rdbuf();
@@ -167,15 +167,15 @@ void runEcu(const char* name,
             std::filesystem::path{TORQUEBUS_EXAMPLE_DATABASE_DIR} / databaseName;
 
         const Result read = DbcParser::parseFile(path.string(), *parsed);
-        INFO(std::string{read.message()});
-        REQUIRE(read.succeeded());
+        SCOPED_TRACE(::testing::Message() << std::string{read.message()});
+        EXPECT_TRUE(read.succeeded());
 
         database = std::move(parsed);
     }
 
     CanEngine engine;
-    REQUIRE(engine.addChannel(std::make_unique<VirtualCanBackend>(), quietConfig("virtual:0"))
-                .succeeded());
+    EXPECT_TRUE(engine.addChannel(std::make_unique<VirtualCanBackend>(), quietConfig("virtual:0"))
+                    .succeeded());
 
     engine.addFrameSink(outcome.recorder.sink());
 
@@ -221,11 +221,11 @@ void runEcu(const char* name,
     // A script that does not compile, or whose on_enable throws, fails here -
     // which is the single most useful thing this file checks, because it is the
     // failure a stale example actually has.
-    REQUIRE(engine.start().succeeded());
+    EXPECT_TRUE(engine.start().succeeded());
 
     std::this_thread::sleep_for(duration);
 
-    REQUIRE(ecu != nullptr);
+    EXPECT_TRUE(ecu != nullptr);
     outcome.emitted = ecu->emittedFrames();
     outcome.faulted = ecu->isFaulted();
 
@@ -234,26 +234,25 @@ void runEcu(const char* name,
 
 } // namespace
 
-TEST_CASE("ecu_vehicle.lua puts speed and temperature on the bus", "[integration][examples]")
+TEST(ExampleScriptTests, EcuVehicleLuaPutsSpeedAndTemperatureOnTheBus)
 {
     Outcome outcome;
     runEcu("ecu_vehicle.lua", 250ms, outcome);
 
-    CHECK_FALSE(outcome.faulted);
-    CHECK(outcome.emitted > 0);
+    EXPECT_FALSE(outcome.faulted);
+    EXPECT_TRUE(outcome.emitted > 0);
 
-    INFO("script errors: " << joined(outcome.errors));
-    CHECK(outcome.errors.empty());
+    SCOPED_TRACE(::testing::Message() << "script errors: " << joined(outcome.errors));
+    EXPECT_TRUE(outcome.errors.empty());
 
     // The two identifiers the script's own comments name, and the ones
     // examples/databases/vehicle.dbc decodes - so this also guards the pairing
     // the README demonstrates.
-    CHECK(outcome.recorder.countWithIdentifier(0x101U) > 0);
-    CHECK(outcome.recorder.countWithIdentifier(0x102U) > 0);
+    EXPECT_TRUE(outcome.recorder.countWithIdentifier(0x101U) > 0);
+    EXPECT_TRUE(outcome.recorder.countWithIdentifier(0x102U) > 0);
 }
 
-TEST_CASE("ecu_vehicle_dbc.lua speaks signal names against the shipped database",
-          "[integration][examples]")
+TEST(ExampleScriptTests, EcuVehicleDbcLuaSpeaksSignalNamesAgainstTheShippedDatabase)
 {
     // The pairing the script exists to demonstrate: it names signals and the
     // database supplies the identifier, the byte order and the scaling. Run
@@ -263,18 +262,18 @@ TEST_CASE("ecu_vehicle_dbc.lua speaks signal names against the shipped database"
     Outcome outcome;
     runEcu("ecu_vehicle_dbc.lua", 250ms, outcome, "vehicle.dbc");
 
-    CHECK_FALSE(outcome.faulted);
-    CHECK(outcome.emitted > 0);
+    EXPECT_FALSE(outcome.faulted);
+    EXPECT_TRUE(outcome.emitted > 0);
 
-    INFO("script errors: " << joined(outcome.errors));
-    CHECK(outcome.errors.empty());
+    SCOPED_TRACE(::testing::Message() << "script errors: " << joined(outcome.errors));
+    EXPECT_TRUE(outcome.errors.empty());
 
     // Same identifiers as the hand-packed version, which is the whole claim:
     // the two scripts put the same thing on the wire.
-    CHECK(outcome.recorder.countWithIdentifier(0x101U) > 0);
+    EXPECT_TRUE(outcome.recorder.countWithIdentifier(0x101U) > 0);
 }
 
-TEST_CASE("ecu_motor.lua runs and transmits", "[integration][examples]")
+TEST(ExampleScriptTests, EcuMotorLuaRunsAndTransmits)
 {
     // The heaviest of the ported cansim scripts, and the one whose migration
     // the scripting guide documents: it used math.frexp, which Lua 5.4 removed.
@@ -282,14 +281,14 @@ TEST_CASE("ecu_motor.lua runs and transmits", "[integration][examples]")
     Outcome outcome;
     runEcu("ecu_motor.lua", 250ms, outcome);
 
-    CHECK_FALSE(outcome.faulted);
-    CHECK(outcome.emitted > 0);
+    EXPECT_FALSE(outcome.faulted);
+    EXPECT_TRUE(outcome.emitted > 0);
 
-    INFO("script errors: " << joined(outcome.errors));
-    CHECK(outcome.errors.empty());
+    SCOPED_TRACE(::testing::Message() << "script errors: " << joined(outcome.errors));
+    EXPECT_TRUE(outcome.errors.empty());
 }
 
-TEST_CASE("ecu_uds.lua comes up as a diagnostic server", "[integration][examples]")
+TEST(ExampleScriptTests, EcuUdsLuaComesUpAsADiagnosticServer)
 {
     // This one is not cyclic in the same way - it exists to answer, and a bus
     // with no tester on it gives it nothing to answer. So the assertion is that
@@ -313,14 +312,14 @@ TEST_CASE("ecu_uds.lua comes up as a diagnostic server", "[integration][examples
     ecu.enableDiagnostics(address, IsoTpConfig{});
 
     const Result prepared = ecu.prepare(64);
-    INFO(std::string{prepared.message()});
-    REQUIRE(prepared.succeeded());
+    SCOPED_TRACE(::testing::Message() << std::string{prepared.message()});
+    EXPECT_TRUE(prepared.succeeded());
 
-    CHECK_FALSE(ecu.isFaulted());
-    CHECK(ecu.answersDiagnostics());
+    EXPECT_FALSE(ecu.isFaulted());
+    EXPECT_TRUE(ecu.answersDiagnostics());
 }
 
-TEST_CASE("sequence_engine.lua declares its test cases", "[integration][examples]")
+TEST(ExampleScriptTests, SequenceEngineLuaDeclaresItsTestCases)
 {
     // Not an ECU: a test sequence, which is a different node with a different
     // vocabulary - test(), expect_frame(). It was the least covered of the five,
@@ -333,12 +332,12 @@ TEST_CASE("sequence_engine.lua declares its test cases", "[integration][examples
     const std::string source = readScript("sequence_engine.lua");
 
     LuaTestNode sequence{source, "sequence_engine.lua"};
-    REQUIRE(sequence.prepare(64).succeeded());
+    EXPECT_TRUE(sequence.prepare(64).succeeded());
 
-    CHECK(sequence.declaredCases() > 0);
+    EXPECT_TRUE(sequence.declaredCases() > 0);
 }
 
-TEST_CASE("The example databases decode what the example scripts send", "[integration][examples]")
+TEST(ExampleScriptTests, TheExampleDatabasesDecodeWhatTheExampleScriptsSend)
 {
     // docs/development/databases.md says the shipped databases "match what
     // examples/scripts puts on the bus", and that pairing is the entire point
@@ -362,12 +361,12 @@ TEST_CASE("The example databases decode what the example scripts send", "[integr
             std::filesystem::path{TORQUEBUS_EXAMPLE_DATABASE_DIR} / databaseFile;
 
         const Result read = DbcParser::parseFile(path.string(), database);
-        INFO("parsing " << databaseFile << ": " << read.message());
-        REQUIRE(read.succeeded());
-        REQUIRE(database.messageCount() > 0);
+        SCOPED_TRACE(::testing::Message() << "parsing " << databaseFile << ": " << read.message());
+        EXPECT_TRUE(read.succeeded());
+        EXPECT_TRUE(database.messageCount() > 0);
 
         const std::vector<CanFrame> frames = outcome.recorder.frames();
-        REQUIRE_FALSE(frames.empty());
+        EXPECT_FALSE(frames.empty());
 
         std::vector<std::uint32_t> undescribed;
 
@@ -385,17 +384,14 @@ TEST_CASE("The example databases decode what the example scripts send", "[integr
 
         return undescribed;
     };
-
-    SECTION("vehicle.dbc describes every frame ecu_vehicle.lua sends")
     {
         const std::vector<std::uint32_t> undescribed =
             decodesEverything("ecu_vehicle.lua", "none", "vehicle.dbc");
 
-        INFO("identifiers with no message in vehicle.dbc: " << undescribed.size());
-        CHECK(undescribed.empty());
+        SCOPED_TRACE(::testing::Message()
+                     << "identifiers with no message in vehicle.dbc: " << undescribed.size());
+        EXPECT_TRUE(undescribed.empty());
     }
-
-    SECTION("ecu.dbc describes every frame ecu_motor.lua sends")
     {
         // The pairing databases.md does not spell out. vehicle.dbc carries 257
         // and 258, which are ecu_vehicle.lua's; ecu.dbc carries 1 and 255, and
@@ -404,18 +400,19 @@ TEST_CASE("The example databases decode what the example scripts send", "[integr
         const std::vector<std::uint32_t> undescribed =
             decodesEverything("ecu_motor.lua", "none", "ecu.dbc");
 
-        INFO("identifiers with no message in ecu.dbc: " << undescribed.size());
-        CHECK(undescribed.empty());
+        SCOPED_TRACE(::testing::Message()
+                     << "identifiers with no message in ecu.dbc: " << undescribed.size());
+        EXPECT_TRUE(undescribed.empty());
     }
 }
 
-TEST_CASE("Every shipped example script is covered here", "[integration][examples]")
+TEST(ExampleScriptTests, EveryShippedExampleScriptIsCoveredHere)
 {
     // The guard on this file itself. Adding a sixth example and forgetting to
     // run it would put the project straight back where it was, and nothing else
     // would notice - which is exactly how four of the five got here.
     const std::filesystem::path directory{TORQUEBUS_EXAMPLE_SCRIPT_DIR};
-    REQUIRE(std::filesystem::is_directory(directory));
+    EXPECT_TRUE(std::filesystem::is_directory(directory));
 
     const std::vector<std::string> covered{
         "ecu_motor.lua",
@@ -433,9 +430,10 @@ TEST_CASE("Every shipped example script is covered here", "[integration][example
     }
 
     for (const std::string& name : found) {
-        INFO("examples/scripts/" << name << " is not run by any test in this file");
-        CHECK(std::find(covered.begin(), covered.end(), name) != covered.end());
+        SCOPED_TRACE(::testing::Message()
+                     << "examples/scripts/" << name << " is not run by any test in this file");
+        EXPECT_TRUE(std::find(covered.begin(), covered.end(), name) != covered.end());
     }
 
-    CHECK(found.size() == covered.size());
+    EXPECT_TRUE(found.size() == covered.size());
 }

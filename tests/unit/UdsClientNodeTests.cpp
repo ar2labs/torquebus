@@ -20,7 +20,7 @@
 #include "core/pipeline/NodeCatalog.h"
 #include "core/pipeline/PipelineGraph.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <memory>
 #include <string>
@@ -205,9 +205,9 @@ struct Bench final {
         sink = collector.get();
         const NodeId sinkId = graph.addNode(std::move(collector));
 
-        REQUIRE(graph.connect(PortRef{sourceId, 0}, PortRef{udsId, 0}).succeeded());
-        REQUIRE(graph.connect(PortRef{udsId, 0}, PortRef{sinkId, 0}).succeeded());
-        REQUIRE(graph.compile().succeeded());
+        EXPECT_TRUE(graph.connect(PortRef{sourceId, 0}, PortRef{udsId, 0}).succeeded());
+        EXPECT_TRUE(graph.connect(PortRef{udsId, 0}, PortRef{sinkId, 0}).succeeded());
+        EXPECT_TRUE(graph.compile().succeeded());
     }
 
     /// Runs the graph, carrying frames to the ECU and its answers back - which
@@ -231,27 +231,27 @@ struct Bench final {
 
 } // namespace
 
-TEST_CASE("A question reaches the ECU and the answer comes back", "[uds][graph]")
+TEST(UdsClientNodeTests, AQuestionReachesTheECUAndTheAnswerComesBack)
 {
     Bench bench;
 
-    CHECK(bench.session.isActive());
+    EXPECT_TRUE(bench.session.isActive());
 
     bench.session.postRequest(readDataByIdentifier(0xF190));
     bench.run(8);
 
-    REQUIRE(bench.ecu.heard().size() >= 1);
-    CHECK(bench.ecu.heard().front() == Bytes{0x22, 0xF1, 0x90});
+    ASSERT_TRUE(bench.ecu.heard().size() >= 1);
+    EXPECT_TRUE((bench.ecu.heard().front() == Bytes{0x22, 0xF1, 0x90}));
 
     const std::vector<UdsExchange> exchanges = bench.session.takeExchanges();
 
-    REQUIRE(exchanges.size() == 1);
-    CHECK(exchanges.front().outcome == UdsExchange::Outcome::Positive);
-    CHECK(exchanges.front().response
-          == Bytes{0x62, 0xF1, 0x90, 'W', 'V', 'W', 'Z', 'Z', 'Z', '1', 'K'});
+    ASSERT_TRUE(exchanges.size() == 1);
+    EXPECT_TRUE(exchanges.front().outcome == UdsExchange::Outcome::Positive);
+    EXPECT_TRUE((exchanges.front().response
+                 == Bytes{0x62, 0xF1, 0x90, 'W', 'V', 'W', 'Z', 'Z', 'Z', '1', 'K'}));
 }
 
-TEST_CASE("A long answer crosses in several frames and arrives whole", "[uds][graph]")
+TEST(UdsClientNodeTests, ALongAnswerCrossesInSeveralFramesAndArrivesWhole)
 {
     // The point of having ISO-TP underneath: an answer of forty bytes is a
     // first frame, a flow control and four consecutive frames, and none of that
@@ -269,12 +269,12 @@ TEST_CASE("A long answer crosses in several frames and arrives whole", "[uds][gr
 
     const std::vector<UdsExchange> exchanges = bench.session.takeExchanges();
 
-    REQUIRE(exchanges.size() == 1);
-    CHECK(exchanges.front().outcome == UdsExchange::Outcome::Positive);
-    CHECK(exchanges.front().response == answer);
+    ASSERT_TRUE(exchanges.size() == 1);
+    EXPECT_TRUE(exchanges.front().outcome == UdsExchange::Outcome::Positive);
+    EXPECT_TRUE(exchanges.front().response == answer);
 }
 
-TEST_CASE("A refusal reaches the console with its reason in words", "[uds][graph]")
+TEST(UdsClientNodeTests, ARefusalReachesTheConsoleWithItsReasonInWords)
 {
     Bench bench;
 
@@ -284,15 +284,15 @@ TEST_CASE("A refusal reaches the console with its reason in words", "[uds][graph
 
     const std::vector<UdsExchange> exchanges = bench.session.takeExchanges();
 
-    REQUIRE(exchanges.size() == 1);
-    CHECK(exchanges.front().outcome == UdsExchange::Outcome::Negative);
+    ASSERT_TRUE(exchanges.size() == 1);
+    EXPECT_TRUE(exchanges.front().outcome == UdsExchange::Outcome::Negative);
 
     const std::string text = exchanges.front().describe();
-    INFO(text);
-    CHECK(text.find("security access") != std::string::npos);
+    SCOPED_TRACE(::testing::Message() << text);
+    EXPECT_TRUE(text.find("security access") != std::string::npos);
 }
 
-TEST_CASE("Two requests posted at once are asked one after the other", "[uds][graph]")
+TEST(UdsClientNodeTests, TwoRequestsPostedAtOnceAreAskedOneAfterTheOther)
 {
     // UDS is one question at a time, but a console user pressing Send twice
     // means both - a millisecond apart is not two questions at once.
@@ -303,14 +303,14 @@ TEST_CASE("Two requests posted at once are asked one after the other", "[uds][gr
 
     bench.run(16);
 
-    REQUIRE(bench.ecu.heard().size() == 2);
-    CHECK(bench.ecu.heard()[0] == Bytes{0x22, 0xF1, 0x90});
-    CHECK(bench.ecu.heard()[1] == Bytes{0x22, 0xF1, 0x8C});
+    ASSERT_TRUE(bench.ecu.heard().size() == 2);
+    EXPECT_TRUE((bench.ecu.heard()[0] == Bytes{0x22, 0xF1, 0x90}));
+    EXPECT_TRUE((bench.ecu.heard()[1] == Bytes{0x22, 0xF1, 0x8C}));
 
-    CHECK(bench.session.takeExchanges().size() == 2);
+    EXPECT_TRUE(bench.session.takeExchanges().size() == 2);
 }
 
-TEST_CASE("An ECU that says nothing is reported as no answer", "[uds][graph]")
+TEST(UdsClientNodeTests, AnECUThatSaysNothingIsReportedAsNoAnswer)
 {
     // Not a crash, not a wait: the console shows "no answer in 50 ms", which is
     // a different diagnosis from a refusal and has to look different.
@@ -329,11 +329,11 @@ TEST_CASE("An ECU that says nothing is reported as no answer", "[uds][graph]")
 
     const std::vector<UdsExchange> exchanges = bench.session.takeExchanges();
 
-    REQUIRE(exchanges.size() == 1);
-    CHECK(exchanges.front().outcome == UdsExchange::Outcome::Timeout);
+    ASSERT_TRUE(exchanges.size() == 1);
+    EXPECT_TRUE(exchanges.front().outcome == UdsExchange::Outcome::Timeout);
 }
 
-TEST_CASE("The console and the executor do not wait for each other", "[uds]")
+TEST(UdsClientNodeTests, TheConsoleAndTheExecutorDoNotWaitForEachOther)
 {
     // takeRequests uses try_lock and reports failure rather than blocking: the
     // thing on the other side of that mutex is a window that may be repainting.
@@ -357,10 +357,10 @@ TEST_CASE("The console and the executor do not wait for each other", "[uds]")
 
     console.join();
 
-    CHECK(static_cast<int>(taken.size()) == kRequests);
+    EXPECT_TRUE(static_cast<int>(taken.size()) == kRequests);
 }
 
-TEST_CASE("P2 longer than P2* is refused while the block is on screen", "[uds][validate]")
+TEST(UdsClientNodeTests, P2LongerThanP2IsRefusedWhileTheBlockIsOnScreen)
 {
     // The one timing value somebody is tempted to "fix" by typing a bigger
     // number, and doing so makes the extended deadline meaningless.
@@ -374,25 +374,25 @@ TEST_CASE("P2 longer than P2* is refused while the block is on screen", "[uds][v
 
     const Result result = description.validate(catalog);
 
-    REQUIRE(result.failed());
-    INFO(std::string{result.message()});
-    CHECK(std::string{result.message()}.find("P2*") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("P2*") != std::string::npos);
 }
 
-TEST_CASE("The UDS block is on the canvas, with typed ports", "[uds][graph]")
+TEST(UdsClientNodeTests, TheUDSBlockIsOnTheCanvasWithTypedPorts)
 {
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
     const NodeTypeInfo* info = catalog.find("uds.client");
-    REQUIRE(info != nullptr);
+    ASSERT_TRUE(info != nullptr);
 
-    CHECK(info->category == "Diagnostics");
+    EXPECT_TRUE(info->category == "Diagnostics");
 
-    REQUIRE(info->inputs.size() == 2);
-    CHECK(info->inputs[0].type == PortType::Frames);
-    CHECK(info->inputs[1].type == PortType::Events);
+    ASSERT_TRUE(info->inputs.size() == 2);
+    EXPECT_TRUE(info->inputs[0].type == PortType::Frames);
+    EXPECT_TRUE(info->inputs[1].type == PortType::Events);
 
-    REQUIRE(info->outputs.size() == 2);
-    CHECK(info->outputs[0].type == PortType::Frames);
-    CHECK(info->outputs[1].type == PortType::Events);
+    ASSERT_TRUE(info->outputs.size() == 2);
+    EXPECT_TRUE(info->outputs[0].type == PortType::Frames);
+    EXPECT_TRUE(info->outputs[1].type == PortType::Events);
 }

@@ -61,7 +61,7 @@ visual identity, an open architecture and a GPLv3 licence.
 | Qt | **6.11.2 exactly**, with the **Qt SerialBus** module |
 | Build | CMake ≥ 3.24, Ninja (both ship with Visual Studio) |
 
-KDDockWidgets, Catch2 and Lua are built for you — nothing else to install.
+KDDockWidgets, GoogleTest and Lua are built for you — nothing else to install.
 
 The Qt version is an exact pin, not a minimum: KDDockWidgets uses Qt's private
 modules, which tie the binary to the Qt build it was compiled against.
