@@ -12,7 +12,7 @@
 
 #include "UniqueTempPath.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <array>
 #include <cstdint>
@@ -103,33 +103,33 @@ private:
 
 } // namespace
 
-TEST_CASE("An ASC file has the preamble every reader looks for", "[export][asc]")
+TEST(TraceExportTests, AnASCFileHasThePreambleEveryReaderLooksFor)
 {
     const ScopedFile file{"asc"};
 
     {
         TraceExporter exporter;
-        REQUIRE(exporter.open(file.path(), TraceExporter::Format::Asc).succeeded());
-        REQUIRE(exporter.write(std::array{frame(0x100, 0)}).succeeded());
-        REQUIRE(exporter.close().succeeded());
+        ASSERT_TRUE(exporter.open(file.path(), TraceExporter::Format::Asc).succeeded());
+        ASSERT_TRUE(exporter.write(std::array{frame(0x100, 0)}).succeeded());
+        ASSERT_TRUE(exporter.close().succeeded());
     }
 
     const std::vector<std::string> lines = file.lines();
-    REQUIRE(lines.size() >= 6);
+    ASSERT_TRUE(lines.size() >= 6);
 
-    CHECK(lines[0].starts_with("date "));
+    EXPECT_TRUE(lines[0].starts_with("date "));
 
     // Both of these describe every line below, and a reader that does not find
     // them guesses - usually at decimal, which turns 0x100 into 256.
-    CHECK(anyLineContains(lines, "base hex"));
-    CHECK(anyLineContains(lines, "timestamps absolute"));
-    CHECK(anyLineContains(lines, "Begin Triggerblock"));
+    EXPECT_TRUE(anyLineContains(lines, "base hex"));
+    EXPECT_TRUE(anyLineContains(lines, "timestamps absolute"));
+    EXPECT_TRUE(anyLineContains(lines, "Begin Triggerblock"));
 
     // Without this a reader treats the file as truncated.
-    CHECK(lines.back() == "End TriggerBlock");
+    EXPECT_TRUE(lines.back() == "End TriggerBlock");
 }
 
-TEST_CASE("An extended identifier carries its x", "[export][asc]")
+TEST(TraceExportTests, AnExtendedIdentifierCarriesItsX)
 {
     // The commonest way an exported file decodes wrongly at the other end:
     // 0x100 standard and 0x100 extended are two different messages on one bus,
@@ -141,25 +141,25 @@ TEST_CASE("An extended identifier carries its x", "[export][asc]")
 
     {
         TraceExporter exporter;
-        REQUIRE(exporter.open(file.path(), TraceExporter::Format::Asc).succeeded());
-        REQUIRE(exporter.write(std::array{extended, frame(0x7AB, 2'000'000)}).succeeded());
-        REQUIRE(exporter.close().succeeded());
+        ASSERT_TRUE(exporter.open(file.path(), TraceExporter::Format::Asc).succeeded());
+        ASSERT_TRUE(exporter.write(std::array{extended, frame(0x7AB, 2'000'000)}).succeeded());
+        ASSERT_TRUE(exporter.close().succeeded());
     }
 
     const std::vector<std::string> lines = file.lines();
 
-    CHECK(anyLineContains(lines, "18FEF100x"));
+    EXPECT_TRUE(anyLineContains(lines, "18FEF100x"));
 
     // And the standard one does not get one by accident. Checked against an
     // identifier that is not a suffix of the extended one - the first version
     // of this looked for "100x " and found it inside "18FEF100x", which is a
     // test that passes for the wrong reason in one direction and fails for the
     // wrong reason in the other.
-    CHECK(anyLineContains(lines, "7AB "));
-    CHECK_FALSE(anyLineContains(lines, "7ABx"));
+    EXPECT_TRUE(anyLineContains(lines, "7AB "));
+    EXPECT_FALSE(anyLineContains(lines, "7ABx"));
 }
 
-TEST_CASE("A frame line carries the time, channel, direction and bytes", "[export][asc]")
+TEST(TraceExportTests, AFrameLineCarriesTheTimeChannelDirectionAndBytes)
 {
     const ScopedFile file{"asc"};
 
@@ -169,22 +169,22 @@ TEST_CASE("A frame line carries the time, channel, direction and bytes", "[expor
 
     {
         TraceExporter exporter;
-        REQUIRE(exporter.open(file.path(), TraceExporter::Format::Asc).succeeded());
-        REQUIRE(exporter.write(std::array{sent}).succeeded());
-        REQUIRE(exporter.close().succeeded());
+        ASSERT_TRUE(exporter.open(file.path(), TraceExporter::Format::Asc).succeeded());
+        ASSERT_TRUE(exporter.write(std::array{sent}).succeeded());
+        ASSERT_TRUE(exporter.close().succeeded());
     }
 
     const std::vector<std::string> lines = file.lines();
 
-    CHECK(anyLineContains(lines, "0.001500"));
-    CHECK(anyLineContains(lines, "123"));
-    CHECK(anyLineContains(lines, "Tx"));
+    EXPECT_TRUE(anyLineContains(lines, "0.001500"));
+    EXPECT_TRUE(anyLineContains(lines, "123"));
+    EXPECT_TRUE(anyLineContains(lines, "Tx"));
 
     // Uppercase hex, space separated, which is what every ASC file uses.
-    CHECK(anyLineContains(lines, "0A BC FF"));
+    EXPECT_TRUE(anyLineContains(lines, "0A BC FF"));
 }
 
-TEST_CASE("An error frame is written as one, not as data", "[export][asc]")
+TEST(TraceExportTests, AnErrorFrameIsWrittenAsOneNotAsData)
 {
     // Otherwise it is counted as traffic at the other end - and an error frame
     // being read as a message is the sort of thing that sends somebody looking
@@ -196,18 +196,18 @@ TEST_CASE("An error frame is written as one, not as data", "[export][asc]")
 
     {
         TraceExporter exporter;
-        REQUIRE(exporter.open(file.path(), TraceExporter::Format::Asc).succeeded());
-        REQUIRE(exporter.write(std::array{bad}).succeeded());
-        REQUIRE(exporter.close().succeeded());
+        ASSERT_TRUE(exporter.open(file.path(), TraceExporter::Format::Asc).succeeded());
+        ASSERT_TRUE(exporter.write(std::array{bad}).succeeded());
+        ASSERT_TRUE(exporter.close().succeeded());
     }
 
     const std::vector<std::string> lines = file.lines();
 
-    CHECK(anyLineContains(lines, "ErrorFrame"));
-    CHECK_FALSE(anyLineContains(lines, "0A BC FF"));
+    EXPECT_TRUE(anyLineContains(lines, "ErrorFrame"));
+    EXPECT_FALSE(anyLineContains(lines, "0A BC FF"));
 }
 
-TEST_CASE("A remote request has a length and no bytes", "[export][asc]")
+TEST(TraceExportTests, ARemoteRequestHasALengthAndNoBytes)
 {
     const ScopedFile file{"asc"};
 
@@ -216,18 +216,18 @@ TEST_CASE("A remote request has a length and no bytes", "[export][asc]")
 
     {
         TraceExporter exporter;
-        REQUIRE(exporter.open(file.path(), TraceExporter::Format::Asc).succeeded());
-        REQUIRE(exporter.write(std::array{remote}).succeeded());
-        REQUIRE(exporter.close().succeeded());
+        ASSERT_TRUE(exporter.open(file.path(), TraceExporter::Format::Asc).succeeded());
+        ASSERT_TRUE(exporter.write(std::array{remote}).succeeded());
+        ASSERT_TRUE(exporter.close().succeeded());
     }
 
     const std::vector<std::string> lines = file.lines();
 
-    CHECK(anyLineContains(lines, " r "));
-    CHECK_FALSE(anyLineContains(lines, "0A BC FF"));
+    EXPECT_TRUE(anyLineContains(lines, " r "));
+    EXPECT_FALSE(anyLineContains(lines, "0A BC FF"));
 }
 
-TEST_CASE("A CSV names its columns and never moves them", "[export][csv]")
+TEST(TraceExportTests, ACSVNamesItsColumnsAndNeverMovesThem)
 {
     // A script that read column six last year has to still be reading the same
     // thing, which is the whole reason the header row exists.
@@ -235,19 +235,19 @@ TEST_CASE("A CSV names its columns and never moves them", "[export][csv]")
 
     {
         TraceExporter exporter;
-        REQUIRE(exporter.open(file.path(), TraceExporter::Format::Csv).succeeded());
-        REQUIRE(exporter.write(std::array{frame(0x100, 0)}).succeeded());
-        REQUIRE(exporter.close().succeeded());
+        ASSERT_TRUE(exporter.open(file.path(), TraceExporter::Format::Csv).succeeded());
+        ASSERT_TRUE(exporter.write(std::array{frame(0x100, 0)}).succeeded());
+        ASSERT_TRUE(exporter.close().succeeded());
     }
 
     const std::vector<std::string> lines = file.lines();
-    REQUIRE(lines.size() == 2);
+    ASSERT_TRUE(lines.size() == 2);
 
-    CHECK(lines[0] == "timestamp_s,channel,direction,id,extended,dlc,length,flags,data");
-    CHECK(lines[1] == "0.000000,1,Rx,100,0,3,3,,0ABCFF");
+    EXPECT_TRUE(lines[0] == "timestamp_s,channel,direction,id,extended,dlc,length,flags,data");
+    EXPECT_TRUE(lines[1] == "0.000000,1,Rx,100,0,3,3,,0ABCFF");
 }
 
-TEST_CASE("CSV flags are words rather than a number", "[export][csv]")
+TEST(TraceExportTests, CSVFlagsAreWordsRatherThanANumber)
 {
     // A column reading "FD BRS" is one somebody can act on; 0x06 needs the
     // source of this file open beside it.
@@ -259,15 +259,15 @@ TEST_CASE("CSV flags are words rather than a number", "[export][csv]")
 
     {
         TraceExporter exporter;
-        REQUIRE(exporter.open(file.path(), TraceExporter::Format::Csv).succeeded());
-        REQUIRE(exporter.write(std::array{fd}).succeeded());
-        REQUIRE(exporter.close().succeeded());
+        ASSERT_TRUE(exporter.open(file.path(), TraceExporter::Format::Csv).succeeded());
+        ASSERT_TRUE(exporter.write(std::array{fd}).succeeded());
+        ASSERT_TRUE(exporter.close().succeeded());
     }
 
-    CHECK(file.lines()[1].find("FD BRS") != std::string::npos);
+    EXPECT_TRUE(file.lines()[1].find("FD BRS") != std::string::npos);
 }
 
-TEST_CASE("An export with no frames is still a valid file", "[export]")
+TEST(TraceExportTests, AnExportWithNoFramesIsStillAValidFile)
 {
     // Filter everything out, then export. That is an empty result, not a
     // failure, and an ASC file without its End TriggerBlock would read as
@@ -276,24 +276,24 @@ TEST_CASE("An export with no frames is still a valid file", "[export]")
 
     {
         TraceExporter exporter;
-        REQUIRE(exporter.open(asc.path(), TraceExporter::Format::Asc).succeeded());
-        REQUIRE(exporter.close().succeeded());
+        ASSERT_TRUE(exporter.open(asc.path(), TraceExporter::Format::Asc).succeeded());
+        ASSERT_TRUE(exporter.close().succeeded());
     }
 
-    CHECK(asc.lines().back() == "End TriggerBlock");
+    EXPECT_TRUE(asc.lines().back() == "End TriggerBlock");
 
     const ScopedFile csv{"csv"};
 
     {
         TraceExporter exporter;
-        REQUIRE(exporter.open(csv.path(), TraceExporter::Format::Csv).succeeded());
-        REQUIRE(exporter.close().succeeded());
+        ASSERT_TRUE(exporter.open(csv.path(), TraceExporter::Format::Csv).succeeded());
+        ASSERT_TRUE(exporter.close().succeeded());
     }
 
-    CHECK(csv.lines().size() == 1);
+    EXPECT_TRUE(csv.lines().size() == 1);
 }
 
-TEST_CASE("Batches and single frames produce the same file", "[export]")
+TEST(TraceExportTests, BatchesAndSingleFramesProduceTheSameFile)
 {
     // The exporter is fed in batches so it can serve a log being read back and
     // a live trace being written out. Those two arrive in different shapes and
@@ -308,24 +308,24 @@ TEST_CASE("Batches and single frames produce the same file", "[export]")
 
     {
         TraceExporter exporter;
-        REQUIRE(exporter.open(all.path(), TraceExporter::Format::Asc, 0).succeeded());
-        REQUIRE(exporter.write(frames).succeeded());
-        REQUIRE(exporter.close().succeeded());
+        ASSERT_TRUE(exporter.open(all.path(), TraceExporter::Format::Asc, 0).succeeded());
+        ASSERT_TRUE(exporter.write(frames).succeeded());
+        ASSERT_TRUE(exporter.close().succeeded());
     }
 
     {
         TraceExporter exporter;
-        REQUIRE(exporter.open(piecemeal.path(), TraceExporter::Format::Asc, 0).succeeded());
+        ASSERT_TRUE(exporter.open(piecemeal.path(), TraceExporter::Format::Asc, 0).succeeded());
         for (const CanFrame& one : frames) {
-            REQUIRE(exporter.write(std::array{one}).succeeded());
+            ASSERT_TRUE(exporter.write(std::array{one}).succeeded());
         }
-        REQUIRE(exporter.close().succeeded());
+        ASSERT_TRUE(exporter.close().succeeded());
     }
 
-    CHECK(all.text() == piecemeal.text());
+    EXPECT_TRUE(all.text() == piecemeal.text());
 }
 
-TEST_CASE("The date line says UTC", "[export][asc]")
+TEST(TraceExportTests, TheDateLineSaysUTC)
 {
     // A log travels between a vehicle in one timezone and an office in another.
     // A bare local time on it is a number two people read differently.
@@ -333,19 +333,19 @@ TEST_CASE("The date line says UTC", "[export][asc]")
 
     {
         TraceExporter exporter;
-        REQUIRE(exporter.open(file.path(), TraceExporter::Format::Asc, 1'757'000'000'000'000ULL)
-                    .succeeded());
-        REQUIRE(exporter.close().succeeded());
+        ASSERT_TRUE(exporter.open(file.path(), TraceExporter::Format::Asc, 1'757'000'000'000'000ULL)
+                        .succeeded());
+        ASSERT_TRUE(exporter.close().succeeded());
     }
 
     const std::vector<std::string> lines = file.lines();
 
-    CHECK(lines[0].find("UTC") != std::string::npos);
-    CHECK(lines[0].find("2025") != std::string::npos);
+    EXPECT_TRUE(lines[0].find("UTC") != std::string::npos);
+    EXPECT_TRUE(lines[0].find("2025") != std::string::npos);
 }
 
-TEST_CASE("Each format knows its own extension", "[export]")
+TEST(TraceExportTests, EachFormatKnowsItsOwnExtension)
 {
-    CHECK(extensionFor(TraceExporter::Format::Asc) == "asc");
-    CHECK(extensionFor(TraceExporter::Format::Csv) == "csv");
+    EXPECT_TRUE(extensionFor(TraceExporter::Format::Asc) == "asc");
+    EXPECT_TRUE(extensionFor(TraceExporter::Format::Csv) == "csv");
 }

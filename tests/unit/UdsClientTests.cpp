@@ -15,7 +15,7 @@
 #include "core/diagnostics/UdsClient.h"
 #include "core/diagnostics/UdsTypes.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <cstdint>
 #include <string>
@@ -31,186 +31,186 @@ using Bytes = std::vector<std::uint8_t>;
 
 } // namespace
 
-TEST_CASE("A positive answer is the service plus 0x40", "[uds]")
+TEST(UdsClientTests, APositiveAnswerIsTheServicePlus0x40)
 {
     UdsClient client;
 
-    REQUIRE(client.request(readDataByIdentifier(0xF190), 0).succeeded());
+    ASSERT_TRUE(client.request(readDataByIdentifier(0xF190), 0).succeeded());
 
-    REQUIRE(client.pendingRequests().size() == 1);
-    CHECK(client.pendingRequests().front() == Bytes{0x22, 0xF1, 0x90});
-    CHECK(client.isBusy());
+    ASSERT_TRUE(client.pendingRequests().size() == 1);
+    EXPECT_TRUE((client.pendingRequests().front() == Bytes{0x22, 0xF1, 0x90}));
+    EXPECT_TRUE(client.isBusy());
 
-    CHECK(client.onMessage(Bytes{0x62, 0xF1, 0x90, 'W', 'V', 'W'}, 12 * kMillisecond));
+    EXPECT_TRUE(client.onMessage(Bytes{0x62, 0xF1, 0x90, 'W', 'V', 'W'}, 12 * kMillisecond));
 
-    REQUIRE(client.exchanges().size() == 1);
+    ASSERT_TRUE(client.exchanges().size() == 1);
 
     const UdsExchange& exchange = client.exchanges().front();
-    CHECK(exchange.outcome == UdsExchange::Outcome::Positive);
-    CHECK(exchange.elapsedNs == 12 * kMillisecond);
-    CHECK_FALSE(client.isBusy());
+    EXPECT_TRUE(exchange.outcome == UdsExchange::Outcome::Positive);
+    EXPECT_TRUE(exchange.elapsedNs == 12 * kMillisecond);
+    EXPECT_FALSE(client.isBusy());
 }
 
-TEST_CASE("Reading the VIN is not a request for silence", "[uds]")
+TEST(UdsClientTests, ReadingTheVINIsNotARequestForSilence)
 {
     // 0x22 0xF1 0x90 has bit 7 set in its second byte, because 0xF1 is half of
     // an identifier. A client that reads that bit as the suppress-positive-
     // response flag - without first asking whether this service even has a
     // sub-function - sends the commonest request in the protocol and then never
     // waits for its answer. This is that check.
-    CHECK_FALSE(suppressesResponse(readDataByIdentifier(0xF190)));
-    CHECK_FALSE(hasSubFunction(0x22));
+    EXPECT_FALSE(suppressesResponse(readDataByIdentifier(0xF190)));
+    EXPECT_FALSE(hasSubFunction(0x22));
 
-    CHECK(suppressesResponse(testerPresent(true)));
-    CHECK(hasSubFunction(0x3E));
+    EXPECT_TRUE(suppressesResponse(testerPresent(true)));
+    EXPECT_TRUE(hasSubFunction(0x3E));
 
     UdsClient client;
-    REQUIRE(client.request(readDataByIdentifier(0xF190), 0).succeeded());
+    ASSERT_TRUE(client.request(readDataByIdentifier(0xF190), 0).succeeded());
 
-    CHECK(client.isBusy());
+    EXPECT_TRUE(client.isBusy());
 }
 
-TEST_CASE("A suppressed request is not waited for", "[uds]")
+TEST(UdsClientTests, ASuppressedRequestIsNotWaitedFor)
 {
     UdsClient client;
 
-    REQUIRE(client.request(testerPresent(true), 0).succeeded());
+    ASSERT_TRUE(client.request(testerPresent(true), 0).succeeded());
 
-    CHECK(client.pendingRequests().front() == Bytes{0x3E, 0x80});
-    CHECK_FALSE(client.isBusy());
+    EXPECT_TRUE((client.pendingRequests().front() == Bytes{0x3E, 0x80}));
+    EXPECT_FALSE(client.isBusy());
 
     // And no timeout is invented for an answer nobody asked for.
     client.poll(10'000 * kMillisecond);
-    CHECK(client.exchanges().empty());
+    EXPECT_TRUE(client.exchanges().empty());
 }
 
-TEST_CASE("Response pending is not a failure, it is a longer clock", "[uds]")
+TEST(UdsClientTests, ResponsePendingIsNotAFailureItIsALongerClock)
 {
     // The single most important behaviour in this file. An ECU that has to
     // erase a flash sector before answering sends 0x78 repeatedly; a tester
     // that treats it as an error gives up on every ECU worth talking to.
     UdsClient client;
 
-    REQUIRE(client.request(Bytes{0x31, 0x01, 0xFF, 0x00}, 0).succeeded());
+    ASSERT_TRUE(client.request(Bytes{0x31, 0x01, 0xFF, 0x00}, 0).succeeded());
 
     // P2 would have expired here.
-    CHECK(client.onMessage(Bytes{0x7F, 0x31, 0x78}, 40 * kMillisecond));
+    EXPECT_TRUE(client.onMessage(Bytes{0x7F, 0x31, 0x78}, 40 * kMillisecond));
     client.poll(60 * kMillisecond);
 
-    CHECK(client.exchanges().empty());
-    CHECK(client.isBusy());
+    EXPECT_TRUE(client.exchanges().empty());
+    EXPECT_TRUE(client.isBusy());
 
     // And again, four seconds later - still inside P2*.
-    CHECK(client.onMessage(Bytes{0x7F, 0x31, 0x78}, 4000 * kMillisecond));
+    EXPECT_TRUE(client.onMessage(Bytes{0x7F, 0x31, 0x78}, 4000 * kMillisecond));
     client.poll(4500 * kMillisecond);
 
-    CHECK(client.exchanges().empty());
+    EXPECT_TRUE(client.exchanges().empty());
 
-    CHECK(client.onMessage(Bytes{0x71, 0x01, 0xFF, 0x00}, 6000 * kMillisecond));
+    EXPECT_TRUE(client.onMessage(Bytes{0x71, 0x01, 0xFF, 0x00}, 6000 * kMillisecond));
 
-    REQUIRE(client.exchanges().size() == 1);
+    ASSERT_TRUE(client.exchanges().size() == 1);
 
     const UdsExchange& exchange = client.exchanges().front();
-    CHECK(exchange.outcome == UdsExchange::Outcome::Positive);
+    EXPECT_TRUE(exchange.outcome == UdsExchange::Outcome::Positive);
 
     // Both are worth showing: four seconds with nine "still working" answers is
     // a different story from four seconds of silence.
-    CHECK(exchange.pendingCount == 2);
-    CHECK(exchange.elapsedNs == 6000 * kMillisecond);
+    EXPECT_TRUE(exchange.pendingCount == 2);
+    EXPECT_TRUE(exchange.elapsedNs == 6000 * kMillisecond);
 }
 
-TEST_CASE("Even a pending ECU is given up on eventually", "[uds]")
+TEST(UdsClientTests, EvenAPendingECUIsGivenUpOnEventually)
 {
     UdsClient client;
 
-    REQUIRE(client.request(Bytes{0x31, 0x01, 0xFF, 0x00}, 0).succeeded());
-    CHECK(client.onMessage(Bytes{0x7F, 0x31, 0x78}, 10 * kMillisecond));
+    ASSERT_TRUE(client.request(Bytes{0x31, 0x01, 0xFF, 0x00}, 0).succeeded());
+    EXPECT_TRUE(client.onMessage(Bytes{0x7F, 0x31, 0x78}, 10 * kMillisecond));
 
     client.poll(5009 * kMillisecond);
-    CHECK(client.exchanges().empty());
+    EXPECT_TRUE(client.exchanges().empty());
 
     client.poll(5011 * kMillisecond);
 
-    REQUIRE(client.exchanges().size() == 1);
-    CHECK(client.exchanges().front().outcome == UdsExchange::Outcome::Timeout);
+    ASSERT_TRUE(client.exchanges().size() == 1);
+    EXPECT_TRUE(client.exchanges().front().outcome == UdsExchange::Outcome::Timeout);
 }
 
-TEST_CASE("An ECU that says nothing at all times out at P2", "[uds]")
+TEST(UdsClientTests, AnECUThatSaysNothingAtAllTimesOutAtP2)
 {
     UdsClient client;
 
-    REQUIRE(client.request(readDataByIdentifier(0xF190), 0).succeeded());
+    ASSERT_TRUE(client.request(readDataByIdentifier(0xF190), 0).succeeded());
 
     client.poll(49 * kMillisecond);
-    CHECK(client.exchanges().empty());
+    EXPECT_TRUE(client.exchanges().empty());
 
     client.poll(50 * kMillisecond);
 
-    REQUIRE(client.exchanges().size() == 1);
-    CHECK(client.exchanges().front().outcome == UdsExchange::Outcome::Timeout);
-    CHECK_FALSE(client.isBusy());
+    ASSERT_TRUE(client.exchanges().size() == 1);
+    EXPECT_TRUE(client.exchanges().front().outcome == UdsExchange::Outcome::Timeout);
+    EXPECT_FALSE(client.isBusy());
 }
 
-TEST_CASE("A refusal is reported with the reason, in words", "[uds]")
+TEST(UdsClientTests, ARefusalIsReportedWithTheReasonInWords)
 {
     UdsClient client;
 
-    REQUIRE(client.request(readDataByIdentifier(0xF190), 0).succeeded());
-    CHECK(client.onMessage(Bytes{0x7F, 0x22, 0x31}, 5 * kMillisecond));
+    ASSERT_TRUE(client.request(readDataByIdentifier(0xF190), 0).succeeded());
+    EXPECT_TRUE(client.onMessage(Bytes{0x7F, 0x22, 0x31}, 5 * kMillisecond));
 
-    REQUIRE(client.exchanges().size() == 1);
+    ASSERT_TRUE(client.exchanges().size() == 1);
 
     const UdsExchange& exchange = client.exchanges().front();
-    CHECK(exchange.outcome == UdsExchange::Outcome::Negative);
-    CHECK(exchange.negativeResponse == 0x31);
+    EXPECT_TRUE(exchange.outcome == UdsExchange::Outcome::Negative);
+    EXPECT_TRUE(exchange.negativeResponse == 0x31);
 
     // The whole point of the vocabulary: "7F 22 31" tells an engineer nothing
     // they could not read off the bus themselves.
     const std::string text = exchange.describe();
-    INFO(text);
-    CHECK(text.find("ReadDataByIdentifier") != std::string::npos);
-    CHECK(text.find("out of range") != std::string::npos);
+    SCOPED_TRACE(::testing::Message() << text);
+    EXPECT_TRUE(text.find("ReadDataByIdentifier") != std::string::npos);
+    EXPECT_TRUE(text.find("out of range") != std::string::npos);
 }
 
-TEST_CASE("An answer to somebody else's request is not ours", "[uds]")
+TEST(UdsClientTests, AnAnswerToSomebodyElseSRequestIsNotOurs)
 {
     UdsClient client;
 
-    REQUIRE(client.request(readDataByIdentifier(0xF190), 0).succeeded());
+    ASSERT_TRUE(client.request(readDataByIdentifier(0xF190), 0).succeeded());
 
     // A refusal naming a service we did not ask for.
-    CHECK_FALSE(client.onMessage(Bytes{0x7F, 0x19, 0x31}, kMillisecond));
-    CHECK(client.exchanges().empty());
-    CHECK(client.isBusy());
+    EXPECT_FALSE(client.onMessage(Bytes{0x7F, 0x19, 0x31}, kMillisecond));
+    EXPECT_TRUE(client.exchanges().empty());
+    EXPECT_TRUE(client.isBusy());
 }
 
-TEST_CASE("An answer to the wrong service is reported rather than ignored", "[uds]")
+TEST(UdsClientTests, AnAnswerToTheWrongServiceIsReportedRatherThanIgnored)
 {
     // On a bus where this happens - two testers, or an ECU answering late -
     // knowing that it happened is the whole diagnosis.
     UdsClient client;
 
-    REQUIRE(client.request(readDataByIdentifier(0xF190), 0).succeeded());
-    CHECK(client.onMessage(Bytes{0x50, 0x03}, kMillisecond));
+    ASSERT_TRUE(client.request(readDataByIdentifier(0xF190), 0).succeeded());
+    EXPECT_TRUE(client.onMessage(Bytes{0x50, 0x03}, kMillisecond));
 
-    REQUIRE(client.exchanges().size() == 1);
-    CHECK(client.exchanges().front().outcome == UdsExchange::Outcome::Mismatch);
+    ASSERT_TRUE(client.exchanges().size() == 1);
+    EXPECT_TRUE(client.exchanges().front().outcome == UdsExchange::Outcome::Mismatch);
 }
 
-TEST_CASE("A session is believed from the answer, not from the request", "[uds]")
+TEST(UdsClientTests, ASessionIsBelievedFromTheAnswerNotFromTheRequest)
 {
     // An ECU may answer a request for the programming session with the extended
     // one. Believing the request is how a tester becomes certain of a session
     // it is not in - and then blames the next refusal on something else.
     UdsClient client;
 
-    REQUIRE(client.request(diagnosticSessionControl(UdsSession::Programming), 0).succeeded());
-    CHECK(client.onMessage(Bytes{0x50, 0x03, 0x00, 0x32, 0x01, 0xF4}, 5 * kMillisecond));
+    ASSERT_TRUE(client.request(diagnosticSessionControl(UdsSession::Programming), 0).succeeded());
+    EXPECT_TRUE(client.onMessage(Bytes{0x50, 0x03, 0x00, 0x32, 0x01, 0xF4}, 5 * kMillisecond));
 
-    CHECK(client.session() == UdsSession::Extended);
+    EXPECT_TRUE(client.session() == UdsSession::Extended);
 }
 
-TEST_CASE("A non-default session is kept alive without being asked", "[uds]")
+TEST(UdsClientTests, ANonDefaultSessionIsKeptAliveWithoutBeingAsked)
 {
     // An ECU drops to the default session after S3 of silence, taking security
     // access with it. Forgetting the heartbeat produces a failure that appears
@@ -218,113 +218,114 @@ TEST_CASE("A non-default session is kept alive without being asked", "[uds]")
     // and not the caller's.
     UdsClient client;
 
-    REQUIRE(client.request(diagnosticSessionControl(UdsSession::Extended), 0).succeeded());
-    CHECK(client.onMessage(Bytes{0x50, 0x03}, 5 * kMillisecond));
+    ASSERT_TRUE(client.request(diagnosticSessionControl(UdsSession::Extended), 0).succeeded());
+    EXPECT_TRUE(client.onMessage(Bytes{0x50, 0x03}, 5 * kMillisecond));
 
     client.clearPendingRequests();
 
     client.poll(1000 * kMillisecond);
-    CHECK(client.pendingRequests().empty());
+    EXPECT_TRUE(client.pendingRequests().empty());
 
     // Two fifths of S3.
     client.poll(2005 * kMillisecond);
 
-    REQUIRE(client.pendingRequests().size() == 1);
-    CHECK(client.pendingRequests().front() == Bytes{0x3E, 0x80});
+    ASSERT_TRUE(client.pendingRequests().size() == 1);
+    EXPECT_TRUE((client.pendingRequests().front() == Bytes{0x3E, 0x80}));
 }
 
-TEST_CASE("The default session needs no heartbeat", "[uds]")
+TEST(UdsClientTests, TheDefaultSessionNeedsNoHeartbeat)
 {
     UdsClient client;
 
-    REQUIRE(client.request(diagnosticSessionControl(UdsSession::Default), 0).succeeded());
-    CHECK(client.onMessage(Bytes{0x50, 0x01}, 5 * kMillisecond));
+    ASSERT_TRUE(client.request(diagnosticSessionControl(UdsSession::Default), 0).succeeded());
+    EXPECT_TRUE(client.onMessage(Bytes{0x50, 0x01}, 5 * kMillisecond));
 
     client.clearPendingRequests();
     client.poll(60'000 * kMillisecond);
 
-    CHECK(client.pendingRequests().empty());
+    EXPECT_TRUE(client.pendingRequests().empty());
 }
 
-TEST_CASE("A heartbeat never takes the slot a real request needs", "[uds]")
+TEST(UdsClientTests, AHeartbeatNeverTakesTheSlotARealRequestNeeds)
 {
     // A keep-alive that blocked a request would be a mechanism that stops the
     // work it exists to protect.
     UdsClient client;
 
-    REQUIRE(client.request(diagnosticSessionControl(UdsSession::Extended), 0).succeeded());
-    CHECK(client.onMessage(Bytes{0x50, 0x03}, 0));
+    ASSERT_TRUE(client.request(diagnosticSessionControl(UdsSession::Extended), 0).succeeded());
+    EXPECT_TRUE(client.onMessage(Bytes{0x50, 0x03}, 0));
 
-    REQUIRE(client.request(readDataByIdentifier(0xF190), 2005 * kMillisecond).succeeded());
+    ASSERT_TRUE(client.request(readDataByIdentifier(0xF190), 2005 * kMillisecond).succeeded());
     client.clearPendingRequests();
 
     client.poll(2005 * kMillisecond);
 
     // Busy with a real exchange: no heartbeat, and no refusal either.
-    CHECK(client.pendingRequests().empty());
-    CHECK(client.isBusy());
+    EXPECT_TRUE(client.pendingRequests().empty());
+    EXPECT_TRUE(client.isBusy());
 }
 
-TEST_CASE("Two questions at once are refused", "[uds]")
+TEST(UdsClientTests, TwoQuestionsAtOnceAreRefused)
 {
     UdsClient client;
 
-    REQUIRE(client.request(readDataByIdentifier(0xF190), 0).succeeded());
-    CHECK(client.request(readDataByIdentifier(0xF18C), 0).failed());
+    ASSERT_TRUE(client.request(readDataByIdentifier(0xF190), 0).succeeded());
+    EXPECT_TRUE(client.request(readDataByIdentifier(0xF18C), 0).failed());
 }
 
-TEST_CASE("The request builders put the bytes where the standard says", "[uds]")
+TEST(UdsClientTests, TheRequestBuildersPutTheBytesWhereTheStandardSays)
 {
-    CHECK(readDataByIdentifier(0xF190) == Bytes{0x22, 0xF1, 0x90});
-    CHECK(writeDataByIdentifier(0x2001, {0x01, 0x02}) == Bytes{0x2E, 0x20, 0x01, 0x01, 0x02});
-    CHECK(diagnosticSessionControl(UdsSession::Extended) == Bytes{0x10, 0x03});
-    CHECK(ecuReset(0x01) == Bytes{0x11, 0x01});
-    CHECK(readDtcByStatusMask(0xFF) == Bytes{0x19, 0x02, 0xFF});
-    CHECK(clearDiagnosticInformation() == Bytes{0x14, 0xFF, 0xFF, 0xFF});
-    CHECK(securityAccessSeed(0x01) == Bytes{0x27, 0x01});
+    EXPECT_TRUE((readDataByIdentifier(0xF190) == Bytes{0x22, 0xF1, 0x90}));
+    EXPECT_TRUE(
+        (writeDataByIdentifier(0x2001, {0x01, 0x02}) == Bytes{0x2E, 0x20, 0x01, 0x01, 0x02}));
+    EXPECT_TRUE((diagnosticSessionControl(UdsSession::Extended) == Bytes{0x10, 0x03}));
+    EXPECT_TRUE((ecuReset(0x01) == Bytes{0x11, 0x01}));
+    EXPECT_TRUE((readDtcByStatusMask(0xFF) == Bytes{0x19, 0x02, 0xFF}));
+    EXPECT_TRUE((clearDiagnosticInformation() == Bytes{0x14, 0xFF, 0xFF, 0xFF}));
+    EXPECT_TRUE((securityAccessSeed(0x01) == Bytes{0x27, 0x01}));
 
     // The key goes back on the level *after* the seed's - sending it on the
     // seed's own level is refused as a sequence error that says nothing about
     // the cause.
-    CHECK(securityAccessKey(0x01, {0xAA, 0xBB}) == Bytes{0x27, 0x02, 0xAA, 0xBB});
+    EXPECT_TRUE((securityAccessKey(0x01, {0xAA, 0xBB}) == Bytes{0x27, 0x02, 0xAA, 0xBB}));
 }
 
-TEST_CASE("Trouble codes are named the way a workshop manual names them", "[uds][dtc]")
+TEST(UdsClientTests, TroubleCodesAreNamedTheWayAWorkshopManualNamesThem)
 {
     // The raw number is nothing like the form every scan tool shows: the first
     // two bits are the system letter and the next two the leading digit.
     const std::vector<DiagnosticTroubleCode> codes =
         parseDtcResponse({0x59, 0x02, 0xFF, 0x01, 0x28, 0x00, 0x2F, 0xC0, 0x35, 0x00, 0x08});
 
-    REQUIRE(codes.size() == 2);
+    ASSERT_TRUE(codes.size() == 2);
 
-    CHECK(codes[0].name() == "P0128");
-    CHECK(codes[0].status == 0x2F);
+    EXPECT_TRUE(codes[0].name() == "P0128");
+    EXPECT_TRUE(codes[0].status == 0x2F);
 
-    CHECK(codes[1].name() == "U0035");
-    CHECK(codes[1].status == 0x08);
+    EXPECT_TRUE(codes[1].name() == "U0035");
+    EXPECT_TRUE(codes[1].status == 0x08);
 }
 
-TEST_CASE("Anything that is not a DTC list yields no trouble codes", "[uds][dtc]")
+TEST(UdsClientTests, AnythingThatIsNotADTCListYieldsNoTroubleCodes)
 {
     // Guessing at another sub-function's layout would invent trouble codes that
     // are not there, which is the worst thing this particular screen can do.
-    CHECK(parseDtcResponse({0x62, 0xF1, 0x90, 0x01}).empty());
-    CHECK(parseDtcResponse({0x59, 0x01, 0xFF}).empty());
-    CHECK(parseDtcResponse({}).empty());
+    EXPECT_TRUE(parseDtcResponse({0x62, 0xF1, 0x90, 0x01}).empty());
+    EXPECT_TRUE(parseDtcResponse({0x59, 0x01, 0xFF}).empty());
+    EXPECT_TRUE(parseDtcResponse({}).empty());
 
     // A trailing partial code is dropped rather than padded into existence.
-    CHECK(parseDtcResponse({0x59, 0x02, 0xFF, 0x01, 0x28}).empty());
+    EXPECT_TRUE(parseDtcResponse({0x59, 0x02, 0xFF, 0x01, 0x28}).empty());
 }
 
-TEST_CASE("An unknown service is still shown, by number", "[uds]")
+TEST(UdsClientTests, AnUnknownServiceIsStillShownByNumber)
 {
     // A manufacturer-specific service is still a service. A tool that hides
     // what it cannot name is worse than one that shows a number.
     const std::string text = describeService(0xBA);
 
-    INFO(text);
-    CHECK(text.find("BA") != std::string::npos);
+    SCOPED_TRACE(::testing::Message() << text);
+    EXPECT_TRUE(text.find("BA") != std::string::npos);
 
-    CHECK(describeService(0x22) == "ReadDataByIdentifier");
+    EXPECT_TRUE(describeService(0x22) == "ReadDataByIdentifier");
 }

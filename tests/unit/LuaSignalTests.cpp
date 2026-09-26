@@ -15,7 +15,7 @@
 // the database says, and reading one back has to give the number the database
 // says.
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include "core/database/DbcParser.h"
 #include "core/pipeline/PipelineGraph.h"
@@ -41,7 +41,7 @@ BO_ 258 EngineTemp: 8 ECU
 [[nodiscard]] std::shared_ptr<CanDatabase> vehicleDatabase()
 {
     auto database = std::make_shared<CanDatabase>();
-    REQUIRE(DbcParser::parse(kVehicle, *database).succeeded());
+    EXPECT_TRUE(DbcParser::parse(kVehicle, *database).succeeded());
     return database;
 }
 
@@ -77,8 +77,8 @@ public:
                 m_produced.insert(m_produced.end(), frames.begin(), frames.end());
             }));
 
-        REQUIRE(m_graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
-        REQUIRE(m_graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
+        EXPECT_TRUE(m_graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
+        EXPECT_TRUE(m_graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
 
         // Recorded, not required. A script whose on_enable is *meant* to fail
         // fails the compile, and half these cases are about exactly that - so
@@ -159,7 +159,7 @@ private:
 
 } // namespace
 
-TEST_CASE("A script naming a signal produces the bytes the database specifies", "[lua][dbc]")
+TEST(LuaSignalTests, AScriptNamingASignalProducesTheBytesTheDatabaseSpecifies)
 {
     const EcuPass pass{R"(
 function on_enable()
@@ -168,20 +168,20 @@ end
 )",
                        vehicleDatabase()};
 
-    REQUIRE(pass.produced().size() == 1);
+    ASSERT_TRUE(pass.produced().size() == 1);
 
     const CanFrame& sent = pass.produced().front();
-    CHECK(sent.identifier == 0x101);
-    CHECK(sent.length == 8);
+    EXPECT_TRUE(sent.identifier == 0x101);
+    EXPECT_TRUE(sent.length == 8);
 
     // 85.0 at a factor of 0.1 is raw 850, which Intel order puts on the wire as
     // 52 03; the gear is a nibble in byte 2.
-    CHECK(sent.data[0] == 0x52);
-    CHECK(sent.data[1] == 0x03);
-    CHECK(sent.data[2] == 0x03);
+    EXPECT_TRUE(sent.data[0] == 0x52);
+    EXPECT_TRUE(sent.data[1] == 0x03);
+    EXPECT_TRUE(sent.data[2] == 0x03);
 }
 
-TEST_CASE("Signals the script did not set stay zero", "[lua][dbc]")
+TEST(LuaSignalTests, SignalsTheScriptDidNotSetStayZero)
 {
     // The table is walked, not the message's signal list. A script setting one
     // of two signals means the other is zero - which is what makeFrame already
@@ -193,19 +193,18 @@ end
 )",
                        vehicleDatabase()};
 
-    REQUIRE(pass.produced().size() == 1);
-    CHECK(pass.produced().front().data[0] == 0x00);
-    CHECK(pass.produced().front().data[1] == 0x00);
-    CHECK(pass.produced().front().data[2] == 0x05);
+    ASSERT_TRUE(pass.produced().size() == 1);
+    EXPECT_TRUE(pass.produced().front().data[0] == 0x00);
+    EXPECT_TRUE(pass.produced().front().data[1] == 0x00);
+    EXPECT_TRUE(pass.produced().front().data[2] == 0x05);
 }
 
-TEST_CASE("A misspelled name stops the script; a value out of range does not", "[lua][dbc]")
+TEST(LuaSignalTests, AMisspelledNameStopsTheScriptAValueOutOfRangeDoesNot)
 {
     // The asymmetry is the whole design. A typo never becomes correct, so the
     // script should stop and say which name was wrong. A value out of range is
     // a number the simulation produced, and taking the ECU down over it would
     // take the rest of the simulation with it.
-    SECTION("an unknown message name is an error")
     {
         const EcuPass pass{R"(
 function on_enable()
@@ -214,12 +213,10 @@ end
 )",
                            vehicleDatabase()};
 
-        CHECK(pass.produced().empty());
-        REQUIRE_FALSE(pass.errors().empty());
-        CHECK(pass.errors().front().find("VehcileSpeed") != std::string::npos);
+        EXPECT_TRUE(pass.produced().empty());
+        ASSERT_FALSE(pass.errors().empty());
+        EXPECT_TRUE(pass.errors().front().find("VehcileSpeed") != std::string::npos);
     }
-
-    SECTION("an unknown signal name is an error, and names the message too")
     {
         const EcuPass pass{R"(
 function on_enable()
@@ -228,13 +225,11 @@ end
 )",
                            vehicleDatabase()};
 
-        CHECK(pass.produced().empty());
-        REQUIRE_FALSE(pass.errors().empty());
-        CHECK(pass.errors().front().find("SpeedKph") != std::string::npos);
-        CHECK(pass.errors().front().find("VehicleSpeed") != std::string::npos);
+        EXPECT_TRUE(pass.produced().empty());
+        ASSERT_FALSE(pass.errors().empty());
+        EXPECT_TRUE(pass.errors().front().find("SpeedKph") != std::string::npos);
+        EXPECT_TRUE(pass.errors().front().find("VehicleSpeed") != std::string::npos);
     }
-
-    SECTION("a value past the field's width saturates, and the frame still goes")
     {
         const EcuPass pass{R"(
 function on_enable()
@@ -243,19 +238,19 @@ end
 )",
                            vehicleDatabase()};
 
-        REQUIRE(pass.produced().size() == 1);
-        CHECK(pass.errors().empty());
-        CHECK(pass.ecu().saturatedSignals() == 1);
+        ASSERT_TRUE(pass.produced().size() == 1);
+        EXPECT_TRUE(pass.errors().empty());
+        EXPECT_TRUE(pass.ecu().saturatedSignals() == 1);
 
         // Saturated at the widest the 16 bits hold, not wrapped: a torque
         // request of 300% arriving as -56% is the failure that moves an
         // actuator.
-        CHECK(pass.produced().front().data[0] == 0xFF);
-        CHECK(pass.produced().front().data[1] == 0xFF);
+        EXPECT_TRUE(pass.produced().front().data[0] == 0xFF);
+        EXPECT_TRUE(pass.produced().front().data[1] == 0xFF);
     }
 }
 
-TEST_CASE("A script can read an incoming frame by signal name", "[lua][dbc]")
+TEST(LuaSignalTests, AScriptCanReadAnIncomingFrameBySignalName)
 {
     const EcuPass pass{R"(
 function on_message(id, data, channel, extended)
@@ -268,12 +263,12 @@ end
                        vehicleDatabase(),
                        {frame(0x101, {0x52, 0x03, 0x00})}};
 
-    REQUIRE(pass.log().size() == 1);
-    CHECK(pass.log().front().find("VehicleSpeed") != std::string::npos);
-    CHECK(pass.log().front().find("85.0") != std::string::npos);
+    ASSERT_TRUE(pass.log().size() == 1);
+    EXPECT_TRUE(pass.log().front().find("VehicleSpeed") != std::string::npos);
+    EXPECT_TRUE(pass.log().front().find("85.0") != std::string::npos);
 }
 
-TEST_CASE("decode returns nil for a frame the database does not describe", "[lua][dbc]")
+TEST(LuaSignalTests, DecodeReturnsNilForAFrameTheDatabaseDoesNotDescribe)
 {
     // What an ECU on a shared bus does all day: look at everything, act on the
     // few identifiers it owns. Returning nil rather than an empty table lets
@@ -287,14 +282,13 @@ end
                        vehicleDatabase(),
                        {frame(0x101, {0x52, 0x03, 0x00}), frame(0x7FF, {0xFF})}};
 
-    REQUIRE(pass.log().size() == 2);
-    CHECK(pass.log()[0].find("VehicleSpeed") != std::string::npos);
-    CHECK(pass.log()[1].find("unknown") != std::string::npos);
+    ASSERT_TRUE(pass.log().size() == 2);
+    EXPECT_TRUE(pass.log()[0].find("VehicleSpeed") != std::string::npos);
+    EXPECT_TRUE(pass.log()[1].find("unknown") != std::string::npos);
 }
 
-TEST_CASE("Without a database, decode says nothing and emit_signal says why", "[lua][dbc]")
+TEST(LuaSignalTests, WithoutADatabaseDecodeSaysNothingAndEmitSignalSaysWhy)
 {
-    SECTION("decode returns nil rather than failing")
     {
         const EcuPass pass{R"(
 function on_message(id, data, channel, extended)
@@ -305,11 +299,9 @@ end
                            nullptr,
                            {frame(0x101, {0x52, 0x03})}};
 
-        REQUIRE(pass.log().size() == 1);
-        CHECK(pass.log().front().find("no database") != std::string::npos);
+        ASSERT_TRUE(pass.log().size() == 1);
+        EXPECT_TRUE(pass.log().front().find("no database") != std::string::npos);
     }
-
-    SECTION("emit_signal reports the missing setting by name")
     {
         // The message has to name the parameter the user needs to fill in. "no
         // database" alone sends somebody looking through a script that is fine.
@@ -320,12 +312,12 @@ end
 )",
                            nullptr};
 
-        REQUIRE_FALSE(pass.errors().empty());
-        CHECK(pass.errors().front().find("database") != std::string::npos);
+        ASSERT_FALSE(pass.errors().empty());
+        EXPECT_TRUE(pass.errors().front().find("database") != std::string::npos);
     }
 }
 
-TEST_CASE("What a script writes is what the decoder reads back", "[lua][dbc]")
+TEST(LuaSignalTests, WhatAScriptWritesIsWhatTheDecoderReadsBack)
 {
     // The round trip across both layers: the script encodes by name, and the
     // database decodes the bytes it produced. It fails if either direction
@@ -339,13 +331,13 @@ end
 )",
                        database};
 
-    REQUIRE(pass.produced().size() == 1);
+    ASSERT_TRUE(pass.produced().size() == 1);
 
     const CanMessage* message = database->find(pass.produced().front());
-    REQUIRE(message != nullptr);
-    CHECK(message->name == "EngineTemp");
+    ASSERT_TRUE(message != nullptr);
+    EXPECT_TRUE(message->name == "EngineTemp");
 
     const CanSignal* temperature = message->findSignal("EngTemp");
-    REQUIRE(temperature != nullptr);
-    CHECK(temperature->decode(pass.produced().front()) == 70.0);
+    ASSERT_TRUE(temperature != nullptr);
+    EXPECT_TRUE(temperature->decode(pass.produced().front()) == 70.0);
 }

@@ -62,7 +62,7 @@ target_link_libraries(torquebus_unit_tests
             torquebus::services
             torquebus::theme
             torquebus::warnings
-            Catch2::Catch2WithMain
+            GTest::gtest_main
 )
 
 # The loader tests load real libraries, so those have to exist before the tests
@@ -99,7 +99,7 @@ torquebus_test_dl_paths(TORQUEBUS_TEST_DL_PATHS)
 # second - it is the difference between a hang that fails and a hang that waits.
 # This suite had none, which is why it was the one that sat at zero CPU for
 # twelve minutes.
-catch_discover_tests(torquebus_unit_tests
+gtest_discover_tests(torquebus_unit_tests
     DL_PATHS ${TORQUEBUS_TEST_DL_PATHS}
     PROPERTIES
         TIMEOUT 60

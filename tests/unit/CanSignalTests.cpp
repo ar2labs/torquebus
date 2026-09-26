@@ -19,7 +19,7 @@
 // one is signed - which between them exercise every part of the numbering that
 // is easy to get wrong.
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include "core/database/CanSignal.h"
 
@@ -53,8 +53,7 @@ intel(std::uint16_t startBit, std::uint16_t bitLength, bool isSigned, double fac
     return signal;
 }
 
-/// Compares without pulling in Catch2's Approx, so this file has one dependency
-/// fewer and the tolerance is stated where it is used.
+/// Compares within an explicit 1e-9 tolerance, stated where it is used.
 [[nodiscard]] bool near(double actual, double expected)
 {
     return (actual - expected) < 1e-9 && (expected - actual) < 1e-9;
@@ -62,66 +61,66 @@ intel(std::uint16_t startBit, std::uint16_t bitLength, bool isSigned, double fac
 
 } // namespace
 
-TEST_CASE("The published motohawk vector decodes to its published values", "[dbc][signal]")
+TEST(CanSignalTests, ThePublishedMotohawkVectorDecodesToItsPublishedValues)
 {
     // SG_ Temperature : 0|12@0- (0.01,250)
     const CanSignal temperature = motorola(0, 12, true, 0.01, 250.0);
-    CHECK(near(temperature.decode(kMotohawk, 8), 250.55));
+    EXPECT_TRUE(near(temperature.decode(kMotohawk, 8), 250.55));
 
     // SG_ AverageRadius : 6|6@0+ (0.1,0)
     const CanSignal radius = motorola(6, 6, false, 0.1, 0.0);
-    CHECK(near(radius.decode(kMotohawk, 8), 3.2));
+    EXPECT_TRUE(near(radius.decode(kMotohawk, 8), 3.2));
 
     // SG_ Enable : 7|1@0+ (1,0)
     const CanSignal enable = motorola(7, 1, false, 1.0, 0.0);
-    CHECK(near(enable.decode(kMotohawk, 8), 1.0));
+    EXPECT_TRUE(near(enable.decode(kMotohawk, 8), 1.0));
 }
 
-TEST_CASE("Intel signals read upwards through the bytes", "[dbc][signal]")
+TEST(CanSignalTests, IntelSignalsReadUpwardsThroughTheBytes)
 {
     // vehicle.dbc: SG_ SpeedKmh : 0|16@1+ (0.1,0). 85.0 km/h is raw 850, which
     // little-endian puts on the wire as 52 03.
     const std::uint8_t payload[2] = {0x52, 0x03};
     const CanSignal speed = intel(0, 16, false, 0.1, 0.0);
 
-    CHECK(speed.rawValue(payload, 2) == 850);
-    CHECK(near(speed.decode(payload, 2), 85.0));
+    EXPECT_TRUE(speed.rawValue(payload, 2) == 850);
+    EXPECT_TRUE(near(speed.decode(payload, 2), 85.0));
 }
 
-TEST_CASE("An offset moves the whole range", "[dbc][signal]")
+TEST(CanSignalTests, AnOffsetMovesTheWholeRange)
 {
     // vehicle.dbc: SG_ EngTemp : 0|8@1+ (1,-40) - the classic temperature
     // encoding, where an unsigned byte covers -40 to 215.
     const std::uint8_t payload[1] = {0x6E};
     const CanSignal temperature = intel(0, 8, false, 1.0, -40.0);
 
-    CHECK(near(temperature.decode(payload, 1), 70.0));
+    EXPECT_TRUE(near(temperature.decode(payload, 1), 70.0));
 }
 
-TEST_CASE("A signed signal is sign extended, not read as unsigned", "[dbc][signal]")
+TEST(CanSignalTests, ASignedSignalIsSignExtendedNotReadAsUnsigned)
 {
     const std::uint8_t allOnes[1] = {0xFF};
 
-    CHECK(intel(0, 8, true, 1.0, 0.0).rawValue(allOnes, 1) == -1);
-    CHECK(intel(0, 8, false, 1.0, 0.0).rawValue(allOnes, 1) == 255);
+    EXPECT_TRUE(intel(0, 8, true, 1.0, 0.0).rawValue(allOnes, 1) == -1);
+    EXPECT_TRUE(intel(0, 8, false, 1.0, 0.0).rawValue(allOnes, 1) == 255);
 
     // A width that is not a whole byte is where a shift-based sign extension
     // usually goes wrong: 4 bits of 1111 is -1, not 15.
     const std::uint8_t nibble[1] = {0x0F};
-    CHECK(intel(0, 4, true, 1.0, 0.0).rawValue(nibble, 1) == -1);
+    EXPECT_TRUE(intel(0, 4, true, 1.0, 0.0).rawValue(nibble, 1) == -1);
 }
 
-TEST_CASE("A 64-bit signal does not shift by 64", "[dbc][signal]")
+TEST(CanSignalTests, A64BitSignalDoesNotShiftBy64)
 {
     // Shifting a 64-bit value by 64 is undefined, and the sign-extension path
     // is where that would happen. The value here has its top bit set, so a
     // signed 64-bit read exercises exactly that branch.
     const std::uint8_t payload[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
-    CHECK(intel(0, 64, true, 1.0, 0.0).rawValue(payload, 8) == -1);
+    EXPECT_TRUE(intel(0, 64, true, 1.0, 0.0).rawValue(payload, 8) == -1);
 }
 
-TEST_CASE("A signal that does not fit the payload reads zero", "[dbc][signal]")
+TEST(CanSignalTests, ASignalThatDoesNotFitThePayloadReadsZero)
 {
     // A database and a bus that disagree about message length is ordinary: a
     // shortened frame, or a database from a different model year. Reading past
@@ -129,15 +128,13 @@ TEST_CASE("A signal that does not fit the payload reads zero", "[dbc][signal]")
     const std::uint8_t payload[2] = {0x52, 0x03};
     const CanSignal speed = intel(0, 16, false, 0.1, 0.0);
 
-    CHECK_FALSE(speed.fitsIn(1));
-    CHECK(speed.rawValue(payload, 1) == 0);
+    EXPECT_FALSE(speed.fitsIn(1));
+    EXPECT_TRUE(speed.rawValue(payload, 1) == 0);
 
-    CHECK(speed.fitsIn(2));
+    EXPECT_TRUE(speed.fitsIn(2));
 }
 
-TEST_CASE("A Motorola signal spans the bytes its numbering implies, not the ones "
-          "that look obvious",
-          "[dbc][signal]")
+TEST(CanSignalTests, AMotorolaSignalSpansTheBytesItsNumberingImpliesNotTheOnesThatLookObvious)
 {
     // Twelve bits reaching into the *third* byte, which is the counterintuitive
     // result and the reason this case is here.
@@ -152,26 +149,26 @@ TEST_CASE("A Motorola signal spans the bytes its numbering implies, not the ones
     // 250.55 only when byte 2 is read.
     const CanSignal temperature = motorola(0, 12, true, 0.01, 250.0);
 
-    CHECK_FALSE(temperature.fitsIn(1));
-    CHECK_FALSE(temperature.fitsIn(2));
-    CHECK(temperature.fitsIn(3));
+    EXPECT_FALSE(temperature.fitsIn(1));
+    EXPECT_FALSE(temperature.fitsIn(2));
+    EXPECT_TRUE(temperature.fitsIn(3));
 
     // And the value confirms it: truncating to two bytes loses the low bits, so
     // this is not a bound that could be relaxed without changing the answer.
-    CHECK(temperature.rawValue(kMotohawk, 8) == 55);
-    CHECK(temperature.rawValue(kMotohawk, 2) == 0);
+    EXPECT_TRUE(temperature.rawValue(kMotohawk, 8) == 55);
+    EXPECT_TRUE(temperature.rawValue(kMotohawk, 2) == 0);
 }
 
-TEST_CASE("Value names turn a raw number into a word", "[dbc][signal]")
+TEST(CanSignalTests, ValueNamesTurnARawNumberIntoAWord)
 {
     CanSignal gear = intel(0, 4, false, 1.0, 0.0);
     gear.valueNames = {{0, "Neutral"}, {1, "Drive"}, {2, "Reverse"}};
 
-    CHECK(gear.nameForValue(2) == "Reverse");
-    CHECK(gear.nameForValue(0) == "Neutral");
+    EXPECT_TRUE(gear.nameForValue(2) == "Reverse");
+    EXPECT_TRUE(gear.nameForValue(0) == "Neutral");
 
     // An unlisted value gets nothing rather than a guess: a gear position the
     // database does not describe is exactly the case an engineer needs to see
     // as a raw number.
-    CHECK(gear.nameForValue(7).empty());
+    EXPECT_TRUE(gear.nameForValue(7).empty());
 }

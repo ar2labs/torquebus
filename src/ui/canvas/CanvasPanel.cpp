@@ -58,8 +58,7 @@ public:
     CanvasScene(QtNodes::AbstractGraphModel& model, MenuFactory factory, QObject* parent)
         : QtNodes::BasicGraphicsScene{model, parent}
         , m_factory{std::move(factory)}
-    {
-    }
+    { }
 
     QMenu* createSceneMenu(QPointF scenePos) override
     {

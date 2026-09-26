@@ -10,7 +10,7 @@
 // down exactly: what a script receives, what it can send back, what happens
 // when it is wrong, and what happens when it is wrong on every single frame.
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include "core/can/CanFrame.h"
 #include "core/pipeline/PipelineGraph.h"
@@ -28,7 +28,7 @@ namespace {
 
 /// A source that publishes a fixed list once, then nothing.
 ///
-/// At namespace scope and not inside a TEST_CASE: MSVC rejects a static data
+/// At namespace scope and not inside a TEST: MSVC rejects a static data
 /// member in a local class (C2246), and a PortDescriptor array has to be static
 /// for the span to outlive the call.
 class FixedSource final : public IPipelineNode {
@@ -111,19 +111,19 @@ private:
 
 } // namespace
 
-TEST_CASE("A script that will not compile fails the graph compile", "[lua][ecu]")
+TEST(LuaEcuNodeTests, AScriptThatWillNotCompileFailsTheGraphCompile)
 {
     LuaEcuNode node{"function on_message( end", "broken.lua"};
 
     const Result result = node.prepare(64);
 
-    REQUIRE(result.failed());
+    ASSERT_TRUE(result.failed());
     // The name and the line have to survive: "syntax error" alone sends the
     // user hunting through a file they just wrote.
-    REQUIRE(std::string{result.message()}.find("broken.lua") != std::string::npos);
+    ASSERT_TRUE(std::string{result.message()}.find("broken.lua") != std::string::npos);
 }
 
-TEST_CASE("on_enable runs before any frame arrives", "[lua][ecu]")
+TEST(LuaEcuNodeTests, OnEnableRunsBeforeAnyFrameArrives)
 {
     LuaEcuNode node{R"(
         started = false
@@ -132,7 +132,7 @@ TEST_CASE("on_enable runs before any frame arrives", "[lua][ecu]")
     )",
                     "enable.lua"};
 
-    REQUIRE(node.prepare(64).succeeded());
+    ASSERT_TRUE(node.prepare(64).succeeded());
 
     PipelineGraph graph;
     const auto source =
@@ -145,17 +145,17 @@ TEST_CASE("on_enable runs before any frame arrives", "[lua][ecu]")
                                                                 "enable.lua"));
     const auto sink = graph.addNode(std::make_unique<Collector>());
 
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
-    REQUIRE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 
     graph.execute();
 
-    REQUIRE(graph.nodeAs<Collector>(sink)->frames.size() == 1);
-    REQUIRE(graph.nodeAs<Collector>(sink)->frames.front().identifier == 0x100U);
+    ASSERT_TRUE(graph.nodeAs<Collector>(sink)->frames.size() == 1);
+    ASSERT_TRUE(graph.nodeAs<Collector>(sink)->frames.front().identifier == 0x100U);
 }
 
-TEST_CASE("on_message receives identifier, payload and channel", "[lua][ecu]")
+TEST(LuaEcuNodeTests, OnMessageReceivesIdentifierPayloadAndChannel)
 {
     PipelineGraph graph;
 
@@ -177,25 +177,25 @@ TEST_CASE("on_message receives identifier, payload and channel", "[lua][ecu]")
 
     const auto sink = graph.addNode(std::make_unique<Collector>());
 
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
-    REQUIRE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 
     graph.execute();
 
     const auto& out = graph.nodeAs<Collector>(sink)->frames;
-    REQUIRE(out.size() == 3);
+    ASSERT_TRUE(out.size() == 3);
 
-    REQUIRE(out[0].identifier == 0x123U);
-    REQUIRE(out[0].length == 4);
-    REQUIRE(out[0].data[0] == 0xEF);
-    REQUIRE(out[0].data[3] == 0xDE);
+    ASSERT_TRUE(out[0].identifier == 0x123U);
+    ASSERT_TRUE(out[0].length == 4);
+    ASSERT_TRUE(out[0].data[0] == 0xEF);
+    ASSERT_TRUE(out[0].data[3] == 0xDE);
 
-    REQUIRE(out[1].identifier == 0x124U); // the 29-bit identifier arrived as extended
-    REQUIRE(out[2].identifier == 0x125U); // and four bytes arrived as four bytes
+    ASSERT_TRUE(out[1].identifier == 0x124U); // the 29-bit identifier arrived as extended
+    ASSERT_TRUE(out[2].identifier == 0x125U); // and four bytes arrived as four bytes
 }
 
-TEST_CASE("emit marks frames as transmitted on the node's channel", "[lua][ecu]")
+TEST(LuaEcuNodeTests, EmitMarksFramesAsTransmittedOnTheNodeSChannel)
 {
     PipelineGraph graph;
 
@@ -214,22 +214,22 @@ TEST_CASE("emit marks frames as transmitted on the node's channel", "[lua][ecu]"
                                      /*channel=*/std::uint8_t{3}));
     const auto sink = graph.addNode(std::make_unique<Collector>());
 
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
-    REQUIRE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
     graph.execute();
 
     const CanFrame& out = graph.nodeAs<Collector>(sink)->frames.front();
 
-    REQUIRE(out.channel == 3);
-    REQUIRE(out.direction == CanDirection::Tx);
-    REQUIRE(out.format == CanFrameFormat::Standard);
-    REQUIRE(out.length == 2);
+    ASSERT_TRUE(out.channel == 3);
+    ASSERT_TRUE(out.direction == CanDirection::Tx);
+    ASSERT_TRUE(out.format == CanFrameFormat::Standard);
+    ASSERT_TRUE(out.length == 2);
     // Nothing invented a bus timestamp: the frame has not been transmitted yet.
-    REQUIRE(out.timestampNs == 0);
+    ASSERT_TRUE(out.timestampNs == 0);
 }
 
-TEST_CASE("emit chooses the extended format when the identifier needs it", "[lua][ecu]")
+TEST(LuaEcuNodeTests, EmitChoosesTheExtendedFormatWhenTheIdentifierNeedsIt)
 {
     PipelineGraph graph;
 
@@ -244,18 +244,18 @@ TEST_CASE("emit chooses the extended format when the identifier needs it", "[lua
                                                                 "fmt.lua"));
     const auto sink = graph.addNode(std::make_unique<Collector>());
 
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
-    REQUIRE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
     graph.execute();
 
     const auto& out = graph.nodeAs<Collector>(sink)->frames;
-    REQUIRE(out.size() == 2);
-    REQUIRE(out[0].format == CanFrameFormat::Extended);
-    REQUIRE(out[1].format == CanFrameFormat::Extended);
+    ASSERT_TRUE(out.size() == 2);
+    ASSERT_TRUE(out[0].format == CanFrameFormat::Extended);
+    ASSERT_TRUE(out[1].format == CanFrameFormat::Extended);
 }
 
-TEST_CASE("emit rejects a payload longer than the frame holds", "[lua][ecu]")
+TEST(LuaEcuNodeTests, EmitRejectsAPayloadLongerThanTheFrameHolds)
 {
     std::vector<std::string> errors;
 
@@ -273,20 +273,20 @@ TEST_CASE("emit rejects a payload longer than the frame holds", "[lua][ecu]")
     const auto ecu = graph.addNode(std::move(ecuNode));
     const auto sink = graph.addNode(std::make_unique<Collector>());
 
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
-    REQUIRE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
     graph.execute();
 
     // Nine bytes into a classic frame is a mistake, and it is reported as one
     // rather than truncated to eight - a silently shortened frame is a bug the
     // user then chases on the bus.
-    REQUIRE(graph.nodeAs<Collector>(sink)->frames.empty());
-    REQUIRE(errors.size() == 1);
-    REQUIRE(errors.front().find("at most 8") != std::string::npos);
+    ASSERT_TRUE(graph.nodeAs<Collector>(sink)->frames.empty());
+    ASSERT_TRUE(errors.size() == 1);
+    ASSERT_TRUE(errors.front().find("at most 8") != std::string::npos);
 }
 
-TEST_CASE("a script that fails on every frame stops after the error limit", "[lua][ecu]")
+TEST(LuaEcuNodeTests, AScriptThatFailsOnEveryFrameStopsAfterTheErrorLimit)
 {
     std::vector<std::string> errors;
 
@@ -310,22 +310,22 @@ TEST_CASE("a script that fails on every frame stops after the error limit", "[lu
     const auto source = graph.addNode(std::make_unique<FixedSource>(std::move(input)));
     const auto ecu = graph.addNode(std::move(ecuNode));
 
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
     graph.execute();
 
-    REQUIRE(ecuPointer->isFaulted());
+    ASSERT_TRUE(ecuPointer->isFaulted());
     // Five failures reported, plus the one line that says it has stopped.
-    REQUIRE(errors.size() == LuaEcuNode::kErrorLimit + 1);
-    REQUIRE(errors.back().find("stopped") != std::string::npos);
+    ASSERT_TRUE(errors.size() == LuaEcuNode::kErrorLimit + 1);
+    ASSERT_TRUE(errors.back().find("stopped") != std::string::npos);
 
     // A second pass changes nothing: the node is out, and the rest of the
     // measurement carries on around it.
     graph.execute();
-    REQUIRE(errors.size() == LuaEcuNode::kErrorLimit + 1);
+    ASSERT_TRUE(errors.size() == LuaEcuNode::kErrorLimit + 1);
 }
 
-TEST_CASE("an occasional error does not stop the node", "[lua][ecu]")
+TEST(LuaEcuNodeTests, AnOccasionalErrorDoesNotStopTheNode)
 {
     std::vector<std::string> errors;
 
@@ -357,17 +357,17 @@ TEST_CASE("an occasional error does not stop the node", "[lua][ecu]")
     const auto ecu = graph.addNode(std::move(ecuNode));
     const auto sink = graph.addNode(std::make_unique<Collector>());
 
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
-    REQUIRE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
     graph.execute();
 
-    REQUIRE_FALSE(ecuPointer->isFaulted());
-    REQUIRE(errors.size() == 1);
-    REQUIRE(graph.nodeAs<Collector>(sink)->frames.size() == 9);
+    ASSERT_FALSE(ecuPointer->isFaulted());
+    ASSERT_TRUE(errors.size() == 1);
+    ASSERT_TRUE(graph.nodeAs<Collector>(sink)->frames.size() == 9);
 }
 
-TEST_CASE("log_message reaches the log handler and is not an error", "[lua][ecu]")
+TEST(LuaEcuNodeTests, LogMessageReachesTheLogHandlerAndIsNotAnError)
 {
     std::vector<std::string> lines;
     bool sawError = false;
@@ -379,16 +379,16 @@ TEST_CASE("log_message reaches the log handler and is not an error", "[lua][ecu]
         sawError = sawError || isError;
     });
 
-    REQUIRE(ecuNode->prepare(64).succeeded());
+    ASSERT_TRUE(ecuNode->prepare(64).succeeded());
 
-    REQUIRE(lines.size() == 1);
-    REQUIRE_FALSE(sawError);
+    ASSERT_TRUE(lines.size() == 1);
+    ASSERT_FALSE(sawError);
     // Prefixed with the node name: an Output panel with ten ECUs in it is
     // useless if every line reads "ready".
-    REQUIRE(lines.front() == "log.lua: ready");
+    ASSERT_TRUE(lines.front() == "log.lua: ready");
 }
 
-TEST_CASE("the sandbox holds inside an ECU script", "[lua][ecu]")
+TEST(LuaEcuNodeTests, TheSandboxHoldsInsideAnECUScript)
 {
     // Not a duplicate of the LuaRuntime test: that one proves the runtime does
     // not open the libraries, this one proves the ECU node uses that runtime
@@ -399,10 +399,10 @@ TEST_CASE("the sandbox holds inside an ECU script", "[lua][ecu]")
     )",
                     "sandbox.lua"};
 
-    REQUIRE(node.prepare(64).succeeded());
+    ASSERT_TRUE(node.prepare(64).succeeded());
 }
 
-TEST_CASE("get_time_us counts from the start of the measurement", "[lua][ecu]")
+TEST(LuaEcuNodeTests, GetTimeUsCountsFromTheStartOfTheMeasurement)
 {
     PipelineGraph graph;
 
@@ -418,13 +418,13 @@ TEST_CASE("get_time_us counts from the start of the measurement", "[lua][ecu]")
                                                                 "clock.lua"));
     const auto sink = graph.addNode(std::make_unique<Collector>());
 
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
-    REQUIRE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
     graph.execute();
 
     const CanFrame& out = graph.nodeAs<Collector>(sink)->frames.front();
-    REQUIRE(out.length == 4);
+    ASSERT_TRUE(out.length == 4);
 
     // Small, because prepare() and execute() are microseconds apart. The point
     // is that it is elapsed time and not a Unix epoch, which would be enormous.
@@ -433,10 +433,10 @@ TEST_CASE("get_time_us counts from the start of the measurement", "[lua][ecu]")
                                        | (static_cast<std::uint32_t>(out.data[2]) << 16)
                                        | (static_cast<std::uint32_t>(out.data[3]) << 24);
 
-    REQUIRE(microseconds < 5'000'000U);
+    ASSERT_TRUE(microseconds < 5'000'000U);
 }
 
-TEST_CASE("a script with no on_message is legal and silent", "[lua][ecu]")
+TEST(LuaEcuNodeTests, AScriptWithNoOnMessageIsLegalAndSilent)
 {
     // The pure producer: an ECU that only sends on a timer never looks at the
     // bus. Calling a function it does not have would be an error on every
@@ -449,15 +449,15 @@ TEST_CASE("a script with no on_message is legal and silent", "[lua][ecu]")
         std::make_unique<LuaEcuNode>(R"(function on_enable() set_timer(10) end)", "quiet.lua"));
     const auto sink = graph.addNode(std::make_unique<Collector>());
 
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
-    REQUIRE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
     graph.execute();
 
-    REQUIRE(graph.nodeAs<Collector>(sink)->frames.empty());
+    ASSERT_TRUE(graph.nodeAs<Collector>(sink)->frames.empty());
 }
 
-TEST_CASE("on_timer fires once the interval has elapsed", "[lua][ecu]")
+TEST(LuaEcuNodeTests, OnTimerFiresOnceTheIntervalHasElapsed)
 {
     // The periodic ECU, which is most of them: a script that sends a cyclic
     // message every N milliseconds and never looks at the bus.
@@ -474,30 +474,30 @@ TEST_CASE("on_timer fires once the interval has elapsed", "[lua][ecu]")
                                                                 "cyclic.lua"));
     const auto sink = graph.addNode(std::make_unique<Collector>());
 
-    REQUIRE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 
     // Immediately: nothing yet. The timer starts at prepare(), so a 20 ms
     // interval must not fire on the first pass - an ECU that sends its first
     // cyclic message instantly would show a wrong gap in the trace.
     graph.execute();
-    REQUIRE(graph.nodeAs<Collector>(sink)->frames.empty());
+    ASSERT_TRUE(graph.nodeAs<Collector>(sink)->frames.empty());
 
     std::this_thread::sleep_for(std::chrono::milliseconds{30});
     graph.execute();
-    REQUIRE(graph.nodeAs<Collector>(sink)->frames.size() == 1);
+    ASSERT_TRUE(graph.nodeAs<Collector>(sink)->frames.size() == 1);
 
     // And a pass right after it does not fire again: the node measures from the
     // last tick, not from the last pass.
     graph.execute();
-    REQUIRE(graph.nodeAs<Collector>(sink)->frames.size() == 1);
+    ASSERT_TRUE(graph.nodeAs<Collector>(sink)->frames.size() == 1);
 
     std::this_thread::sleep_for(std::chrono::milliseconds{30});
     graph.execute();
-    REQUIRE(graph.nodeAs<Collector>(sink)->frames.size() == 2);
+    ASSERT_TRUE(graph.nodeAs<Collector>(sink)->frames.size() == 2);
 }
 
-TEST_CASE("on_disable runs when the measurement ends", "[lua][ecu]")
+TEST(LuaEcuNodeTests, OnDisableRunsWhenTheMeasurementEnds)
 {
     std::vector<std::string> lines;
 
@@ -507,15 +507,15 @@ TEST_CASE("on_disable runs when the measurement ends", "[lua][ecu]")
 
     PipelineGraph graph;
     (void)graph.addNode(std::move(ecuNode));
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 
-    REQUIRE(lines.empty());
+    ASSERT_TRUE(lines.empty());
     graph.finish();
-    REQUIRE(lines.size() == 1);
-    REQUIRE(lines.front().find("stopped cleanly") != std::string::npos);
+    ASSERT_TRUE(lines.size() == 1);
+    ASSERT_TRUE(lines.front().find("stopped cleanly") != std::string::npos);
 }
 
-TEST_CASE("two ECUs on one bus each keep their own state", "[lua][ecu]")
+TEST(LuaEcuNodeTests, TwoECUsOnOneBusEachKeepTheirOwnState)
 {
     // One VM per ECU, and this is what that buys: both scripts use a global
     // named `count`, and neither can see the other's. Sharing one interpreter
@@ -537,16 +537,16 @@ TEST_CASE("two ECUs on one bus each keep their own state", "[lua][ecu]")
     const auto second = graph.addNode(std::make_unique<LuaEcuNode>(script, "b.lua"));
     const auto sink = graph.addNode(std::make_unique<Collector>());
 
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{first, 0}).succeeded());
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{second, 0}).succeeded());
-    REQUIRE(graph.connect(PortRef{first, 0}, PortRef{sink, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{first, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{second, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{first, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
     graph.execute();
 
     // The first ECU counted 1 and 2 - not 1 and 3, which is what a shared
     // interpreter would have produced.
     const auto& out = graph.nodeAs<Collector>(sink)->frames;
-    REQUIRE(out.size() == 2);
-    REQUIRE(out[0].identifier == 0x401U);
-    REQUIRE(out[1].identifier == 0x402U);
+    ASSERT_TRUE(out.size() == 2);
+    ASSERT_TRUE(out[0].identifier == 0x401U);
+    ASSERT_TRUE(out[1].identifier == 0x402U);
 }

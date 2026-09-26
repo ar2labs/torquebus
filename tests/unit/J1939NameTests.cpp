@@ -13,7 +13,7 @@
 
 #include "core/j1939/J1939Name.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <cstdint>
 
@@ -58,53 +58,53 @@ claimFrame(std::uint64_t name, std::uint8_t source, std::uint8_t length = kJ1939
 
 } // namespace
 
-TEST_CASE("A NAME survives being packed and taken apart", "[j1939][name]")
+TEST(J1939NameTests, ANAMESurvivesBeingPackedAndTakenApart)
 {
     const J1939Name original = sampleName();
     const J1939Name round = j1939DecodeName(original.value());
 
-    CHECK(round.arbitraryAddressCapable == original.arbitraryAddressCapable);
-    CHECK(round.industryGroup == original.industryGroup);
-    CHECK(round.vehicleSystemInstance == original.vehicleSystemInstance);
-    CHECK(round.vehicleSystem == original.vehicleSystem);
-    CHECK(round.reserved == original.reserved);
-    CHECK(round.function == original.function);
-    CHECK(round.functionInstance == original.functionInstance);
-    CHECK(round.ecuInstance == original.ecuInstance);
-    CHECK(round.manufacturerCode == original.manufacturerCode);
-    CHECK(round.identityNumber == original.identityNumber);
+    EXPECT_TRUE(round.arbitraryAddressCapable == original.arbitraryAddressCapable);
+    EXPECT_TRUE(round.industryGroup == original.industryGroup);
+    EXPECT_TRUE(round.vehicleSystemInstance == original.vehicleSystemInstance);
+    EXPECT_TRUE(round.vehicleSystem == original.vehicleSystem);
+    EXPECT_TRUE(round.reserved == original.reserved);
+    EXPECT_TRUE(round.function == original.function);
+    EXPECT_TRUE(round.functionInstance == original.functionInstance);
+    EXPECT_TRUE(round.ecuInstance == original.ecuInstance);
+    EXPECT_TRUE(round.manufacturerCode == original.manufacturerCode);
+    EXPECT_TRUE(round.identityNumber == original.identityNumber);
 }
 
-TEST_CASE("No field of a NAME bleeds into its neighbour", "[j1939][name]")
+TEST(J1939NameTests, NoFieldOfANAMEBleedsIntoItsNeighbour)
 {
     // Each field set to all ones on its own. If a shift or a mask is off by a
     // bit, the value lands in the field next door and this is where it shows.
     J1939Name name;
     name.identityNumber = 0x1F'FFFFU;
-    CHECK(j1939DecodeName(name.value()).manufacturerCode == 0U);
+    EXPECT_TRUE(j1939DecodeName(name.value()).manufacturerCode == 0U);
 
     name = J1939Name{};
     name.manufacturerCode = 0x7FFU;
-    CHECK(j1939DecodeName(name.value()).identityNumber == 0U);
-    CHECK(j1939DecodeName(name.value()).ecuInstance == 0U);
+    EXPECT_TRUE(j1939DecodeName(name.value()).identityNumber == 0U);
+    EXPECT_TRUE(j1939DecodeName(name.value()).ecuInstance == 0U);
 
     name = J1939Name{};
     name.function = 0xFFU;
-    CHECK(j1939DecodeName(name.value()).functionInstance == 0U);
-    CHECK(j1939DecodeName(name.value()).reserved == false);
+    EXPECT_TRUE(j1939DecodeName(name.value()).functionInstance == 0U);
+    EXPECT_TRUE(j1939DecodeName(name.value()).reserved == false);
 
     name = J1939Name{};
     name.vehicleSystem = 0x7FU;
-    CHECK(j1939DecodeName(name.value()).reserved == false);
-    CHECK(j1939DecodeName(name.value()).vehicleSystemInstance == 0U);
+    EXPECT_TRUE(j1939DecodeName(name.value()).reserved == false);
+    EXPECT_TRUE(j1939DecodeName(name.value()).vehicleSystemInstance == 0U);
 
     name = J1939Name{};
     name.industryGroup = 0x07U;
-    CHECK(j1939DecodeName(name.value()).arbitraryAddressCapable == false);
-    CHECK(j1939DecodeName(name.value()).vehicleSystemInstance == 0U);
+    EXPECT_TRUE(j1939DecodeName(name.value()).arbitraryAddressCapable == false);
+    EXPECT_TRUE(j1939DecodeName(name.value()).vehicleSystemInstance == 0U);
 }
 
-TEST_CASE("The eight bytes of a claim are read least significant first", "[j1939][name]")
+TEST(J1939NameTests, TheEightBytesOfAClaimAreReadLeastSignificantFirst)
 {
     // Bytes 1..8 in order. A NAME read the other way round is still a plausible
     // NAME - another manufacturer, another serial - and nothing about it looks
@@ -115,19 +115,19 @@ TEST_CASE("The eight bytes of a claim are read least significant first", "[j1939
         frame.data[index] = static_cast<std::uint8_t>(index + 1U);
     }
 
-    CHECK(j1939NameBits(frame) == 0x0807'0605'0403'0201ULL);
+    EXPECT_TRUE(j1939NameBits(frame) == 0x0807'0605'0403'0201ULL);
 
     const std::optional<J1939Name> name = j1939NameFromClaim(frame);
-    REQUIRE(name.has_value());
+    ASSERT_TRUE(name.has_value());
 
     // Derived from that number rather than restated: identity is the low 21
     // bits, and the vehicle system instance the low nibble of the top byte.
-    CHECK(name->identityNumber == 0x03'0201U);
-    CHECK(name->vehicleSystemInstance == 0x08U);
-    CHECK_FALSE(name->arbitraryAddressCapable);
+    EXPECT_TRUE(name->identityNumber == 0x03'0201U);
+    EXPECT_TRUE(name->vehicleSystemInstance == 0x08U);
+    EXPECT_FALSE(name->arbitraryAddressCapable);
 }
 
-TEST_CASE("The lower NAME wins the address", "[j1939][name]")
+TEST(J1939NameTests, TheLowerNAMEWinsTheAddress)
 {
     J1939Name low = sampleName();
     low.identityNumber = 100U;
@@ -135,15 +135,15 @@ TEST_CASE("The lower NAME wins the address", "[j1939][name]")
     J1939Name high = sampleName();
     high.identityNumber = 200U;
 
-    CHECK(low.winsAgainst(high));
-    CHECK_FALSE(high.winsAgainst(low));
+    EXPECT_TRUE(low.winsAgainst(high));
+    EXPECT_FALSE(high.winsAgainst(low));
 
     // A NAME does not beat itself, or two ECUs that somehow shipped identical
     // NAMEs would each conclude it had won.
-    CHECK_FALSE(low.winsAgainst(low));
+    EXPECT_FALSE(low.winsAgainst(low));
 }
 
-TEST_CASE("An ECU that can move loses the tie it would otherwise win", "[j1939][name]")
+TEST(J1939NameTests, AnECUThatCanMoveLosesTheTieItWouldOtherwiseWin)
 {
     // Identical in every other field. The arbitrary-address-capable bit is the
     // top bit of the NAME, so setting it can only make the NAME larger - and
@@ -154,20 +154,20 @@ TEST_CASE("An ECU that can move loses the tie it would otherwise win", "[j1939][
     J1939Name movable = sampleName();
     movable.arbitraryAddressCapable = true;
 
-    CHECK(fixed.winsAgainst(movable));
-    CHECK_FALSE(movable.winsAgainst(fixed));
+    EXPECT_TRUE(fixed.winsAgainst(movable));
+    EXPECT_FALSE(movable.winsAgainst(fixed));
 }
 
-TEST_CASE("A claim shorter than eight bytes is refused, not padded", "[j1939][name]")
+TEST(J1939NameTests, AClaimShorterThanEightBytesIsRefusedNotPadded)
 {
     // Padding would invent an identity number nobody transmitted, and that
     // invented NAME would then win or lose contests and be shown in a panel as
     // an ECU that exists.
-    CHECK_FALSE(j1939NameFromClaim(claimFrame(sampleName().value(), 0x80U, 7U)).has_value());
-    CHECK(j1939NameFromClaim(claimFrame(sampleName().value(), 0x80U, 8U)).has_value());
+    EXPECT_FALSE(j1939NameFromClaim(claimFrame(sampleName().value(), 0x80U, 7U)).has_value());
+    EXPECT_TRUE(j1939NameFromClaim(claimFrame(sampleName().value(), 0x80U, 8U)).has_value());
 }
 
-TEST_CASE("A frame that is not an Address Claimed carries no NAME", "[j1939][name]")
+TEST(J1939NameTests, AFrameThatIsNotAnAddressClaimedCarriesNoNAME)
 {
     CanFrame other;
     other.identifier = j1939Identifier(kPgnDm1, 0x00U);
@@ -175,7 +175,7 @@ TEST_CASE("A frame that is not an Address Claimed carries no NAME", "[j1939][nam
     other.length = 8;
     other.dlc = 8;
 
-    CHECK_FALSE(j1939NameFromClaim(other).has_value());
+    EXPECT_FALSE(j1939NameFromClaim(other).has_value());
 
     // Nor does an 11-bit frame that happens to carry the same low bits.
     CanFrame standard;
@@ -184,10 +184,10 @@ TEST_CASE("A frame that is not an Address Claimed carries no NAME", "[j1939][nam
     standard.length = 8;
     standard.dlc = 8;
 
-    CHECK_FALSE(j1939NameFromClaim(standard).has_value());
+    EXPECT_FALSE(j1939NameFromClaim(standard).has_value());
 }
 
-TEST_CASE("Cannot Claim Address is recognised and is not a claim on 254", "[j1939][name]")
+TEST(J1939NameTests, CannotClaimAddressIsRecognisedAndIsNotAClaimOn254)
 {
     // An ECU that lost announces it from the null address. The NAME is real and
     // worth keeping; the address is not an address. Filing this as an occupant
@@ -195,17 +195,17 @@ TEST_CASE("Cannot Claim Address is recognised and is not a claim on 254", "[j193
     // not exist.
     const CanFrame defeat = claimFrame(sampleName().value(), kJ1939NullAddress);
 
-    CHECK(j1939IsCannotClaimAddress(defeat));
+    EXPECT_TRUE(j1939IsCannotClaimAddress(defeat));
 
     const std::optional<J1939Name> name = j1939NameFromClaim(defeat);
-    REQUIRE(name.has_value());
-    CHECK(name->identityNumber == sampleName().identityNumber);
+    ASSERT_TRUE(name.has_value());
+    EXPECT_TRUE(name->identityNumber == sampleName().identityNumber);
 
     // An ordinary claim is not one of these.
-    CHECK_FALSE(j1939IsCannotClaimAddress(claimFrame(sampleName().value(), 0x80U)));
+    EXPECT_FALSE(j1939IsCannotClaimAddress(claimFrame(sampleName().value(), 0x80U)));
 }
 
-TEST_CASE("The reserved bit is carried, not quietly cleared", "[j1939][name]")
+TEST(J1939NameTests, TheReservedBitIsCarriedNotQuietlyCleared)
 {
     // Round-tripping a NAME that normalised a bit would change an ECU identity
     // while claiming to have copied it - and the copy would lose contests the
@@ -215,20 +215,20 @@ TEST_CASE("The reserved bit is carried, not quietly cleared", "[j1939][name]")
 
     const J1939Name round = j1939DecodeName(name.value());
 
-    CHECK(round.reserved);
-    CHECK(round.value() == name.value());
+    EXPECT_TRUE(round.reserved);
+    EXPECT_TRUE(round.value() == name.value());
 }
 
-TEST_CASE("The industry groups are named, and the reserved ones say so", "[j1939][name]")
+TEST(J1939NameTests, TheIndustryGroupsAreNamedAndTheReservedOnesSaySo)
 {
-    CHECK(j1939IndustryGroupName(0U) == "Global");
-    CHECK(j1939IndustryGroupName(1U) == "On-Highway Equipment");
-    CHECK(j1939IndustryGroupName(2U) == "Agricultural and Forestry Equipment");
-    CHECK(j1939IndustryGroupName(3U) == "Construction Equipment");
-    CHECK(j1939IndustryGroupName(4U) == "Marine");
-    CHECK(j1939IndustryGroupName(5U) == "Industrial-Process Control");
+    EXPECT_TRUE(j1939IndustryGroupName(0U) == "Global");
+    EXPECT_TRUE(j1939IndustryGroupName(1U) == "On-Highway Equipment");
+    EXPECT_TRUE(j1939IndustryGroupName(2U) == "Agricultural and Forestry Equipment");
+    EXPECT_TRUE(j1939IndustryGroupName(3U) == "Construction Equipment");
+    EXPECT_TRUE(j1939IndustryGroupName(4U) == "Marine");
+    EXPECT_TRUE(j1939IndustryGroupName(5U) == "Industrial-Process Control");
 
     // Not blank: a blank cell reads as a decoding failure, and this decoded.
-    CHECK(j1939IndustryGroupName(6U) == "Reserved");
-    CHECK(j1939IndustryGroupName(7U) == "Reserved");
+    EXPECT_TRUE(j1939IndustryGroupName(6U) == "Reserved");
+    EXPECT_TRUE(j1939IndustryGroupName(7U) == "Reserved");
 }

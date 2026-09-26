@@ -406,7 +406,7 @@ Result KvaserCanBackend::open(const CanChannelConfig& config)
     // asked for. Not every device supports it; transmit() covers the gap.
     unsigned int txAck = 1;
     m_impl->txAcknowledgeEnabled =
-        canIoCtl(handle, canIOCTL_SET_LOCAL_TXACK, &txAck, sizeof(txAck)) == canOK;
+        canIoCtl(handle, canIOCTL_SET_TXACK, &txAck, sizeof(txAck)) == canOK;
 
     m_impl->handle = handle;
     m_impl->channelIndex = channelIndex;

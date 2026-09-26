@@ -15,7 +15,7 @@
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <array>
 #include <cstdint>
@@ -125,15 +125,15 @@ private:
 
 } // namespace
 
-TEST_CASE("A message decodes whatever address it came from", "[j1939][block]")
+TEST(J1939NodeTests, AMessageDecodesWhateverAddressItCameFrom)
 {
     // The reason the block exists. The database names this group for the engine
     // at address 0; on this bench the engine answers from 3, so every frame
     // arrives under an identifier the database has never seen. Matching by
     // identifier finds nothing and the bus looks silent.
     J1939Node node{databaseWithTemperature(), "J1939"};
-    REQUIRE(node.prepare(64U).succeeded());
-    CHECK(node.knownPgns() == 1U);
+    ASSERT_TRUE(node.prepare(64U).succeeded());
+    EXPECT_TRUE(node.knownPgns() == 1U);
 
     Driver driver{node};
     const std::array<CanFrame, 1> frames{
@@ -141,23 +141,23 @@ TEST_CASE("A message decodes whatever address it came from", "[j1939][block]")
 
     const std::span<const DecodedSignal> signals = driver.run(frames);
 
-    REQUIRE(signals.size() == 1U);
-    CHECK(signals[0].signal->name == "EngineCoolantTemperature");
-    CHECK(signals[0].value == 20.0);
+    ASSERT_TRUE(signals.size() == 1U);
+    EXPECT_TRUE(signals[0].signal->name == "EngineCoolantTemperature");
+    EXPECT_TRUE(signals[0].value == 20.0);
 
     // And the identifier travels on as it arrived, so the source address is
     // still there for anything downstream that wants to know which ECU spoke.
-    CHECK(j1939Decompose(signals[0].identifier).sourceAddress == kOtherEngine);
+    EXPECT_TRUE(j1939Decompose(signals[0].identifier).sourceAddress == kOtherEngine);
 }
 
-TEST_CASE("A transport packet is never decoded as a message", "[j1939][block]")
+TEST(J1939NodeTests, ATransportPacketIsNeverDecodedAsAMessage)
 {
     // A TP.DT is seven bytes of payload under a sequence number. Handed to a
     // signal decoder it produces a full set of plausible numbers, every one of
     // them wrong - so the reassembler is asked first and a frame it claims goes
     // no further.
     J1939Node node{databaseWithTemperature(12U, 64U), "J1939"};
-    REQUIRE(node.prepare(64U).succeeded());
+    ASSERT_TRUE(node.prepare(64U).succeeded());
 
     Driver driver{node};
 
@@ -166,7 +166,7 @@ TEST_CASE("A transport packet is never decoded as a message", "[j1939][block]")
     const std::array<CanFrame, 2> opening{bamFrame(kTemperature, 12U, 2U, kEngine),
                                           dataFrame(1U, {1U, 2U, 3U, 4U, 5U, 6U, 7U}, kEngine)};
 
-    CHECK(driver.run(opening).empty());
+    EXPECT_TRUE(driver.run(opening).empty());
 
     // The last packet completes it, and the signal is read out of byte 8 of the
     // reassembled message - a byte beyond anything a single frame can carry.
@@ -174,48 +174,48 @@ TEST_CASE("A transport packet is never decoded as a message", "[j1939][block]")
     const std::array<CanFrame, 1> closing{dataFrame(2U, {9U, 100U, 10U, 11U, 12U}, kEngine)};
     const std::span<const DecodedSignal> signals = driver.run(closing);
 
-    REQUIRE(signals.size() == 1U);
-    CHECK(signals[0].value == 60.0);
+    ASSERT_TRUE(signals.size() == 1U);
+    EXPECT_TRUE(signals[0].value == 60.0);
 }
 
-TEST_CASE("A transfer that loses a packet emits nothing at all", "[j1939][block]")
+TEST(J1939NodeTests, ATransferThatLosesAPacketEmitsNothingAtAll)
 {
     J1939Node node{databaseWithTemperature(12U, 64U), "J1939"};
-    REQUIRE(node.prepare(64U).succeeded());
+    ASSERT_TRUE(node.prepare(64U).succeeded());
 
     Driver driver{node};
     const std::array<CanFrame, 3> frames{bamFrame(kTemperature, 21U, 3U, kEngine),
                                          dataFrame(1U, {1U, 2U, 3U, 4U, 5U, 6U, 7U}, kEngine),
                                          dataFrame(3U, {1U, 2U, 3U, 4U, 5U, 6U, 7U}, kEngine)};
 
-    CHECK(driver.run(frames).empty());
+    EXPECT_TRUE(driver.run(frames).empty());
 }
 
-TEST_CASE("The block watches the bus with no database at all", "[j1939][block]")
+TEST(J1939NodeTests, TheBlockWatchesTheBusWithNoDatabaseAtAll)
 {
     // Reassembly, the address table and trouble codes do not need one. A block
     // dropped on the canvas should already be telling somebody who is out
     // there.
     J1939Node node{nullptr, "J1939"};
-    REQUIRE(node.prepare(64U).succeeded());
-    CHECK(node.knownPgns() == 0U);
+    ASSERT_TRUE(node.prepare(64U).succeeded());
+    EXPECT_TRUE(node.knownPgns() == 0U);
 
     Driver driver{node};
     const std::array<CanFrame, 2> frames{
         frameOf(j1939Identifier(kTemperature, kEngine), {60U, 0U, 0U, 0U, 0U, 0U, 0U, 0U}),
         frameOf(j1939Identifier(kTemperature, kOtherEngine), {60U, 0U, 0U, 0U, 0U, 0U, 0U, 0U})};
 
-    CHECK(driver.run(frames).empty());
+    EXPECT_TRUE(driver.run(frames).empty());
 
-    REQUIRE(node.addresses().nodes().size() == 2U);
-    CHECK(node.addresses().nodes()[0].address == kEngine);
-    CHECK(node.addresses().nodes()[1].address == kOtherEngine);
+    ASSERT_TRUE(node.addresses().nodes().size() == 2U);
+    EXPECT_TRUE(node.addresses().nodes()[0].address == kEngine);
+    EXPECT_TRUE(node.addresses().nodes()[1].address == kOtherEngine);
 }
 
-TEST_CASE("A trouble code in one frame reaches the block", "[j1939][block]")
+TEST(J1939NodeTests, ATroubleCodeInOneFrameReachesTheBlock)
 {
     J1939Node node{nullptr, "J1939"};
-    REQUIRE(node.prepare(64U).succeeded());
+    ASSERT_TRUE(node.prepare(64U).succeeded());
 
     Driver driver{node};
     const std::array<CanFrame, 1> frames{
@@ -223,23 +223,23 @@ TEST_CASE("A trouble code in one frame reaches the block", "[j1939][block]")
 
     driver.run(frames);
 
-    REQUIRE(node.diagnostics().size() == 1U);
+    ASSERT_TRUE(node.diagnostics().size() == 1U);
 
     const J1939Diagnostic& message = node.diagnostics()[0];
-    CHECK(message.active);
-    CHECK(message.sourceAddress == kEngine);
-    CHECK(message.lamps.malfunction == J1939LampState::On);
-    REQUIRE(message.faults.size() == 1U);
-    CHECK(message.faults[0].spn == 100U);
-    CHECK(message.faults[0].fmi == 1U);
+    EXPECT_TRUE(message.active);
+    EXPECT_TRUE(message.sourceAddress == kEngine);
+    EXPECT_TRUE(message.lamps.malfunction == J1939LampState::On);
+    ASSERT_TRUE(message.faults.size() == 1U);
+    EXPECT_TRUE(message.faults[0].spn == 100U);
+    EXPECT_TRUE(message.faults[0].fmi == 1U);
 }
 
-TEST_CASE("A healthy ECU is recorded as having nothing wrong", "[j1939][block]")
+TEST(J1939NodeTests, AHealthyECUIsRecordedAsHavingNothingWrong)
 {
     // Not as absent. An ECU that says it is fine is different from one that has
     // never spoken, and the difference is the whole value of asking.
     J1939Node node{nullptr, "J1939"};
-    REQUIRE(node.prepare(64U).succeeded());
+    ASSERT_TRUE(node.prepare(64U).succeeded());
 
     Driver driver{node};
     const std::array<CanFrame, 1> frames{
@@ -247,16 +247,16 @@ TEST_CASE("A healthy ECU is recorded as having nothing wrong", "[j1939][block]")
 
     driver.run(frames);
 
-    REQUIRE(node.diagnostics().size() == 1U);
-    CHECK(node.diagnostics()[0].faults.empty());
+    ASSERT_TRUE(node.diagnostics().size() == 1U);
+    EXPECT_TRUE(node.diagnostics()[0].faults.empty());
 }
 
-TEST_CASE("Several faults arrive over transport and are filed together", "[j1939][block]")
+TEST(J1939NodeTests, SeveralFaultsArriveOverTransportAndAreFiledTogether)
 {
     // More than one active fault does not fit in eight bytes, which is why a
     // real DM1 is a transport message and why this path has to work.
     J1939Node node{nullptr, "J1939"};
-    REQUIRE(node.prepare(64U).succeeded());
+    ASSERT_TRUE(node.prepare(64U).succeeded());
 
     Driver driver{node};
 
@@ -268,21 +268,21 @@ TEST_CASE("Several faults arrive over transport and are filed together", "[j1939
 
     driver.run(frames);
 
-    REQUIRE(node.diagnostics().size() == 1U);
+    ASSERT_TRUE(node.diagnostics().size() == 1U);
 
     const J1939Diagnostic& message = node.diagnostics()[0];
-    REQUIRE(message.faults.size() == 3U);
-    CHECK(message.faults[0].spn == 100U);
-    CHECK(message.faults[1].spn == 110U);
-    CHECK(message.faults[2].spn == 190U);
+    ASSERT_TRUE(message.faults.size() == 3U);
+    EXPECT_TRUE(message.faults[0].spn == 100U);
+    EXPECT_TRUE(message.faults[1].spn == 110U);
+    EXPECT_TRUE(message.faults[2].spn == 190U);
 }
 
-TEST_CASE("A newer fault list replaces the older one from the same ECU", "[j1939][block]")
+TEST(J1939NodeTests, ANewerFaultListReplacesTheOlderOneFromTheSameECU)
 {
     // A fault list is a statement about now. Keeping the previous one would
     // show a repaired fault beside the current answer as though both were true.
     J1939Node node{nullptr, "J1939"};
-    REQUIRE(node.prepare(64U).succeeded());
+    ASSERT_TRUE(node.prepare(64U).succeeded());
 
     Driver driver{node};
 
@@ -294,14 +294,14 @@ TEST_CASE("A newer fault list replaces the older one from the same ECU", "[j1939
         frameOf(j1939Identifier(kPgnDm1, kEngine), {0x00U, 0x00U, 0U, 0U, 0U, 0U, 0xFFU, 0xFFU})};
     driver.run(healthy);
 
-    REQUIRE(node.diagnostics().size() == 1U);
-    CHECK(node.diagnostics()[0].faults.empty());
+    ASSERT_TRUE(node.diagnostics().size() == 1U);
+    EXPECT_TRUE(node.diagnostics()[0].faults.empty());
 }
 
-TEST_CASE("What is wrong now and what used to be are kept apart", "[j1939][block]")
+TEST(J1939NodeTests, WhatIsWrongNowAndWhatUsedToBeAreKeptApart)
 {
     J1939Node node{nullptr, "J1939"};
-    REQUIRE(node.prepare(64U).succeeded());
+    ASSERT_TRUE(node.prepare(64U).succeeded());
 
     Driver driver{node};
     const std::array<CanFrame, 2> frames{
@@ -310,21 +310,21 @@ TEST_CASE("What is wrong now and what used to be are kept apart", "[j1939][block
 
     driver.run(frames);
 
-    REQUIRE(node.diagnostics().size() == 2U);
+    ASSERT_TRUE(node.diagnostics().size() == 2U);
 
     // DM1 first for the same ECU: what is wrong now is read before what used
     // to be.
-    CHECK(node.diagnostics()[0].active);
-    CHECK(node.diagnostics()[0].faults[0].spn == 100U);
-    CHECK_FALSE(node.diagnostics()[1].active);
-    CHECK(node.diagnostics()[1].faults[0].spn == 110U);
+    EXPECT_TRUE(node.diagnostics()[0].active);
+    EXPECT_TRUE(node.diagnostics()[0].faults[0].spn == 100U);
+    EXPECT_FALSE(node.diagnostics()[1].active);
+    EXPECT_TRUE(node.diagnostics()[1].faults[0].spn == 110U);
 }
 
-TEST_CASE("Turning the SPN assembly off leaves the bytes and the fault", "[j1939][block]")
+TEST(J1939NodeTests, TurningTheSPNAssemblyOffLeavesTheBytesAndTheFault)
 {
     J1939Node node{nullptr, "J1939"};
     node.setSpnReading(J1939SpnReading::RawOnly);
-    REQUIRE(node.prepare(64U).succeeded());
+    ASSERT_TRUE(node.prepare(64U).succeeded());
 
     Driver driver{node};
     const std::array<CanFrame, 1> frames{
@@ -332,19 +332,19 @@ TEST_CASE("Turning the SPN assembly off leaves the bytes and the fault", "[j1939
 
     driver.run(frames);
 
-    REQUIRE(node.diagnostics().size() == 1U);
-    REQUIRE(node.diagnostics()[0].faults.size() == 1U);
-    CHECK_FALSE(node.diagnostics()[0].faults[0].spnAssembled);
-    CHECK(node.diagnostics()[0].faults[0].raw[0] == 100U);
+    ASSERT_TRUE(node.diagnostics().size() == 1U);
+    ASSERT_TRUE(node.diagnostics()[0].faults.size() == 1U);
+    EXPECT_FALSE(node.diagnostics()[0].faults[0].spnAssembled);
+    EXPECT_TRUE(node.diagnostics()[0].faults[0].raw[0] == 100U);
 }
 
-TEST_CASE("The block counts what a person would want to compare", "[j1939][block]")
+TEST(J1939NodeTests, TheBlockCountsWhatAPersonWouldWantToCompare)
 {
     // "PGNs not in the database" next to "messages decoded" is the pair that
     // names a bus with the wrong database loaded - which otherwise looks quiet
     // rather than wrong.
     J1939Node node{databaseWithTemperature(), "J1939"};
-    REQUIRE(node.prepare(64U).succeeded());
+    ASSERT_TRUE(node.prepare(64U).succeeded());
 
     Driver driver{node};
     const std::array<CanFrame, 2> frames{
@@ -365,14 +365,14 @@ TEST_CASE("The block counts what a person would want to compare", "[j1939][block
         return ~std::uint64_t{0};
     };
 
-    CHECK(value("Frames") == 2U);
-    CHECK(value("Messages decoded") == 1U);
-    CHECK(value("PGNs not in the database") == 1U);
-    CHECK(value("Signals emitted") == 1U);
-    CHECK(value("ECUs seen") == 1U);
+    EXPECT_TRUE(value("Frames") == 2U);
+    EXPECT_TRUE(value("Messages decoded") == 1U);
+    EXPECT_TRUE(value("PGNs not in the database") == 1U);
+    EXPECT_TRUE(value("Signals emitted") == 1U);
+    EXPECT_TRUE(value("ECUs seen") == 1U);
 }
 
-TEST_CASE("The block is in the catalog and builds without a database", "[j1939][block]")
+TEST(J1939NodeTests, TheBlockIsInTheCatalogAndBuildsWithoutADatabase)
 {
     // A freshly dropped block has no path yet, and a graph that will not
     // compile until every block is configured cannot be built up in any order
@@ -380,40 +380,40 @@ TEST_CASE("The block is in the catalog and builds without a database", "[j1939][
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
     const NodeTypeInfo* info = catalog.find("j1939.decoder");
-    REQUIRE(info != nullptr);
-    CHECK(info->category == "Transforms");
-    CHECK(info->inputs.size() == 1U);
-    CHECK(info->outputs.size() == 1U);
+    ASSERT_TRUE(info != nullptr);
+    EXPECT_TRUE(info->category == "Transforms");
+    EXPECT_TRUE(info->inputs.size() == 1U);
+    EXPECT_TRUE(info->outputs.size() == 1U);
 
     NodeBuildContext context;
     std::unique_ptr<IPipelineNode> node;
 
     const Result result = catalog.create("j1939.decoder", NodeParameters{}, context, "j", node);
 
-    REQUIRE(result.succeeded());
-    REQUIRE(node != nullptr);
-    CHECK(node->typeName() == "j1939.decoder");
+    ASSERT_TRUE(result.succeeded());
+    ASSERT_TRUE(node != nullptr);
+    EXPECT_TRUE(node->typeName() == "j1939.decoder");
 }
 
-TEST_CASE("Nothing published is not the same as nobody on the bus", "[j1939][block]")
+TEST(J1939NodeTests, NothingPublishedIsNotTheSameAsNobodyOnTheBus)
 {
     // A measurement that has not started and a bus with no traffic look alike
     // in an empty table. The revision tells them apart, and a panel has to say
     // which one it is showing.
     J1939Network network;
 
-    CHECK(network.revision() == 0U);
-    CHECK(network.snapshot().nodes.empty());
-    CHECK(network.snapshot().revision == 0U);
+    EXPECT_TRUE(network.revision() == 0U);
+    EXPECT_TRUE(network.snapshot().nodes.empty());
+    EXPECT_TRUE(network.snapshot().revision == 0U);
 }
 
-TEST_CASE("The block hands its view over when the bus changes", "[j1939][block]")
+TEST(J1939NodeTests, TheBlockHandsItsViewOverWhenTheBusChanges)
 {
     J1939Network network;
 
     J1939Node node{nullptr, "J1939"};
     node.setNetwork(&network);
-    REQUIRE(node.prepare(64U).succeeded());
+    ASSERT_TRUE(node.prepare(64U).succeeded());
 
     Driver driver{node};
     const std::array<CanFrame, 1> first{
@@ -422,23 +422,23 @@ TEST_CASE("The block hands its view over when the bus changes", "[j1939][block]"
     driver.run(first);
 
     const std::uint64_t afterFirst = network.revision();
-    CHECK(afterFirst > 0U);
+    EXPECT_TRUE(afterFirst > 0U);
 
     const J1939NetworkSnapshot snapshot = network.snapshot();
-    REQUIRE(snapshot.nodes.size() == 1U);
-    CHECK(snapshot.nodes[0].address == kEngine);
-    CHECK(snapshot.revision == afterFirst);
+    ASSERT_TRUE(snapshot.nodes.size() == 1U);
+    EXPECT_TRUE(snapshot.nodes[0].address == kEngine);
+    EXPECT_TRUE(snapshot.revision == afterFirst);
 
     // A second ECU is a change, so it is handed over.
     const std::array<CanFrame, 1> second{
         frameOf(j1939Identifier(kTemperature, kOtherEngine), {60U, 0U, 0U, 0U, 0U, 0U, 0U, 0U})};
     driver.run(second);
 
-    CHECK(network.revision() > afterFirst);
-    CHECK(network.snapshot().nodes.size() == 2U);
+    EXPECT_TRUE(network.revision() > afterFirst);
+    EXPECT_TRUE(network.snapshot().nodes.size() == 2U);
 }
 
-TEST_CASE("A steady bus is not copied over and over", "[j1939][block]")
+TEST(J1939NodeTests, ASteadyBusIsNotCopiedOverAndOver)
 {
     // The same ECUs sending the same messages for an hour change nothing after
     // the first second. Copying the table every pass anyway would be an
@@ -447,7 +447,7 @@ TEST_CASE("A steady bus is not copied over and over", "[j1939][block]")
 
     J1939Node node{nullptr, "J1939"};
     node.setNetwork(&network);
-    REQUIRE(node.prepare(64U).succeeded());
+    ASSERT_TRUE(node.prepare(64U).succeeded());
 
     Driver driver{node};
     const std::array<CanFrame, 1> frames{
@@ -460,16 +460,16 @@ TEST_CASE("A steady bus is not copied over and over", "[j1939][block]")
         driver.run(frames);
     }
 
-    CHECK(network.revision() == settled);
+    EXPECT_TRUE(network.revision() == settled);
 }
 
-TEST_CASE("A fault reaches the panel side of the hand-over", "[j1939][block]")
+TEST(J1939NodeTests, AFaultReachesThePanelSideOfTheHandOver)
 {
     J1939Network network;
 
     J1939Node node{nullptr, "J1939"};
     node.setNetwork(&network);
-    REQUIRE(node.prepare(64U).succeeded());
+    ASSERT_TRUE(node.prepare(64U).succeeded());
 
     Driver driver{node};
     const std::array<CanFrame, 1> frames{
@@ -478,12 +478,12 @@ TEST_CASE("A fault reaches the panel side of the hand-over", "[j1939][block]")
     driver.run(frames);
 
     const J1939NetworkSnapshot snapshot = network.snapshot();
-    REQUIRE(snapshot.diagnostics.size() == 1U);
-    REQUIRE(snapshot.diagnostics[0].faults.size() == 1U);
-    CHECK(snapshot.diagnostics[0].faults[0].spn == 100U);
+    ASSERT_TRUE(snapshot.diagnostics.size() == 1U);
+    ASSERT_TRUE(snapshot.diagnostics[0].faults.size() == 1U);
+    EXPECT_TRUE(snapshot.diagnostics[0].faults[0].spn == 100U);
 }
 
-TEST_CASE("Clearing for a new measurement is a change a panel notices", "[j1939][block]")
+TEST(J1939NodeTests, ClearingForANewMeasurementIsAChangeAPanelNotices)
 {
     // Not a reset to zero: a panel watching for movement would miss a clear
     // that put the counter back where it already was, and go on showing the
@@ -494,6 +494,6 @@ TEST_CASE("Clearing for a new measurement is a change a panel notices", "[j1939]
     const std::uint64_t before = network.revision();
     network.clear();
 
-    CHECK(network.revision() > before);
-    CHECK(network.snapshot().nodes.empty());
+    EXPECT_TRUE(network.revision() > before);
+    EXPECT_TRUE(network.snapshot().nodes.empty());
 }

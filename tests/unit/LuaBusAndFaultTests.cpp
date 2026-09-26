@@ -19,7 +19,7 @@
 #include "core/scripting/LuaEcuNode.h"
 #include "core/trace/TraceStore.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <chrono>
 #include <memory>
@@ -82,8 +82,8 @@ struct Bench final {
         collector = sink.get();
         const NodeId sinkId = graph.addNode(std::move(sink));
 
-        REQUIRE(graph.connect(PortRef{ecuId, 0}, PortRef{sinkId, 0}).succeeded());
-        REQUIRE(graph.compile().succeeded());
+        EXPECT_TRUE(graph.connect(PortRef{ecuId, 0}, PortRef{sinkId, 0}).succeeded());
+        EXPECT_TRUE(graph.compile().succeeded());
     }
 
     void run(int milliseconds)
@@ -127,7 +127,7 @@ struct Bench final {
 
 } // namespace
 
-TEST_CASE("A script can ask what a message last carried", "[lua][bus]")
+TEST(LuaBusAndFaultTests, AScriptCanAskWhatAMessageLastCarried)
 {
     // The question a script could not ask before: not "what arrived on my
     // input this pass", but "what is the bus doing".
@@ -151,13 +151,13 @@ TEST_CASE("A script can ask what a message last carried", "[lua][bus]")
 
     const std::vector<CanFrame> echoed = bench.framesOf(0x200);
 
-    REQUIRE_FALSE(echoed.empty());
-    CHECK(echoed.front().length == 2);
-    CHECK(echoed.front().data[0] == 0x33);
-    CHECK(echoed.front().data[1] == 0x44);
+    ASSERT_FALSE(echoed.empty());
+    EXPECT_TRUE(echoed.front().length == 2);
+    EXPECT_TRUE(echoed.front().data[0] == 0x33);
+    EXPECT_TRUE(echoed.front().data[1] == 0x44);
 }
 
-TEST_CASE("A message nobody has sent yet reads as nothing", "[lua][bus]")
+TEST(LuaBusAndFaultTests, AMessageNobodyHasSentYetReadsAsNothing)
 {
     // Nil rather than empty bytes: "no frame" and "a frame with no payload" are
     // different, and a script writing `if data then` has to be able to tell.
@@ -176,10 +176,10 @@ TEST_CASE("A message nobody has sent yet reads as nothing", "[lua][bus]")
 
     bench.run(30);
 
-    CHECK_FALSE(bench.framesOf(0x201).empty());
+    EXPECT_FALSE(bench.framesOf(0x201).empty());
 }
 
-TEST_CASE("A script can read the measurement's own counters", "[lua][bus]")
+TEST(LuaBusAndFaultTests, AScriptCanReadTheMeasurementSOwnCounters)
 {
     Bench bench{R"(
         function on_enable()
@@ -198,12 +198,12 @@ TEST_CASE("A script can read the measurement's own counters", "[lua][bus]")
 
     const std::vector<CanFrame> reported = bench.framesOf(0x202);
 
-    REQUIRE_FALSE(reported.empty());
-    CHECK(reported.back().data[0] == 2); // two identifiers
-    CHECK(reported.back().data[1] == 3); // three frames
+    ASSERT_FALSE(reported.empty());
+    EXPECT_TRUE(reported.back().data[0] == 2); // two identifiers
+    EXPECT_TRUE(reported.back().data[1] == 3); // three frames
 }
 
-TEST_CASE("Asking about the bus without a trace says so", "[lua][bus]")
+TEST(LuaBusAndFaultTests, AskingAboutTheBusWithoutATraceSaysSo)
 {
     // Rather than answering zero, which a script would believe. Built without
     // a graph, because a script whose on_enable fails makes compile() fail -
@@ -217,12 +217,12 @@ TEST_CASE("Asking about the bus without a trace says so", "[lua][bus]")
 
     const Result result = node.prepare(64);
 
-    REQUIRE(result.failed());
-    INFO(std::string{result.message()});
-    CHECK(std::string{result.message()}.find("bus_last") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("bus_last") != std::string::npos);
 }
 
-TEST_CASE("A frozen message repeats itself: a stuck ECU", "[lua][fault]")
+TEST(LuaBusAndFaultTests, AFrozenMessageRepeatsItselfAStuckECU)
 {
     // The counter stops and the checksum goes stale, and nothing in the node
     // had to know which byte was which - which is the only way to do this
@@ -246,7 +246,7 @@ TEST_CASE("A frozen message repeats itself: a stuck ECU", "[lua][fault]")
     bench.run(140);
 
     const std::vector<CanFrame> frames = bench.framesOf(0x300);
-    REQUIRE(frames.size() >= 8);
+    ASSERT_TRUE(frames.size() >= 8);
 
     // The last few are all the same byte, where the first few were not.
     const std::uint8_t frozen = frames.back().data[0];
@@ -259,10 +259,10 @@ TEST_CASE("A frozen message repeats itself: a stuck ECU", "[lua][fault]")
     }
 
     // More than a wrapping counter would ever produce on its own.
-    CHECK(sameAsLast > frames.size() / 4);
+    EXPECT_TRUE(sameAsLast > frames.size() / 4);
 }
 
-TEST_CASE("A DLC can be made to lie about the payload", "[lua][fault]")
+TEST(LuaBusAndFaultTests, ADLCCanBeMadeToLieAboutThePayload)
 {
     // A frame carrying three bytes and claiming eight. A receiver either
     // tolerates that or does not, and finding out is the point.
@@ -276,13 +276,13 @@ TEST_CASE("A DLC can be made to lie about the payload", "[lua][fault]")
     bench.run(40);
 
     const std::vector<CanFrame> frames = bench.framesOf(0x310);
-    REQUIRE_FALSE(frames.empty());
+    ASSERT_FALSE(frames.empty());
 
-    CHECK(frames.front().length == 3);
-    CHECK(frames.front().dlc == 8);
+    EXPECT_TRUE(frames.front().length == 3);
+    EXPECT_TRUE(frames.front().dlc == 8);
 }
 
-TEST_CASE("Bits can be flipped on the way out", "[lua][fault]")
+TEST(LuaBusAndFaultTests, BitsCanBeFlippedOnTheWayOut)
 {
     // A checksum byte flipped here is a message that arrives looking valid and
     // checksums wrong - which is a different failure from a message that does
@@ -297,13 +297,13 @@ TEST_CASE("Bits can be flipped on the way out", "[lua][fault]")
     bench.run(40);
 
     const std::vector<CanFrame> frames = bench.framesOf(0x320);
-    REQUIRE_FALSE(frames.empty());
+    ASSERT_FALSE(frames.empty());
 
-    CHECK(frames.front().data[0] == 0xFF);
-    CHECK(frames.front().data[1] == 0xFF);
+    EXPECT_TRUE(frames.front().data[0] == 0xFF);
+    EXPECT_TRUE(frames.front().data[1] == 0xFF);
 }
 
-TEST_CASE("A fault can be switched off again", "[lua][fault]")
+TEST(LuaBusAndFaultTests, AFaultCanBeSwitchedOffAgain)
 {
     // The likeliest reason a later measurement makes no sense is an injected
     // fault left switched on, so turning one off has to be as easy as turning
@@ -324,13 +324,13 @@ TEST_CASE("A fault can be switched off again", "[lua][fault]")
     bench.run(120);
 
     const std::vector<CanFrame> frames = bench.framesOf(0x330);
-    REQUIRE(frames.size() >= 6);
+    ASSERT_TRUE(frames.size() >= 6);
 
-    CHECK(frames.front().data[0] == 0xFE);
-    CHECK(frames.back().data[0] == 0x01);
+    EXPECT_TRUE(frames.front().data[0] == 0xFE);
+    EXPECT_TRUE(frames.back().data[0] == 0x01);
 }
 
-TEST_CASE("Truncation sends fewer bytes than the message has", "[lua][fault]")
+TEST(LuaBusAndFaultTests, TruncationSendsFewerBytesThanTheMessageHas)
 {
     Bench bench{R"(
         function on_enable()
@@ -342,13 +342,13 @@ TEST_CASE("Truncation sends fewer bytes than the message has", "[lua][fault]")
     bench.run(40);
 
     const std::vector<CanFrame> frames = bench.framesOf(0x340);
-    REQUIRE_FALSE(frames.empty());
+    ASSERT_FALSE(frames.empty());
 
-    CHECK(frames.front().length == 2);
-    CHECK(frames.front().data[0] == 0x01);
+    EXPECT_TRUE(frames.front().length == 2);
+    EXPECT_TRUE(frames.front().data[0] == 0x01);
 }
 
-TEST_CASE("The CRC helper computes what a receiver will check", "[lua][prelude]")
+TEST(LuaBusAndFaultTests, TheCRCHelperComputesWhatAReceiverWillCheck)
 {
     // SAE J1850: polynomial 0x1D, init 0xFF, final XOR 0xFF. Checked against
     // values computed independently rather than against itself - a checksum
@@ -365,18 +365,18 @@ TEST_CASE("The CRC helper computes what a receiver will check", "[lua][prelude]"
     bench.run(20);
 
     const std::vector<CanFrame> frames = bench.framesOf(0x350);
-    REQUIRE_FALSE(frames.empty());
+    ASSERT_FALSE(frames.empty());
 
     // Reference values computed independently - the algorithm's published
     // check value for "123456789" is 0x4B, and the implementation that
     // produced these agrees with it. Numbers taken from the code under test
     // would only prove it agrees with itself.
-    CHECK(frames.front().data[0] == 0x3B);
-    CHECK(frames.front().data[1] == 0x67);
-    CHECK(frames.front().data[2] == 0x34);
+    EXPECT_TRUE(frames.front().data[0] == 0x3B);
+    EXPECT_TRUE(frames.front().data[1] == 0x67);
+    EXPECT_TRUE(frames.front().data[2] == 0x34);
 }
 
-TEST_CASE("The E2E helper puts the checksum and counter where they belong", "[lua][prelude]")
+TEST(LuaBusAndFaultTests, TheE2EHelperPutsTheChecksumAndCounterWhereTheyBelong)
 {
     Bench bench{R"(
         function on_enable()
@@ -387,14 +387,14 @@ TEST_CASE("The E2E helper puts the checksum and counter where they belong", "[lu
     bench.run(20);
 
     const std::vector<CanFrame> frames = bench.framesOf(0x360);
-    REQUIRE_FALSE(frames.empty());
+    ASSERT_FALSE(frames.empty());
 
     const CanFrame& frame = frames.front();
 
-    REQUIRE(frame.length == 4);
-    CHECK(frame.data[1] == 0x03); // counter in the low nibble of byte two
-    CHECK(frame.data[2] == 0xAA);
-    CHECK(frame.data[3] == 0xBB);
+    ASSERT_TRUE(frame.length == 4);
+    EXPECT_TRUE(frame.data[1] == 0x03); // counter in the low nibble of byte two
+    EXPECT_TRUE(frame.data[2] == 0xAA);
+    EXPECT_TRUE(frame.data[3] == 0xBB);
 
     // And the checksum is over everything after it.
     const std::vector<std::uint8_t> body{frame.data[1], frame.data[2], frame.data[3]};
@@ -408,5 +408,5 @@ TEST_CASE("The E2E helper puts the checksum and counter where they belong", "[lu
         }
     }
 
-    CHECK(frame.data[0] == static_cast<std::uint8_t>(crc ^ 0xFF));
+    EXPECT_TRUE(frame.data[0] == static_cast<std::uint8_t>(crc ^ 0xFF));
 }

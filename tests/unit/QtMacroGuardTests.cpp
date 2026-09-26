@@ -65,13 +65,13 @@
 #undef emit
 #undef foreach
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
-TEST_CASE("Core headers survive Qt's keyword macros", "[core][headers]")
+TEST(QtMacroGuardTests, CoreHeadersSurviveQtSKeywordMacros)
 {
     // Reaching this line means the includes above compiled with `emit`,
     // `signals`, `slots` and `foreach` defined - which is the whole assertion.
     // The check below exists so the test has a body; the real test ran in the
     // preprocessor.
-    SUCCEED("Core headers use no Qt macro name as an identifier");
+    SUCCEED() << "Core headers use no Qt macro name as an identifier";
 }

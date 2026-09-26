@@ -21,7 +21,7 @@
 
 #include "UniqueTempPath.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <filesystem>
 #include <fstream>
@@ -48,9 +48,9 @@ nameWith(std::uint8_t function, std::uint8_t vehicleSystem = 0U, std::uint8_t in
 
 } // namespace
 
-TEST_CASE("The shipped J1939 function table is there and parses", "[j1939][data]")
+TEST(ShippedNameTableTests, TheShippedJ1939FunctionTableIsThereAndParses)
 {
-    REQUIRE(std::filesystem::exists(shippedTable()));
+    ASSERT_TRUE(std::filesystem::exists(shippedTable()));
 
     J1939NameTables tables;
 
@@ -58,33 +58,30 @@ TEST_CASE("The shipped J1939 function table is there and parses", "[j1939][data]
     // malformed line is refused with its number, and that refusal is the whole
     // point of this test.
     const Result result = tables.loadFile(shippedTable());
-    INFO("loading " << shippedTable().string() << ": " << result.message());
-    REQUIRE(result.succeeded());
+    SCOPED_TRACE(::testing::Message()
+                 << "loading " << shippedTable().string() << ": " << result.message());
+    ASSERT_TRUE(result.succeeded());
 
-    CHECK_FALSE(tables.empty());
+    EXPECT_FALSE(tables.empty());
 }
 
-TEST_CASE("The shipped table answers the questions it exists to answer", "[j1939][data]")
+TEST(ShippedNameTableTests, TheShippedTableAnswersTheQuestionsItExistsToAnswer)
 {
     J1939NameTables tables;
-    REQUIRE(tables.loadFile(shippedTable()).succeeded());
-
-    SECTION("the industry-group-independent range is populated")
+    ASSERT_TRUE(tables.loadFile(shippedTable()).succeeded());
     {
         // Function 0 is Engine in every industry group, and if this table ever
         // stops saying so then something has gone wrong upstream in a way no
         // count would reveal.
         const auto engine = tables.function(nameWith(0U));
-        REQUIRE(engine.has_value());
-        CHECK(*engine == "Engine");
+        ASSERT_TRUE(engine.has_value());
+        EXPECT_TRUE(*engine == "Engine");
 
         // A bare number keys the whole 0..127 range, and there are 128 of them
         // at most. Enough of them to be worth shipping is the claim the file's
         // own header makes.
-        CHECK(tables.functionCount() > 100U);
+        EXPECT_TRUE(tables.functionCount() > 100U);
     }
-
-    SECTION("an industry-specific function resolves through all three keys")
     {
         // 1/0/134 is on-highway, vehicle system 0, function 134. Asking for
         // function 134 alone must not answer, because at or above 128 the
@@ -92,10 +89,10 @@ TEST_CASE("The shipped table answers the questions it exists to answer", "[j1939
         // the interface promise in J1939NameTables.h and this is the file that
         // has to keep it.
         const auto retarder = tables.function(nameWith(134U, 0U, 1U));
-        REQUIRE(retarder.has_value());
-        CHECK(*retarder == "Retarder Display");
+        ASSERT_TRUE(retarder.has_value());
+        EXPECT_TRUE(*retarder == "Retarder Display");
 
-        CHECK_FALSE(tables.function(nameWith(134U, 0U, 0U)).has_value());
+        EXPECT_FALSE(tables.function(nameWith(134U, 0U, 0U)).has_value());
 
         // 1/0/128 is deliberately absent. AgIsoStack has two On-Highway blocks
         // whose headings both read "Non-specific system (Device class 0)", and
@@ -103,29 +100,27 @@ TEST_CASE("The shipped table answers the questions it exists to answer", "[j1939
         // a key two entries claim, because one of them is wrong and the source
         // does not say which - and the loader would otherwise hand back
         // whichever came last.
-        CHECK_FALSE(tables.function(nameWith(128U, 0U, 1U)).has_value());
+        EXPECT_FALSE(tables.function(nameWith(128U, 0U, 1U)).has_value());
     }
-
-    SECTION("it ships no manufacturer names, and that is deliberate")
     {
         // The manufacturer registry is licensed and is not ours to
         // redistribute. If this ever stops being zero, somebody has put a
         // licensed table into the repository - which .gitignore and the
         // packaging check both try to prevent, and which this would catch on
         // the way in.
-        CHECK(tables.manufacturerCount() == 0U);
+        EXPECT_TRUE(tables.manufacturerCount() == 0U);
     }
 }
 
-TEST_CASE("A second table loaded on top overrides the shipped one", "[j1939][data]")
+TEST(ShippedNameTableTests, ASecondTableLoadedOnTopOverridesTheShippedOne)
 {
     // The mechanism that lets somebody with a licensed Digital Annex correct
     // this file rather than sit beside it. Tested against the real shipped
     // table, because "later entries win" has to hold for the actual keys in it
     // and not only for a synthetic pair.
     J1939NameTables tables;
-    REQUIRE(tables.loadFile(shippedTable()).succeeded());
-    REQUIRE(tables.function(nameWith(0U)) == "Engine");
+    ASSERT_TRUE(tables.loadFile(shippedTable()).succeeded());
+    ASSERT_TRUE(tables.function(nameWith(0U)) == "Engine");
 
     // Through a file, because merge(string_view) is private: the public way in
     // is the one a person holding a Digital Annex would actually use.
@@ -138,12 +133,12 @@ TEST_CASE("A second table loaded on top overrides the shipped one", "[j1939][dat
 
     const Result merged = tables.mergeFile(theirs);
     std::filesystem::remove(theirs);
-    REQUIRE(merged.succeeded());
+    ASSERT_TRUE(merged.succeeded());
 
     const auto overridden = tables.function(nameWith(0U));
-    REQUIRE(overridden.has_value());
-    CHECK(*overridden == "Something Else");
+    ASSERT_TRUE(overridden.has_value());
+    EXPECT_TRUE(*overridden == "Something Else");
 
     // And a key the second file did not mention keeps what the first gave it.
-    CHECK(tables.function(nameWith(134U, 0U, 1U)) == "Retarder Display");
+    EXPECT_TRUE(tables.function(nameWith(134U, 0U, 1U)) == "Retarder Display");
 }

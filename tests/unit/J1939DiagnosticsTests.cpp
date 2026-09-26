@@ -13,7 +13,7 @@
 
 #include "core/j1939/J1939Diagnostics.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <cstdint>
 #include <optional>
@@ -59,7 +59,7 @@ constexpr std::uint8_t kEngine = 0x00U;
 
 } // namespace
 
-TEST_CASE("A healthy ECU reports no faults, not a fault numbered zero", "[j1939][dm]")
+TEST(J1939DiagnosticsTests, AHealthyECUReportsNoFaultsNotAFaultNumberedZero)
 {
     // The standard says a DM1 with nothing active still carries one code, and
     // every byte of it is zero. Any tool that does not know this shows SPN 0
@@ -69,35 +69,35 @@ TEST_CASE("A healthy ECU reports no faults, not a fault numbered zero", "[j1939]
     std::vector<std::uint8_t> payload = payloadOf(0x00U, 0x00U, {noFaultCode()});
     payload.push_back(0xFFU);
     payload.push_back(0xFFU);
-    REQUIRE(payload.size() == 8U);
+    ASSERT_TRUE(payload.size() == 8U);
 
     const std::optional<J1939Diagnostic> message =
         j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
 
-    REQUIRE(message.has_value());
-    CHECK(message->faults.empty());
-    CHECK(message->active);
+    ASSERT_TRUE(message.has_value());
+    EXPECT_TRUE(message->faults.empty());
+    EXPECT_TRUE(message->active);
 }
 
-TEST_CASE("One fault decodes into its three numbers", "[j1939][dm]")
+TEST(J1939DiagnosticsTests, OneFaultDecodesIntoItsThreeNumbers)
 {
     const std::vector<std::uint8_t> payload = payloadOf(0x40U, 0x00U, {dtcBytes(100U, 1U, 5U)});
 
     const std::optional<J1939Diagnostic> message =
         j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
 
-    REQUIRE(message.has_value());
-    REQUIRE(message->faults.size() == 1U);
+    ASSERT_TRUE(message.has_value());
+    ASSERT_TRUE(message->faults.size() == 1U);
 
     const J1939Dtc& fault = message->faults[0];
-    CHECK(fault.spnAssembled);
-    CHECK(fault.spn == 100U);
-    CHECK(fault.fmi == 1U);
-    CHECK(fault.occurrenceCount == 5U);
-    CHECK_FALSE(fault.conversionMethod);
+    EXPECT_TRUE(fault.spnAssembled);
+    EXPECT_TRUE(fault.spn == 100U);
+    EXPECT_TRUE(fault.fmi == 1U);
+    EXPECT_TRUE(fault.occurrenceCount == 5U);
+    EXPECT_FALSE(fault.conversionMethod);
 }
 
-TEST_CASE("An SPN above two bytes keeps its top three bits", "[j1939][dm]")
+TEST(J1939DiagnosticsTests, AnSPNAboveTwoBytesKeepsItsTopThreeBits)
 {
     // Those three bits live at the top of the byte the FMI shares. A decoder
     // that reads only the first two bytes collides every SPN above 65535 onto a
@@ -109,13 +109,13 @@ TEST_CASE("An SPN above two bytes keeps its top three bits", "[j1939][dm]")
     const std::optional<J1939Diagnostic> message =
         j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
 
-    REQUIRE(message.has_value());
-    REQUIRE(message->faults.size() == 1U);
-    CHECK(message->faults[0].spn == 0x1'FEDCU);
-    CHECK(message->faults[0].fmi == 3U);
+    ASSERT_TRUE(message.has_value());
+    ASSERT_TRUE(message->faults.size() == 1U);
+    EXPECT_TRUE(message->faults[0].spn == 0x1'FEDCU);
+    EXPECT_TRUE(message->faults[0].fmi == 3U);
 }
 
-TEST_CASE("A code declaring the other packing gets no number at all", "[j1939][dm]")
+TEST(J1939DiagnosticsTests, ACodeDeclaringTheOtherPackingGetsNoNumberAtAll)
 {
     // Read under the wrong convention the bits still produce something that
     // looks like an SPN, and nothing about it invites checking. So there is no
@@ -127,23 +127,23 @@ TEST_CASE("A code declaring the other packing gets no number at all", "[j1939][d
     const std::optional<J1939Diagnostic> message =
         j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
 
-    REQUIRE(message.has_value());
-    REQUIRE(message->faults.size() == 1U);
+    ASSERT_TRUE(message.has_value());
+    ASSERT_TRUE(message->faults.size() == 1U);
 
     const J1939Dtc& fault = message->faults[0];
-    CHECK(fault.conversionMethod);
-    CHECK_FALSE(fault.spnAssembled);
+    EXPECT_TRUE(fault.conversionMethod);
+    EXPECT_FALSE(fault.spnAssembled);
 
     // The fields whose position does not depend on the packing are still read.
-    CHECK(fault.fmi == 1U);
-    CHECK(fault.occurrenceCount == 5U);
+    EXPECT_TRUE(fault.fmi == 1U);
+    EXPECT_TRUE(fault.occurrenceCount == 5U);
 
     // And the bytes are there, exactly as they arrived.
-    CHECK(fault.raw[0] == 100U);
-    CHECK(fault.raw[3] == (0x80U | 5U));
+    EXPECT_TRUE(fault.raw[0] == 100U);
+    EXPECT_TRUE(fault.raw[3] == (0x80U | 5U));
 }
 
-TEST_CASE("The three legacy packings are read the way the standard defines them", "[j1939][dm]")
+TEST(J1939DiagnosticsTests, TheThreeLegacyPackingsAreReadTheWayTheStandardDefinesThem)
 {
     // J1939-73 AUG2022 section 5.7.1.14. A conversion bit of one means the SPN
     // is in version 1, 2 or 3 format and the wire does not say which - so the
@@ -169,24 +169,24 @@ TEST_CASE("The three legacy packings are read the way the standard defines them"
     };
 
     // Version 1: most significant bit first. The standard own example.
-    CHECK(spnUnder(J1939SpnReading::Version1) == 1208U);
+    EXPECT_TRUE(spnUnder(J1939SpnReading::Version1) == 1208U);
 
     // Version 2: Intel for the top 16 bits, the low three beside the FMI.
-    CHECK(spnUnder(J1939SpnReading::Version2) == ((0x97U << 11U) | (0x00U << 3U)));
+    EXPECT_TRUE(spnUnder(J1939SpnReading::Version2) == ((0x97U << 11U) | (0x00U << 3U)));
 
     // Version 3: Intel across all 19 bits - the same layout version 4 uses.
-    CHECK(spnUnder(J1939SpnReading::Version3) == (0x00U | (0x97U << 8U)));
+    EXPECT_TRUE(spnUnder(J1939SpnReading::Version3) == (0x00U | (0x97U << 8U)));
 
     // Three readings, three different numbers, one set of bytes. That is why
     // guessing is not allowed and why nothing is declared by default.
-    CHECK(spnUnder(J1939SpnReading::Version1) != spnUnder(J1939SpnReading::Version2));
-    CHECK(spnUnder(J1939SpnReading::Version2) != spnUnder(J1939SpnReading::Version3));
+    EXPECT_TRUE(spnUnder(J1939SpnReading::Version1) != spnUnder(J1939SpnReading::Version2));
+    EXPECT_TRUE(spnUnder(J1939SpnReading::Version2) != spnUnder(J1939SpnReading::Version3));
 
     // And with nothing declared, no number at all.
-    CHECK_FALSE(spnUnder(J1939SpnReading::Version4).has_value());
+    EXPECT_FALSE(spnUnder(J1939SpnReading::Version4).has_value());
 }
 
-TEST_CASE("A code that is not ambiguous is read whatever was declared", "[j1939][dm]")
+TEST(J1939DiagnosticsTests, ACodeThatIsNotAmbiguousIsReadWhateverWasDeclared)
 {
     // A cleared conversion bit is version 4 and can only be version 4. Reading
     // it as a legacy packing because somebody declared one for the codes that
@@ -201,22 +201,22 @@ TEST_CASE("A code that is not ambiguous is read whatever was declared", "[j1939]
         const std::optional<J1939Diagnostic> message =
             j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, reading, 1000U);
 
-        REQUIRE(message.has_value());
-        REQUIRE(message->faults.size() == 1U);
-        CHECK(message->faults[0].spnAssembled);
-        CHECK(message->faults[0].spn == 100U);
+        ASSERT_TRUE(message.has_value());
+        ASSERT_TRUE(message->faults.size() == 1U);
+        EXPECT_TRUE(message->faults[0].spnAssembled);
+        EXPECT_TRUE(message->faults[0].spn == 100U);
     }
 
     // Except raw, which is the setting for reading bytes by hand.
     const std::optional<J1939Diagnostic> raw =
         j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::RawOnly, 1000U);
 
-    REQUIRE(raw.has_value());
-    REQUIRE(raw->faults.size() == 1U);
-    CHECK_FALSE(raw->faults[0].spnAssembled);
+    ASSERT_TRUE(raw.has_value());
+    ASSERT_TRUE(raw->faults.size() == 1U);
+    EXPECT_FALSE(raw->faults[0].spnAssembled);
 }
 
-TEST_CASE("Asking for no assembly still reports the fault", "[j1939][dm]")
+TEST(J1939DiagnosticsTests, AskingForNoAssemblyStillReportsTheFault)
 {
     // For a bus whose ECUs use a packing this build does not implement. The
     // fault is real and must be shown; only the SPN is withheld.
@@ -225,14 +225,14 @@ TEST_CASE("Asking for no assembly still reports the fault", "[j1939][dm]")
     const std::optional<J1939Diagnostic> message =
         j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::RawOnly, 1000U);
 
-    REQUIRE(message.has_value());
-    REQUIRE(message->faults.size() == 1U);
-    CHECK_FALSE(message->faults[0].spnAssembled);
-    CHECK(message->faults[0].fmi == 1U);
-    CHECK(message->faults[0].raw[0] == 100U);
+    ASSERT_TRUE(message.has_value());
+    ASSERT_TRUE(message->faults.size() == 1U);
+    EXPECT_FALSE(message->faults[0].spnAssembled);
+    EXPECT_TRUE(message->faults[0].fmi == 1U);
+    EXPECT_TRUE(message->faults[0].raw[0] == 100U);
 }
 
-TEST_CASE("Several faults arrive together, as they do over transport", "[j1939][dm]")
+TEST(J1939DiagnosticsTests, SeveralFaultsArriveTogetherAsTheyDoOverTransport)
 {
     // More than one active fault does not fit in eight bytes, so this payload
     // comes out of the reassembler - and the decoder cannot tell, which is why
@@ -243,15 +243,15 @@ TEST_CASE("Several faults arrive together, as they do over transport", "[j1939][
     const std::optional<J1939Diagnostic> message =
         j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
 
-    REQUIRE(message.has_value());
-    REQUIRE(message->faults.size() == 3U);
-    CHECK(message->faults[0].spn == 100U);
-    CHECK(message->faults[1].spn == 110U);
-    CHECK(message->faults[2].spn == 190U);
-    CHECK(message->faults[2].occurrenceCount == 127U);
+    ASSERT_TRUE(message.has_value());
+    ASSERT_TRUE(message->faults.size() == 3U);
+    EXPECT_TRUE(message->faults[0].spn == 100U);
+    EXPECT_TRUE(message->faults[1].spn == 110U);
+    EXPECT_TRUE(message->faults[2].spn == 190U);
+    EXPECT_TRUE(message->faults[2].occurrenceCount == 127U);
 }
 
-TEST_CASE("Padding at the end of a message is not a fault", "[j1939][dm]")
+TEST(J1939DiagnosticsTests, PaddingAtTheEndOfAMessageIsNotAFault)
 {
     // A single-frame DM1 with one fault pads to eight bytes. Four bytes of 0xFF
     // would otherwise decode as SPN 0x7FFFF with FMI 31.
@@ -261,12 +261,12 @@ TEST_CASE("Padding at the end of a message is not a fault", "[j1939][dm]")
     const std::optional<J1939Diagnostic> message =
         j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
 
-    REQUIRE(message.has_value());
-    REQUIRE(message->faults.size() == 1U);
-    CHECK(message->faults[0].spn == 100U);
+    ASSERT_TRUE(message.has_value());
+    ASSERT_TRUE(message->faults.size() == 1U);
+    EXPECT_TRUE(message->faults[0].spn == 100U);
 }
 
-TEST_CASE("A trailing stub too short to be a code is ignored", "[j1939][dm]")
+TEST(J1939DiagnosticsTests, ATrailingStubTooShortToBeACodeIsIgnored)
 {
     // Reading it would build a code out of whatever followed the message.
     std::vector<std::uint8_t> payload = payloadOf(0x00U, 0x00U, {dtcBytes(100U, 1U, 1U)});
@@ -276,11 +276,11 @@ TEST_CASE("A trailing stub too short to be a code is ignored", "[j1939][dm]")
     const std::optional<J1939Diagnostic> message =
         j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
 
-    REQUIRE(message.has_value());
-    CHECK(message->faults.size() == 1U);
+    ASSERT_TRUE(message.has_value());
+    EXPECT_TRUE(message->faults.size() == 1U);
 }
 
-TEST_CASE("DM2 is what used to be wrong, and says so", "[j1939][dm]")
+TEST(J1939DiagnosticsTests, DM2IsWhatUsedToBeWrongAndSaysSo)
 {
     // The same bytes mean different things. A panel that mixed them would
     // report a repaired fault as a current one, and send somebody to look for
@@ -292,15 +292,14 @@ TEST_CASE("DM2 is what used to be wrong, and says so", "[j1939][dm]")
     const std::optional<J1939Diagnostic> previous =
         j1939DecodeDiagnostic(kPgnDm2, kEngine, payload, J1939SpnReading::Version4, 1000U);
 
-    REQUIRE(active.has_value());
-    REQUIRE(previous.has_value());
-    CHECK(active->active);
-    CHECK_FALSE(previous->active);
-    CHECK(active->faults.size() == previous->faults.size());
+    ASSERT_TRUE(active.has_value());
+    ASSERT_TRUE(previous.has_value());
+    EXPECT_TRUE(active->active);
+    EXPECT_FALSE(previous->active);
+    EXPECT_TRUE(active->faults.size() == previous->faults.size());
 }
 
-TEST_CASE("The lamps are four two-bit fields, and two of the values are not on or off",
-          "[j1939][dm]")
+TEST(J1939DiagnosticsTests, TheLampsAreFourTwoBitFieldsAndTwoOfTheValuesAreNotOnOrOff)
 {
     // 0b01'10'11'00 - malfunction on, red stop reserved, amber not available,
     // protect off. "Not available" is a lamp the ECU does not drive, which is a
@@ -310,33 +309,34 @@ TEST_CASE("The lamps are four two-bit fields, and two of the values are not on o
     const std::optional<J1939Diagnostic> message =
         j1939DecodeDiagnostic(kPgnDm1, kEngine, payload, J1939SpnReading::Version4, 1000U);
 
-    REQUIRE(message.has_value());
-    CHECK(message->lamps.malfunction == J1939LampState::On);
-    CHECK(message->lamps.redStop == J1939LampState::Reserved);
-    CHECK(message->lamps.amberWarning == J1939LampState::NotAvailable);
-    CHECK(message->lamps.protect == J1939LampState::Off);
+    ASSERT_TRUE(message.has_value());
+    EXPECT_TRUE(message->lamps.malfunction == J1939LampState::On);
+    EXPECT_TRUE(message->lamps.redStop == J1939LampState::Reserved);
+    EXPECT_TRUE(message->lamps.amberWarning == J1939LampState::NotAvailable);
+    EXPECT_TRUE(message->lamps.protect == J1939LampState::Off);
 
     // The second byte is the flash rate, read the same way and kept apart.
-    CHECK(message->flash.malfunction == J1939LampState::Off);
+    EXPECT_TRUE(message->flash.malfunction == J1939LampState::Off);
 }
 
-TEST_CASE("A message that is not DM1 or DM2 is not decoded", "[j1939][dm]")
+TEST(J1939DiagnosticsTests, AMessageThatIsNotDM1OrDM2IsNotDecoded)
 {
     const std::vector<std::uint8_t> payload = payloadOf(0x00U, 0x00U, {dtcBytes(100U, 1U, 1U)});
 
-    CHECK_FALSE(j1939DecodeDiagnostic(0x0'FEE5U, kEngine, payload, J1939SpnReading::Version4, 1000U)
-                    .has_value());
+    EXPECT_FALSE(
+        j1939DecodeDiagnostic(0x0'FEE5U, kEngine, payload, J1939SpnReading::Version4, 1000U)
+            .has_value());
 
-    CHECK(j1939IsDiagnosticPgn(kPgnDm1));
-    CHECK(j1939IsDiagnosticPgn(kPgnDm2));
-    CHECK_FALSE(j1939IsDiagnosticPgn(kPgnRequest));
+    EXPECT_TRUE(j1939IsDiagnosticPgn(kPgnDm1));
+    EXPECT_TRUE(j1939IsDiagnosticPgn(kPgnDm2));
+    EXPECT_FALSE(j1939IsDiagnosticPgn(kPgnRequest));
 }
 
-TEST_CASE("A payload too short to hold the lamps is not a message", "[j1939][dm]")
+TEST(J1939DiagnosticsTests, APayloadTooShortToHoldTheLampsIsNotAMessage)
 {
     const std::vector<std::uint8_t> one{0x00U};
 
-    CHECK_FALSE(
+    EXPECT_FALSE(
         j1939DecodeDiagnostic(kPgnDm1, kEngine, one, J1939SpnReading::Version4, 1000U).has_value());
 
     // Two bytes and nothing else is a legal message with no faults in it - the
@@ -346,12 +346,12 @@ TEST_CASE("A payload too short to hold the lamps is not a message", "[j1939][dm]
     const std::optional<J1939Diagnostic> message =
         j1939DecodeDiagnostic(kPgnDm1, kEngine, lampsOnly, J1939SpnReading::Version4, 1000U);
 
-    REQUIRE(message.has_value());
-    CHECK(message->faults.empty());
-    CHECK(message->lamps.malfunction == J1939LampState::On);
+    ASSERT_TRUE(message.has_value());
+    EXPECT_TRUE(message->faults.empty());
+    EXPECT_TRUE(message->lamps.malfunction == J1939LampState::On);
 }
 
-TEST_CASE("The occurrence count does not steal the conversion bit", "[j1939][dm]")
+TEST(J1939DiagnosticsTests, TheOccurrenceCountDoesNotStealTheConversionBit)
 {
     // Seven bits and one. A count of 127 with the bit clear, and the same count
     // with it set, differ in the one place that decides whether the SPN gets
@@ -366,13 +366,13 @@ TEST_CASE("The occurrence count does not steal the conversion bit", "[j1939][dm]
     const auto second =
         j1939DecodeDiagnostic(kPgnDm1, kEngine, flagged, J1939SpnReading::Version4, 1000U);
 
-    REQUIRE(first.has_value());
-    REQUIRE(second.has_value());
-    REQUIRE(first->faults.size() == 1U);
-    REQUIRE(second->faults.size() == 1U);
+    ASSERT_TRUE(first.has_value());
+    ASSERT_TRUE(second.has_value());
+    ASSERT_TRUE(first->faults.size() == 1U);
+    ASSERT_TRUE(second->faults.size() == 1U);
 
-    CHECK(first->faults[0].occurrenceCount == 127U);
-    CHECK(second->faults[0].occurrenceCount == 127U);
-    CHECK(first->faults[0].spnAssembled);
-    CHECK_FALSE(second->faults[0].spnAssembled);
+    EXPECT_TRUE(first->faults[0].occurrenceCount == 127U);
+    EXPECT_TRUE(second->faults[0].occurrenceCount == 127U);
+    EXPECT_TRUE(first->faults[0].spnAssembled);
+    EXPECT_FALSE(second->faults[0].spnAssembled);
 }

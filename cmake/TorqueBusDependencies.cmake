@@ -5,7 +5,7 @@
 #   Qt              - required, must be provided by the environment
 #   KDDockWidgets   - fetched and built from source (FetchContent)
 #   QtNodes         - fetched and built from source (FetchContent), the canvas
-#   Catch2          - fetched and built from source (FetchContent), tests only
+#   GoogleTest      - fetched and built from source (FetchContent), tests only
 #   Kvaser CANlib   - optional, detected on the system
 #   PCAN-Basic      - optional, reached through the Qt SerialBus peakcan plugin
 
@@ -185,19 +185,22 @@ FetchContent_MakeAvailable(QtNodes)
 # to trace back to a dependency.
 
 # --------------------------------------------------------------------------
-# Catch2 (tests only)
+# GoogleTest (tests only)
 # --------------------------------------------------------------------------
 
 if(TORQUEBUS_BUILD_TESTS)
-    FetchContent_Declare(Catch2
-        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-        GIT_TAG        v3.7.1
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+    set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+
+    FetchContent_Declare(googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG        v1.15.2
         GIT_SHALLOW    TRUE
         SYSTEM
     )
-    FetchContent_MakeAvailable(Catch2)
-    list(APPEND CMAKE_MODULE_PATH "${catch2_SOURCE_DIR}/extras")
-    include(Catch)
+    FetchContent_MakeAvailable(googletest)
+    include(GoogleTest)
 endif()
 
 # --------------------------------------------------------------------------

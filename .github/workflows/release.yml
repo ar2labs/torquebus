@@ -27,7 +27,8 @@ jobs:
           host: windows
           target: desktop
           arch: win64_msvc2022_64
-          modules: qtserialbus
+          modules: "qtserialbus qtserialport"
+          aqtsource: "git+https://github.com/miurahr/aqtinstall.git"
           cache: true
 
       - name: Set up MSVC

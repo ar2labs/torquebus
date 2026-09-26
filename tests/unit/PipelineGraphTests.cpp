@@ -8,7 +8,7 @@
 #include "core/pipeline/PipelineGraph.h"
 #include "core/pipeline/nodes/FrameNodes.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <array>
 #include <memory>
@@ -130,14 +130,14 @@ private:
 
 } // namespace
 
-TEST_CASE("An empty graph refuses to compile", "[pipeline]")
+TEST(PipelineGraphTests, AnEmptyGraphRefusesToCompile)
 {
     PipelineGraph graph;
-    CHECK(graph.compile().failed());
-    CHECK_FALSE(graph.isCompiled());
+    EXPECT_TRUE(graph.compile().failed());
+    EXPECT_FALSE(graph.isCompiled());
 }
 
-TEST_CASE("Connecting mismatched port types is refused", "[pipeline][types]")
+TEST(PipelineGraphTests, ConnectingMismatchedPortTypesIsRefused)
 {
     // The whole reason ports carry a type: the mistake is caught while drawing
     // the wire, not three layers downstream as an empty panel.
@@ -148,42 +148,42 @@ TEST_CASE("Connecting mismatched port types is refused", "[pipeline][types]")
 
     const Result result = graph.connect(PortRef{decoder, 0}, PortRef{trace, 0});
 
-    CHECK(result.failed());
-    CHECK(result.code() == ErrorCode::InvalidArgument);
+    EXPECT_TRUE(result.failed());
+    EXPECT_TRUE(result.code() == ErrorCode::InvalidArgument);
 
     // The message has to name both ends, or it is useless on a canvas.
     const std::string message{result.message()};
-    CHECK(message.find("decoder") != std::string::npos);
-    CHECK(message.find("trace") != std::string::npos);
-    CHECK(message.find("Signals") != std::string::npos);
-    CHECK(message.find("Frames") != std::string::npos);
+    EXPECT_TRUE(message.find("decoder") != std::string::npos);
+    EXPECT_TRUE(message.find("trace") != std::string::npos);
+    EXPECT_TRUE(message.find("Signals") != std::string::npos);
+    EXPECT_TRUE(message.find("Frames") != std::string::npos);
 }
 
-TEST_CASE("Matching port types connect", "[pipeline][types]")
+TEST(PipelineGraphTests, MatchingPortTypesConnect)
 {
     PipelineGraph graph;
 
     const NodeId source = graph.addNode(makeNode("source", {}, {kFramesPort}));
     const NodeId sink = graph.addNode(makeNode("sink", {kFramesPort}, {}));
 
-    CHECK(graph.connect(PortRef{source, 0}, PortRef{sink, 0}).succeeded());
-    CHECK(graph.edges().size() == 1);
-    CHECK(graph.compile().succeeded());
+    EXPECT_TRUE(graph.connect(PortRef{source, 0}, PortRef{sink, 0}).succeeded());
+    EXPECT_TRUE(graph.edges().size() == 1);
+    EXPECT_TRUE(graph.compile().succeeded());
 }
 
-TEST_CASE("Out-of-range ports are refused", "[pipeline]")
+TEST(PipelineGraphTests, OutOfRangePortsAreRefused)
 {
     PipelineGraph graph;
 
     const NodeId source = graph.addNode(makeNode("source", {}, {kFramesPort}));
     const NodeId sink = graph.addNode(makeNode("sink", {kFramesPort}, {}));
 
-    CHECK(graph.connect(PortRef{source, 5}, PortRef{sink, 0}).failed());
-    CHECK(graph.connect(PortRef{source, 0}, PortRef{sink, 5}).failed());
-    CHECK(graph.edges().empty());
+    EXPECT_TRUE(graph.connect(PortRef{source, 5}, PortRef{sink, 0}).failed());
+    EXPECT_TRUE(graph.connect(PortRef{source, 0}, PortRef{sink, 5}).failed());
+    EXPECT_TRUE(graph.edges().empty());
 }
 
-TEST_CASE("An input takes exactly one edge", "[pipeline]")
+TEST(PipelineGraphTests, AnInputTakesExactlyOneEdge)
 {
     // Fan-in would need a merge policy - interleave? concatenate? by timestamp?
     // Picking one silently is worse than making the user place a merge node.
@@ -193,15 +193,15 @@ TEST_CASE("An input takes exactly one edge", "[pipeline]")
     const NodeId second = graph.addNode(makeNode("second", {}, {kFramesPort}));
     const NodeId sink = graph.addNode(makeNode("sink", {kFramesPort}, {}));
 
-    CHECK(graph.connect(PortRef{first, 0}, PortRef{sink, 0}).succeeded());
+    EXPECT_TRUE(graph.connect(PortRef{first, 0}, PortRef{sink, 0}).succeeded());
 
     const Result second_attempt = graph.connect(PortRef{second, 0}, PortRef{sink, 0});
-    CHECK(second_attempt.failed());
-    CHECK(second_attempt.code() == ErrorCode::InvalidState);
-    CHECK(std::string{second_attempt.message()}.find("merge") != std::string::npos);
+    EXPECT_TRUE(second_attempt.failed());
+    EXPECT_TRUE(second_attempt.code() == ErrorCode::InvalidState);
+    EXPECT_TRUE(std::string{second_attempt.message()}.find("merge") != std::string::npos);
 }
 
-TEST_CASE("Fan-out is unrestricted", "[pipeline]")
+TEST(PipelineGraphTests, FanOutIsUnrestricted)
 {
     PipelineGraph graph;
 
@@ -210,13 +210,13 @@ TEST_CASE("Fan-out is unrestricted", "[pipeline]")
     const NodeId logger = graph.addNode(makeNode("logger", {kFramesPort}, {}));
     const NodeId plot = graph.addNode(makeNode("plot", {kFramesPort}, {}));
 
-    CHECK(graph.connect(PortRef{source, 0}, PortRef{trace, 0}).succeeded());
-    CHECK(graph.connect(PortRef{source, 0}, PortRef{logger, 0}).succeeded());
-    CHECK(graph.connect(PortRef{source, 0}, PortRef{plot, 0}).succeeded());
-    CHECK(graph.compile().succeeded());
+    EXPECT_TRUE(graph.connect(PortRef{source, 0}, PortRef{trace, 0}).succeeded());
+    EXPECT_TRUE(graph.connect(PortRef{source, 0}, PortRef{logger, 0}).succeeded());
+    EXPECT_TRUE(graph.connect(PortRef{source, 0}, PortRef{plot, 0}).succeeded());
+    EXPECT_TRUE(graph.compile().succeeded());
 }
 
-TEST_CASE("A cycle is detected and named", "[pipeline][cycle]")
+TEST(PipelineGraphTests, ACycleIsDetectedAndNamed)
 {
     // A dataflow graph with a loop has no valid evaluation order. Catching it
     // at compile time is what lets the canvas refuse the closing wire.
@@ -225,17 +225,17 @@ TEST_CASE("A cycle is detected and named", "[pipeline][cycle]")
     const NodeId a = graph.addNode(makeNode("alpha", {kFramesPort}, {kFramesPort}));
     const NodeId b = graph.addNode(makeNode("beta", {kFramesPort}, {kFramesPort}));
 
-    REQUIRE(graph.connect(PortRef{a, 0}, PortRef{b, 0}).succeeded());
-    REQUIRE(graph.connect(PortRef{b, 0}, PortRef{a, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{a, 0}, PortRef{b, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{b, 0}, PortRef{a, 0}).succeeded());
 
     const Result result = graph.compile();
-    CHECK(result.failed());
-    CHECK(result.code() == ErrorCode::InvalidState);
-    CHECK(std::string{result.message()}.find("cycle") != std::string::npos);
-    CHECK_FALSE(graph.isCompiled());
+    EXPECT_TRUE(result.failed());
+    EXPECT_TRUE(result.code() == ErrorCode::InvalidState);
+    EXPECT_TRUE(std::string{result.message()}.find("cycle") != std::string::npos);
+    EXPECT_FALSE(graph.isCompiled());
 }
 
-TEST_CASE("Nodes run in topological order", "[pipeline][order]")
+TEST(PipelineGraphTests, NodesRunInTopologicalOrder)
 {
     PipelineGraph graph;
 
@@ -254,19 +254,19 @@ TEST_CASE("Nodes run in topological order", "[pipeline][order]")
     const NodeId middle = graph.addNode(std::move(middleNode));
     const NodeId source = graph.addNode(std::move(sourceNode));
 
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{middle, 0}).succeeded());
-    REQUIRE(graph.connect(PortRef{middle, 0}, PortRef{sink, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{middle, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{middle, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 
     graph.execute();
 
-    REQUIRE(order.size() == 3);
-    CHECK(order[0] == "source");
-    CHECK(order[1] == "middle");
-    CHECK(order[2] == "sink");
+    ASSERT_TRUE(order.size() == 3);
+    EXPECT_TRUE(order[0] == "source");
+    EXPECT_TRUE(order[1] == "middle");
+    EXPECT_TRUE(order[2] == "sink");
 }
 
-TEST_CASE("finish() runs in reverse, so consumers tear down first", "[pipeline][lifecycle]")
+TEST(PipelineGraphTests, FinishRunsInReverseSoConsumersTearDownFirst)
 {
     PipelineGraph graph;
 
@@ -280,17 +280,17 @@ TEST_CASE("finish() runs in reverse, so consumers tear down first", "[pipeline][
     const NodeId source = graph.addNode(std::move(sourceNode));
     const NodeId sink = graph.addNode(std::move(sinkNode));
 
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{sink, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 
     graph.finish();
 
-    REQUIRE(order.size() == 2);
-    CHECK(order[0] == "sink:finish");
-    CHECK(order[1] == "source:finish");
+    ASSERT_TRUE(order.size() == 2);
+    EXPECT_TRUE(order[0] == "sink:finish");
+    EXPECT_TRUE(order[1] == "source:finish");
 }
 
-TEST_CASE("Every node is prepared, with the batch size it will see", "[pipeline][lifecycle]")
+TEST(PipelineGraphTests, EveryNodeIsPreparedWithTheBatchSizeItWillSee)
 {
     PipelineGraph graph;
 
@@ -302,17 +302,17 @@ TEST_CASE("Every node is prepared, with the batch size it will see", "[pipeline]
 
     const NodeId source = graph.addNode(std::move(sourceNode));
     const NodeId sink = graph.addNode(std::move(sinkNode));
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{sink, 0}).succeeded());
 
-    REQUIRE(graph.compile(512).succeeded());
+    ASSERT_TRUE(graph.compile(512).succeeded());
 
-    CHECK(sourceRaw->prepared);
-    CHECK(sinkRaw->prepared);
-    CHECK(sourceRaw->preparedWith == 512);
-    CHECK(sinkRaw->preparedWith == 512);
+    EXPECT_TRUE(sourceRaw->prepared);
+    EXPECT_TRUE(sinkRaw->prepared);
+    EXPECT_TRUE(sourceRaw->preparedWith == 512);
+    EXPECT_TRUE(sinkRaw->preparedWith == 512);
 }
 
-TEST_CASE("A node that fails to prepare aborts the compile", "[pipeline][lifecycle]")
+TEST(PipelineGraphTests, ANodeThatFailsToPrepareAbortsTheCompile)
 {
     // Far better to hear about a missing DBC file or a broken Lua chunk here
     // than on the first frame of a measurement.
@@ -325,46 +325,56 @@ TEST_CASE("A node that fails to prepare aborts the compile", "[pipeline][lifecyc
     (void)bad;
 
     const Result result = graph.compile();
-    CHECK(result.failed());
-    CHECK(result.code() == ErrorCode::FileNotFound);
+    EXPECT_TRUE(result.failed());
+    EXPECT_TRUE(result.code() == ErrorCode::FileNotFound);
 
     const std::string message{result.message()};
-    CHECK(message.find("broken") != std::string::npos);
-    CHECK(message.find("no such database") != std::string::npos);
-    CHECK_FALSE(graph.isCompiled());
+    EXPECT_TRUE(message.find("broken") != std::string::npos);
+    EXPECT_TRUE(message.find("no such database") != std::string::npos);
+    EXPECT_FALSE(graph.isCompiled());
 }
 
-TEST_CASE("Editing the graph invalidates the compile", "[pipeline]")
+TEST(PipelineGraphTests, EditingTheGraphInvalidatesTheCompile)
 {
-    PipelineGraph graph;
-
-    const NodeId source = graph.addNode(makeNode("source", {}, {kFramesPort}));
-    const NodeId sink = graph.addNode(makeNode("sink", {kFramesPort}, {}));
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{sink, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
-    REQUIRE(graph.isCompiled());
-
-    SECTION("adding a node")
     {
+        PipelineGraph graph;
+        const NodeId source = graph.addNode(makeNode("source", {}, {kFramesPort}));
+        const NodeId sink = graph.addNode(makeNode("sink", {kFramesPort}, {}));
+        ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{sink, 0}).succeeded());
+        ASSERT_TRUE(graph.compile().succeeded());
+        ASSERT_TRUE(graph.isCompiled());
+
         (void)graph.addNode(makeNode("extra", {kFramesPort}, {}));
-        CHECK_FALSE(graph.isCompiled());
+        EXPECT_FALSE(graph.isCompiled());
     }
 
-    SECTION("removing a node")
     {
+        PipelineGraph graph;
+        const NodeId source = graph.addNode(makeNode("source", {}, {kFramesPort}));
+        const NodeId sink = graph.addNode(makeNode("sink", {kFramesPort}, {}));
+        ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{sink, 0}).succeeded());
+        ASSERT_TRUE(graph.compile().succeeded());
+        ASSERT_TRUE(graph.isCompiled());
+
         graph.removeNode(sink);
-        CHECK_FALSE(graph.isCompiled());
-        CHECK(graph.edges().empty()); // its edge went with it
+        EXPECT_FALSE(graph.isCompiled());
+        EXPECT_TRUE(graph.edges().empty()); // its edge went with it
     }
 
-    SECTION("disconnecting")
     {
+        PipelineGraph graph;
+        const NodeId source = graph.addNode(makeNode("source", {}, {kFramesPort}));
+        const NodeId sink = graph.addNode(makeNode("sink", {kFramesPort}, {}));
+        ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{sink, 0}).succeeded());
+        ASSERT_TRUE(graph.compile().succeeded());
+        ASSERT_TRUE(graph.isCompiled());
+
         graph.disconnect(PortRef{sink, 0});
-        CHECK_FALSE(graph.isCompiled());
+        EXPECT_FALSE(graph.isCompiled());
     }
 }
 
-TEST_CASE("An uncompiled graph does nothing rather than misbehaving", "[pipeline]")
+TEST(PipelineGraphTests, AnUncompiledGraphDoesNothingRatherThanMisbehaving)
 {
     PipelineGraph graph;
 
@@ -374,10 +384,10 @@ TEST_CASE("An uncompiled graph does nothing rather than misbehaving", "[pipeline
 
     graph.execute(); // not compiled
 
-    CHECK(raw->passes == 0);
+    EXPECT_TRUE(raw->passes == 0);
 }
 
-TEST_CASE("A disconnected input sees an empty batch, not stale data", "[pipeline][data]")
+TEST(PipelineGraphTests, ADisconnectedInputSeesAnEmptyBatchNotStaleData)
 {
     PipelineGraph graph;
 
@@ -385,14 +395,14 @@ TEST_CASE("A disconnected input sees an empty batch, not stale data", "[pipeline
     TestNode* raw = node.get();
     (void)graph.addNode(std::move(node));
 
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
     graph.execute();
 
-    CHECK(raw->passes == 1);
-    CHECK(raw->lastSeen == 0);
+    EXPECT_TRUE(raw->passes == 1);
+    EXPECT_TRUE(raw->lastSeen == 0);
 }
 
-TEST_CASE("Batches flow along the edges", "[pipeline][data]")
+TEST(PipelineGraphTests, BatchesFlowAlongTheEdges)
 {
     // The executor's actual job: what one node emits is what the next one sees.
     PipelineGraph graph;
@@ -413,17 +423,17 @@ TEST_CASE("Batches flow along the edges", "[pipeline][data]")
         },
         "collector"));
 
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{sink, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 
     graph.execute();
 
-    REQUIRE(received.size() == 4);
-    CHECK(received[0].identifier == 0x100);
-    CHECK(received[3].identifier == 0x103);
+    ASSERT_TRUE(received.size() == 4);
+    EXPECT_TRUE(received[0].identifier == 0x100);
+    EXPECT_TRUE(received[3].identifier == 0x103);
 }
 
-TEST_CASE("A filter node shapes one branch without affecting the others", "[pipeline][filter]")
+TEST(PipelineGraphTests, AFilterNodeShapesOneBranchWithoutAffectingTheOthers)
 {
     // This is what a graph buys over a fixed sink list: "trace everything, but
     // only plot these identifiers" in one picture.
@@ -449,19 +459,18 @@ TEST_CASE("A filter node shapes one branch without affecting the others", "[pipe
     const NodeId plot = graph.addNode(std::make_unique<FrameSinkNode>(
         [&plotted](std::span<const CanFrame> batch) { plotted += batch.size(); }, "plot"));
 
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{trace, 0}).succeeded());
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{filter, 0}).succeeded());
-    REQUIRE(graph.connect(PortRef{filter, 0}, PortRef{plot, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{trace, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{filter, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{filter, 0}, PortRef{plot, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 
     graph.execute();
 
-    CHECK(traced == 4); // the trace branch is untouched
-    CHECK(plotted == 1); // the plot branch sees only 0x102
+    EXPECT_TRUE(traced == 4); // the trace branch is untouched
+    EXPECT_TRUE(plotted == 1); // the plot branch sees only 0x102
 }
 
-TEST_CASE("A mis-typed batch reads as empty rather than as reinterpreted bytes",
-          "[pipeline][types]")
+TEST(PipelineGraphTests, AMisTypedBatchReadsAsEmptyRatherThanAsReinterpretedBytes)
 {
     // Second line of defence. The graph should have refused the connection long
     // before this, but if a payload type ever reaches the wrong port, starving
@@ -469,11 +478,11 @@ TEST_CASE("A mis-typed batch reads as empty rather than as reinterpreted bytes",
     std::vector<CanFrame> frames(2);
     const PortBatch batch{std::span<const CanFrame>{frames}};
 
-    CHECK(batch.type() == PortType::Frames);
-    CHECK(batch.size() == 2);
-    CHECK(batch.as<CanFrame>().size() == 2);
+    EXPECT_TRUE(batch.type() == PortType::Frames);
+    EXPECT_TRUE(batch.size() == 2);
+    EXPECT_TRUE(batch.as<CanFrame>().size() == 2);
 
     const PortBatch empty;
-    CHECK(empty.empty());
-    CHECK(empty.as<CanFrame>().empty());
+    EXPECT_TRUE(empty.empty());
+    EXPECT_TRUE(empty.as<CanFrame>().empty());
 }

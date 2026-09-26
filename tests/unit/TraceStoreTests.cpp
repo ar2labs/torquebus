@@ -5,7 +5,7 @@
 
 #include "core/trace/TraceStore.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <vector>
 
@@ -31,25 +31,25 @@ CanFrame frame(std::uint32_t identifier,
 
 } // namespace
 
-TEST_CASE("A row stays small enough to keep a million of them", "[trace]")
+TEST(TraceStoreTests, ARowStaysSmallEnoughToKeepAMillionOfThem)
 {
     // Every 8 bytes here is 8 MB of resident memory at full capacity.
-    STATIC_REQUIRE(sizeof(TraceRow) <= 104);
+    static_assert(sizeof(TraceRow) <= 104);
 }
 
-TEST_CASE("A new store is empty", "[trace]")
+TEST(TraceStoreTests, ANewStoreIsEmpty)
 {
     const TraceStore store{100};
 
-    CHECK(store.empty());
-    CHECK(store.size() == 0);
-    CHECK(store.capacity() == 100);
-    CHECK(store.totalAppended() == 0);
-    CHECK(store.discarded() == 0);
-    CHECK(store.identifiers().empty());
+    EXPECT_TRUE(store.empty());
+    EXPECT_TRUE(store.size() == 0);
+    EXPECT_TRUE(store.capacity() == 100);
+    EXPECT_TRUE(store.totalAppended() == 0);
+    EXPECT_TRUE(store.discarded() == 0);
+    EXPECT_TRUE(store.identifiers().empty());
 }
 
-TEST_CASE("Rows come back in arrival order", "[trace]")
+TEST(TraceStoreTests, RowsComeBackInArrivalOrder)
 {
     TraceStore store{100};
 
@@ -59,13 +59,13 @@ TEST_CASE("Rows come back in arrival order", "[trace]")
     }
     store.append(batch);
 
-    REQUIRE(store.size() == 5);
+    ASSERT_TRUE(store.size() == 5);
     for (std::uint32_t index = 0; index < 5; ++index) {
-        CHECK(store.row(index).frame.identifier == 0x100 + index);
+        EXPECT_TRUE(store.row(index).frame.identifier == 0x100 + index);
     }
 }
 
-TEST_CASE("The oldest rows fall off a full ring, and are counted", "[trace][ring]")
+TEST(TraceStoreTests, TheOldestRowsFallOffAFullRingAndAreCounted)
 {
     // A trace that grows until the machine swaps is worse than one that says
     // "showing the last N". The count is what makes the loss honest.
@@ -77,17 +77,17 @@ TEST_CASE("The oldest rows fall off a full ring, and are counted", "[trace][ring
     }
     store.append(batch);
 
-    CHECK(store.size() == 4);
-    CHECK(store.capacity() == 4);
-    CHECK(store.totalAppended() == 10);
-    CHECK(store.discarded() == 6);
+    EXPECT_TRUE(store.size() == 4);
+    EXPECT_TRUE(store.capacity() == 4);
+    EXPECT_TRUE(store.totalAppended() == 10);
+    EXPECT_TRUE(store.discarded() == 6);
 
     // Row 0 is the oldest *retained*, not the oldest ever seen.
-    CHECK(store.row(0).frame.identifier == 0x106);
-    CHECK(store.row(3).frame.identifier == 0x109);
+    EXPECT_TRUE(store.row(0).frame.identifier == 0x106);
+    EXPECT_TRUE(store.row(3).frame.identifier == 0x109);
 }
 
-TEST_CASE("The ring survives many wraps", "[trace][ring]")
+TEST(TraceStoreTests, TheRingSurvivesManyWraps)
 {
     TraceStore store{8};
 
@@ -96,14 +96,14 @@ TEST_CASE("The ring survives many wraps", "[trace][ring]")
         store.append(std::span<const CanFrame>{&single, 1});
     }
 
-    CHECK(store.size() == 8);
-    CHECK(store.totalAppended() == 1000);
-    CHECK(store.discarded() == 992);
-    CHECK(store.row(7).frame.identifier == 0x100 + 999);
-    CHECK(store.row(0).frame.identifier == 0x100 + 992);
+    EXPECT_TRUE(store.size() == 8);
+    EXPECT_TRUE(store.totalAppended() == 1000);
+    EXPECT_TRUE(store.discarded() == 992);
+    EXPECT_TRUE(store.row(7).frame.identifier == 0x100 + 999);
+    EXPECT_TRUE(store.row(0).frame.identifier == 0x100 + 992);
 }
 
-TEST_CASE("Delta is the gap since the previous frame on any channel", "[trace][timing]")
+TEST(TraceStoreTests, DeltaIsTheGapSinceThePreviousFrameOnAnyChannel)
 {
     TraceStore store{100};
 
@@ -114,12 +114,12 @@ TEST_CASE("Delta is the gap since the previous frame on any channel", "[trace][t
     };
     store.append(batch);
 
-    CHECK(store.row(0).deltaUs == 0); // nothing to measure against
-    CHECK(store.row(1).deltaUs == 500);
-    CHECK(store.row(2).deltaUs == 1500);
+    EXPECT_TRUE(store.row(0).deltaUs == 0); // nothing to measure against
+    EXPECT_TRUE(store.row(1).deltaUs == 500);
+    EXPECT_TRUE(store.row(2).deltaUs == 1500);
 }
 
-TEST_CASE("Cycle is the gap since the same identifier on the same channel", "[trace][timing]")
+TEST(TraceStoreTests, CycleIsTheGapSinceTheSameIdentifierOnTheSameChannel)
 {
     TraceStore store{100};
 
@@ -133,13 +133,13 @@ TEST_CASE("Cycle is the gap since the same identifier on the same channel", "[tr
 
     // Zero on a first sighting, not "0 ms" - which would read as "arriving
     // constantly" rather than "first time seen".
-    CHECK(store.row(0).cycleUs == 0);
-    CHECK(store.row(1).cycleUs == 0);
-    CHECK(store.row(2).cycleUs == 2000);
-    CHECK(store.row(3).cycleUs == 2000);
+    EXPECT_TRUE(store.row(0).cycleUs == 0);
+    EXPECT_TRUE(store.row(1).cycleUs == 0);
+    EXPECT_TRUE(store.row(2).cycleUs == 2000);
+    EXPECT_TRUE(store.row(3).cycleUs == 2000);
 }
 
-TEST_CASE("The same identifier on two channels is two identifiers", "[trace][timing]")
+TEST(TraceStoreTests, TheSameIdentifierOnTwoChannelsIsTwoIdentifiers)
 {
     // CAN 1 and CAN 2 are different buses. 0x100 on one has nothing to do with
     // 0x100 on the other, and sharing a cycle time between them would be a
@@ -153,12 +153,12 @@ TEST_CASE("The same identifier on two channels is two identifiers", "[trace][tim
     };
     store.append(batch);
 
-    CHECK(store.row(1).cycleUs == 0); // first sighting on channel 1
-    CHECK(store.row(2).cycleUs == 2000); // measured against channel 0 only
-    CHECK(store.identifiers().size() == 2);
+    EXPECT_TRUE(store.row(1).cycleUs == 0); // first sighting on channel 1
+    EXPECT_TRUE(store.row(2).cycleUs == 2000); // measured against channel 0 only
+    EXPECT_TRUE(store.identifiers().size() == 2);
 }
 
-TEST_CASE("Occurrence counts sightings of one identifier", "[trace]")
+TEST(TraceStoreTests, OccurrenceCountsSightingsOfOneIdentifier)
 {
     TraceStore store{100};
 
@@ -170,13 +170,13 @@ TEST_CASE("Occurrence counts sightings of one identifier", "[trace]")
     };
     store.append(batch);
 
-    CHECK(store.row(0).occurrence == 1);
-    CHECK(store.row(1).occurrence == 1);
-    CHECK(store.row(2).occurrence == 2);
-    CHECK(store.row(3).occurrence == 3);
+    EXPECT_TRUE(store.row(0).occurrence == 1);
+    EXPECT_TRUE(store.row(1).occurrence == 1);
+    EXPECT_TRUE(store.row(2).occurrence == 2);
+    EXPECT_TRUE(store.row(3).occurrence == 3);
 }
 
-TEST_CASE("The identifier index keeps first-seen order", "[trace][fixed]")
+TEST(TraceStoreTests, TheIdentifierIndexKeepsFirstSeenOrder)
 {
     // The fixed view must not reshuffle itself while someone is reading it.
     TraceStore store{100};
@@ -189,14 +189,14 @@ TEST_CASE("The identifier index keeps first-seen order", "[trace][fixed]")
     };
     store.append(batch);
 
-    REQUIRE(store.identifiers().size() == 3);
-    CHECK(store.identifiers()[0].identifier == 0x300);
-    CHECK(store.identifiers()[1].identifier == 0x100);
-    CHECK(store.identifiers()[2].identifier == 0x200);
-    CHECK(store.identifiers()[1].count == 2);
+    ASSERT_TRUE(store.identifiers().size() == 3);
+    EXPECT_TRUE(store.identifiers()[0].identifier == 0x300);
+    EXPECT_TRUE(store.identifiers()[1].identifier == 0x100);
+    EXPECT_TRUE(store.identifiers()[2].identifier == 0x200);
+    EXPECT_TRUE(store.identifiers()[1].count == 2);
 }
 
-TEST_CASE("Min and max cycle track the spread", "[trace][fixed]")
+TEST(TraceStoreTests, MinAndMaxCycleTrackTheSpread)
 {
     TraceStore store{100};
 
@@ -208,16 +208,16 @@ TEST_CASE("Min and max cycle track the spread", "[trace][fixed]")
     };
     store.append(batch);
 
-    REQUIRE(store.identifiers().size() == 1);
+    ASSERT_TRUE(store.identifiers().size() == 1);
     const TraceIdentifierStats& stats = store.identifiers().front();
 
-    CHECK(stats.count == 4);
-    CHECK(stats.lastCycleUs == 2000);
-    CHECK(stats.minCycleUs == 1000);
-    CHECK(stats.maxCycleUs == 5000);
+    EXPECT_TRUE(stats.count == 4);
+    EXPECT_TRUE(stats.lastCycleUs == 2000);
+    EXPECT_TRUE(stats.minCycleUs == 1000);
+    EXPECT_TRUE(stats.maxCycleUs == 5000);
 }
 
-TEST_CASE("Changed bytes are flagged between consecutive frames", "[trace][fixed]")
+TEST(TraceStoreTests, ChangedBytesAreFlaggedBetweenConsecutiveFrames)
 {
     // The single most useful thing a fixed-ID view does: show which byte moved.
     TraceStore store{100};
@@ -235,11 +235,11 @@ TEST_CASE("Changed bytes are flagged between consecutive frames", "[trace][fixed
     store.append(std::span<const CanFrame>{&first, 1});
     store.append(std::span<const CanFrame>{&second, 1});
 
-    REQUIRE(store.identifiers().size() == 1);
-    CHECK(store.identifiers().front().changedBytes == (std::uint64_t{1} << 1U));
+    ASSERT_TRUE(store.identifiers().size() == 1);
+    EXPECT_TRUE(store.identifiers().front().changedBytes == (std::uint64_t{1} << 1U));
 }
 
-TEST_CASE("A timestamp that goes backwards does not produce a huge delta", "[trace][timing]")
+TEST(TraceStoreTests, ATimestampThatGoesBackwardsDoesNotProduceAHugeDelta)
 {
     // Two adapters with unsynchronised clocks, or a replayed log spliced out of
     // order. A wrapped subtraction here would show a delta of several thousand
@@ -253,32 +253,32 @@ TEST_CASE("A timestamp that goes backwards does not produce a huge delta", "[tra
     };
     store.append(batch);
 
-    CHECK(store.row(1).deltaUs == 0);
+    EXPECT_TRUE(store.row(1).deltaUs == 0);
 }
 
-TEST_CASE("clear() empties everything, including the identifier index", "[trace]")
+TEST(TraceStoreTests, ClearEmptiesEverythingIncludingTheIdentifierIndex)
 {
     TraceStore store{100};
 
     const std::vector<CanFrame> batch{frame(0x100, 1000), frame(0x200, 2000)};
     store.append(batch);
-    REQUIRE(store.size() == 2);
+    ASSERT_TRUE(store.size() == 2);
 
     store.clear();
 
-    CHECK(store.empty());
-    CHECK(store.totalAppended() == 0);
-    CHECK(store.discarded() == 0);
-    CHECK(store.identifiers().empty());
-    CHECK(store.capacity() == 100); // the allocation is kept
+    EXPECT_TRUE(store.empty());
+    EXPECT_TRUE(store.totalAppended() == 0);
+    EXPECT_TRUE(store.discarded() == 0);
+    EXPECT_TRUE(store.identifiers().empty());
+    EXPECT_TRUE(store.capacity() == 100); // the allocation is kept
 
     // And a fresh append starts cleanly rather than continuing the old counts.
     store.append(batch);
-    CHECK(store.row(0).occurrence == 1);
-    CHECK(store.row(0).deltaUs == 0);
+    EXPECT_TRUE(store.row(0).occurrence == 1);
+    EXPECT_TRUE(store.row(0).deltaUs == 0);
 }
 
-TEST_CASE("Extended and standard identifiers with the same value are distinct", "[trace]")
+TEST(TraceStoreTests, ExtendedAndStandardIdentifiersWithTheSameValueAreDistinct)
 {
     TraceStore store{100};
 
@@ -291,6 +291,6 @@ TEST_CASE("Extended and standard identifiers with the same value are distinct", 
     store.append(std::span<const CanFrame>{&standard, 1});
     store.append(std::span<const CanFrame>{&extended, 1});
 
-    CHECK(store.identifiers().size() == 2);
-    CHECK(store.row(1).cycleUs == 0); // not measured against the standard one
+    EXPECT_TRUE(store.identifiers().size() == 2);
+    EXPECT_TRUE(store.row(1).cycleUs == 0); // not measured against the standard one
 }

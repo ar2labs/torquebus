@@ -33,7 +33,7 @@ Definição inicial da stack:
  Compilador Windows  MSVC x64                        
  Configuração        JSON                                
  Dados internos      SQLite                              
- Testes              Catch2 ou GoogleTest                
+ Testes              GoogleTest                          
  CICD               GitHub Actions                      
  Plataforma inicial  Windows 11 x64                  
  Licença             GPL-3.0                         

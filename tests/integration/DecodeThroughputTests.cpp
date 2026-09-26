@@ -23,7 +23,9 @@
 #include "core/database/DecodedSignal.h"
 #include "core/pipeline/nodes/DbcDecoderNode.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
+
+#include <iostream>
 
 #include <array>
 #include <chrono>
@@ -94,10 +96,10 @@ constexpr std::size_t kBatches = 128;
 
 } // namespace
 
-TEST_CASE("Decoding keeps up with a bus that is actually busy", "[dbc][throughput]")
+TEST(DecodeThroughputTests, DecodingKeepsUpWithABusThatIsActuallyBusyThroughput)
 {
     DbcDecoderNode node{benchmarkDatabase(), "benchmark"};
-    REQUIRE(node.prepare(kBatchSize).succeeded());
+    ASSERT_TRUE(node.prepare(kBatchSize).succeeded());
 
     const std::vector<CanFrame> frames = benchmarkBatch();
 
@@ -123,15 +125,17 @@ TEST_CASE("Decoding keeps up with a bus that is actually busy", "[dbc][throughpu
 
     // Printed rather than only asserted: this number is the point, and it is
     // read by a person comparing one build against another.
-    WARN("decode throughput: " << static_cast<std::uint64_t>(framesPerSecond) << " frames/s  ("
-                               << static_cast<std::uint64_t>(decoded) << " frames in "
-                               << elapsed.count() << " us, " << node.emittedSignals()
-                               << " signals)");
+    std::cout << (::testing::Message()
+                  << "decode throughput: " << static_cast<std::uint64_t>(framesPerSecond)
+                  << " frames/s  (" << static_cast<std::uint64_t>(decoded) << " frames in "
+                  << elapsed.count() << " us, " << node.emittedSignals() << " signals)")
+                     .GetString()
+              << '\n';
 
-    CHECK(node.emittedSignals() == kBatchSize * kBatches * kSignalsPerMessage);
+    EXPECT_TRUE(node.emittedSignals() == kBatchSize * kBatches * kSignalsPerMessage);
 
     // Loose on purpose. A tight floor here fails on a busy laptop and tells
     // nobody anything; the comparison that matters is between two builds, and
     // that is what the line above is for.
-    CHECK(framesPerSecond > 10'000.0);
+    EXPECT_TRUE(framesPerSecond > 10'000.0);
 }

@@ -21,7 +21,7 @@
 #include "core/scripting/LuaTestNode.h"
 #include "core/testing/TestReport.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <chrono>
 #include <memory>
@@ -93,17 +93,17 @@ struct Bench final {
         collector = sink.get();
         const NodeId sinkId = graph.addNode(std::move(sink));
 
-        REQUIRE(graph.connect(PortRef{sequenceId, 0}, PortRef{sinkId, 0}).succeeded());
+        EXPECT_TRUE(graph.connect(PortRef{sequenceId, 0}, PortRef{sinkId, 0}).succeeded());
 
         if (!ecuSource.empty()) {
             auto simulated = std::make_unique<LuaEcuNode>(ecuSource, "ecu.lua");
             ecu = simulated.get();
             const NodeId ecuId = graph.addNode(std::move(simulated));
 
-            REQUIRE(graph.connect(PortRef{ecuId, 0}, PortRef{sequenceId, 0}).succeeded());
+            EXPECT_TRUE(graph.connect(PortRef{ecuId, 0}, PortRef{sequenceId, 0}).succeeded());
         }
 
-        REQUIRE(graph.compile().succeeded());
+        EXPECT_TRUE(graph.compile().succeeded());
     }
 
     void run(int milliseconds)
@@ -120,7 +120,7 @@ struct Bench final {
 
 } // namespace
 
-TEST_CASE("A case that sees what it expected passes", "[lua][sequence]")
+TEST(LuaTestSequenceTests, ACaseThatSeesWhatItExpectedPasses)
 {
     Bench bench{R"(
         test("0x100 arrives", function()
@@ -136,26 +136,26 @@ TEST_CASE("A case that sees what it expected passes", "[lua][sequence]")
 
     bench.run(500);
 
-    REQUIRE(bench.sequence->isComplete());
+    ASSERT_TRUE(bench.sequence->isComplete());
 
     const TestSummary summary = bench.report.summary();
-    CHECK(summary.started);
-    CHECK(summary.complete);
-    CHECK(summary.total == 1);
-    CHECK(summary.passed == 1);
-    CHECK(summary.failed == 0);
+    EXPECT_TRUE(summary.started);
+    EXPECT_TRUE(summary.complete);
+    EXPECT_TRUE(summary.total == 1);
+    EXPECT_TRUE(summary.passed == 1);
+    EXPECT_TRUE(summary.failed == 0);
 
     const std::vector<TestCaseResult> results = bench.report.results();
-    REQUIRE(results.size() == 1);
-    CHECK(results.front().name == "0x100 arrives");
-    CHECK(results.front().outcome == TestOutcome::Passed);
+    ASSERT_TRUE(results.size() == 1);
+    EXPECT_TRUE(results.front().name == "0x100 arrives");
+    EXPECT_TRUE(results.front().outcome == TestOutcome::Passed);
 
     // Both checks are recorded, not only the failing ones - a report listing
     // only failures cannot be read as evidence that anything was checked.
-    CHECK(results.front().checks.size() == 2);
+    EXPECT_TRUE(results.front().checks.size() == 2);
 }
 
-TEST_CASE("A case that never sees its frame fails", "[lua][sequence]")
+TEST(LuaTestSequenceTests, ACaseThatNeverSeesItsFrameFails)
 {
     // The one that matters most. A timeout that passed quietly would make every
     // green run meaningless.
@@ -167,18 +167,18 @@ TEST_CASE("A case that never sees its frame fails", "[lua][sequence]")
 
     bench.run(400);
 
-    REQUIRE(bench.sequence->isComplete());
+    ASSERT_TRUE(bench.sequence->isComplete());
 
     const std::vector<TestCaseResult> results = bench.report.results();
-    REQUIRE(results.size() == 1);
-    CHECK(results.front().outcome == TestOutcome::Failed);
-    CHECK(results.front().message.find("0x200") != std::string::npos);
+    ASSERT_TRUE(results.size() == 1);
+    EXPECT_TRUE(results.front().outcome == TestOutcome::Failed);
+    EXPECT_TRUE(results.front().message.find("0x200") != std::string::npos);
 
-    CHECK(bench.report.summary().failed == 1);
-    CHECK(bench.report.summary().passed == 0);
+    EXPECT_TRUE(bench.report.summary().failed == 1);
+    EXPECT_TRUE(bench.report.summary().passed == 0);
 }
 
-TEST_CASE("Silence can be the thing under test", "[lua][sequence]")
+TEST(LuaTestSequenceTests, SilenceCanBeTheThingUnderTest)
 {
     // The assertion most tools cannot express, and the one fault injection
     // exists to provoke: nothing on this identifier for this long.
@@ -199,16 +199,16 @@ TEST_CASE("Silence can be the thing under test", "[lua][sequence]")
 
     bench.run(600);
 
-    REQUIRE(bench.sequence->isComplete());
+    ASSERT_TRUE(bench.sequence->isComplete());
 
     const std::vector<TestCaseResult> results = bench.report.results();
-    REQUIRE(results.size() == 2);
+    ASSERT_TRUE(results.size() == 2);
 
-    CHECK(results[0].outcome == TestOutcome::Passed);
-    CHECK(results[1].outcome == TestOutcome::Failed);
+    EXPECT_TRUE(results[0].outcome == TestOutcome::Passed);
+    EXPECT_TRUE(results[1].outcome == TestOutcome::Failed);
 }
 
-TEST_CASE("A failing check ends its case and no other", "[lua][sequence]")
+TEST(LuaTestSequenceTests, AFailingCheckEndsItsCaseAndNoOther)
 {
     // One requirement not being met says nothing about the others. A run that
     // stopped at the first failure would have to be repeated once per bug.
@@ -229,24 +229,24 @@ TEST_CASE("A failing check ends its case and no other", "[lua][sequence]")
 
     bench.run(400);
 
-    REQUIRE(bench.sequence->isComplete());
+    ASSERT_TRUE(bench.sequence->isComplete());
 
     const std::vector<TestCaseResult> results = bench.report.results();
-    REQUIRE(results.size() == 3);
+    ASSERT_TRUE(results.size() == 3);
 
-    CHECK(results[0].outcome == TestOutcome::Failed);
-    CHECK(results[1].outcome == TestOutcome::Passed);
-    CHECK(results[2].outcome == TestOutcome::Failed);
+    EXPECT_TRUE(results[0].outcome == TestOutcome::Failed);
+    EXPECT_TRUE(results[1].outcome == TestOutcome::Passed);
+    EXPECT_TRUE(results[2].outcome == TestOutcome::Failed);
 
     // The case stopped where it failed: the second assertion never ran.
-    CHECK(results[0].checks.size() == 1);
+    EXPECT_TRUE(results[0].checks.size() == 1);
 
     // And the message says what was seen, not only that something was wrong.
-    INFO(results[0].message);
-    CHECK(results[0].message.find("2") != std::string::npos);
+    SCOPED_TRACE(::testing::Message() << results[0].message);
+    EXPECT_TRUE(results[0].message.find("2") != std::string::npos);
 }
 
-TEST_CASE("An error in the test is not a failure of the network", "[lua][sequence]")
+TEST(LuaTestSequenceTests, AnErrorInTheTestIsNotAFailureOfTheNetwork)
 {
     // Different outcomes because they need different people: a failure is about
     // the bus, an error is about the test. A tool that conflates them sends
@@ -264,22 +264,22 @@ TEST_CASE("An error in the test is not a failure of the network", "[lua][sequenc
 
     bench.run(400);
 
-    REQUIRE(bench.sequence->isComplete());
+    ASSERT_TRUE(bench.sequence->isComplete());
 
     const std::vector<TestCaseResult> results = bench.report.results();
-    REQUIRE(results.size() == 2);
+    ASSERT_TRUE(results.size() == 2);
 
-    CHECK(results[0].outcome == TestOutcome::Errored);
-    CHECK_FALSE(results[0].message.empty());
-    CHECK(results[1].outcome == TestOutcome::Passed);
+    EXPECT_TRUE(results[0].outcome == TestOutcome::Errored);
+    EXPECT_FALSE(results[0].message.empty());
+    EXPECT_TRUE(results[1].outcome == TestOutcome::Passed);
 
     const TestSummary summary = bench.report.summary();
-    CHECK(summary.errored == 1);
-    CHECK(summary.failed == 0);
-    CHECK(summary.passed == 1);
+    EXPECT_TRUE(summary.errored == 1);
+    EXPECT_TRUE(summary.failed == 0);
+    EXPECT_TRUE(summary.passed == 1);
 }
 
-TEST_CASE("A sequence that declares nothing says so", "[lua][sequence]")
+TEST(LuaTestSequenceTests, ASequenceThatDeclaresNothingSaysSo)
 {
     // "0 of 0 passed" is the most dangerous sentence a test report can print.
     Bench bench{"-- a file somebody emptied by accident"};
@@ -288,15 +288,15 @@ TEST_CASE("A sequence that declares nothing says so", "[lua][sequence]")
 
     const TestSummary summary = bench.report.summary();
 
-    CHECK(summary.started);
-    CHECK(summary.total == 0);
-    CHECK(summary.passed == 0);
+    EXPECT_TRUE(summary.started);
+    EXPECT_TRUE(summary.total == 0);
+    EXPECT_TRUE(summary.passed == 0);
 
     // And it was said out loud, in the error colour.
-    CHECK_FALSE(bench.errors.empty());
+    EXPECT_FALSE(bench.errors.empty());
 }
 
-TEST_CASE("Cases run one at a time, in the order they were declared", "[lua][sequence]")
+TEST(LuaTestSequenceTests, CasesRunOneAtATimeInTheOrderTheyWereDeclared)
 {
     // A network is a shared thing. Two cases driving it at once would make each
     // one's result depend on the other's timing, which is the property a test
@@ -319,25 +319,25 @@ TEST_CASE("Cases run one at a time, in the order they were declared", "[lua][seq
 
     bench.run(500);
 
-    REQUIRE(bench.sequence->isComplete());
+    ASSERT_TRUE(bench.sequence->isComplete());
 
     const std::vector<TestCaseResult> results = bench.report.results();
-    REQUIRE(results.size() == 3);
+    ASSERT_TRUE(results.size() == 3);
 
-    CHECK(results[0].name == "first");
-    CHECK(results[1].name == "second");
-    CHECK(results[2].name == "third");
+    EXPECT_TRUE(results[0].name == "first");
+    EXPECT_TRUE(results[1].name == "second");
+    EXPECT_TRUE(results[2].name == "third");
 
     // And they did not overlap: each started after the one before finished.
-    CHECK(results[0].finishedNs <= results[1].startedNs);
-    CHECK(results[1].finishedNs <= results[2].startedNs);
+    EXPECT_TRUE(results[0].finishedNs <= results[1].startedNs);
+    EXPECT_TRUE(results[1].finishedNs <= results[2].startedNs);
 
     // The first case really did wait, rather than the framework running the
     // whole sequence inside one pass.
-    CHECK(results[0].finishedNs - results[0].startedNs >= 15'000'000ULL);
+    EXPECT_TRUE(results[0].finishedNs - results[0].startedNs >= 15'000'000ULL);
 }
 
-TEST_CASE("A sequence can send, and what it sends leaves the node", "[lua][sequence]")
+TEST(LuaTestSequenceTests, ASequenceCanSendAndWhatItSendsLeavesTheNode)
 {
     Bench bench{R"(
         test("sends a request", function()
@@ -348,17 +348,17 @@ TEST_CASE("A sequence can send, and what it sends leaves the node", "[lua][seque
 
     bench.run(300);
 
-    REQUIRE(bench.sequence->isComplete());
-    REQUIRE(bench.collector->frames.size() == 1);
+    ASSERT_TRUE(bench.sequence->isComplete());
+    ASSERT_TRUE(bench.collector->frames.size() == 1);
 
     const CanFrame& frame = bench.collector->frames.front();
-    CHECK(frame.identifier == 0x7E0);
-    CHECK(frame.length == 3);
-    CHECK(frame.data[0] == 0x22);
-    CHECK(frame.direction == CanDirection::Tx);
+    EXPECT_TRUE(frame.identifier == 0x7E0);
+    EXPECT_TRUE(frame.length == 3);
+    EXPECT_TRUE(frame.data[0] == 0x22);
+    EXPECT_TRUE(frame.direction == CanDirection::Tx);
 }
 
-TEST_CASE("A filter keeps waiting for the frame the case meant", "[lua][sequence]")
+TEST(LuaTestSequenceTests, AFilterKeepsWaitingForTheFrameTheCaseMeant)
 {
     // `where` narrows what counts, and the deadline belongs to the wait rather
     // than to each candidate - a filter that reset the clock on every frame it
@@ -385,15 +385,15 @@ TEST_CASE("A filter keeps waiting for the frame the case meant", "[lua][sequence
 
     bench.run(700);
 
-    REQUIRE(bench.sequence->isComplete());
+    ASSERT_TRUE(bench.sequence->isComplete());
 
     const std::vector<TestCaseResult> results = bench.report.results();
-    REQUIRE(results.size() == 1);
-    INFO(results.front().message);
-    CHECK(results.front().outcome == TestOutcome::Passed);
+    ASSERT_TRUE(results.size() == 1);
+    SCOPED_TRACE(::testing::Message() << results.front().message);
+    EXPECT_TRUE(results.front().outcome == TestOutcome::Passed);
 }
 
-TEST_CASE("A run stopped halfway does not read as passed", "[lua][sequence]")
+TEST(LuaTestSequenceTests, ARunStoppedHalfwayDoesNotReadAsPassed)
 {
     // Somebody presses Stop while a case is waiting. The case did not pass - it
     // did not finish - and a report that dropped it would be missing exactly
@@ -406,20 +406,20 @@ TEST_CASE("A run stopped halfway does not read as passed", "[lua][sequence]")
 
     bench.run(60);
 
-    REQUIRE_FALSE(bench.sequence->isComplete());
+    ASSERT_FALSE(bench.sequence->isComplete());
 
     bench.graph.finish();
 
     const std::vector<TestCaseResult> results = bench.report.results();
-    REQUIRE(results.size() == 1);
-    CHECK(results.front().outcome == TestOutcome::Errored);
+    ASSERT_TRUE(results.size() == 1);
+    EXPECT_TRUE(results.front().outcome == TestOutcome::Errored);
 
     const TestSummary summary = bench.report.summary();
-    CHECK(summary.passed == 0);
-    CHECK(summary.total == 1);
+    EXPECT_TRUE(summary.passed == 0);
+    EXPECT_TRUE(summary.total == 1);
 }
 
-TEST_CASE("The report hands a panel only what is new", "[lua][sequence][report]")
+TEST(LuaTestSequenceTests, TheReportHandsAPanelOnlyWhatIsNew)
 {
     TestReport report;
     report.begin(3);
@@ -429,8 +429,8 @@ TEST_CASE("The report hands a panel only what is new", "[lua][sequence][report]"
     first.outcome = TestOutcome::Passed;
     report.add(first);
 
-    REQUIRE(report.takeNew().size() == 1);
-    CHECK(report.takeNew().empty());
+    ASSERT_TRUE(report.takeNew().size() == 1);
+    EXPECT_TRUE(report.takeNew().empty());
 
     TestCaseResult second;
     second.name = "second";
@@ -438,33 +438,33 @@ TEST_CASE("The report hands a panel only what is new", "[lua][sequence][report]"
     report.add(second);
 
     const std::vector<TestCaseResult> fresh = report.takeNew();
-    REQUIRE(fresh.size() == 1);
-    CHECK(fresh.front().name == "second");
+    ASSERT_TRUE(fresh.size() == 1);
+    EXPECT_TRUE(fresh.front().name == "second");
 
     // results() still has both: takeNew is a cursor, not a queue.
-    CHECK(report.results().size() == 2);
+    EXPECT_TRUE(report.results().size() == 2);
 
     // Total is what was *declared*, so a run halfway through reads "1 of 3"
     // rather than "1 of 2, all passed".
     const TestSummary summary = report.summary();
-    CHECK(summary.total == 3);
-    CHECK(summary.passed == 1);
-    CHECK(summary.failed == 1);
-    CHECK_FALSE(summary.complete);
+    EXPECT_TRUE(summary.total == 3);
+    EXPECT_TRUE(summary.passed == 1);
+    EXPECT_TRUE(summary.failed == 1);
+    EXPECT_FALSE(summary.complete);
 }
 
-TEST_CASE("An empty report is not a passing report", "[lua][sequence][report]")
+TEST(LuaTestSequenceTests, AnEmptyReportIsNotAPassingReport)
 {
     TestReport report;
 
     const TestSummary summary = report.summary();
 
-    CHECK_FALSE(summary.started);
-    CHECK_FALSE(summary.complete);
-    CHECK(summary.total == 0);
+    EXPECT_FALSE(summary.started);
+    EXPECT_FALSE(summary.complete);
+    EXPECT_TRUE(summary.total == 0);
 }
 
-TEST_CASE("A sequence reads its parameters like any other script", "[lua][sequence]")
+TEST(LuaTestSequenceTests, ASequenceReadsItsParametersLikeAnyOtherScript)
 {
     Bench bench{R"(
         test("the identifier comes from the block", function()
@@ -477,16 +477,16 @@ TEST_CASE("A sequence reads its parameters like any other script", "[lua][sequen
 
     // Set after construction, so the graph has to be prepared again for the
     // node to see them - which is what compile() does.
-    REQUIRE(bench.graph.compile().succeeded());
+    ASSERT_TRUE(bench.graph.compile().succeeded());
 
     bench.run(300);
 
-    REQUIRE(bench.sequence->isComplete());
-    REQUIRE_FALSE(bench.collector->frames.empty());
-    CHECK(bench.collector->frames.back().identifier == 0x123);
+    ASSERT_TRUE(bench.sequence->isComplete());
+    ASSERT_FALSE(bench.collector->frames.empty());
+    EXPECT_TRUE(bench.collector->frames.back().identifier == 0x123);
 }
 
-TEST_CASE("A sequence that will not compile fails the graph", "[lua][sequence]")
+TEST(LuaTestSequenceTests, ASequenceThatWillNotCompileFailsTheGraph)
 {
     // Finding out that a test file has a typo *after* setting up the bench is
     // the wrong moment.
@@ -494,12 +494,12 @@ TEST_CASE("A sequence that will not compile fails the graph", "[lua][sequence]")
 
     const Result result = node.prepare(64);
 
-    REQUIRE(result.failed());
-    INFO(std::string{result.message()});
-    CHECK(std::string{result.message()}.find("sequence.lua") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("sequence.lua") != std::string::npos);
 }
 
-TEST_CASE("test() refuses a case with no body", "[lua][sequence]")
+TEST(LuaTestSequenceTests, TestRefusesACaseWithNoBody)
 {
     // Refused where it is written, at Start, rather than when the runner
     // reaches it - by which time the bench is set up and somebody is watching.
@@ -507,7 +507,7 @@ TEST_CASE("test() refuses a case with no body", "[lua][sequence]")
 
     const Result result = node.prepare(64);
 
-    REQUIRE(result.failed());
-    INFO(std::string{result.message()});
-    CHECK(std::string{result.message()}.find("function") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("function") != std::string::npos);
 }

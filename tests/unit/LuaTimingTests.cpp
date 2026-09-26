@@ -17,7 +17,7 @@
 #include "core/pipeline/PipelineGraph.h"
 #include "core/scripting/LuaEcuNode.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <chrono>
 #include <map>
@@ -74,8 +74,8 @@ struct Bench final {
         collector = sink.get();
         const NodeId sinkId = graph.addNode(std::move(sink));
 
-        REQUIRE(graph.connect(PortRef{ecuId, 0}, PortRef{sinkId, 0}).succeeded());
-        REQUIRE(graph.compile().succeeded());
+        EXPECT_TRUE(graph.connect(PortRef{ecuId, 0}, PortRef{sinkId, 0}).succeeded());
+        EXPECT_TRUE(graph.compile().succeeded());
     }
 
     /// Runs for `milliseconds`, dispatching about as often as the executor does.
@@ -106,7 +106,7 @@ struct Bench final {
 
 } // namespace
 
-TEST_CASE("Several timers run at their own rates", "[lua][timing]")
+TEST(LuaTimingTests, SeveralTimersRunAtTheirOwnRates)
 {
     // The thing set_timer could not do: an ECU sends a 10 ms message and a
     // 100 ms one, which is what every real one does and what one timer forces
@@ -125,17 +125,17 @@ TEST_CASE("Several timers run at their own rates", "[lua][timing]")
 
     // Ranges, not counts: the executor dispatches on its own rhythm and the
     // machine is shared.
-    CHECK(fast >= 12);
-    CHECK(fast <= 30);
+    EXPECT_TRUE(fast >= 12);
+    EXPECT_TRUE(fast <= 30);
 
-    CHECK(slow >= 3);
-    CHECK(slow <= 7);
+    EXPECT_TRUE(slow >= 3);
+    EXPECT_TRUE(slow <= 7);
 
     // And the relationship holds even when both bounds are generous.
-    CHECK(fast > slow * 2);
+    EXPECT_TRUE(fast > slow * 2);
 }
 
-TEST_CASE("A cyclic message sends itself", "[lua][timing]")
+TEST(LuaTimingTests, ACyclicMessageSendsItself)
 {
     // Declared once, no timer body, no bookkeeping in the script - which is the
     // whole point: an ECU's periodic traffic is a list of facts, not a program.
@@ -148,18 +148,18 @@ TEST_CASE("A cyclic message sends itself", "[lua][timing]")
     bench.run(150);
 
     const std::size_t count = bench.countOf(0x123);
-    CHECK(count >= 4);
-    CHECK(count <= 12);
+    EXPECT_TRUE(count >= 4);
+    EXPECT_TRUE(count <= 12);
 
-    REQUIRE_FALSE(bench.collector->frames.empty());
+    ASSERT_FALSE(bench.collector->frames.empty());
 
     const CanFrame& frame = bench.collector->frames.front();
-    CHECK(frame.length == 2);
-    CHECK(frame.data[0] == 0xAA);
-    CHECK(frame.data[1] == 0xBB);
+    EXPECT_TRUE(frame.length == 2);
+    EXPECT_TRUE(frame.data[0] == 0xAA);
+    EXPECT_TRUE(frame.data[1] == 0xBB);
 }
 
-TEST_CASE("A cyclic message can build its payload each time", "[lua][timing]")
+TEST(LuaTimingTests, ACyclicMessageCanBuildItsPayloadEachTime)
 {
     // A rolling counter, which nearly every real message carries so a receiver
     // can tell a repeated frame from a fresh one.
@@ -175,18 +175,18 @@ TEST_CASE("A cyclic message can build its payload each time", "[lua][timing]")
 
     bench.run(140);
 
-    REQUIRE(bench.collector->frames.size() >= 4);
+    ASSERT_TRUE(bench.collector->frames.size() >= 4);
 
     // Successive frames carry successive counters, wrapping at 16.
     for (std::size_t index = 1; index < bench.collector->frames.size(); ++index) {
         const std::uint8_t previous = bench.collector->frames[index - 1].data[0];
         const std::uint8_t current = bench.collector->frames[index].data[0];
 
-        CHECK(current == static_cast<std::uint8_t>((previous + 1) % 16));
+        EXPECT_TRUE(current == static_cast<std::uint8_t>((previous + 1) % 16));
     }
 }
 
-TEST_CASE("A cyclic message can be silenced and brought back", "[lua][timing]")
+TEST(LuaTimingTests, ACyclicMessageCanBeSilencedAndBroughtBack)
 {
     // What does the rest of the network do when this ECU goes quiet? The
     // question fault injection exists to ask - and stopping is not a deletion:
@@ -209,21 +209,21 @@ TEST_CASE("A cyclic message can be silenced and brought back", "[lua][timing]")
 
     bench.run(50);
     const std::size_t beforeStop = bench.countOf(0x400);
-    CHECK(beforeStop >= 2);
+    EXPECT_TRUE(beforeStop >= 2);
 
     bench.run(50);
     const std::size_t whileStopped = bench.countOf(0x400);
 
     // Nothing, or the one frame that was already due when the stop landed.
-    CHECK(whileStopped <= beforeStop + 2);
+    EXPECT_TRUE(whileStopped <= beforeStop + 2);
 
     bench.run(90);
 
     // And it came back.
-    CHECK(bench.countOf(0x400) > whileStopped + 1);
+    EXPECT_TRUE(bench.countOf(0x400) > whileStopped + 1);
 }
 
-TEST_CASE("A provider that returns nothing skips a cycle", "[lua][timing]")
+TEST(LuaTimingTests, AProviderThatReturnsNothingSkipsACycle)
 {
     // A legitimate way for a script to say "not this time" - a message that is
     // only sent while a condition holds - and not an error worth counting
@@ -248,11 +248,11 @@ TEST_CASE("A provider that returns nothing skips a cycle", "[lua][timing]")
 
     // Some frames, but not one per cycle: the first fifty milliseconds are
     // silent.
-    CHECK(count >= 4);
-    CHECK(count <= 22);
+    EXPECT_TRUE(count >= 4);
+    EXPECT_TRUE(count <= 22);
 }
 
-TEST_CASE("Declaring the same cyclic message twice replaces it", "[lua][timing]")
+TEST(LuaTimingTests, DeclaringTheSameCyclicMessageTwiceReplacesIt)
 {
     // Two jobs sending 0x600 at different rates is never what anybody meant,
     // and it is what a script edited and re-run would otherwise produce.
@@ -265,14 +265,14 @@ TEST_CASE("Declaring the same cyclic message twice replaces it", "[lua][timing]"
 
     bench.run(80);
 
-    REQUIRE_FALSE(bench.collector->frames.empty());
+    ASSERT_FALSE(bench.collector->frames.empty());
 
     for (const CanFrame& frame : bench.collector->frames) {
-        CHECK(frame.data[0] == 0x02);
+        EXPECT_TRUE(frame.data[0] == 0x02);
     }
 }
 
-TEST_CASE("A period has to be a positive number of milliseconds", "[lua][timing]")
+TEST(LuaTimingTests, APeriodHasToBeAPositiveNumberOfMilliseconds)
 {
     // A period of zero is a loop that never yields. Refused where it was
     // written rather than at the first tick - and refused at Start, like every
@@ -287,12 +287,12 @@ TEST_CASE("A period has to be a positive number of milliseconds", "[lua][timing]
 
     const Result result = node.prepare(64);
 
-    REQUIRE(result.failed());
-    INFO(std::string{result.message()});
-    CHECK(std::string{result.message()}.find("positive") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("positive") != std::string::npos);
 }
 
-TEST_CASE("every wants a function, and says so", "[lua][timing]")
+TEST(LuaTimingTests, EveryWantsAFunctionAndSaysSo)
 {
     LuaEcuNode node{R"(
         function on_enable()
@@ -303,12 +303,12 @@ TEST_CASE("every wants a function, and says so", "[lua][timing]")
 
     const Result result = node.prepare(64);
 
-    REQUIRE(result.failed());
-    INFO(std::string{result.message()});
-    CHECK(std::string{result.message()}.find("function") != std::string::npos);
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("function") != std::string::npos);
 }
 
-TEST_CASE("The generators are arithmetic over the measurement clock", "[lua][timing][prelude]")
+TEST(LuaTimingTests, TheGeneratorsAreArithmeticOverTheMeasurementClock)
 {
     // Checked through what they produce rather than by reading them back: a
     // ramp that never leaves its bounds and a sine that goes both above and
@@ -326,13 +326,13 @@ TEST_CASE("The generators are arithmetic over the measurement clock", "[lua][tim
 
     bench.run(300);
 
-    REQUIRE(bench.collector->frames.size() >= 8);
+    ASSERT_TRUE(bench.collector->frames.size() >= 8);
 
     bool sawLow = false;
     bool sawHigh = false;
 
     for (const CanFrame& frame : bench.collector->frames) {
-        CHECK(frame.data[0] <= 100);
+        EXPECT_TRUE(frame.data[0] <= 100);
 
         if (frame.data[1] < 40) {
             sawLow = true;
@@ -342,11 +342,11 @@ TEST_CASE("The generators are arithmetic over the measurement clock", "[lua][tim
         }
     }
 
-    CHECK(sawLow);
-    CHECK(sawHigh);
+    EXPECT_TRUE(sawLow);
+    EXPECT_TRUE(sawHigh);
 }
 
-TEST_CASE("Resuming a stopped message does not produce a burst", "[lua][timing]")
+TEST(LuaTimingTests, ResumingAStoppedMessageDoesNotProduceABurst)
 {
     // Everything that was missed while it was stopped is *not* sent when it
     // comes back: the resumed job fires on its next cycle. A burst would be
@@ -369,7 +369,7 @@ TEST_CASE("Resuming a stopped message does not produce a burst", "[lua][timing]"
     // milliseconds of that was silent, so it has to be well under.
     const std::size_t count = bench.countOf(0x800);
 
-    INFO(count);
-    CHECK(count >= 2);
-    CHECK(count <= 16);
+    SCOPED_TRACE(::testing::Message() << count);
+    EXPECT_TRUE(count >= 2);
+    EXPECT_TRUE(count <= 16);
 }

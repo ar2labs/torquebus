@@ -17,7 +17,7 @@
 
 #include "plugins/host/PluginLoader.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -91,7 +91,7 @@ struct Harness final {
 
 } // namespace
 
-TEST_CASE("A plugin registers a block the application can then build", "[plugins]")
+TEST(PluginLoaderTests, APluginRegistersABlockTheApplicationCanThenBuild)
 {
     // The seam that matters: a type that came from outside the binary is in the
     // same catalogue as the built-in ones, registered through the same call,
@@ -99,22 +99,22 @@ TEST_CASE("A plugin registers a block the application can then build", "[plugins
     Harness harness;
     const PluginLoader loader = loadAll(harness);
 
-    REQUIRE(loadedContains(loader, "good"));
+    ASSERT_TRUE(loadedContains(loader, "good"));
 
     const NodeTypeInfo* info = harness.nodes.find("test.passthrough");
-    REQUIRE(info != nullptr);
-    CHECK(info->category == "Transforms");
+    ASSERT_TRUE(info != nullptr);
+    EXPECT_TRUE(info->category == "Transforms");
 
     NodeBuildContext context;
     std::unique_ptr<IPipelineNode> node;
 
-    REQUIRE(
+    ASSERT_TRUE(
         harness.nodes.create("test.passthrough", NodeParameters{}, context, "p", node).succeeded());
-    REQUIRE(node != nullptr);
-    CHECK(node->typeName() == "test.passthrough");
+    ASSERT_TRUE(node != nullptr);
+    EXPECT_TRUE(node->typeName() == "test.passthrough");
 }
 
-TEST_CASE("A plugin built with another toolchain is refused, and both keys are shown", "[plugins]")
+TEST(PluginLoaderTests, APluginBuiltWithAnotherToolchainIsRefusedAndBothKeysAreShown)
 {
     // "Incompatible" is not something anybody can act on. The difference
     // between the two strings usually names the fix - a Debug plugin next to a
@@ -123,16 +123,16 @@ TEST_CASE("A plugin built with another toolchain is refused, and both keys are s
     const PluginLoader loader = loadAll(harness);
 
     const RejectedPlugin* rejected = rejectionFor(loader, "badkey");
-    REQUIRE(rejected != nullptr);
+    ASSERT_TRUE(rejected != nullptr);
 
-    CHECK(rejected->reason.find("some-other-compiler") != std::string::npos);
-    CHECK(rejected->reason.find(std::string{PluginLoader::hostBuildKey()}) != std::string::npos);
+    EXPECT_TRUE(rejected->reason.find("some-other-compiler") != std::string::npos);
+    EXPECT_TRUE(rejected->reason.find(std::string{PluginLoader::hostBuildKey()})
+                != std::string::npos);
 
-    CHECK_FALSE(loadedContains(loader, "badkey"));
+    EXPECT_FALSE(loadedContains(loader, "badkey"));
 }
 
-TEST_CASE("A plugin from a future version is refused by the two fields that never move",
-          "[plugins]")
+TEST(PluginLoaderTests, APluginFromAFutureVersionIsRefusedByTheTwoFieldsThatNeverMove)
 {
     // Its PluginInfo may be laid out in a way this build has never seen. Only
     // the ABI version and the build key have a position both sides agreed on,
@@ -141,13 +141,13 @@ TEST_CASE("A plugin from a future version is refused by the two fields that neve
     const PluginLoader loader = loadAll(harness);
 
     const RejectedPlugin* rejected = rejectionFor(loader, "badabi");
-    REQUIRE(rejected != nullptr);
+    ASSERT_TRUE(rejected != nullptr);
 
-    CHECK(rejected->reason.find("ABI") != std::string::npos);
-    CHECK_FALSE(loadedContains(loader, "badabi"));
+    EXPECT_TRUE(rejected->reason.find("ABI") != std::string::npos);
+    EXPECT_FALSE(loadedContains(loader, "badabi"));
 }
 
-TEST_CASE("A library that is not a plugin is named, not passed over", "[plugins]")
+TEST(PluginLoaderTests, ALibraryThatIsNotAPluginIsNamedNotPassedOver)
 {
     // A DLL in the plugins directory that exports nothing TorqueBus knows. It
     // is somebody putting the wrong file in the right folder, and saying so is
@@ -156,12 +156,12 @@ TEST_CASE("A library that is not a plugin is named, not passed over", "[plugins]
     const PluginLoader loader = loadAll(harness);
 
     const RejectedPlugin* rejected = rejectionFor(loader, "nosymbol");
-    REQUIRE(rejected != nullptr);
+    ASSERT_TRUE(rejected != nullptr);
 
-    CHECK(rejected->reason.find("torquebusPluginQuery") != std::string::npos);
+    EXPECT_TRUE(rejected->reason.find("torquebusPluginQuery") != std::string::npos);
 }
 
-TEST_CASE("A plugin that throws does not take the others with it", "[plugins]")
+TEST(PluginLoaderTests, APluginThatThrowsDoesNotTakeTheOthersWithIt)
 {
     // One bad plugin must not cost the person every other plugin, or the
     // program. The throwing one is refused and the good one is still there.
@@ -169,14 +169,14 @@ TEST_CASE("A plugin that throws does not take the others with it", "[plugins]")
     const PluginLoader loader = loadAll(harness);
 
     const RejectedPlugin* rejected = rejectionFor(loader, "throws");
-    REQUIRE(rejected != nullptr);
-    CHECK(rejected->reason.find("threw") != std::string::npos);
+    ASSERT_TRUE(rejected != nullptr);
+    EXPECT_TRUE(rejected->reason.find("threw") != std::string::npos);
 
-    CHECK(loadedContains(loader, "good"));
-    CHECK(harness.nodes.find("test.passthrough") != nullptr);
+    EXPECT_TRUE(loadedContains(loader, "good"));
+    EXPECT_TRUE(harness.nodes.find("test.passthrough") != nullptr);
 }
 
-TEST_CASE("A plugin that declines says why itself", "[plugins]")
+TEST(PluginLoaderTests, APluginThatDeclinesSaysWhyItself)
 {
     // What a driver plugin does when its SDK is not installed. It is the only
     // one that knows why, so the loader records that it declined and does not
@@ -185,17 +185,17 @@ TEST_CASE("A plugin that declines says why itself", "[plugins]")
     const PluginLoader loader = loadAll(harness);
 
     const RejectedPlugin* rejected = rejectionFor(loader, "declines");
-    REQUIRE(rejected != nullptr);
-    CHECK(rejected->reason.find("declined") != std::string::npos);
+    ASSERT_TRUE(rejected != nullptr);
+    EXPECT_TRUE(rejected->reason.find("declined") != std::string::npos);
 
     const bool saidSo =
         std::any_of(harness.errors.begin(), harness.errors.end(), [](const std::string& text) {
             return text.find("SDK is not installed") != std::string::npos;
         });
-    CHECK(saidSo);
+    EXPECT_TRUE(saidSo);
 }
 
-TEST_CASE("Every plugin in the directory is accounted for", "[plugins]")
+TEST(PluginLoaderTests, EveryPluginInTheDirectoryIsAccountedFor)
 {
     // Loaded plus refused, and nothing quietly skipped. A file that is neither
     // is a file nobody will ever ask about.
@@ -210,11 +210,11 @@ TEST_CASE("Every plugin in the directory is accounted for", "[plugins]")
         }
     }
 
-    REQUIRE(libraries > 0U);
-    CHECK(loader.loaded().size() + loader.rejected().size() == libraries);
+    ASSERT_TRUE(libraries > 0U);
+    EXPECT_TRUE(loader.loaded().size() + loader.rejected().size() == libraries);
 }
 
-TEST_CASE("A directory with no plugins is not a failure", "[plugins]")
+TEST(PluginLoaderTests, ADirectoryWithNoPluginsIsNotAFailure)
 {
     // What a build with no plugins looks like. The program is expected to work
     // without any, so this cannot be an error and must not produce one.
@@ -223,12 +223,12 @@ TEST_CASE("A directory with no plugins is not a failure", "[plugins]")
     PluginLoader loader;
     loader.loadFrom(pluginDirectory() / "there-is-no-such-directory", harness.host());
 
-    CHECK(loader.loaded().empty());
-    CHECK(loader.rejected().empty());
-    CHECK(harness.errors.empty());
+    EXPECT_TRUE(loader.loaded().empty());
+    EXPECT_TRUE(loader.rejected().empty());
+    EXPECT_TRUE(harness.errors.empty());
 }
 
-TEST_CASE("Plugins are looked for beside the executable and nowhere else", "[plugins]")
+TEST(PluginLoaderTests, PluginsAreLookedForBesideTheExecutableAndNowhereElse)
 {
     // Not the working directory, and not PATH. Loading a library from the
     // working directory is how opening a project turns into running whatever
@@ -236,19 +236,19 @@ TEST_CASE("Plugins are looked for beside the executable and nowhere else", "[plu
     const std::filesystem::path executable = "C:/Program Files/TorqueBus/TorqueBusStudio.exe";
     const std::filesystem::path directory = PluginLoader::directoryFor(executable);
 
-    CHECK(directory.filename() == "plugins");
-    CHECK(directory.parent_path() == executable.parent_path());
+    EXPECT_TRUE(directory.filename() == "plugins");
+    EXPECT_TRUE(directory.parent_path() == executable.parent_path());
 }
 
-TEST_CASE("The host build key names what a plugin has to match", "[plugins]")
+TEST(PluginLoaderTests, TheHostBuildKeyNamesWhatAPluginHasToMatch)
 {
     // The three things that decide whether two binaries can pass a std::function
     // to each other. Qt is deliberately not among them: nothing crossing this
     // boundary is a Qt type.
     const std::string key{PluginLoader::hostBuildKey()};
 
-    CHECK(key.find("torquebus-abi-") != std::string::npos);
-    CHECK(key.find("stl-") != std::string::npos);
-    CHECK(key.find("x64") != std::string::npos);
-    CHECK(key.find("Qt") == std::string::npos);
+    EXPECT_TRUE(key.find("torquebus-abi-") != std::string::npos);
+    EXPECT_TRUE(key.find("stl-") != std::string::npos);
+    EXPECT_TRUE(key.find("x64") != std::string::npos);
+    EXPECT_TRUE(key.find("Qt") == std::string::npos);
 }

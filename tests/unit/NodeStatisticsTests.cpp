@@ -13,7 +13,7 @@
 // node says what it counted, in its own words, and nothing above it needs to
 // know which type it was.
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include "core/database/DbcParser.h"
 #include "core/pipeline/PipelineGraph.h"
@@ -82,15 +82,15 @@ statisticNamed(const IPipelineNode& node, const std::string& label, std::uint64_
 
 } // namespace
 
-TEST_CASE("A node reports its counters without anything knowing its type", "[statistics]")
+TEST(NodeStatisticsTests, ANodeReportsItsCountersWithoutAnythingKnowingItsType)
 {
     auto database = std::make_shared<CanDatabase>();
-    REQUIRE(DbcParser::parse(R"(
+    ASSERT_TRUE(DbcParser::parse(R"(
 BO_ 257 VehicleSpeed: 8 ECU
  SG_ SpeedKmh : 0|16@1+ (0.1,0) [0|6553.5] "km/h" ECM
 )",
-                             *database)
-                .succeeded());
+                                 *database)
+                    .succeeded());
 
     PipelineGraph graph;
 
@@ -100,36 +100,36 @@ BO_ 257 VehicleSpeed: 8 ECU
     auto decoderNode = std::make_unique<DbcDecoderNode>(std::move(database), "decoder");
     const NodeId decoder = graph.addNode(std::move(decoderNode));
 
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{decoder, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{decoder, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 
     graph.execute();
 
     // Reached through the base interface, which is the point: a Statistics
     // panel never needs to have heard of DbcDecoderNode.
     const IPipelineNode* node = graph.node(decoder);
-    REQUIRE(node != nullptr);
+    ASSERT_TRUE(node != nullptr);
 
     std::uint64_t decoded = 0;
     std::uint64_t unknown = 0;
-    REQUIRE(statisticNamed(*node, "Frames decoded", decoded));
-    REQUIRE(statisticNamed(*node, "Frames not in the database", unknown));
+    ASSERT_TRUE(statisticNamed(*node, "Frames decoded", decoded));
+    ASSERT_TRUE(statisticNamed(*node, "Frames not in the database", unknown));
 
-    CHECK(decoded == 1);
-    CHECK(unknown == 2);
+    EXPECT_TRUE(decoded == 1);
+    EXPECT_TRUE(unknown == 2);
 }
 
-TEST_CASE("A node with nothing to count reports nothing", "[statistics]")
+TEST(NodeStatisticsTests, ANodeWithNothingToCountReportsNothing)
 {
     // The default is an empty list, so a node type that has no numbers does not
     // have to say so - and the table above it can leave it out rather than
     // showing a name with no figures beside it.
     const StaticSource source{{}};
 
-    CHECK(source.statistics().empty());
+    EXPECT_TRUE(source.statistics().empty());
 }
 
-TEST_CASE("Every node in a graph can be walked by id", "[statistics]")
+TEST(NodeStatisticsTests, EveryNodeInAGraphCanBeWalkedById)
 {
     // What lets the engine take a snapshot without the graph handing out
     // pointers that a recompile would invalidate.
@@ -142,16 +142,16 @@ TEST_CASE("Every node in a graph can be walked by id", "[statistics]")
 
     const std::vector<NodeId> ids = graph.nodeIds();
 
-    REQUIRE(ids.size() == 2);
-    CHECK(ids[0] == source);
-    CHECK(ids[1] == sink);
+    ASSERT_TRUE(ids.size() == 2);
+    EXPECT_TRUE(ids[0] == source);
+    EXPECT_TRUE(ids[1] == sink);
 
     for (const NodeId id : ids) {
-        CHECK(graph.node(id) != nullptr);
+        EXPECT_TRUE(graph.node(id) != nullptr);
     }
 }
 
-TEST_CASE("A sink counts what it delivered, and says so in words", "[statistics]")
+TEST(NodeStatisticsTests, ASinkCountsWhatItDeliveredAndSaysSoInWords)
 {
     // The label is part of the contract. Ten node types each abbreviating
     // differently is how a table of numbers becomes a table nobody reads.
@@ -162,12 +162,12 @@ TEST_CASE("A sink counts what it delivered, and says so in words", "[statistics]
     const NodeId sink =
         graph.addNode(std::make_unique<FrameSinkNode>([](std::span<const CanFrame>) { }));
 
-    REQUIRE(graph.connect(PortRef{source, 0}, PortRef{sink, 0}).succeeded());
-    REQUIRE(graph.compile().succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
 
     graph.execute();
 
     std::uint64_t delivered = 0;
-    REQUIRE(statisticNamed(*graph.node(sink), "Frames delivered", delivered));
-    CHECK(delivered == 2);
+    ASSERT_TRUE(statisticNamed(*graph.node(sink), "Frames delivered", delivered));
+    EXPECT_TRUE(delivered == 2);
 }

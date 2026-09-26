@@ -11,7 +11,7 @@
 #include "services/HardwareProfile.h"
 #include "services/SettingsStore.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <QDir>
 #include <QStringList>
@@ -29,10 +29,10 @@ class ScopedSettings final {
 public:
     ScopedSettings()
     {
-        REQUIRE(m_directory.isValid());
+        EXPECT_TRUE(m_directory.isValid());
         m_store = std::make_unique<SettingsStore>(
             QDir{m_directory.path()}.filePath(QStringLiteral("settings.json")));
-        REQUIRE(m_store->load());
+        EXPECT_TRUE(m_store->load());
     }
 
     [[nodiscard]] SettingsStore& store() const noexcept { return *m_store; }
@@ -44,7 +44,7 @@ private:
 
 } // namespace
 
-TEST_CASE("An interface nobody has configured is used, at the default rate", "[hardware]")
+TEST(HardwareProfileTests, AnInterfaceNobodyHasConfiguredIsUsedAtTheDefaultRate)
 {
     // The defaults are what the application did before this class existed:
     // every detected interface bound, at 250 kbit/s. Somebody who has just
@@ -55,14 +55,14 @@ TEST_CASE("An interface nobody has configured is used, at the default rate", "[h
 
     const ChannelPreferences preferences = profile.preferencesFor(QStringLiteral("peak:usb0"));
 
-    CHECK(preferences.enabled);
-    CHECK(preferences.bitrate == torquebus::kDefaultBitrate);
-    CHECK_FALSE(preferences.canFd);
-    CHECK_FALSE(preferences.listenOnly);
-    CHECK(preferences.receiveErrorFrames);
+    EXPECT_TRUE(preferences.enabled);
+    EXPECT_TRUE(preferences.bitrate == torquebus::kDefaultBitrate);
+    EXPECT_FALSE(preferences.canFd);
+    EXPECT_FALSE(preferences.listenOnly);
+    EXPECT_TRUE(preferences.receiveErrorFrames);
 }
 
-TEST_CASE("Settings follow the adapter, not the slot", "[hardware]")
+TEST(HardwareProfileTests, SettingsFollowTheAdapterNotTheSlot)
 {
     // Stored per handle. Unplug an adapter, plug it back in second, and it is
     // still listen-only at 500 kbit/s - because that describes the bus it is
@@ -79,21 +79,21 @@ TEST_CASE("Settings follow the adapter, not the slot", "[hardware]")
 
     // Read back through a second store, to prove it reached the file.
     SettingsStore reopened{settings.store().filePath()};
-    REQUIRE(reopened.load());
+    ASSERT_TRUE(reopened.load());
 
     const HardwareProfile reloaded{reopened};
     const ChannelPreferences stored = reloaded.preferencesFor(QStringLiteral("kvaser:1"));
 
-    CHECK(stored.bitrate == 500'000);
-    CHECK(stored.listenOnly);
-    CHECK_FALSE(stored.receiveErrorFrames);
+    EXPECT_TRUE(stored.bitrate == 500'000);
+    EXPECT_TRUE(stored.listenOnly);
+    EXPECT_FALSE(stored.receiveErrorFrames);
 
     // And the other adapter is untouched.
-    CHECK(reloaded.preferencesFor(QStringLiteral("kvaser:0")).bitrate
-          == torquebus::kDefaultBitrate);
+    EXPECT_TRUE(reloaded.preferencesFor(QStringLiteral("kvaser:0")).bitrate
+                == torquebus::kDefaultBitrate);
 }
 
-TEST_CASE("Bit rate switching without FD is not stored as a setting", "[hardware]")
+TEST(HardwareProfileTests, BitRateSwitchingWithoutFDIsNotStoredAsASetting)
 {
     // Not a combination a channel can be opened as. Resolved here rather than
     // being handed to a driver that would refuse it with a message about
@@ -108,10 +108,10 @@ TEST_CASE("Bit rate switching without FD is not stored as a setting", "[hardware
 
     profile.setPreferencesFor(QStringLiteral("peak:usb0"), wanted);
 
-    CHECK_FALSE(profile.preferencesFor(QStringLiteral("peak:usb0")).bitRateSwitch);
+    EXPECT_FALSE(profile.preferencesFor(QStringLiteral("peak:usb0")).bitRateSwitch);
 }
 
-TEST_CASE("A rate no backend has timing for falls back to the default", "[hardware]")
+TEST(HardwareProfileTests, ARateNoBackendHasTimingForFallsBackToTheDefault)
 {
     // The settings file is JSON so that people can edit it, which makes a
     // number in it input rather than data. A rate nothing can be opened at
@@ -121,19 +121,19 @@ TEST_CASE("A rate no backend has timing for falls back to the default", "[hardwa
 
     const HardwareProfile profile{settings.store()};
 
-    CHECK(profile.preferencesFor(QStringLiteral("peak:usb0")).bitrate
-          == torquebus::kDefaultBitrate);
+    EXPECT_TRUE(profile.preferencesFor(QStringLiteral("peak:usb0")).bitrate
+                == torquebus::kDefaultBitrate);
 }
 
-TEST_CASE("The saved order decides which interface is CAN 1", "[hardware]")
+TEST(HardwareProfileTests, TheSavedOrderDecidesWhichInterfaceIsCAN1)
 {
     const QStringList detected{QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("c")};
     const QStringList stored{QStringLiteral("c"), QStringLiteral("a"), QStringLiteral("b")};
 
-    CHECK(HardwareProfile::arrange(detected, stored) == stored);
+    EXPECT_TRUE(HardwareProfile::arrange(detected, stored) == stored);
 }
 
-TEST_CASE("An adapter left at the office does not leave a gap", "[hardware]")
+TEST(HardwareProfileTests, AnAdapterLeftAtTheOfficeDoesNotLeaveAGap)
 {
     // The saved order names three; two are present. The absent one is simply
     // not there - it must not hold CAN 2 open for itself and push the others
@@ -143,12 +143,12 @@ TEST_CASE("An adapter left at the office does not leave a gap", "[hardware]")
 
     const QStringList arranged = HardwareProfile::arrange(detected, stored);
 
-    REQUIRE(arranged.size() == 2);
-    CHECK(arranged.first() == QStringLiteral("c"));
-    CHECK(arranged.last() == QStringLiteral("a"));
+    ASSERT_TRUE(arranged.size() == 2);
+    EXPECT_TRUE(arranged.first() == QStringLiteral("c"));
+    EXPECT_TRUE(arranged.last() == QStringLiteral("a"));
 }
 
-TEST_CASE("A newly plugged adapter becomes the last channel", "[hardware]")
+TEST(HardwareProfileTests, ANewlyPluggedAdapterBecomesTheLastChannel)
 {
     // Rather than being inserted wherever the driver enumerated it. Renumbering
     // the channels somebody has been reading all morning - and that their
@@ -159,33 +159,33 @@ TEST_CASE("A newly plugged adapter becomes the last channel", "[hardware]")
 
     const QStringList arranged = HardwareProfile::arrange(detected, stored);
 
-    REQUIRE(arranged.size() == 3);
-    CHECK(arranged.at(0) == QStringLiteral("a"));
-    CHECK(arranged.at(1) == QStringLiteral("b"));
-    CHECK(arranged.at(2) == QStringLiteral("new"));
+    ASSERT_TRUE(arranged.size() == 3);
+    EXPECT_TRUE(arranged.at(0) == QStringLiteral("a"));
+    EXPECT_TRUE(arranged.at(1) == QStringLiteral("b"));
+    EXPECT_TRUE(arranged.at(2) == QStringLiteral("new"));
 }
 
-TEST_CASE("No saved order means enumeration order", "[hardware]")
+TEST(HardwareProfileTests, NoSavedOrderMeansEnumerationOrder)
 {
     // What a machine nobody has arranged gets, which is what every machine got
     // before this existed.
     const QStringList detected{QStringLiteral("a"), QStringLiteral("b")};
 
-    CHECK(HardwareProfile::arrange(detected, {}) == detected);
+    EXPECT_TRUE(HardwareProfile::arrange(detected, {}) == detected);
 }
 
-TEST_CASE("A duplicated handle in a hand-edited order is bound once", "[hardware]")
+TEST(HardwareProfileTests, ADuplicatedHandleInAHandEditedOrderIsBoundOnce)
 {
     const QStringList detected{QStringLiteral("a"), QStringLiteral("b")};
     const QStringList stored{QStringLiteral("a"), QStringLiteral("a"), QStringLiteral("b")};
 
     const QStringList arranged = HardwareProfile::arrange(detected, stored);
 
-    REQUIRE(arranged.size() == 2);
-    CHECK(arranged.first() == QStringLiteral("a"));
+    ASSERT_TRUE(arranged.size() == 2);
+    EXPECT_TRUE(arranged.first() == QStringLiteral("a"));
 }
 
-TEST_CASE("The order survives a restart", "[hardware]")
+TEST(HardwareProfileTests, TheOrderSurvivesARestart)
 {
     const ScopedSettings settings;
 
@@ -195,10 +195,10 @@ TEST_CASE("The order survives a restart", "[hardware]")
     }
 
     SettingsStore reopened{settings.store().filePath()};
-    REQUIRE(reopened.load());
+    ASSERT_TRUE(reopened.load());
 
     const HardwareProfile profile{reopened};
 
-    REQUIRE(profile.order().size() == 2);
-    CHECK(profile.order().first() == QStringLiteral("peak:usb0"));
+    ASSERT_TRUE(profile.order().size() == 2);
+    EXPECT_TRUE(profile.order().first() == QStringLiteral("peak:usb0"));
 }
