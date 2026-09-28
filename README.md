@@ -139,11 +139,11 @@ function on_message(id, data, channel, extended)
 end
 ```
 
-Two ported examples live in [`examples/scripts/`](examples/scripts), and
+Reference automotive ECU scripts live in [`examples/scripts/`](examples/scripts), and
 [`examples/projects/virtual-vehicle.tbsproj`](examples/projects) is a working
 pipeline you can open straight away — `File > Open Project` — with a simulated
-vehicle ECU transmitting on CAN 1. The full contract — the sandbox, error handling, measured cost, and how to migrate
-scripts from `cansim` — is in
+vehicle ECU and TinyML Virtual ECU transmitting on CAN 1. The full contract — the
+sandbox, error handling, and measured execution cost — is in
 [`docs/development/scripting.md`](docs/development/scripting.md).
 
 ---

@@ -164,7 +164,7 @@ TEST(LuaEcuNodeTests, OnMessageReceivesIdentifierPayloadAndChannel)
 
     // The script echoes what it was given back onto the bus, so what arrives at
     // the collector proves what the script saw. Reading the payload with
-    // string.unpack is exactly how the cansim scripts do it.
+    // string.unpack is how the example ECU scripts decode binary payloads.
     const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
         function on_message(id, data, channel, extended)
             local a, b, c, d = string.byte(data, 1, 4)

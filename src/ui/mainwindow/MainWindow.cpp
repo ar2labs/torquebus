@@ -446,9 +446,24 @@ void MainWindow::createPanels()
     // copy. Closing this panel leaves the pipeline exactly as it was; the
     // engine builds from the same description either way.
     m_canvas = new CanvasPanel(m_pipeline, m_catalog);
+    m_canvas->setSystemVariables(&m_controller->engine().variables());
 
     connect(m_canvas, &CanvasPanel::nodeSelected, this, &MainWindow::onCanvasNodeSelected);
     connect(m_canvas, &CanvasPanel::graphEdited, this, &MainWindow::onGraphEdited);
+    connect(m_controller, &CanEngineController::started, m_canvas, [this] {
+        m_canvas->setSimulationRunning(true);
+    });
+    connect(m_controller, &CanEngineController::stopped, m_canvas, [this] {
+        m_canvas->setSimulationRunning(false);
+    });
+    connect(m_controller,
+            &CanEngineController::statusUpdated,
+            m_canvas,
+            &CanvasPanel::setChannelStatuses);
+    connect(m_controller,
+            &CanEngineController::nodeStatisticsUpdated,
+            m_canvas,
+            &CanvasPanel::setNodeStatuses);
 
     // "Edit script" from the canvas: show the block, then bring the editor
     // forward. Selection alone already does the first half - the second is the

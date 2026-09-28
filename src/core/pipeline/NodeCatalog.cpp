@@ -18,6 +18,7 @@
 #include "core/scripting/LuaEcuNode.h"
 #include "core/scripting/LuaTestNode.h"
 #include "core/simulation/RestBusNode.h"
+#include "core/tinyml/TinyMlEcuNode.h"
 #include "core/trace/TraceSinkNode.h"
 #include "core/trace/TraceStore.h"
 #include "core/transmit/TransmitListNode.h"
@@ -1454,6 +1455,109 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             }
 
             out = std::make_unique<SignalPlotNode>(*context.plotStore);
+            return Result::ok();
+        });
+
+    catalog.registerType(
+        NodeTypeInfo{
+            .typeName = "tinyml.ecu",
+            .displayName = "TinyML Virtual ECU",
+            .category = "Simulation",
+            .description =
+                "Runs embedded int8 neural network inference inside a static tensor arena "
+                "over live CAN traffic, emitting both a diagnostic CAN frame and decoded "
+                "TinyML signals (RegimeClass, Confidence, AnomalyScore, ThermalHealth).",
+            .inputs = {PortDescriptor{"frames", PortType::Frames}},
+            .outputs =
+                {
+                    PortDescriptor{"frames", PortType::Frames},
+                    PortDescriptor{"signals", PortType::Signals},
+                },
+            .parameters =
+                {
+                    ParameterDescriptor{.name = "channel",
+                                        .displayName = "Channel",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description =
+                                            "Application channel for emitted telemetry frames."},
+                    ParameterDescriptor{.name = "speedCanId",
+                                        .displayName = "Speed CAN ID",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description =
+                                            "CAN identifier carrying vehicle speed (default 257 / "
+                                            "0x101). Set 0 for wildcard frame monitoring."},
+                    ParameterDescriptor{.name = "tempCanId",
+                                        .displayName = "Temp CAN ID",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description =
+                                            "CAN identifier carrying engine temperature (default "
+                                            "258 / 0x102)."},
+                    ParameterDescriptor{.name = "outputCanId",
+                                        .displayName = "Telemetry CAN ID",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description =
+                                            "CAN identifier emitted with TinyML inference results "
+                                            "(default 261 / 0x105)."},
+                    ParameterDescriptor{.name = "anomalyThreshold",
+                                        .displayName = "Anomaly Threshold (%)",
+                                        .type = ParameterValue::Type::Real,
+                                        .required = false,
+                                        .description =
+                                            "Anomaly score percentage above which an anomaly is "
+                                            "flagged (default 65.0%)."},
+                    ParameterDescriptor{.name = "inferenceStride",
+                                        .displayName = "Inference Stride",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description =
+                                            "Run neural network inference every N monitored "
+                                            "frames (default 1)."},
+                    ParameterDescriptor{.name = "modelPath",
+                                        .displayName = "Model File (.tbusml)",
+                                        .type = ParameterValue::Type::Text,
+                                        .required = false,
+                                        .description =
+                                            "Optional path to a custom quantized .tbusml model. "
+                                            "Leave empty to use the built-in automotive model."},
+                },
+        },
+        [](const NodeParameters& parameters,
+           const NodeBuildContext& context,
+           std::string_view nodeId,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
+            TinyMlModel model = TinyMlModel::builtinPowertrainModel();
+            if (parameters.contains("modelPath") && !parameters.text("modelPath").empty()) {
+                const std::string resolved = resolvePath(context, parameters.text("modelPath"));
+                if (const Result loaded = TinyMlModel::loadFromFile(resolved, model);
+                    loaded.failed()) {
+                    return Result::error(
+                        loaded.code(),
+                        std::format("Node '{}': {}", nodeId, std::string{loaded.message()}));
+                }
+            }
+
+            TinyMlEcuConfig config;
+            config.transmitChannel = static_cast<std::uint8_t>(
+                std::max<std::int64_t>(0, parameters.integer("channel", 0)));
+            config.speedCanId = static_cast<std::uint32_t>(
+                std::max<std::int64_t>(0, parameters.integer("speedCanId", 0x101)));
+            config.tempCanId = static_cast<std::uint32_t>(
+                std::max<std::int64_t>(0, parameters.integer("tempCanId", 0x102)));
+            config.outputCanId = static_cast<std::uint32_t>(
+                std::max<std::int64_t>(1, parameters.integer("outputCanId", 0x105)));
+            config.anomalyThresholdPercent = static_cast<float>(
+                std::clamp(parameters.real("anomalyThreshold", 65.0), 1.0, 99.9));
+            config.inferenceStride = static_cast<std::uint32_t>(
+                std::max<std::int64_t>(1, parameters.integer("inferenceStride", 1)));
+
+            auto node =
+                std::make_unique<TinyMlEcuNode>(std::move(model), config, std::string{nodeId});
+            node->setSystemVariables(context.variables);
+            out = std::move(node);
             return Result::ok();
         });
 

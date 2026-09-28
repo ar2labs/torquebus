@@ -1,0 +1,54 @@
+# TorqueBus Studio — Quantized int8 Automotive Powertrain & Bus Anomaly Model
+# Format: TBUSML 1
+#
+# Input features (6):
+#   0: Vehicle speed (km/h)
+#   1: Longitudinal acceleration (km/h/s)
+#   2: Engine coolant temperature (degC)
+#   3: Thermal deviation from nominal speed curve (degC)
+#   4: CAN inter-frame arrival jitter ratio [0..2]
+#   5: Bus / injected fault stress factor [0..1.5]
+#
+# Output dimensions (7):
+#   0..4: Regime logits (Idle, Cruise, HighLoad, ThermalStress, Anomaly) -> Softmax
+#   5   : Anomaly score logit -> Sigmoid * 100%
+#   6   : Thermal health virtual sensor logit -> Sigmoid * 100%
+
+TBUSML 1
+model_name automotive_powertrain_int8_v1
+feature_mean 45.0 0.0 80.0 0.0 0.0 0.0
+feature_scale 0.0222222 0.0666667 0.05 0.0833333 1.0 1.0
+
+layer dense_feature_extractor_int8 6 10 relu 0.03125
+weights -64  -8   0   0   0   0
+weights  48   0   0   0  -8  -8
+weights  64  16   8   0   0   0
+weights   8  64   0   0   0   0
+weights   0   0  64  24   0   0
+weights   0   0  24  64   0  16
+weights   0   0   0   0  80  24
+weights   0   0   0   8  24  80
+weights   0   0 -16 -32 -48 -48
+weights   8   4  48  48  16  24
+biases -1.15 0.75 -0.85 -0.45 -0.95 -0.75 -0.15 -0.20 1.20 -1.20
+
+layer dense_regime_embedding_int8 10 8 tanh 0.03125
+weights  64 -32 -32 -16 -24 -24 -24 -24  16 -16
+weights -48  48 -40 -16 -24 -24 -24 -24  24 -16
+weights -32  16  64  48 -24 -24 -24 -24  16  -8
+weights -16 -16  -8  -8  64  64 -32 -32 -24  32
+weights -16  -8  -8  -8 -16   8  80  88 -32   8
+weights -12  -8  -8  -8   0  16  72  80 -36  12
+weights  16  12  -4  -4 -48 -56 -24 -40  40 -32
+weights   0   0   8   8  32  32  32  32 -16  32
+biases -0.10 -0.15 -0.35 -0.45 -0.55 -0.30 0.45 -0.20
+
+layer dense_output_head_int8 8 7 linear 0.0625
+weights  56 -24 -24 -24 -32 -16  12 -12
+weights -24  56 -20 -24 -32 -16  12  -8
+weights -24  -8  60 -16 -28 -12   0  16
+weights -20 -20 -12  64 -12  20 -24  20
+weights -24 -24 -20   8  68  40 -28  24
+weights -16 -16   4  28  48  56 -24  28
+weights  16  16  -4 -36 -32 -32  56 -24
+biases 0.35 0.45 -0.20 -0.40 -0.60 -0.90 1.10

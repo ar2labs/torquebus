@@ -11,10 +11,9 @@
 // and with the graph laid out the way the canvas shows it - nodes then wires,
 // each node naming its type and settings.
 //
-// The format follows cansim's nodes.json closely, and not by accident: that
-// file arrived at the same shape from the same problem, and twenty working
-// scripts have been configured through it. Where the two differ, this one is
-// the superset - ports on the wires, and canvas positions.
+// Each node in the JSON array carries its identifier, catalog type, parameter
+// map, and canvas coordinates, followed by the directed wires connecting output
+// ports to input ports.
 //
 // What a saved file contains today is the pipeline. Channels, databases,
 // transmit lists and workspaces join it as those features arrive; the version

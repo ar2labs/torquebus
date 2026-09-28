@@ -12,10 +12,10 @@
 // its name from the filename, and stopped there.
 //
 // That gap has a specific shape. The Lua API is ours and it moves - `emit`
-// changed signature once already, and the guide documents three `cansim` calls
-// that no longer exist. A change to it breaks these scripts silently: they are
-// data, the compiler never sees them, and the failure surfaces as a line in the
-// Output panel on the machine of somebody trying the tool for the first time.
+// changed signature once already. A change to it breaks these scripts
+// silently: they are data, the compiler never sees them, and the failure
+// surfaces as a line in the Output panel on the machine of somebody trying the
+// tool for the first time.
 //
 // So each one is loaded and *run*, and each is asked for the thing it exists to
 // demonstrate. Not deeply - this is not a second suite for the Lua engine,
@@ -275,9 +275,8 @@ TEST(ExampleScriptTests, EcuVehicleDbcLuaSpeaksSignalNamesAgainstTheShippedDatab
 
 TEST(ExampleScriptTests, EcuMotorLuaRunsAndTransmits)
 {
-    // The heaviest of the ported cansim scripts, and the one whose migration
-    // the scripting guide documents: it used math.frexp, which Lua 5.4 removed.
-    // If that migration were ever undone this is where it would show.
+    // Exercises the reactive powertrain actuator ECU script (`ecu_motor.lua`),
+    // which uses `string.pack` / `string.unpack` and periodic status frames.
     Outcome outcome;
     runEcu("ecu_motor.lua", 250ms, outcome);
 

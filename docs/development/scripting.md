@@ -156,9 +156,6 @@ Anything set on the node lands here, except the three names the node itself
 consumes: `script`, `scriptPath` and `channel`. Booleans, integers, reals and
 strings all survive the crossing with their types intact.
 
-This is cansim's convention, unchanged, so scripts move across without editing
-that part.
-
 ## Timing: several rates at once
 
 A real ECU sends a 10 ms message and a 100 ms one and a 1 s one, all at the same
@@ -545,18 +542,17 @@ touched.
 
 ---
 
-## Bringing cansim scripts over
+## Modern Lua 5.4 / 5.5 idioms for CAN payloads
 
-The lifecycle is the same, deliberately — `on_enable`, `on_disable`,
-`on_timer`, `on_message` come from cansim, which has twenty working ECUs behind
-it. Four things changed.
+TorqueBus embeds Lua 5.5, so scripts use standard `string.pack` / `string.unpack`
+instead of legacy Lua 5.1 bit-twiddling:
 
-| cansim | TorqueBus | Why |
+| Legacy Lua 5.1 pattern | TorqueBus (Lua 5.5) | Why |
 |---|---|---|
-| `emit{id=…, len=…, data={bytes}}` | `emit(id, data)` | A byte string, not a table of numbers: `string.pack` builds one directly, and a table of eight numbers costs an allocation per frame. `#data` is the length, so there is nothing to keep in step. |
-| `msg.data[n]` | `string.byte(data, n)` | Same 1-based indexing; `string.unpack` replaces the byte shuffling entirely. |
-| `print(...)` | `log_message(...)` | Reaches the Output panel instead of a console nobody is watching. |
-| tick accumulators | `get_time_us()` | See `set_timer` above. |
+| Table of bytes `{b1, b2, ...}` | `emit(id, data)` with `string.pack` | A byte string avoids allocating a Lua table on every frame. `#data` is the payload length automatically. |
+| Manual byte shifting | `string.byte(data, n)` / `string.unpack` | 1-based indexing for single bytes and native IEEE 754 / endian unpacking for multi-byte values. |
+| `print(...)` | `log_message(...)` | Reaches the Output panel with the node's name rather than stdout. |
+| Tick accumulators | `get_time_us()` | Monotonic clock comparison prevents drift when a timer tick arrives late. |
 
 And three things Lua removed between 5.1 and 5.4, which TorqueBus's 5.5 will
 not accept:
@@ -566,10 +562,6 @@ not accept:
 | `math.frexp` / `math.ldexp` | `string.pack("<f", value)` / `string.unpack("<f", data, offset)` |
 | global `unpack` | `table.unpack` |
 | `setfenv`, `module`, `loadstring`, `table.getn`, `math.pow` | `load`, `#t`, `^` |
-
-The forty lines of hand-rolled IEEE 754 that open several cansim scripts
-collapse to one `string.pack` call, which is also correct for denormals and
-infinities and faster than the arithmetic version.
 
 ## Switching a node off
 
@@ -584,13 +576,14 @@ again is the same experiment, minus its configuration.
 ## Examples
 
 `examples/projects/virtual-vehicle.tbsproj` is a whole pipeline, ready to open:
-a CAN channel, a simulated vehicle ECU with its script inline, and a transmit
-block, plus a filtered second channel. Nothing to install — open it and press
-Start.
+a CAN channel, a simulated vehicle ECU with its script inline, a TinyML Virtual
+ECU, and transmit/plot blocks, plus a filtered second channel. Nothing to
+install — open it and press Start.
 
-`examples/scripts/` holds two ported ECUs, commented with what changed:
+`examples/scripts/` holds reference automotive ECUs and test sequences:
 
-- **`ecu_vehicle.lua`** — cyclic: sends speed and engine temperature on a
-  timer, never reads the bus.
-- **`ecu_motor.lua`** — reactive: takes commands from a central node, reports
-  status periodically, answers a firmware-version request.
+- **`ecu_vehicle.lua`** — cyclic: sends vehicle speed and engine coolant
+  temperature on a timer, never reads the bus.
+- **`ecu_motor.lua`** — reactive powertrain actuator ECU: takes target RPM,
+  throttle limit, and drive mode commands from a central gateway, reports status
+  periodically, and answers a firmware-version request.

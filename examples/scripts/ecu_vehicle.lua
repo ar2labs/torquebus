@@ -3,31 +3,27 @@
 -- A cyclic ECU: sends vehicle speed and engine temperature on a timer and
 -- never looks at the bus. This is the shape most simulated ECUs have.
 --
--- Ported from cansim's ecu_vehicle.lua. What changed, and why it is worth
--- knowing if you are bringing your own scripts over:
+-- Key idioms used in TorqueBus Lua 5.4/5.5 ECU scripts:
 --
---   * float_to_bytes()  ->  string.pack("<f", value)
---     The original hand-rolled IEEE 754 in twenty-odd lines with math.frexp
---     and math.ldexp, both of which Lua 5.4 removed. string.pack has been in
---     the standard library since 5.3, is correct for denormals and infinities,
---     and is faster. It is also how a DBC-decoded float will be written.
+--   * string.pack("<f", value)
+--     Packs IEEE 754 floats or little/big-endian integers directly into a raw
+--     payload string without manual bit shifting.
 --
---   * emit{id=..., len=..., data={bytes}}  ->  emit(id, data)
+--   * emit(id, data)
 --     Frames carry a byte string, not a table of numbers: string.pack builds
 --     one directly, and a table of eight numbers costs an allocation per frame.
 --     The length is #data, so there is nothing to keep in step.
 --
---   * print()  ->  log_message()
+--   * log_message()
 --     Goes to the Output panel with this node's name in front of it, rather
 --     than to a console nobody is watching.
 --
---   * tick accumulators  ->  get_time_us()
---     cansim's scripts add the timer interval to a counter on every on_timer
---     and compare it against a period. That assumes on_timer arrives exactly
---     on schedule. TorqueBus checks the timer once per dispatch pass, so a
---     tick can be late, and a late tick makes an accumulator drift slow -
---     silently, and further the busier the machine. Reading the clock instead
---     costs one call and cannot drift.
+--   * get_time_us()
+--     Adding the timer interval to a counter on every on_timer assumes
+--     on_timer arrives on an exact schedule. TorqueBus checks the timer once
+--     per dispatch pass, so a tick can be late, and a late tick makes an
+--     accumulator drift slow. Reading the monotonic clock instead costs one
+--     call and cannot drift.
 
 -- Settings come from the node, not from constants here, so one script can be
 -- two vehicles on two identifiers. `or` gives each a default, which means the

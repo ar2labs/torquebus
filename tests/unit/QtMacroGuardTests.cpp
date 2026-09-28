@@ -53,6 +53,8 @@
 #include "core/pipeline/nodes/SignalNodes.h"
 #include "core/scripting/LuaEcuNode.h"
 #include "core/scripting/LuaRuntime.h"
+#include "core/tinyml/TinyMlEcuNode.h"
+#include "core/tinyml/TinyMlModel.h"
 #include "core/trace/TraceSinkNode.h"
 #include "core/trace/TraceStore.h"
 #include "drivers/api/CanBackendRegistry.h"

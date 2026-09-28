@@ -57,9 +57,9 @@ namespace {
                                                 "    emit(0x101, \"\\1\\2\")\n"
                                                 "end\n"));
     ecu.parameters.set("module_id", ParameterValue::fromInteger(0x18FEE500));
-    ecu.parameters.set("reduction", ParameterValue::fromReal(0.125));
+    ecu.parameters.set("gear_ratio", ParameterValue::fromReal(0.125));
     ecu.parameters.set("verbose", ParameterValue::fromBoolean(true));
-    ecu.parameters.set("label", ParameterValue::fromText("seed motor"));
+    ecu.parameters.set("label", ParameterValue::fromText("engine ecu"));
     ecu.x = 80.0;
     ecu.y = 40.0;
     pipeline.addNode(ecu);

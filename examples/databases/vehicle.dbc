@@ -27,7 +27,7 @@ NS_ :
 
 BS_:
 
-BU_: ECM ECU
+BU_: ECM ECU TINYML_ECU
 
 /* -----------------------------------------------------------
    1) Mensagem: VehicleSpeed
@@ -54,3 +54,18 @@ BO_ 257 VehicleSpeed: 8 ECU
    ----------------------------------------------------------- */
 BO_ 258 EngineTemp: 8 ECU
  SG_ EngTemp : 0|8@1+ (1,-40) [-40|215] "degC" ECM
+
+/* -----------------------------------------------------------
+   3) Mensagem: TinyML_Telemetry
+   - ID = 0x105 (261 decimal)
+   - DLC = 8
+   - Emissor: TINYML_ECU (bloco tinyml.ecu)
+   ----------------------------------------------------------- */
+BO_ 261 TinyML_Telemetry: 8 TINYML_ECU
+ SG_ RegimeClass : 0|8@1+ (1,0) [0|4] "class" ECM
+ SG_ Confidence : 8|8@1+ (1,0) [0|100] "%" ECM
+ SG_ AnomalyScore : 16|16@1+ (0.1,0) [0|100] "%" ECM
+ SG_ ThermalHealth : 32|16@1+ (0.1,0) [0|100] "%" ECM
+ SG_ InferenceTimeUs : 48|16@1+ (1,0) [0|65535] "us" ECM
+
+VAL_ 261 RegimeClass 0 "Idle" 1 "Cruise" 2 "HighLoad" 3 "ThermalStress" 4 "Anomaly" ;
