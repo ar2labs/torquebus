@@ -122,6 +122,11 @@ add_library(torquebus_core STATIC
     core/testing/TestReport.h
     core/testing/TestReport.cpp
 
+    core/tinyml/TinyMlModel.h
+    core/tinyml/TinyMlModel.cpp
+    core/tinyml/TinyMlEcuNode.h
+    core/tinyml/TinyMlEcuNode.cpp
+
     core/simulation/RestBusNode.h
     core/simulation/RestBusNode.cpp
 

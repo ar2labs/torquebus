@@ -353,7 +353,7 @@ TEST(GraphDescriptionTests, TwoSourceNodesOnOneChannelBothSeeEveryFrame)
 
 TEST(GraphDescriptionTests, OneScriptBecomesTwoECUsThroughItsParameters)
 {
-    // The point of the parameters table, borrowed from cansim: without it every
+    // The point of the parameters table: without it every
     // number a script needs is a constant in the file, and running the same
     // behaviour twice with different numbers means copying the file.
     //

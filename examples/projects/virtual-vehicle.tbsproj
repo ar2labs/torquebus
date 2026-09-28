@@ -15,6 +15,24 @@
                 "toPort": 0
             },
             {
+                "from": "can_1",
+                "fromPort": 0,
+                "to": "tinyml_ecu",
+                "toPort": 0
+            },
+            {
+                "from": "tinyml_ecu",
+                "fromPort": 0,
+                "to": "tx_tinyml",
+                "toPort": 0
+            },
+            {
+                "from": "tinyml_ecu",
+                "fromPort": 1,
+                "to": "tinyml_plot",
+                "toPort": 0
+            },
+            {
                 "from": "can_2",
                 "fromPort": 0,
                 "to": "speed_only",
@@ -28,8 +46,8 @@
                     "channel": 0
                 },
                 "position": {
-                    "x": -260,
-                    "y": 0
+                    "x": -320,
+                    "y": -40
                 },
                 "type": "can.source"
             },
@@ -43,8 +61,8 @@
                     "tick_ms": 100
                 },
                 "position": {
-                    "x": 0,
-                    "y": 0
+                    "x": -20,
+                    "y": -120
                 },
                 "type": "lua.ecu"
             },
@@ -54,10 +72,46 @@
                     "channel": 0
                 },
                 "position": {
-                    "x": 260,
-                    "y": 0
+                    "x": 280,
+                    "y": -120
                 },
                 "type": "can.transmit"
+            },
+            {
+                "id": "tinyml_ecu",
+                "parameters": {
+                    "anomalyThreshold": 65.0,
+                    "channel": 0,
+                    "inferenceStride": 1,
+                    "outputCanId": 261,
+                    "speedCanId": 257,
+                    "tempCanId": 258
+                },
+                "position": {
+                    "x": -20,
+                    "y": 60
+                },
+                "type": "tinyml.ecu"
+            },
+            {
+                "id": "tx_tinyml",
+                "parameters": {
+                    "channel": 0
+                },
+                "position": {
+                    "x": 280,
+                    "y": 20
+                },
+                "type": "can.transmit"
+            },
+            {
+                "id": "tinyml_plot",
+                "parameters": {},
+                "position": {
+                    "x": 280,
+                    "y": 130
+                },
+                "type": "signal.plot"
             },
             {
                 "id": "can_2",
@@ -65,8 +119,8 @@
                     "channel": 1
                 },
                 "position": {
-                    "x": -260,
-                    "y": 200
+                    "x": -320,
+                    "y": 280
                 },
                 "type": "can.source"
             },
@@ -77,8 +131,8 @@
                     "to": 257
                 },
                 "position": {
-                    "x": 0,
-                    "y": 200
+                    "x": -20,
+                    "y": 280
                 },
                 "type": "can.filter"
             }

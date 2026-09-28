@@ -51,6 +51,7 @@ add_executable(torquebus_unit_tests
     WorkspacesTests.cpp
     RecentProjectsTests.cpp
     SettingsStoreTests.cpp
+    TinyMlEcuTests.cpp
 )
 
 # GraphDescriptionTests builds a graph over the virtual bus, so this binary

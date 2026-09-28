@@ -1,43 +1,42 @@
 -- ecu_motor.lua
 --
--- A reactive ECU: takes commands from a central node, reports status on a
--- timer, and answers a firmware-version request. Ported from cansim's
--- ecu_motor.lua, which drives a seed and fertiliser motor on a planter.
+-- A reactive automotive powertrain & throttle actuator ECU: takes commands from
+-- a central vehicle gateway, reports status on a timer, and answers a
+-- firmware-version request.
 --
--- The protocol is cansim's, unchanged, because it is a real one:
+-- Frame protocol on the control bus:
 --
 --   byte 1  source module id
 --   byte 2  destination (0xFF = broadcast)
 --   byte 3  command
 --   byte 4+ arguments
 --
--- See ecu_vehicle.lua for what changed between the cansim and TorqueBus
--- script contracts. One more difference shows up here: cansim's on_message
--- took a table with .data indexed from 1, and TorqueBus passes the payload as
--- a byte string. string.byte(data, n) replaces msg.data[n], with the same
--- 1-based indexing, and string.unpack replaces the hand-written byte shuffling.
+-- TorqueBus passes the CAN payload to `on_message` as a Lua byte string.
+-- `string.byte(data, n)` reads single bytes with 1-based indexing, and
+-- `string.unpack` decodes multi-byte integers and IEEE 754 floats directly.
 
--- A planter has several of these, each with its own module id, so the id is a
--- parameter and not a constant - the same script is every motor on the bus.
+-- An automotive powertrain network can host multiple actuator controllers
+-- (throttle body, cooling fan, turbo wastegate), each with its own module id,
+-- so the id is a parameter rather than a constant.
 local kModuleId = parameters.module_id or 0x01
 local kBroadcastId = parameters.broadcast_id or 0xFF
 
 -- Commands
-local kCmdSeedSpeed = 0x01
-local kCmdFertiliserSpeed = 0x03
+local kCmdTargetRpm = 0x01
+local kCmdThrottleLimit = 0x03
 local kCmdSensorInterval = 0x0F
-local kCmdFertiliserConfig = 0x17
-local kCmdPlantingMode = 0x19
+local kCmdGearRatioConfig = 0x17
+local kCmdSportMode = 0x19
 local kCmdFirmwareVersion = 0x1A
 local kCmdModuleStatus = 0x05
 
-local seed_speed = 0.0        -- steps/s
-local fertiliser_speed = 0.0  -- steps/s
+local target_rpm = 850.0      -- rpm
+local throttle_limit = 100.0  -- %
 local sensor_interval = 1000  -- ms
-local reduction = 1.0
-local fertiliser_timeout = 0  -- ms
-local fertiliser_enabled = false
-local planting_mode = false
+local gear_ratio = 1.0
+local limp_timeout = 0        -- ms
+local limp_guard_enabled = false
+local sport_mode = false
 local module_status = 1       -- 1 = running normally
 
 local firmware_version = {1, 0, 0}
@@ -68,31 +67,30 @@ end
 local function handle_command(data)
     local command = string.byte(data, 3)
 
-    if command == kCmdSeedSpeed then
-        -- Four bytes of IEEE 754, straight out of string.unpack. The original
-        -- did this with math.frexp and forty lines; the wire format is the same.
-        seed_speed = string.unpack("<f", data, 4)
-        log_message(string.format("seed motor at %.2f steps/s", seed_speed))
+    if command == kCmdTargetRpm then
+        -- Four bytes of IEEE 754, straight out of string.unpack.
+        target_rpm = string.unpack("<f", data, 4)
+        log_message(string.format("engine target speed at %.1f rpm", target_rpm))
 
-    elseif command == kCmdFertiliserSpeed then
-        fertiliser_speed = string.unpack("<f", data, 4)
-        log_message(string.format("fertiliser motor at %.2f steps/s", fertiliser_speed))
+    elseif command == kCmdThrottleLimit then
+        throttle_limit = string.unpack("<f", data, 4)
+        log_message(string.format("throttle actuator limit at %.1f %%", throttle_limit))
 
     elseif command == kCmdSensorInterval then
         sensor_interval = string.unpack(">I2", data, 4)
         log_message(string.format("sensor interval %d ms", sensor_interval))
 
-    elseif command == kCmdFertiliserConfig then
+    elseif command == kCmdGearRatioConfig then
         local whole, tenths, hundredths = string.byte(data, 4, 6)
-        reduction = whole + tenths / 10 + hundredths / 100
-        fertiliser_timeout = string.unpack(">I2", data, 7)
-        fertiliser_enabled = fertiliser_timeout > 0
-        log_message(string.format("fertiliser reduction %.2f, timeout %d ms",
-                                  reduction, fertiliser_timeout))
+        gear_ratio = whole + tenths / 10 + hundredths / 100
+        limp_timeout = string.unpack(">I2", data, 7)
+        limp_guard_enabled = limp_timeout > 0
+        log_message(string.format("gear ratio %.2f, watchdog timeout %d ms",
+                                  gear_ratio, limp_timeout))
 
-    elseif command == kCmdPlantingMode then
-        planting_mode = string.byte(data, 4) ~= 0
-        log_message(planting_mode and "planting mode on" or "planting mode off")
+    elseif command == kCmdSportMode then
+        sport_mode = string.byte(data, 4) ~= 0
+        log_message(sport_mode and "sport drive mode on" or "sport drive mode off")
 
     elseif command == kCmdFirmwareVersion then
         send_firmware_version()
@@ -100,12 +98,12 @@ local function handle_command(data)
 end
 
 function on_enable()
-    log_message(string.format("motor ECU %d.%d.%d ready", table.unpack(firmware_version)))
+    log_message(string.format("powertrain actuator ECU %d.%d.%d ready", table.unpack(firmware_version)))
     set_timer(kTickMs)
 end
 
 function on_disable()
-    log_message("motor ECU stopped")
+    log_message("powertrain actuator ECU stopped")
 end
 
 function on_timer()
