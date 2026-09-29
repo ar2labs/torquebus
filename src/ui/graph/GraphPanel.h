@@ -59,6 +59,9 @@ public:
     [[nodiscard]] QByteArray splitterState() const;
     void restoreSplitterState(const QByteArray& state);
 
+protected:
+    void showEvent(QShowEvent* event) override;
+
 private Q_SLOTS:
     /// Re-reads the store and repaints. The panel's whole clock.
     void refresh();
@@ -115,6 +118,7 @@ private:
     QHash<QString, SeriesId> m_listed;
 
     bool m_frozen{false};
+    bool m_refreshing{false};
 
     /// How much time the plot shows, in nanoseconds.
     std::uint64_t m_windowNs{10'000'000'000ULL};

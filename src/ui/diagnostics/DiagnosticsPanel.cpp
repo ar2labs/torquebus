@@ -154,7 +154,7 @@ void DiagnosticsPanel::buildUi()
 
     m_request = new QLineEdit;
     m_request->setPlaceholderText(tr("22 F1 90"));
-    m_request->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    m_request->setFont(ThemeManager::monospaceFont());
     m_request->setClearButtonEnabled(true);
 
     connect(m_request, &QLineEdit::textChanged, this, &DiagnosticsPanel::onRequestChanged);
@@ -340,7 +340,7 @@ void DiagnosticsPanel::buildForm()
             editor = box;
         } else {
             auto* line = new QLineEdit;
-            line->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+            line->setFont(ThemeManager::monospaceFont());
             line->setText(initial);
 
             if (field.optional) {
@@ -472,7 +472,7 @@ void DiagnosticsPanel::appendRow(const QString& time,
     m_log->setItem(row, ColumnDirection, directionItem);
 
     auto* bytesItem = cell(bytes);
-    bytesItem->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    bytesItem->setFont(ThemeManager::monospaceFont());
     m_log->setItem(row, ColumnBytes, bytesItem);
 
     m_log->setItem(row, ColumnMeaning, cell(meaning));

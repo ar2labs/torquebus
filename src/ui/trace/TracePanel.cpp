@@ -27,18 +27,18 @@ namespace {
 /// actually holds - an eight-digit extended identifier, sixty-four hex bytes -
 /// so the table stops reflowing after the first screenful.
 constexpr int kColumnWidths[TraceModel::ColumnCount] = {
-    96, // Time
-    72, // Delta
-    56, // Channel
-    40, // Direction
-    88, // Identifier
-    140, // Name
+    104, // Time
+    78, // Delta
+    64, // Channel
+    44, // Direction
+    92, // Identifier
+    156, // Name
     64, // Type
-    40, // DLC
-    260, // Data
-    280, // Signals - the widest column, because a decoded row is the point
-    72, // Cycle
-    72, // Count
+    46, // DLC
+    264, // Data
+    310, // Signals - the widest column, because a decoded row is the point
+    78, // Cycle
+    76, // Count
     64, // Flags
 };
 
@@ -119,6 +119,7 @@ void TracePanel::createToolBar()
 
     auto* spacer = new QWidget(m_toolBar);
     spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    spacer->setAttribute(Qt::WA_TransparentForMouseEvents, true);
     m_toolBar->addWidget(spacer);
 
     m_statusLabel = new QLabel(m_toolBar);
@@ -131,6 +132,8 @@ void TracePanel::createView()
     m_model = new TraceModel(this);
 
     m_view = new QTableView(this);
+    m_view->setObjectName(QStringLiteral("torquebusTraceTable"));
+    m_view->setFont(ThemeManager::monospaceFont(9.5));
     m_view->setModel(m_model);
     m_view->setFrameShape(QFrame::NoFrame);
 
@@ -138,7 +141,7 @@ void TracePanel::createView()
     // uniform row heights, Qt measures every row to size the scrollbar - which
     // at a million rows is a freeze, not a slowdown.
     m_view->verticalHeader()->setVisible(false);
-    m_view->verticalHeader()->setDefaultSectionSize(18);
+    m_view->verticalHeader()->setDefaultSectionSize(20);
     m_view->setShowGrid(false);
     m_view->setAlternatingRowColors(true);
     m_view->setSelectionBehavior(QAbstractItemView::SelectRows);

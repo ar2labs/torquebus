@@ -52,10 +52,7 @@ private:
 ScriptEdit::ScriptEdit(QWidget* parent)
     : QPlainTextEdit{parent}
 {
-    // The fixed-width font the platform actually has, asked for by role rather
-    // than by name: "Consolas" is a guess that is wrong on two of the three
-    // platforms this is meant to build on.
-    setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    setFont(ThemeManager::monospaceFont());
 
     // A script is code: it wraps where the author wrapped it, and nowhere else.
     // Soft-wrapped Lua puts a continuation where no line ends, which is exactly

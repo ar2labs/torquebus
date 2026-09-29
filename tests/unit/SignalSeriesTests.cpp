@@ -393,3 +393,27 @@ TEST(SignalSeriesTests, ReadingAWindowWhileTheExecutorAppendsIsSafe)
     EXPECT_TRUE(reads > 10);
     EXPECT_TRUE(store.discarded() > 0);
 }
+
+TEST(SignalSeriesTests, TimestampRollbackResetsEpochSoBinarySearchStaysValid)
+{
+    SignalSeries series{"EngineData.EngineSpeed", "rpm", 16};
+
+    series.append(1'000'000'000ULL, 1200.0);
+    series.append(2'000'000'000ULL, 1500.0);
+    series.append(3'000'000'000ULL, 1800.0);
+    ASSERT_EQ(series.size(), 3U);
+
+    // A restarted measurement or looped replay begins again near t = 0.
+    series.append(100'000'000ULL, 850.0);
+    series.append(200'000'000ULL, 900.0);
+
+    ASSERT_EQ(series.size(), 2U);
+    EXPECT_DOUBLE_EQ(series.minimum(), 850.0);
+    EXPECT_DOUBLE_EQ(series.maximum(), 900.0);
+
+    std::array<SignalSample, 8> buffer{};
+    const std::size_t copied = series.copySince(150'000'000ULL, buffer);
+    ASSERT_EQ(copied, 1U);
+    EXPECT_EQ(buffer[0].timestampNs, 200'000'000ULL);
+    EXPECT_DOUBLE_EQ(buffer[0].value, 900.0);
+}

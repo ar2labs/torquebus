@@ -114,6 +114,10 @@ QToolBar {
     padding: 2px 4px;
 }
 
+QToolBar > QWidget {
+    background: transparent;
+}
+
 QToolBar::separator {
     width: 1px;
     background-color: @border;
@@ -502,6 +506,71 @@ QComboBox:disabled {
     background-color: @background;
 }
 
+QSpinBox,
+QDoubleSpinBox {
+    padding-right: 20px;
+}
+
+QSpinBox::up-button,
+QDoubleSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 18px;
+    background-color: @toolbar;
+    border: none;
+    border-left: 1px solid @border;
+    border-bottom: 1px solid @border;
+    border-top-right-radius: 1px;
+    margin: 1px 1px 0px 0px;
+}
+
+QSpinBox::down-button,
+QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 18px;
+    background-color: @toolbar;
+    border: none;
+    border-left: 1px solid @border;
+    border-bottom-right-radius: 1px;
+    margin: 0px 1px 1px 0px;
+}
+
+QSpinBox::up-button:hover,
+QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover,
+QDoubleSpinBox::down-button:hover {
+    background-color: @hover;
+}
+
+QSpinBox::up-button:pressed,
+QDoubleSpinBox::up-button:pressed,
+QSpinBox::down-button:pressed,
+QDoubleSpinBox::down-button:pressed {
+    background-color: @selection;
+}
+
+QSpinBox::up-button:disabled,
+QDoubleSpinBox::up-button:disabled,
+QSpinBox::down-button:disabled,
+QDoubleSpinBox::down-button:disabled {
+    background-color: @background;
+}
+
+QSpinBox::up-arrow,
+QDoubleSpinBox::up-arrow {
+    image: url(@arrowUp);
+    width: 9px;
+    height: 9px;
+}
+
+QSpinBox::down-arrow,
+QDoubleSpinBox::down-arrow {
+    image: url(@arrowDown);
+    width: 9px;
+    height: 9px;
+}
+
 QComboBox::drop-down {
     border: none;
     width: 16px;
@@ -684,17 +753,22 @@ QLabel[torquebusRole="caption"] {
 /* Numeric status fields are monospaced so a changing count does not reflow the
  * bar underneath the reader's eye. */
 QLabel[torquebusRole="metric"] {
-    font-family: "Cascadia Mono", "Consolas", "DejaVu Sans Mono", monospace;
+    font-family: "Cascadia Mono", "JetBrains Mono", "Consolas", "DejaVu Sans Mono", monospace;
     color: @text;
 }
 
 /* Monospace surfaces: trace, console, hex payloads. */
 
+QTableView#torquebusTraceTable {
+    font-family: "Cascadia Mono", "JetBrains Mono", "Consolas", "DejaVu Sans Mono", monospace;
+    font-size: 9.5pt;
+}
+
 QPlainTextEdit#torquebusConsole {
     background-color: @background;
     border: none;
     border-top: 1px solid @border;
-    font-family: "Cascadia Mono", "Consolas", "DejaVu Sans Mono", monospace;
+    font-family: "Cascadia Mono", "JetBrains Mono", "Consolas", "DejaVu Sans Mono", monospace;
     padding: 2px 4px;
 }
 

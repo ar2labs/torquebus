@@ -140,6 +140,10 @@ double PlotView::xFor(std::uint64_t timestampNs, const QRectF& area) const
 
 double PlotView::yFor(double value, double minimum, double maximum, const QRectF& area)
 {
+    if (!std::isfinite(value) || !std::isfinite(minimum) || !std::isfinite(maximum)) {
+        return area.center().y();
+    }
+
     // A flat signal has no range to scale against. Centring it is the honest
     // answer: it says "this did not change", where stretching a zero range to
     // the full height would turn rounding noise into a mountain.

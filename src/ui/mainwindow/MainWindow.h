@@ -97,11 +97,13 @@ public:
 
 protected:
     void closeEvent(QCloseEvent* event) override;
+    void changeEvent(QEvent* event) override;
 
 private Q_SLOTS:
     void onThemeChanged(const torquebus::ui::Theme& theme);
     void onDeviceSelected(const torquebus::CanDeviceInfo& device);
     void onToggleTheme();
+    void onToggleFullScreen();
     void onPreferences();
 
     /// Hardware > Configuration. Edits which interfaces become CAN 1..N.
@@ -181,6 +183,10 @@ private:
     /// Puts the project's name in the title bar, so two windows on two
     /// projects are telling apart at a glance.
     void updateWindowTitle();
+
+    /// Keeps the full-screen toolbar button's icon, label and tooltip in sync
+    /// with whether the window is currently in full screen.
+    void updateFullScreenAction();
 
     void saveWindowState() const;
     void restoreWindowState();
@@ -312,6 +318,7 @@ private:
     QAction* m_actionRefreshHardware{nullptr};
 
     QAction* m_actionToggleTheme{nullptr};
+    QAction* m_actionFullScreen{nullptr};
     QAction* m_actionPreferences{nullptr};
     QAction* m_actionResetLayout{nullptr};
     QAction* m_actionInspectChrome{nullptr};
