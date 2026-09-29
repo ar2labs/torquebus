@@ -35,6 +35,7 @@
 #include "ui/theme/Theme.h"
 
 #include <QAbstractTableModel>
+#include <QFont>
 #include <QString>
 
 #include <QVariant>
@@ -142,6 +143,8 @@ private:
 
     const TraceStore* m_store{nullptr};
     QTimer* m_timer{nullptr};
+    QFont m_monospaceFont;
+    QFont m_monospaceStrongFont;
 
     /// Rows the model has told the view about. Compared against the store's
     /// size on each tick to find what is new.

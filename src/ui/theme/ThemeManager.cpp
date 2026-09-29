@@ -217,6 +217,40 @@ void ThemeManager::applyFont() const
     QApplication::setFont(font);
 }
 
+QFont ThemeManager::monospaceFont(qreal pointSize)
+{
+    static QString cachedFamily;
+    if (cachedFamily.isEmpty()) {
+        const QStringList preferred{
+            QStringLiteral("Cascadia Mono"),
+            QStringLiteral("JetBrains Mono"),
+            QStringLiteral("Cascadia Code"),
+            QStringLiteral("Consolas"),
+            QStringLiteral("SF Mono"),
+            QStringLiteral("Menlo"),
+            QStringLiteral("DejaVu Sans Mono"),
+            QStringLiteral("Ubuntu Mono"),
+            QStringLiteral("Liberation Mono"),
+        };
+
+        const QStringList available = QFontDatabase::families();
+        for (const QString& family : preferred) {
+            if (available.contains(family)) {
+                cachedFamily = family;
+                break;
+            }
+        }
+    }
+
+    QFont font = cachedFamily.isEmpty() ? QFontDatabase::systemFont(QFontDatabase::FixedFont)
+                                        : QFont{cachedFamily};
+    font.setPointSizeF(pointSize);
+    font.setStyleHint(QFont::Monospace);
+    font.setFixedPitch(true);
+    font.setHintingPreference(QFont::PreferFullHinting);
+    return font;
+}
+
 void ThemeManager::applyPalette() const
 {
     // Fusion is the only built-in style that honours a custom palette
@@ -351,6 +385,7 @@ QString ThemeManager::buildStyleSheet() const
 
     sheet.replace(QLatin1String("@arrowLeft"), arrow("left"));
     sheet.replace(QLatin1String("@arrowRight"), arrow("right"));
+    sheet.replace(QLatin1String("@arrowUp"), arrow("up"));
     sheet.replace(QLatin1String("@arrowDown"), arrow("down"));
 
     reportUnsubstitutedTokens(sheet);

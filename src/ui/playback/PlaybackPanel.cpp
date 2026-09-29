@@ -153,7 +153,7 @@ void PlaybackPanel::buildUi()
     // --- Position ---------------------------------------------------------
     m_positionLabel = new QLabel;
     m_positionLabel->setProperty("torquebusRole", QStringLiteral("metric"));
-    m_positionLabel->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    m_positionLabel->setFont(ThemeManager::monospaceFont());
     row->addWidget(m_positionLabel);
 
     row->addStretch(1);

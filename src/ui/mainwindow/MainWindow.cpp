@@ -715,6 +715,12 @@ void MainWindow::createActions()
     m_actionToggleTheme->setShortcut(QKeySequence{Qt::CTRL | Qt::SHIFT | Qt::Key_T});
     connect(m_actionToggleTheme, &QAction::triggered, this, &MainWindow::onToggleTheme);
 
+    m_actionFullScreen = new QAction(icon("fullscreen"), tr("&Full Screen"), this);
+    m_actionFullScreen->setCheckable(true);
+    m_actionFullScreen->setShortcut(QKeySequence{Qt::Key_F11});
+    connect(m_actionFullScreen, &QAction::triggered, this, &MainWindow::onToggleFullScreen);
+    updateFullScreenAction();
+
     m_actionPreferences = new QAction(icon("properties"), tr("&Preferences..."), this);
 
     // Both, because QKeySequence::Preferences is bound on macOS and empty on
@@ -858,6 +864,8 @@ void MainWindow::createMenus()
     rebuildWorkspaceMenu();
 
     viewMenu->addAction(m_actionResetLayout);
+    viewMenu->addSeparator();
+    viewMenu->addAction(m_actionFullScreen);
 
     analysisMenu->addAction(m_traceDock->toggleAction());
     analysisMenu->addAction(m_databaseDock->toggleAction());
@@ -962,6 +970,18 @@ void MainWindow::createToolBar()
 
         toolBar->addSeparator();
         addButton(toggleOutput);
+    }
+
+    auto* spacer = new QWidget(toolBar);
+    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    spacer->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    toolBar->addWidget(spacer);
+
+    if (m_actionFullScreen != nullptr) {
+        auto* fullScreenButton = new AnimatedToolButton{m_actionFullScreen, toolBar};
+        fullScreenButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
+        fullScreenButton->setIconSize(toolBar->iconSize());
+        toolBar->addWidget(fullScreenButton);
     }
 
     addToolBar(Qt::TopToolBarArea, toolBar);
@@ -1182,6 +1202,15 @@ void MainWindow::closeEvent(QCloseEvent* event)
     DockMainWindowBase::closeEvent(event);
 }
 
+void MainWindow::changeEvent(QEvent* event)
+{
+    DockMainWindowBase::changeEvent(event);
+
+    if (event != nullptr && event->type() == QEvent::WindowStateChange) {
+        updateFullScreenAction();
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Hardware
 // ---------------------------------------------------------------------------
@@ -1327,6 +1356,7 @@ void MainWindow::onThemeChanged(const Theme& theme)
     m_actionHardwareConfiguration->setIcon(m_themes.icon(QStringLiteral("hardware")));
     m_actionToggleTheme->setIcon(m_themes.icon(QStringLiteral("theme")));
     m_actionAbout->setIcon(m_themes.icon(QStringLiteral("help")));
+    updateFullScreenAction();
 
     // The console's toolbar button carries a tinted icon like any other, and it
     // is the one that would be missed: it belongs to the dock rather than to the
@@ -1347,6 +1377,33 @@ void MainWindow::onDeviceSelected(const CanDeviceInfo& device)
 void MainWindow::onToggleTheme()
 {
     m_themes.toggleVariant();
+}
+
+void MainWindow::onToggleFullScreen()
+{
+    setWindowState(windowState() ^ Qt::WindowFullScreen);
+    updateFullScreenAction();
+}
+
+void MainWindow::updateFullScreenAction()
+{
+    if (m_actionFullScreen == nullptr) {
+        return;
+    }
+
+    const bool fullScreen = isFullScreen();
+    const QSignalBlocker blocker{m_actionFullScreen};
+    m_actionFullScreen->setChecked(fullScreen);
+
+    if (fullScreen) {
+        m_actionFullScreen->setIcon(m_themes.icon(QStringLiteral("fullscreen-exit")));
+        m_actionFullScreen->setText(tr("Exit &Full Screen"));
+        m_actionFullScreen->setToolTip(tr("Restore window from full screen (F11)"));
+    } else {
+        m_actionFullScreen->setIcon(m_themes.icon(QStringLiteral("fullscreen")));
+        m_actionFullScreen->setText(tr("&Full Screen"));
+        m_actionFullScreen->setToolTip(tr("Maximize application in full screen (F11)"));
+    }
 }
 
 void MainWindow::onHardwareConfiguration()
@@ -1766,6 +1823,12 @@ void MainWindow::onNewProject()
     if (m_dashboardEditor != nullptr) {
         m_dashboardEditor->clear();
     }
+    if (!m_controller->isRunning()) {
+        m_controller->engine().plotStore().reset();
+        if (m_graphPanel != nullptr) {
+            m_graphPanel->setStore(&m_controller->engine().plotStore());
+        }
+    }
 
     updateWindowTitle();
     m_output->appendInfo(tr("New project."));
@@ -1974,6 +2037,12 @@ void MainWindow::openProject(const QString& path)
     }
     if (m_dashboardEditor != nullptr) {
         m_dashboardEditor->clear();
+    }
+    if (!m_controller->isRunning()) {
+        m_controller->engine().plotStore().reset();
+        if (m_graphPanel != nullptr) {
+            m_graphPanel->setStore(&m_controller->engine().plotStore());
+        }
     }
 
     m_recentProjects.add(path);

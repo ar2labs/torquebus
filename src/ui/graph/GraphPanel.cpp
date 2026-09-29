@@ -15,6 +15,8 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QListWidgetItem>
+#include <QShowEvent>
+#include <QSignalBlocker>
 #include <QSplitter>
 #include <QStringList>
 #include <QTimer>
@@ -158,10 +160,17 @@ void GraphPanel::setStore(SignalSeriesStore* store)
 {
     m_store = store;
 
-    m_signals->clear();
+    {
+        const QSignalBlocker blocker{m_signals};
+        m_signals->clear();
+    }
     m_listed.clear();
     m_selected.clear();
     m_windows.clear();
+
+    if (m_plot != nullptr) {
+        m_plot->setTraces({});
+    }
 
     updateStatus();
 }
@@ -182,15 +191,31 @@ void GraphPanel::restoreSplitterState(const QByteArray& state)
     }
 }
 
+void GraphPanel::showEvent(QShowEvent* event)
+{
+    QWidget::showEvent(event);
+    refresh();
+}
+
 // ---------------------------------------------------------------------------
 // The clock
 // ---------------------------------------------------------------------------
 
 void GraphPanel::refresh()
 {
-    if (m_store == nullptr || !isVisible()) {
+    if (m_refreshing || m_store == nullptr || !isVisible()) {
         return;
     }
+
+    struct RefreshGuard final {
+        bool& flag;
+        explicit RefreshGuard(bool& target) noexcept
+            : flag{target}
+        {
+            flag = true;
+        }
+        ~RefreshGuard() { flag = false; }
+    } const guard{m_refreshing};
 
     syncSignalList();
 
@@ -239,7 +264,22 @@ void GraphPanel::refresh()
 
 void GraphPanel::syncSignalList()
 {
+    if (m_store == nullptr) {
+        return;
+    }
+
     const std::vector<SeriesInfo> infos = m_store->listSeries();
+
+    // Blocked while populating or resetting rows: mutating flags, checkState,
+    // data or tooltip on an item attached to QListWidget synchronously emits
+    // itemChanged, which is connected to onSelectionChanged -> refresh ->
+    // syncSignalList and would otherwise recurse until the stack overflows.
+    const QSignalBlocker blocker{m_signals};
+
+    if (infos.size() < static_cast<std::size_t>(m_listed.size())) {
+        m_signals->clear();
+        m_listed.clear();
+    }
 
     for (const SeriesInfo& info : infos) {
         const QString name = QString::fromStdString(info.name);
@@ -247,7 +287,9 @@ void GraphPanel::syncSignalList()
             continue;
         }
 
-        auto* item = new QListWidgetItem(name, m_signals);
+        m_listed.insert(name, info.id);
+
+        auto* item = new QListWidgetItem(name);
         item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable);
         item->setCheckState(Qt::Unchecked);
         item->setData(kSeriesIdRole, QVariant::fromValue(static_cast<qulonglong>(info.id)));
@@ -256,7 +298,7 @@ void GraphPanel::syncSignalList()
             item->setToolTip(tr("%1 in %2").arg(name, QString::fromStdString(info.unit)));
         }
 
-        m_listed.insert(name, info.id);
+        m_signals->addItem(item);
     }
 }
 

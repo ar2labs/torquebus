@@ -1,5 +1,9 @@
 {
     "application": "TorqueBus Studio",
+    "dashboard": {
+        "widgets": [
+        ]
+    },
     "pipeline": {
         "edges": [
             {
@@ -80,7 +84,7 @@
             {
                 "id": "tinyml_ecu",
                 "parameters": {
-                    "anomalyThreshold": 65.0,
+                    "anomalyThreshold": 65,
                     "channel": 0,
                     "inferenceStride": 1,
                     "outputCanId": 261,
@@ -106,7 +110,8 @@
             },
             {
                 "id": "tinyml_plot",
-                "parameters": {},
+                "parameters": {
+                },
                 "position": {
                     "x": 280,
                     "y": 130
@@ -138,5 +143,7 @@
             }
         ]
     },
-    "version": 1
+    "transmit": [
+    ],
+    "version": 3
 }

@@ -100,6 +100,11 @@ public:
     /// such as the red Record dot.
     [[nodiscard]] QIcon icon(const QString& name, const QColor& color) const;
 
+    /// Returns a crisp, high-legibility monospaced font for traces, hex
+    /// payloads, code editors and numeric readouts (preferring Cascadia Mono,
+    /// JetBrains Mono or Consolas over the platform's legacy Courier New).
+    [[nodiscard]] static QFont monospaceFont(qreal pointSize = 9.5);
+
     /// Size in bytes of the style sheet last loaded from the resource system,
     /// or -1 if it could not be loaded at all.
     ///

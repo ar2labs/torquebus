@@ -23,6 +23,14 @@ SignalSeries::SignalSeries(std::string name, std::string unit, std::size_t capac
 
 void SignalSeries::append(std::uint64_t timestampNs, double value)
 {
+    if (m_size > 0 && timestampNs < newest().timestampNs) {
+        // Time went backwards (e.g. a replay looped or a measurement restarted
+        // at t = 0 without an explicit clear). Clear the previous epoch's
+        // samples so copySince()'s binary search always walks a monotonically
+        // non-decreasing ring.
+        clear();
+    }
+
     const std::size_t capacity = m_samples.size();
 
     if (m_size == capacity) {

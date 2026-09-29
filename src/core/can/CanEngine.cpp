@@ -332,6 +332,11 @@ void CanEngine::setGraphDescription(GraphDescription description,
             NodeBuildContext context;
             context.basePath = basePath;
             context.traceStore = &m_traceStore;
+
+            // Samples from the previous run are cleared while the series
+            // themselves stay registered, so the Graph panel keeps its ticked
+            // signals and colours across restarts.
+            m_plotStore.clearSamples();
             context.plotStore = &m_plotStore;
 
             // Cleared here rather than at Stop: what a panel shows between two runs

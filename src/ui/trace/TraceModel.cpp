@@ -96,7 +96,11 @@ constexpr int kDefaultRefreshMs = 40; // 25 Hz
 TraceModel::TraceModel(QObject* parent)
     : QAbstractTableModel{parent}
     , m_timer{new QTimer(this)}
+    , m_monospaceFont{ThemeManager::monospaceFont(9.5)}
+    , m_monospaceStrongFont{m_monospaceFont}
 {
+    m_monospaceStrongFont.setWeight(QFont::Medium);
+
     m_timer->setInterval(kDefaultRefreshMs);
     m_timer->setTimerType(Qt::CoarseTimer);
     connect(m_timer, &QTimer::timeout, this, &TraceModel::pollStore);
@@ -240,16 +244,14 @@ QVariant TraceModel::data(const QModelIndex& index, int role) const
         }
 
     case Qt::FontRole:
-        // Monospace where digits must line up between rows.
+        // Crisp monospaced typography across the entire trace, with medium
+        // weight on the identifier and payload columns so hex bytes stand out.
         switch (index.column()) {
-        case Time:
-        case Delta:
-        case Cycle:
         case Identifier:
         case Data:
-            return QFontDatabase::systemFont(QFontDatabase::FixedFont);
+            return m_monospaceStrongFont;
         default:
-            return {};
+            return m_monospaceFont;
         }
 
     default:
@@ -344,9 +346,14 @@ QVariant TraceModel::colourFor(const TraceRow& row, int column) const
 
     case Delta:
     case Cycle:
-    case Count:
-        // Derived numbers are supporting information, not the data itself.
-        return theme.textMuted;
+    case Count: {
+        // Derived numbers are supporting information, but must remain clearly
+        // legible on a monospaced trace row.
+        const int r = (theme.text.red() * 3 + theme.textMuted.red() * 2) / 5;
+        const int g = (theme.text.green() * 3 + theme.textMuted.green() * 2) / 5;
+        const int b = (theme.text.blue() * 3 + theme.textMuted.blue() * 2) / 5;
+        return QColor{r, g, b};
+    }
 
     default:
         return {};
