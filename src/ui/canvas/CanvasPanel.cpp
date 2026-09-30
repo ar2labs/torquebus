@@ -14,20 +14,29 @@
 #include <QtNodes/GraphicsView>
 #include <QtNodes/GraphicsViewStyle>
 #include <QtNodes/NodeStyle>
+#include <QtNodes/internal/AbstractNodeGeometry.hpp>
 #include <QtNodes/internal/ConnectionGraphicsObject.hpp>
+#include <QtNodes/internal/DefaultNodePainter.hpp>
 #include <QtNodes/internal/NodeGraphicsObject.hpp>
 
 #include <QAbstractItemView>
 #include <QAction>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 #include <QEasingCurve>
+#include <QEvent>
 #include <QFont>
+#include <QFontDatabase>
 #include <QFontMetricsF>
+#include <QGraphicsItem>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QHideEvent>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QLabel>
+#include <QKeyEvent>
 #include <QLinearGradient>
 #include <QMap>
 #include <QMenu>
@@ -37,8 +46,10 @@
 #include <QPen>
 #include <QPushButton>
 #include <QRadialGradient>
+#include <QShowEvent>
 #include <QSplitter>
 #include <QString>
+#include <QStringList>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 #include <QVariantAnimation>
@@ -61,8 +72,8 @@ constexpr int kTypeNameRole = Qt::UserRole + 1;
 constexpr int kFlowCycleDurationMs = 1350;
 
 /// Scene subclass that supplies the right-click context menu and delegates
-/// foreground painting (animated wire packets, live node badges, and the
-/// TinyML neural network card) to `CanvasPanel`.
+/// foreground painting (animated wire packets, live node frame/signal cards,
+/// and the TinyML neural network card) to `CanvasPanel`.
 class CanvasScene final : public QtNodes::BasicGraphicsScene {
 public:
     using MenuFactory = std::function<QMenu*(QPointF)>;
@@ -96,6 +107,40 @@ private:
     ForegroundPainter m_foregroundPainter;
 };
 
+/// Custom QtNodes painter that draws the node body rectangle and port
+/// connection points while delegating all interior typography (header bar,
+/// 8-byte CAN frame grid, and DBC dictionary decoded signals) to
+/// `CanvasPanel::paintNodeTelemetryCard`.
+class PipelineNodePainter final : public QtNodes::DefaultNodePainter {
+public:
+    void paint(QPainter* painter, QtNodes::NodeGraphicsObject& ngo) const override
+    {
+        drawNodeRect(painter, ngo);
+        drawConnectionPoints(painter, ngo);
+        drawFilledConnectionPoints(painter, ngo);
+        drawResizeRect(painter, ngo);
+        drawValidationIcon(painter, ngo);
+    }
+};
+
+[[nodiscard]] QFont makeMonospaceFont(int pixelSize, QFont::Weight weight = QFont::Medium)
+{
+    QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    font.setFamilies({
+        QStringLiteral("JetBrains Mono"),
+        QStringLiteral("Cascadia Mono"),
+        QStringLiteral("Consolas"),
+        QStringLiteral("SF Mono"),
+        QStringLiteral("DejaVu Sans Mono"),
+        QStringLiteral("Courier New"),
+    });
+    font.setStyleHint(QFont::Monospace);
+    font.setFixedPitch(true);
+    font.setPixelSize(pixelSize);
+    font.setWeight(weight);
+    return font;
+}
+
 [[nodiscard]] QString styleJson(const Theme& theme)
 {
     const auto rgb = [](const QColor& colour) {
@@ -110,7 +155,7 @@ private:
     QJsonObject node;
     node["NormalBoundaryColor"] = rgb(theme.border);
     node["SelectedBoundaryColor"] = rgb(theme.accent);
-    node["GradientColor0"] = rgb(theme.panel);
+    node["GradientColor0"] = rgb(theme.panelAlternate);
     node["GradientColor1"] = rgb(theme.panel);
     node["GradientColor2"] = rgb(theme.panel);
     node["GradientColor3"] = rgb(theme.panel);
@@ -123,9 +168,9 @@ private:
     node["ErrorColor"] = rgb(theme.error);
     node["WarningColor"] = rgb(theme.warning);
     node["ToolTipIconColor"] = rgb(theme.text);
-    node["PenWidth"] = 1.25;
-    node["HoveredPenWidth"] = 1.75;
-    node["ConnectionPointDiameter"] = 8.0;
+    node["PenWidth"] = 1.4;
+    node["HoveredPenWidth"] = 2.0;
+    node["ConnectionPointDiameter"] = 9.0;
     node["Opacity"] = 1.0;
 
     QJsonObject connection;
@@ -134,9 +179,9 @@ private:
     connection["SelectedColor"] = rgb(theme.accentHover);
     connection["SelectedHaloColor"] = rgb(theme.accent);
     connection["HoveredColor"] = rgb(theme.accentHover);
-    connection["LineWidth"] = 2.2;
+    connection["LineWidth"] = 2.4;
     connection["ConstructionLineWidth"] = 2.0;
-    connection["PointDiameter"] = 8.0;
+    connection["PointDiameter"] = 9.0;
     connection["UseDataDefinedColors"] = false;
 
     QJsonObject root;
@@ -198,6 +243,23 @@ private:
         return QStringLiteral("LOG REC");
     }
     return QStringLiteral("NODE");
+}
+
+[[nodiscard]] QColor accentForNodeType(std::string_view typeName, const Theme& theme)
+{
+    if (typeName == "tinyml.ecu") {
+        return QColor{0x10, 0xB9, 0x81}; // Emerald AI accent
+    }
+    if (typeName == "lua.ecu" || typeName == "sim.restbus" || typeName == "lua.test") {
+        return QColor{0x8B, 0x5C, 0xF6}; // Violet simulation accent
+    }
+    if (typeName == "dbc.decoder" || typeName == "j1939.decoder" || typeName == "signal.plot") {
+        return theme.success;
+    }
+    if (typeName == "can.filter" || typeName == "uds.client" || typeName == "isotp.transport") {
+        return theme.warning;
+    }
+    return theme.accent;
 }
 
 [[nodiscard]] QString regimeName(quint64 regimeCode)
@@ -264,14 +326,491 @@ private:
         "end\n");
 }
 
+[[nodiscard]] QString formatPhysicalValue(double value, std::string_view unit)
+{
+    const double absVal = std::abs(value);
+    QString number;
+    if (std::abs(value - std::round(value)) < 1e-4 && absVal < 1.0e9) {
+        number = QString::number(static_cast<qint64>(std::llround(value)));
+    } else if (absVal >= 100.0) {
+        number = QString::number(value, 'f', 1);
+    } else {
+        number = QString::number(value, 'f', 2);
+    }
+
+    if (!unit.empty()) {
+        number +=
+            QLatin1Char(' ') + QString::fromUtf8(unit.data(), static_cast<qsizetype>(unit.size()));
+    }
+    return number;
+}
+
+[[nodiscard]] QString nodeSubtitle(const NodeDescription& node)
+{
+    if (node.typeName == "can.source" || node.typeName == "can.transmit") {
+        const std::int64_t ch = node.parameters.integer("channel", 0);
+        return QStringLiteral("CAN %1").arg(ch + 1);
+    }
+    if (node.typeName == "lua.ecu") {
+        const std::int64_t ch = node.parameters.integer("channel", 0);
+        const std::int64_t speedId = node.parameters.integer("speed_id", 0x101);
+        return QStringLiteral("CAN %1 • 0x%2")
+            .arg(ch + 1)
+            .arg(speedId, 3, 16, QLatin1Char{'0'})
+            .toUpper();
+    }
+    if (node.typeName == "tinyml.ecu") {
+        const std::int64_t outId = node.parameters.integer("outputCanId", 0x105);
+        return QStringLiteral("TX 0x%1").arg(outId, 3, 16, QLatin1Char{'0'}).toUpper();
+    }
+    if (node.typeName == "can.filter") {
+        const std::int64_t fromId = node.parameters.integer("from", 0x000);
+        const std::int64_t toId = node.parameters.integer("to", 0x7FF);
+        return QStringLiteral("0x%1..0x%2")
+            .arg(fromId, 3, 16, QLatin1Char{'0'})
+            .arg(toId, 3, 16, QLatin1Char{'0'})
+            .toUpper();
+    }
+    if (node.typeName == "dbc.decoder") {
+        const std::string path = node.parameters.text("database");
+        if (!path.empty()) {
+            const QString qpath = QString::fromStdString(path);
+            const qsizetype slash =
+                std::max(qpath.lastIndexOf(QLatin1Char('/')), qpath.lastIndexOf(QLatin1Char('\\')));
+            return slash >= 0 ? qpath.mid(slash + 1) : qpath;
+        }
+        return QStringLiteral("DBC Dictionary");
+    }
+    if (node.typeName == "signal.plot") {
+        return QStringLiteral("Time-Series Sink");
+    }
+    return {};
+}
+
+[[nodiscard]] bool frameMatchesNode(const CanFrame& frame, const NodeDescription& node)
+{
+    if (frame.rtr || frame.error) {
+        return false;
+    }
+
+    const std::int64_t nodeChannel = node.parameters.integer("channel", -1);
+    if (nodeChannel >= 0 && static_cast<std::int64_t>(frame.channel) != nodeChannel) {
+        return false;
+    }
+
+    if (node.typeName == "can.filter") {
+        const auto fromId = static_cast<std::uint32_t>(
+            std::max<std::int64_t>(0, node.parameters.integer("from", 0)));
+        const auto toId = static_cast<std::uint32_t>(
+            std::max<std::int64_t>(0, node.parameters.integer("to", 0x1FFFFFFF)));
+        return frame.identifier >= fromId && frame.identifier <= toId;
+    }
+
+    if (node.typeName == "tinyml.ecu") {
+        const auto outId = static_cast<std::uint32_t>(
+            std::max<std::int64_t>(0, node.parameters.integer("outputCanId", 0x105)));
+        return frame.identifier == outId;
+    }
+
+    if (node.typeName == "lua.ecu") {
+        const std::int64_t speedId = node.parameters.integer("speed_id", -1);
+        const std::int64_t tempId = node.parameters.integer("temp_id", -1);
+        if (speedId >= 0 || tempId >= 0) {
+            return static_cast<std::int64_t>(frame.identifier) == speedId
+                   || static_cast<std::int64_t>(frame.identifier) == tempId;
+        }
+    }
+
+    if (node.typeName == "j1939.decoder") {
+        return frame.isExtended();
+    }
+
+    return true;
+}
+
 } // namespace
+
+void CanvasPanel::decodeFromDatabasesOrBuiltin(const NodeDescription& node,
+                                               NodeFrameTelemetry& out) const
+{
+    // 1. Check loaded DBC databases first for an exact message + signal match.
+    for (const std::shared_ptr<const CanDatabase>& db : m_databases) {
+        if (!db) {
+            continue;
+        }
+        const CanMessage* msg = db->find(out.frame.identifier, out.frame.format);
+        if (msg == nullptr) {
+            continue;
+        }
+
+        out.messageName = QString::fromStdString(msg->name);
+        const std::vector<const CanSignal*> activeSignals =
+            msg->signalsIn(out.frame.data.data(), out.frame.length);
+
+        QStringList decodedItems;
+        decodedItems.reserve(static_cast<qsizetype>(activeSignals.size()));
+        for (const CanSignal* sig : activeSignals) {
+            if (sig == nullptr) {
+                continue;
+            }
+            const std::int64_t raw = sig->rawValue(out.frame.data.data(), out.frame.length);
+            const std::string_view enumName = sig->nameForValue(raw);
+            QString valStr;
+            if (!enumName.empty()) {
+                valStr =
+                    QString::fromUtf8(enumName.data(), static_cast<qsizetype>(enumName.size()));
+            } else {
+                const double physical = sig->decode(out.frame);
+                valStr = formatPhysicalValue(physical, sig->unit);
+            }
+            decodedItems.append(
+                QStringLiteral("%1: %2").arg(QString::fromStdString(sig->name), valStr));
+            if (decodedItems.size() >= 4) {
+                break;
+            }
+        }
+
+        if (!decodedItems.isEmpty()) {
+            const qsizetype half = (decodedItems.size() + 1) / 2;
+            out.decodedLine1 = decodedItems.mid(0, half).join(QStringLiteral("  •  "));
+            if (decodedItems.size() > half) {
+                out.decodedLine2 = decodedItems.mid(half).join(QStringLiteral("  •  "));
+            } else if (msg->cycleTimeMs > 0) {
+                out.decodedLine2 = QStringLiteral("DBC TX: %1  •  Cycle %2 ms")
+                                       .arg(QString::fromStdString(msg->transmitter))
+                                       .arg(msg->cycleTimeMs);
+            }
+            return;
+        }
+    }
+
+    // 2. If this is a Signal Plot node and the PlotStore has live series, show them.
+    if (node.typeName == "signal.plot" && m_plotStore != nullptr) {
+        const std::vector<SeriesInfo> series = m_plotStore->listSeries();
+        if (!series.empty()) {
+            QStringList items;
+            for (const SeriesInfo& info : series) {
+                double val = 0.0;
+                std::uint64_t ts = 0;
+                if (m_plotStore->latest(info.id, val, ts)) {
+                    QString shortName = QString::fromStdString(info.name);
+                    const qsizetype dot = shortName.lastIndexOf(QLatin1Char('.'));
+                    if (dot >= 0) {
+                        shortName = shortName.mid(dot + 1);
+                    }
+                    items.append(QStringLiteral("%1: %2").arg(shortName,
+                                                              formatPhysicalValue(val, info.unit)));
+                    if (items.size() >= 4) {
+                        break;
+                    }
+                }
+            }
+            if (!items.isEmpty()) {
+                const qsizetype half = (items.size() + 1) / 2;
+                out.decodedLine1 = items.mid(0, half).join(QStringLiteral("  •  "));
+                if (items.size() > half) {
+                    out.decodedLine2 = items.mid(half).join(QStringLiteral("  •  "));
+                }
+                if (out.messageName.isEmpty()) {
+                    out.messageName = QStringLiteral("SignalSeriesStore");
+                }
+                return;
+            }
+        }
+    }
+
+    // 3. Built-in Automotive & TinyML Dictionary definitions.
+    const std::uint32_t id = out.frame.identifier;
+    const auto& d = out.frame.data;
+
+    const auto speedId = static_cast<std::uint32_t>(node.parameters.integer("speed_id", 0x101));
+    const auto tempId = static_cast<std::uint32_t>(node.parameters.integer("temp_id", 0x102));
+    const auto tinyMlOutId =
+        static_cast<std::uint32_t>(node.parameters.integer("outputCanId", 0x105));
+
+    if (id == tinyMlOutId || id == 0x105) {
+        out.messageName = QStringLiteral("TinyML_Telemetry");
+        const quint64 regime = d[0];
+        const quint64 conf = d[1];
+        const quint64 anom = d[2];
+        const quint64 health = d[3];
+        const quint64 infUs = (static_cast<quint64>(d[4]) << 8U) | static_cast<quint64>(d[5]);
+        out.decodedLine1 = QStringLiteral("Regime: %1 (%2%)  •  Anom: %3%")
+                               .arg(regimeName(regime))
+                               .arg(conf)
+                               .arg(anom);
+        out.decodedLine2 =
+            QStringLiteral("ThermalHealth: %1%  •  Latency: %2 us").arg(health).arg(infUs);
+        return;
+    }
+
+    if (id == speedId || id == 0x101) {
+        out.messageName = QStringLiteral("VehicleMotion_ECU");
+        const std::uint16_t rawSpeed =
+            static_cast<std::uint16_t>(d[0]) | (static_cast<std::uint16_t>(d[1]) << 8U);
+        const double speedKmh = static_cast<double>(rawSpeed) * 0.1;
+        const int estGear =
+            speedKmh < 1.0 ? 0 : std::clamp(static_cast<int>(speedKmh / 18.0) + 1, 1, 6);
+        const int estRpm = speedKmh < 1.0 ? 780 : static_cast<int>(950.0 + speedKmh * 34.0);
+        out.decodedLine1 = QStringLiteral("VehicleSpeed: %1 km/h").arg(speedKmh, 0, 'f', 1);
+        out.decodedLine2 =
+            QStringLiteral("EstEngineSpeed: %1 rpm  •  Gear: D%2").arg(estRpm).arg(estGear);
+        return;
+    }
+
+    if (id == tempId || id == 0x102) {
+        out.messageName = QStringLiteral("EngineThermal_ECU");
+        const int tempC = static_cast<int>(d[0]) - 40;
+        const QString state =
+            tempC > 95 ? QStringLiteral("HIGH")
+                       : (tempC >= 70 ? QStringLiteral("OPTIMAL") : QStringLiteral("WARMUP"));
+        out.decodedLine1 = QStringLiteral("EngineCoolantTemp: %1 °C").arg(tempC);
+        out.decodedLine2 =
+            QStringLiteral("ThermalState: %1  •  Fan: %2")
+                .arg(state, tempC >= 90 ? QStringLiteral("ON") : QStringLiteral("OFF"));
+        return;
+    }
+
+    if (out.frame.isExtended()) {
+        const std::uint32_t pgn = (id >> 8U) & 0x3FFFFU;
+        const std::uint32_t sa = id & 0xFFU;
+        out.messageName =
+            QStringLiteral("J1939 PGN %1 (SA 0x%2)").arg(pgn).arg(sa, 2, 16, QLatin1Char{'0'});
+        if (pgn == 61444 && out.frame.length >= 5) {
+            const std::uint16_t rawRpm =
+                static_cast<std::uint16_t>(d[3]) | (static_cast<std::uint16_t>(d[4]) << 8U);
+            out.decodedLine1 =
+                QStringLiteral("EEC1 EngineSpeed: %1 rpm").arg(rawRpm * 0.125, 0, 'f', 0);
+            out.decodedLine2 =
+                QStringLiteral("DriverDemandTorque: %1%").arg(static_cast<int>(d[1]) - 125);
+        } else {
+            out.decodedLine1 =
+                QStringLiteral("PGN: 0x%1 (%2)").arg(pgn, 4, 16, QLatin1Char{'0'}).arg(pgn);
+            out.decodedLine2 = QStringLiteral("Source Addr: 0x%1  •  Pri: %2")
+                                   .arg(sa, 2, 16, QLatin1Char{'0'})
+                                   .arg((id >> 26U) & 0x7U);
+        }
+        return;
+    }
+
+    if (id >= 0x7E0 && id <= 0x7EF) {
+        out.messageName = (id & 0x8U) != 0 ? QStringLiteral("UDS_DiagResponse")
+                                           : QStringLiteral("UDS_DiagRequest");
+        const std::uint8_t pci = d[0] & 0xF0U;
+        const std::uint8_t sid = d[1];
+        out.decodedLine1 = QStringLiteral("ISO-TP PCI: 0x%1  •  SID: 0x%2")
+                               .arg(pci >> 4U, 1, 16)
+                               .arg(sid, 2, 16, QLatin1Char{'0'})
+                               .toUpper();
+        out.decodedLine2 = QStringLiteral("DID: 0x%1%2")
+                               .arg(d[2], 2, 16, QLatin1Char{'0'})
+                               .arg(d[3], 2, 16, QLatin1Char{'0'})
+                               .toUpper();
+        return;
+    }
+
+    out.messageName = QStringLiteral("CAN_Frame_0x%1").arg(id, 3, 16, QLatin1Char{'0'}).toUpper();
+    const std::uint16_t word0 =
+        static_cast<std::uint16_t>(d[0]) | (static_cast<std::uint16_t>(d[1]) << 8U);
+    const std::uint16_t word1 =
+        static_cast<std::uint16_t>(d[2]) | (static_cast<std::uint16_t>(d[3]) << 8U);
+    out.decodedLine1 = QStringLiteral("Word0 (LE16): %1  •  Word1: %2").arg(word0).arg(word1);
+    out.decodedLine2 =
+        QStringLiteral("B0: %1  •  B1: %2  •  DLC: %3 B").arg(d[0]).arg(d[1]).arg(out.frame.length);
+}
+
+CanvasPanel::NodeFrameTelemetry CanvasPanel::computeNodeTelemetry(const NodeDescription& node,
+                                                                  const NodeStatus* status,
+                                                                  bool faultInjected) const
+{
+    NodeFrameTelemetry result;
+
+    // 1. Read the latest frame & precomputed changed-byte mask from TraceStore::identifiers().
+    if (m_simulationRunning && m_traceStore != nullptr) {
+        const auto& idStats = m_traceStore->identifiers();
+        std::uint64_t newestTimestampNs = 0;
+
+        for (const TraceIdentifierStats& stats : idStats) {
+            if (stats.count == 0 || !frameMatchesNode(stats.lastFrame, node)) {
+                continue;
+            }
+            if (!result.hasLiveFrame || stats.lastFrame.timestampNs >= newestTimestampNs) {
+                newestTimestampNs = stats.lastFrame.timestampNs;
+                result.hasLiveFrame = true;
+                result.frame = stats.lastFrame;
+                result.cycleUs = stats.lastCycleUs;
+                result.changedMask = stats.changedBytes;
+            }
+        }
+    }
+
+    // 2. For `tinyml.ecu`, synthesize live 0x105 telemetry directly from node counters
+    //    if not yet captured or to reflect fault injection immediately.
+    if (node.typeName == "tinyml.ecu") {
+        const quint64 inferences = counterValue(status, QStringLiteral("Inferences run"));
+        if (m_simulationRunning && (inferences > 0 || faultInjected)) {
+            quint64 regime = counterValue(status, QStringLiteral("Regime class"));
+            quint64 conf = counterValue(status, QStringLiteral("Confidence (%)"));
+            quint64 anom = counterValue(status, QStringLiteral("Anomaly score (%)"));
+            quint64 health = counterValue(status, QStringLiteral("Thermal health (%)"));
+            const quint64 infUs = counterValue(status, QStringLiteral("Last inference (us)"));
+
+            if (faultInjected) {
+                regime = 4;
+                anom = std::max<quint64>(anom, 89);
+                health = std::min<quint64>(health > 0 ? health : 28, 28);
+            }
+
+            result.hasLiveFrame = true;
+            result.frame.channel = static_cast<std::uint8_t>(
+                std::max<std::int64_t>(0, node.parameters.integer("channel", 0)));
+            result.frame.identifier = static_cast<std::uint32_t>(
+                std::max<std::int64_t>(0, node.parameters.integer("outputCanId", 0x105)));
+            result.frame.format = CanFrameFormat::Standard;
+            result.frame.dlc = 8;
+            result.frame.length = 8;
+            result.frame.data[0] = static_cast<std::uint8_t>(regime & 0xFFU);
+            result.frame.data[1] = static_cast<std::uint8_t>(std::min<quint64>(100, conf));
+            result.frame.data[2] = static_cast<std::uint8_t>(std::min<quint64>(100, anom));
+            result.frame.data[3] = static_cast<std::uint8_t>(std::min<quint64>(100, health));
+            result.frame.data[4] = static_cast<std::uint8_t>((infUs >> 8U) & 0xFFU);
+            result.frame.data[5] = static_cast<std::uint8_t>(infUs & 0xFFU);
+            result.frame.data[6] = static_cast<std::uint8_t>((inferences >> 8U) & 0xFFU);
+            result.frame.data[7] = static_cast<std::uint8_t>(inferences & 0xFFU);
+            result.changedMask = 0xDFULL; // Highlight active telemetry bytes
+        }
+    }
+
+    // 3. When stopped or waiting for first bus frame, construct a preview frame
+    //    so the 8-byte grid and DBC dictionary panel are informative at all times.
+    if (!result.hasLiveFrame) {
+        result.isPreview = true;
+        result.frame.channel = static_cast<std::uint8_t>(
+            std::max<std::int64_t>(0, node.parameters.integer("channel", 0)));
+        result.frame.format = CanFrameFormat::Standard;
+        result.frame.dlc = 8;
+        result.frame.length = 8;
+
+        if (node.typeName == "tinyml.ecu") {
+            result.frame.identifier = static_cast<std::uint32_t>(
+                std::max<std::int64_t>(0, node.parameters.integer("outputCanId", 0x105)));
+            result.frame.data = {1, 98, 4, 96, 0, 2, 0, 0};
+        } else if (node.typeName == "lua.ecu") {
+            result.frame.identifier = static_cast<std::uint32_t>(
+                std::max<std::int64_t>(0, node.parameters.integer("speed_id", 0x101)));
+            result.frame.data = {0xE8, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // 74.4 km/h
+        } else if (node.typeName == "can.filter") {
+            result.frame.identifier = static_cast<std::uint32_t>(
+                std::max<std::int64_t>(0, node.parameters.integer("from", 0x101)));
+            result.frame.data = {0x90, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // 40.0 km/h
+        } else if (node.typeName == "j1939.decoder") {
+            result.frame.identifier = 0x0CF00400U;
+            result.frame.format = CanFrameFormat::Extended;
+            result.frame.data = {0x00, 0x96, 0x96, 0x20, 0x1C, 0x00, 0x00, 0xFF};
+        } else if (node.typeName == "uds.client" || node.typeName == "isotp.transport") {
+            result.frame.identifier = 0x7E0U;
+            result.frame.data = {0x03, 0x22, 0xF1, 0x90, 0x55, 0x55, 0x55, 0x55};
+        } else {
+            // Check if a loaded DBC database has a message we can preview.
+            bool foundDbcMsg = false;
+            for (const std::shared_ptr<const CanDatabase>& db : m_databases) {
+                if (db && !db->messages().empty()) {
+                    const CanMessage& firstMsg = db->messages().front();
+                    result.frame = firstMsg.makeFrame();
+                    foundDbcMsg = true;
+                    break;
+                }
+            }
+            if (!foundDbcMsg) {
+                result.frame.identifier = 0x101U;
+                result.frame.data = {0x58, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // 60.0 km/h
+            }
+        }
+    }
+
+    if (!m_simulationRunning) {
+        result.directionTag = QStringLiteral("STANDBY");
+    } else if (!result.hasLiveFrame) {
+        result.directionTag = QStringLiteral("WAIT RX");
+    } else if (node.typeName == "can.transmit" || node.typeName == "lua.ecu"
+               || node.typeName == "tinyml.ecu" || node.typeName == "transmit.list"
+               || node.typeName == "sim.restbus") {
+        result.directionTag = QStringLiteral("LIVE TX");
+    } else if (node.typeName == "can.filter") {
+        result.directionTag = QStringLiteral("PASS");
+    } else {
+        result.directionTag = QStringLiteral("LIVE RX");
+    }
+
+    const QString idHex = result.frame.isExtended()
+                              ? QStringLiteral("ID 0x%1X")
+                                    .arg(result.frame.identifier, 8, 16, QLatin1Char{'0'})
+                                    .toUpper()
+                              : QStringLiteral("ID 0x%1")
+                                    .arg(result.frame.identifier, 3, 16, QLatin1Char{'0'})
+                                    .toUpper();
+    result.idDlcText = QStringLiteral("%1 • DLC %2").arg(idHex).arg(result.frame.length);
+
+    if (result.cycleUs > 0) {
+        result.cycleText = QStringLiteral("Δt %1 ms").arg(result.cycleUs / 1000.0, 0, 'f', 1);
+    }
+
+    for (std::size_t b = 0; b < 8; ++b) {
+        if (b < result.frame.length) {
+            result.hexBytes[b] =
+                QStringLiteral("%1").arg(result.frame.data[b], 2, 16, QLatin1Char{'0'}).toUpper();
+        } else {
+            result.hexBytes[b] = QStringLiteral("--");
+        }
+    }
+
+    decodeFromDatabasesOrBuiltin(node, result);
+    return result;
+}
+
+void CanvasPanel::refreshTelemetryCache()
+{
+    const bool faultInjected =
+        m_injectFaultButton != nullptr && m_injectFaultButton->isChecked() && m_simulationRunning;
+
+    m_telemetryCache.clear();
+    m_telemetryCache.reserve(static_cast<qsizetype>(m_description.nodes().size()));
+
+    for (const NodeDescription& node : m_description.nodes()) {
+        const QString idString = QString::fromStdString(node.id);
+        const auto statusIt = m_nodeStatuses.constFind(idString);
+        const NodeStatus* status =
+            (statusIt != m_nodeStatuses.cend()) ? &statusIt.value() : nullptr;
+
+        m_telemetryCache.insert(idString, computeNodeTelemetry(node, status, faultInjected));
+    }
+}
 
 CanvasPanel::CanvasPanel(GraphDescription& description, const NodeCatalog& catalog, QWidget* parent)
     : QWidget{parent}
     , m_description{description}
     , m_catalog{catalog}
     , m_theme{Theme::dark()}
+    , m_monoBoldFont{makeMonospaceFont(10, QFont::Bold)}
+    , m_monoSmallFont{makeMonospaceFont(8, QFont::Medium)}
+    , m_monoSignalFont{makeMonospaceFont(9, QFont::DemiBold)}
 {
+    m_badgeFont = font();
+    m_badgeFont.setPixelSize(9);
+    m_badgeFont.setWeight(QFont::Bold);
+
+    m_titleFont = font();
+    m_titleFont.setPixelSize(11);
+    m_titleFont.setWeight(QFont::Bold);
+
+    m_subFont = font();
+    m_subFont.setPixelSize(9);
+    m_subFont.setWeight(QFont::Medium);
+
+    m_dbcTitleFont = font();
+    m_dbcTitleFont.setPixelSize(8);
+    m_dbcTitleFont.setWeight(QFont::Bold);
+
     m_model = std::make_unique<PipelineGraphModel>(m_description, m_catalog);
 
     if (ThemeManager* themes = ThemeManager::instance()) {
@@ -286,10 +825,16 @@ CanvasPanel::CanvasPanel(GraphDescription& description, const NodeCatalog& catal
         this};
 
     m_scene = scene;
+    m_scene->setNodePainter(std::make_unique<PipelineNodePainter>());
+
     m_view = new QtNodes::GraphicsView{m_scene};
     m_view->setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing
                            | QPainter::SmoothPixmapTransform);
     m_view->setViewportUpdateMode(QGraphicsView::FullViewportUpdate);
+    m_view->setAcceptDrops(true);
+    m_view->viewport()->setAcceptDrops(true);
+    m_view->installEventFilter(this);
+    m_view->viewport()->installEventFilter(this);
 
     connect(m_scene,
             &QtNodes::BasicGraphicsScene::nodeContextMenu,
@@ -300,27 +845,38 @@ CanvasPanel::CanvasPanel(GraphDescription& description, const NodeCatalog& catal
     m_palette->setHeaderHidden(true);
     m_palette->setRootIsDecorated(true);
     m_palette->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_palette->setMinimumWidth(150);
+    m_palette->setDragEnabled(true);
+    m_palette->setDragDropMode(QAbstractItemView::DragOnly);
+    m_palette->setMinimumWidth(160);
     m_palette->setMaximumWidth(260);
+    m_palette->setToolTip(
+        tr("Double-click or drag a block onto the Pipeline canvas, or select one and click "
+           "'+ Add Block'."));
 
     buildPalette();
 
-    // --- Simulation & TinyML Control Bar above the Canvas view -------------
+    // --- Block Editing & TinyML Control Bar above Canvas (right-aligned) ---
     m_hudBar = new QWidget{this};
     m_hudBar->setObjectName(QStringLiteral("torquebus.canvas.hud"));
     auto* hudLayout = new QHBoxLayout{m_hudBar};
     hudLayout->setContentsMargins(10, 5, 10, 5);
     hudLayout->setSpacing(8);
 
-    m_hudStatusLabel = new QLabel{m_hudBar};
-    m_hudMetricsLabel = new QLabel{m_hudBar};
+    m_addBlockButton = new QPushButton{tr("+ Add Block"), m_hudBar};
+    m_addBlockButton->setToolTip(
+        tr("Add the block selected in the left palette (or choose from a menu) at a free "
+           "position on the Canvas."));
+
+    m_deleteBlockButton = new QPushButton{tr("Delete Selected"), m_hudBar};
+    m_deleteBlockButton->setToolTip(
+        tr("Delete the selected block(s) or connection wire(s) from the Pipeline (Del / "
+           "Backspace)."));
 
     m_animateButton = new QPushButton{tr("Animate Flow"), m_hudBar};
     m_animateButton->setCheckable(true);
     m_animateButton->setChecked(true);
-    m_animateButton->setToolTip(
-        tr("Toggle live 60 FPS wire packet flow, node telemetry halos, and TinyML neural "
-           "network animations on the Canvas."));
+    m_animateButton->setToolTip(tr("Toggle live wire packet flow, node telemetry halos, and TinyML "
+                                   "neural network animations on the Canvas."));
 
     m_injectFaultButton = new QPushButton{tr("Inject TinyML Anomaly"), m_hudBar};
     m_injectFaultButton->setCheckable(true);
@@ -333,8 +889,9 @@ CanvasPanel::CanvasPanel(GraphDescription& description, const NodeCatalog& catal
         tr("Populate the Canvas with a complete Virtual Vehicle ECU + TinyML Virtual ECU + "
            "Signal Plot + CAN Trace simulation pipeline."));
 
-    hudLayout->addWidget(m_hudStatusLabel);
-    hudLayout->addWidget(m_hudMetricsLabel, 1);
+    hudLayout->addStretch(1);
+    hudLayout->addWidget(m_addBlockButton);
+    hudLayout->addWidget(m_deleteBlockButton);
     hudLayout->addWidget(m_animateButton);
     hudLayout->addWidget(m_injectFaultButton);
     hudLayout->addWidget(m_demoPipelineButton);
@@ -368,16 +925,23 @@ CanvasPanel::CanvasPanel(GraphDescription& description, const NodeCatalog& catal
     m_flowAnimation->setLoopCount(-1);
 
     connect(m_flowAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant& value) {
-        m_phase = value.toReal();
-        if (m_view != nullptr && m_view->viewport() != nullptr) {
+        const qreal nextPhase = value.toReal();
+        if (std::abs(nextPhase - m_phase) < 0.040 && nextPhase >= m_phase) {
+            return;
+        }
+        m_phase = nextPhase;
+        if (isVisible() && m_view != nullptr && m_view->viewport() != nullptr) {
             m_view->viewport()->update();
         }
     });
 
+    connect(m_addBlockButton, &QPushButton::clicked, this, &CanvasPanel::addSelectedPaletteNode);
+    connect(m_deleteBlockButton, &QPushButton::clicked, this, &CanvasPanel::deleteSelectedItems);
+
     connect(m_animateButton, &QPushButton::toggled, this, [this](bool checked) {
         m_animationsEnabled = checked;
         updateAnimationState();
-        if (m_view != nullptr && m_view->viewport() != nullptr) {
+        if (isVisible() && m_view != nullptr && m_view->viewport() != nullptr) {
             m_view->viewport()->update();
         }
     });
@@ -386,8 +950,9 @@ CanvasPanel::CanvasPanel(GraphDescription& description, const NodeCatalog& catal
         if (m_variables != nullptr) {
             m_variables->set("tinyml.inject_fault", checked ? 1.0 : 0.0);
         }
+        refreshTelemetryCache();
         updateHudLabels();
-        if (m_view != nullptr && m_view->viewport() != nullptr) {
+        if (isVisible() && m_view != nullptr && m_view->viewport() != nullptr) {
             m_view->viewport()->update();
         }
     });
@@ -400,10 +965,12 @@ CanvasPanel::CanvasPanel(GraphDescription& description, const NodeCatalog& catal
     });
 
     connect(m_model.get(), &PipelineGraphModel::nodeCreated, this, [this](QtNodes::NodeId) {
+        refreshTelemetryCache();
         updateHudLabels();
         Q_EMIT graphEdited();
     });
     connect(m_model.get(), &PipelineGraphModel::nodeDeleted, this, [this](QtNodes::NodeId) {
+        refreshTelemetryCache();
         updateHudLabels();
         Q_EMIT graphEdited();
     });
@@ -423,6 +990,8 @@ CanvasPanel::CanvasPanel(GraphDescription& description, const NodeCatalog& catal
             Q_EMIT nodeSelected(QString::fromStdString(m_model->descriptionId(nodeId)));
         });
 
+    refreshTelemetryCache();
+
     if (ThemeManager* themes = ThemeManager::instance()) {
         applyTheme(themes->theme());
         connect(themes, &ThemeManager::themeChanged, this, &CanvasPanel::applyTheme);
@@ -436,6 +1005,22 @@ CanvasPanel::~CanvasPanel()
     releaseGraph();
 }
 
+void CanvasPanel::showEvent(QShowEvent* event)
+{
+    QWidget::showEvent(event);
+    refreshTelemetryCache();
+    updateAnimationState();
+    if (m_view != nullptr && m_view->viewport() != nullptr) {
+        m_view->viewport()->update();
+    }
+}
+
+void CanvasPanel::hideEvent(QHideEvent* event)
+{
+    QWidget::hideEvent(event);
+    updateAnimationState();
+}
+
 void CanvasPanel::setSystemVariables(SystemVariables* variables)
 {
     m_variables = variables;
@@ -445,29 +1030,138 @@ void CanvasPanel::setSystemVariables(SystemVariables* variables)
     }
 }
 
+void CanvasPanel::setTraceStore(const TraceStore* store)
+{
+    m_traceStore = store;
+    refreshTelemetryCache();
+}
+
+void CanvasPanel::setPlotStore(const SignalSeriesStore* store)
+{
+    m_plotStore = store;
+    refreshTelemetryCache();
+}
+
+void CanvasPanel::setDatabases(std::vector<std::shared_ptr<const CanDatabase>> databases)
+{
+    m_databases = std::move(databases);
+    refreshTelemetryCache();
+    if (isVisible() && m_view != nullptr && m_view->viewport() != nullptr) {
+        m_view->viewport()->update();
+    }
+}
+
+bool CanvasPanel::eventFilter(QObject* watched, QEvent* event)
+{
+    if (event == nullptr || m_view == nullptr) {
+        return QWidget::eventFilter(watched, event);
+    }
+
+    if (watched == m_view || watched == m_view->viewport()) {
+        if (event->type() == QEvent::KeyPress) {
+            auto* keyEvent = static_cast<QKeyEvent*>(event);
+            if (keyEvent->key() == Qt::Key_Delete || keyEvent->key() == Qt::Key_Backspace) {
+                deleteSelectedItems();
+                return true;
+            }
+        } else if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
+            auto* dragEvent = static_cast<QDropEvent*>(event);
+            if (dragEvent->source() == m_palette && m_palette != nullptr
+                && m_palette->currentItem() != nullptr
+                && !m_palette->currentItem()->data(0, kTypeNameRole).toString().isEmpty()) {
+                dragEvent->acceptProposedAction();
+                return true;
+            }
+        } else if (event->type() == QEvent::Drop) {
+            auto* dropEvent = static_cast<QDropEvent*>(event);
+            if (dropEvent->source() == m_palette && m_palette != nullptr
+                && m_palette->currentItem() != nullptr) {
+                const QString typeName =
+                    m_palette->currentItem()->data(0, kTypeNameRole).toString();
+                if (!typeName.isEmpty()) {
+                    const QPointF scenePos =
+                        m_view->mapToScene(dropEvent->position().toPoint()) - QPointF{140.0, 65.0};
+                    addNodeAt(typeName, findNonOverlappingPosition(scenePos));
+                    dropEvent->acceptProposedAction();
+                    return true;
+                }
+            }
+        }
+    }
+
+    return QWidget::eventFilter(watched, event);
+}
+
+void CanvasPanel::deleteSelectedItems()
+{
+    if (!m_model || m_scene == nullptr) {
+        return;
+    }
+
+    const QList<QGraphicsItem*> selected = m_scene->selectedItems();
+    if (selected.isEmpty()) {
+        return;
+    }
+
+    // 1. Delete selected connections first.
+    std::vector<QtNodes::ConnectionId> connectionsToDelete;
+    std::vector<QtNodes::NodeId> nodesToDelete;
+
+    for (QGraphicsItem* item : selected) {
+        if (auto* cgo = qgraphicsitem_cast<QtNodes::ConnectionGraphicsObject*>(item)) {
+            connectionsToDelete.push_back(cgo->connectionId());
+        } else if (auto* ngo = qgraphicsitem_cast<QtNodes::NodeGraphicsObject*>(item)) {
+            nodesToDelete.push_back(ngo->nodeId());
+        }
+    }
+
+    for (const QtNodes::ConnectionId& cid : connectionsToDelete) {
+        m_model->deleteConnection(cid);
+    }
+
+    for (const QtNodes::NodeId nodeId : nodesToDelete) {
+        m_model->deleteNode(nodeId);
+    }
+
+    refreshTelemetryCache();
+    updateHudLabels();
+    if (isVisible() && m_view != nullptr && m_view->viewport() != nullptr) {
+        m_view->viewport()->update();
+    }
+}
+
 void CanvasPanel::setSimulationRunning(bool running)
 {
     m_simulationRunning = running;
     if (running && m_variables != nullptr && m_injectFaultButton != nullptr) {
         m_variables->set("tinyml.inject_fault", m_injectFaultButton->isChecked() ? 1.0 : 0.0);
     }
+    refreshTelemetryCache();
     updateAnimationState();
     updateHudLabels();
-    if (m_view != nullptr && m_view->viewport() != nullptr) {
+    if (isVisible() && m_view != nullptr && m_view->viewport() != nullptr) {
         m_view->viewport()->update();
     }
 }
 
 void CanvasPanel::setNodeStatuses(const QList<NodeStatus>& nodes)
 {
+    if (!m_simulationRunning && nodes.isEmpty() && m_nodeStatuses.isEmpty()) {
+        updateHudLabels();
+        return;
+    }
+
     m_nodeStatuses.clear();
     m_nodeStatuses.reserve(nodes.size());
     for (const NodeStatus& status : nodes) {
         m_nodeStatuses.insert(status.name, status);
     }
     updateHudLabels();
-    if (m_view != nullptr && m_view->viewport() != nullptr) {
-        m_view->viewport()->update();
+    if (isVisible()) {
+        refreshTelemetryCache();
+        if (m_view != nullptr && m_view->viewport() != nullptr) {
+            m_view->viewport()->update();
+        }
     }
 }
 
@@ -483,7 +1177,7 @@ void CanvasPanel::updateAnimationState()
         return;
     }
 
-    const bool shouldRun = m_simulationRunning && m_animationsEnabled;
+    const bool shouldRun = m_simulationRunning && m_animationsEnabled && isVisible();
     if (shouldRun) {
         if (m_flowAnimation->state() != QAbstractAnimation::Running) {
             m_flowAnimation->start();
@@ -497,28 +1191,7 @@ void CanvasPanel::updateAnimationState()
 
 void CanvasPanel::updateHudLabels()
 {
-    if (m_hudStatusLabel == nullptr || m_hudMetricsLabel == nullptr) {
-        return;
-    }
-
     const bool faultActive = m_injectFaultButton != nullptr && m_injectFaultButton->isChecked();
-    const QColor badgeColor =
-        !m_simulationRunning ? m_theme.textMuted : (faultActive ? m_theme.error : m_theme.success);
-
-    const QString stateWord = !m_simulationRunning ? tr("SIL Ready (Press F5)")
-                                                   : (faultActive ? tr("SIL Live • Fault Injected")
-                                                                  : tr("SIL Live • Streaming"));
-
-    m_hudStatusLabel->setText(
-        QStringLiteral("<span style='color:%1; font-weight:600;'>&#9679; %2</span>")
-            .arg(badgeColor.name(QColor::HexRgb), stateWord));
-
-    double totalFps = 0.0;
-    double peakBusLoad = 0.0;
-    for (const ChannelStatus& channel : m_channelStatuses) {
-        totalFps += channel.framesPerSecond;
-        peakBusLoad = std::max(peakBusLoad, channel.busLoadPercent);
-    }
 
     quint64 totalInferences = 0;
     quint64 maxAnomalyPct = 0;
@@ -536,23 +1209,31 @@ void CanvasPanel::updateHudLabels()
         }
     }
 
-    QString metrics = tr("%1 blocks • %2 wires")
+    QString summary = tr("Pipeline: %1 blocks • %2 wires")
                           .arg(m_description.nodes().size())
                           .arg(m_description.edges().size());
 
+    QString stateToken = QStringLiteral("ready");
+
     if (m_simulationRunning) {
-        metrics += tr("   |   %1 frames/s • %2% bus load")
-                       .arg(totalFps, 0, 'f', 0)
-                       .arg(peakBusLoad, 0, 'f', 1);
+        stateToken = (faultActive || maxAnomalyPct >= 65) ? QStringLiteral("error")
+                                                          : QStringLiteral("online");
         if (!activeRegime.isEmpty()) {
-            metrics += tr("   |   TinyML: %1 (%2% anomaly, %3 inferences)")
-                           .arg(activeRegime)
-                           .arg(maxAnomalyPct)
+            const quint64 displayAnom =
+                faultActive ? std::max<quint64>(maxAnomalyPct, 89) : maxAnomalyPct;
+            const QString displayRegime = faultActive ? QStringLiteral("ANOMALY") : activeRegime;
+            summary += tr("   |   TinyML: %1 (%2% anom, %3 inf)")
+                           .arg(displayRegime)
+                           .arg(displayAnom)
                            .arg(totalInferences);
         }
     }
 
-    m_hudMetricsLabel->setText(metrics);
+    if (summary != m_statusSummaryText || stateToken != m_statusSummaryState) {
+        m_statusSummaryText = summary;
+        m_statusSummaryState = stateToken;
+        Q_EMIT statusSummaryChanged(m_statusSummaryText, m_statusSummaryState);
+    }
 }
 
 QByteArray CanvasPanel::splitterState() const
@@ -610,13 +1291,38 @@ void CanvasPanel::buildPalette()
     }
 }
 
-void CanvasPanel::addNodeFromPalette(QTreeWidgetItem* item)
+QPointF CanvasPanel::findNonOverlappingPosition(const QPointF& desired) const
 {
-    if (item == nullptr) {
-        return;
+    constexpr qreal kMinDx = 300.0;
+    constexpr qreal kMinDy = 158.0;
+
+    QPointF candidate = desired;
+    for (int attempt = 0; attempt < 36; ++attempt) {
+        bool overlaps = false;
+        for (const NodeDescription& existing : m_description.nodes()) {
+            const qreal requiredDy =
+                (existing.typeName == "tinyml.ecu") ? (kMinDy + 120.0) : kMinDy;
+            if (std::abs(existing.x - candidate.x()) < kMinDx
+                && std::abs(existing.y - candidate.y()) < requiredDy) {
+                overlaps = true;
+                break;
+            }
+        }
+        if (!overlaps) {
+            return candidate;
+        }
+
+        const int col = (attempt + 1) % 3;
+        const int row = (attempt + 1) / 3;
+        candidate = desired + QPointF{col * 320.0, row * 170.0};
     }
 
-    if (!m_model || m_view == nullptr) {
+    return candidate;
+}
+
+void CanvasPanel::addNodeFromPalette(QTreeWidgetItem* item)
+{
+    if (item == nullptr || !m_model || m_view == nullptr) {
         return;
     }
 
@@ -625,12 +1331,36 @@ void CanvasPanel::addNodeFromPalette(QTreeWidgetItem* item)
         return;
     }
 
-    addNodeAt(typeName, m_view->mapToScene(m_view->viewport()->rect().center()));
+    const QPointF viewCenter =
+        m_view->mapToScene(m_view->viewport()->rect().center()) - QPointF{140.0, 65.0};
+    addNodeAt(typeName, findNonOverlappingPosition(viewCenter));
+}
+
+void CanvasPanel::addSelectedPaletteNode()
+{
+    if (m_palette != nullptr && m_palette->currentItem() != nullptr) {
+        const QString typeName = m_palette->currentItem()->data(0, kTypeNameRole).toString();
+        if (!typeName.isEmpty()) {
+            addNodeFromPalette(m_palette->currentItem());
+            return;
+        }
+    }
+
+    if (m_view == nullptr || m_addBlockButton == nullptr) {
+        return;
+    }
+
+    const QPointF center =
+        m_view->mapToScene(m_view->viewport()->rect().center()) - QPointF{140.0, 65.0};
+    if (QMenu* menu = buildSceneMenu(findNonOverlappingPosition(center))) {
+        menu->popup(m_addBlockButton->mapToGlobal(QPoint{0, m_addBlockButton->height()}));
+    }
 }
 
 void CanvasPanel::addNodeAt(const QString& typeName, const QPointF& scenePosition)
 {
-    const QtNodes::NodeId nodeId = addNodeAtReturning(typeName, scenePosition);
+    const QtNodes::NodeId nodeId =
+        addNodeAtReturning(typeName, findNonOverlappingPosition(scenePosition));
     if (nodeId == QtNodes::InvalidNodeId) {
         return;
     }
@@ -673,6 +1403,12 @@ QMenu* CanvasPanel::buildSceneMenu(const QPointF& scenePosition)
     menu->addSeparator();
     QAction* demoAction = menu->addAction(tr("Build TinyML Virtual Vehicle Demo"));
     connect(demoAction, &QAction::triggered, this, [this] { buildTinyMlDemoPipeline(); });
+
+    if (m_scene != nullptr && !m_scene->selectedItems().isEmpty()) {
+        menu->addSeparator();
+        QAction* deleteSelected = menu->addAction(tr("Delete Selected (Del)"));
+        connect(deleteSelected, &QAction::triggered, this, &CanvasPanel::deleteSelectedItems);
+    }
 
     return menu;
 }
@@ -730,7 +1466,7 @@ void CanvasPanel::showNodeMenu(QtNodes::NodeId nodeId, const QPointF& scenePosit
 
     menu.addSeparator();
 
-    QAction* remove = menu.addAction(tr("Delete"));
+    QAction* remove = menu.addAction(tr("Delete Block"));
     connect(remove, &QAction::triggered, this, [this, nodeId] {
         if (m_model) {
             m_model->deleteNode(nodeId);
@@ -792,20 +1528,32 @@ void CanvasPanel::attachEcuTo(QtNodes::NodeId sourceNodeId)
         }
     }
 
-    constexpr qreal kStep = 220.0;
+    constexpr qreal kStepX = 340.0;
 
     const QtNodes::NodeId ecu =
-        addNodeAtReturning(QStringLiteral("lua.ecu"), sourcePosition + QPointF{kStep, 0.0});
+        addNodeAtReturning(QStringLiteral("lua.ecu"),
+                           findNonOverlappingPosition(sourcePosition + QPointF{kStepX, 0.0}));
     if (ecu == QtNodes::InvalidNodeId) {
         return;
     }
 
-    QtNodes::NodeId transmit = findNodeOnChannel("can.transmit", channel);
-    const bool created = transmit == QtNodes::InvalidNodeId;
+    const std::string ecuId = m_model->descriptionId(ecu);
+    for (NodeDescription& node : m_description.nodes()) {
+        if (node.id == ecuId) {
+            node.parameters.set("channel", ParameterValue::fromInteger(channel));
+            if (node.parameters.text("script").empty()) {
+                node.parameters.set(
+                    "script", ParameterValue::fromText(defaultVehicleEcuScript().toStdString()));
+            }
+            break;
+        }
+    }
 
-    if (created) {
-        transmit = addNodeAtReturning(QStringLiteral("can.transmit"),
-                                      sourcePosition + QPointF{2.0 * kStep, 0.0});
+    QtNodes::NodeId transmit = findNodeOnChannel("can.transmit", channel);
+    if (transmit == QtNodes::InvalidNodeId) {
+        transmit = addNodeAtReturning(
+            QStringLiteral("can.transmit"),
+            findNonOverlappingPosition(sourcePosition + QPointF{2.0 * kStepX, 0.0}));
         if (transmit == QtNodes::InvalidNodeId) {
             return;
         }
@@ -827,7 +1575,7 @@ void CanvasPanel::attachEcuTo(QtNodes::NodeId sourceNodeId)
         object->setSelected(true);
     }
 
-    Q_EMIT nodeSelected(QString::fromStdString(m_model->descriptionId(ecu)));
+    Q_EMIT nodeSelected(QString::fromStdString(ecuId));
     Q_EMIT graphEdited();
 }
 
@@ -853,38 +1601,59 @@ void CanvasPanel::attachTinyMlEcuTo(QtNodes::NodeId sourceNodeId)
         }
     }
 
-    constexpr qreal kStepX = 240.0;
-    constexpr qreal kStepY = 170.0;
+    constexpr qreal kStepX = 340.0;
+    constexpr qreal kStepY = 185.0;
 
-    const QtNodes::NodeId tinyml =
-        addNodeAtReturning(QStringLiteral("tinyml.ecu"), sourcePosition + QPointF{kStepX, kStepY});
+    QtNodes::NodeId tinyml = findNodeOnChannel("tinyml.ecu", channel);
     if (tinyml == QtNodes::InvalidNodeId) {
-        return;
-    }
-
-    const std::string tinymlId = m_model->descriptionId(tinyml);
-    for (NodeDescription& node : m_description.nodes()) {
-        if (node.id == tinymlId) {
-            node.parameters.set("channel", ParameterValue::fromInteger(channel));
-            break;
+        tinyml = addNodeAtReturning(
+            QStringLiteral("tinyml.ecu"),
+            findNonOverlappingPosition(sourcePosition + QPointF{kStepX, kStepY}));
+        if (tinyml == QtNodes::InvalidNodeId) {
+            return;
         }
-    }
 
-    const QtNodes::NodeId transmit = addNodeAtReturning(
-        QStringLiteral("can.transmit"), sourcePosition + QPointF{2.0 * kStepX, kStepY - 40.0});
-    if (transmit != QtNodes::InvalidNodeId) {
-        const std::string transmitId = m_model->descriptionId(transmit);
+        const std::string tinymlId = m_model->descriptionId(tinyml);
         for (NodeDescription& node : m_description.nodes()) {
-            if (node.id == transmitId) {
+            if (node.id == tinymlId) {
                 node.parameters.set("channel", ParameterValue::fromInteger(channel));
                 break;
             }
         }
+    }
+
+    QtNodes::NodeId transmit = findNodeOnChannel("can.transmit", channel);
+    if (transmit == QtNodes::InvalidNodeId) {
+        transmit = addNodeAtReturning(
+            QStringLiteral("can.transmit"),
+            findNonOverlappingPosition(sourcePosition + QPointF{2.0 * kStepX, kStepY - 60.0}));
+        if (transmit != QtNodes::InvalidNodeId) {
+            const std::string transmitId = m_model->descriptionId(transmit);
+            for (NodeDescription& node : m_description.nodes()) {
+                if (node.id == transmitId) {
+                    node.parameters.set("channel", ParameterValue::fromInteger(channel));
+                    break;
+                }
+            }
+        }
+    }
+
+    if (transmit != QtNodes::InvalidNodeId) {
         connectPortIndex(tinyml, 0, transmit, 0);
     }
 
-    const QtNodes::NodeId plot = addNodeAtReturning(
-        QStringLiteral("signal.plot"), sourcePosition + QPointF{2.0 * kStepX, kStepY + 70.0});
+    QtNodes::NodeId plot = QtNodes::InvalidNodeId;
+    for (const NodeDescription& node : m_description.nodes()) {
+        if (node.typeName == "signal.plot") {
+            plot = m_model->canvasId(node.id);
+            break;
+        }
+    }
+    if (plot == QtNodes::InvalidNodeId) {
+        plot = addNodeAtReturning(
+            QStringLiteral("signal.plot"),
+            findNonOverlappingPosition(sourcePosition + QPointF{2.0 * kStepX, kStepY + 120.0}));
+    }
 
     connectPortIndex(sourceNodeId, 0, tinyml, 0);
     if (plot != QtNodes::InvalidNodeId) {
@@ -897,7 +1666,7 @@ void CanvasPanel::attachTinyMlEcuTo(QtNodes::NodeId sourceNodeId)
         object->setSelected(true);
     }
 
-    Q_EMIT nodeSelected(QString::fromStdString(tinymlId));
+    Q_EMIT nodeSelected(QString::fromStdString(m_model->descriptionId(tinyml)));
     Q_EMIT graphEdited();
 }
 
@@ -913,8 +1682,8 @@ void CanvasPanel::buildTinyMlDemoPipeline()
     can1.id = "can_1";
     can1.typeName = "can.source";
     can1.parameters.set("channel", ParameterValue::fromInteger(0));
-    can1.x = -320.0;
-    can1.y = -60.0;
+    can1.x = -380.0;
+    can1.y = -40.0;
     m_description.addNode(std::move(can1));
 
     NodeDescription vehicleEcu;
@@ -925,16 +1694,16 @@ void CanvasPanel::buildTinyMlDemoPipeline()
                               ParameterValue::fromText(defaultVehicleEcuScript().toStdString()));
     vehicleEcu.parameters.set("speed_id", ParameterValue::fromInteger(0x101));
     vehicleEcu.parameters.set("temp_id", ParameterValue::fromInteger(0x102));
-    vehicleEcu.x = -40.0;
-    vehicleEcu.y = -130.0;
+    vehicleEcu.x = -20.0;
+    vehicleEcu.y = -160.0;
     m_description.addNode(std::move(vehicleEcu));
 
     NodeDescription tx1;
     tx1.id = "tx_bus";
     tx1.typeName = "can.transmit";
     tx1.parameters.set("channel", ParameterValue::fromInteger(0));
-    tx1.x = 270.0;
-    tx1.y = -130.0;
+    tx1.x = 340.0;
+    tx1.y = -160.0;
     m_description.addNode(std::move(tx1));
 
     NodeDescription tinymlEcu;
@@ -945,23 +1714,23 @@ void CanvasPanel::buildTinyMlDemoPipeline()
     tinymlEcu.parameters.set("tempCanId", ParameterValue::fromInteger(0x102));
     tinymlEcu.parameters.set("outputCanId", ParameterValue::fromInteger(0x105));
     tinymlEcu.parameters.set("anomalyThreshold", ParameterValue::fromReal(65.0));
-    tinymlEcu.x = -40.0;
-    tinymlEcu.y = 60.0;
+    tinymlEcu.x = -20.0;
+    tinymlEcu.y = 40.0;
     m_description.addNode(std::move(tinymlEcu));
 
     NodeDescription txTinyMl;
     txTinyMl.id = "tx_tinyml";
     txTinyMl.typeName = "can.transmit";
     txTinyMl.parameters.set("channel", ParameterValue::fromInteger(0));
-    txTinyMl.x = 270.0;
+    txTinyMl.x = 340.0;
     txTinyMl.y = 20.0;
     m_description.addNode(std::move(txTinyMl));
 
     NodeDescription plotTinyMl;
     plotTinyMl.id = "tinyml_plot";
     plotTinyMl.typeName = "signal.plot";
-    plotTinyMl.x = 270.0;
-    plotTinyMl.y = 140.0;
+    plotTinyMl.x = 340.0;
+    plotTinyMl.y = 195.0;
     m_description.addNode(std::move(plotTinyMl));
 
     m_description.addEdge(EdgeDescription{"can_1", 0, "ecu_vehicle", 0});
@@ -971,6 +1740,7 @@ void CanvasPanel::buildTinyMlDemoPipeline()
     m_description.addEdge(EdgeDescription{"tinyml_ecu", 1, "tinyml_plot", 0});
 
     m_model->reload();
+    refreshTelemetryCache();
     updateHudLabels();
 
     const QtNodes::NodeId tinymlCanvasId = m_model->canvasId("tinyml_ecu");
@@ -1026,6 +1796,7 @@ void CanvasPanel::reload()
 {
     if (m_model) {
         m_model->reload();
+        refreshTelemetryCache();
         updateHudLabels();
     }
 }
@@ -1073,7 +1844,7 @@ void CanvasPanel::applyTheme(const Theme& theme)
 }
 
 // ---------------------------------------------------------------------------
-// Foreground Visual Telemetry, Animated Wire Packets & Neural Visualizer
+// Foreground Visual Telemetry, Live Frame/DBC Cards & Neural Visualizer
 // ---------------------------------------------------------------------------
 
 void CanvasPanel::paintSceneForeground(QPainter* painter, const QRectF& /*viewportRect*/)
@@ -1083,6 +1854,7 @@ void CanvasPanel::paintSceneForeground(QPainter* painter, const QRectF& /*viewpo
     }
 
     painter->save();
+    painter->setClipping(false);
     painter->setRenderHint(QPainter::Antialiasing, true);
     painter->setRenderHint(QPainter::TextAntialiasing, true);
 
@@ -1137,8 +1909,8 @@ void CanvasPanel::paintSceneForeground(QPainter* painter, const QRectF& /*viewpo
         // Distinguish Signals and Events wires by tinting the curve.
         if (wireType != PortType::Frames) {
             QColor tint = wireColor;
-            tint.setAlpha(185);
-            painter->setPen(QPen{tint, 2.2, Qt::SolidLine, Qt::RoundCap});
+            tint.setAlpha(210);
+            painter->setPen(QPen{tint, 2.4, Qt::SolidLine, Qt::RoundCap});
             painter->setBrush(Qt::NoBrush);
             painter->drawPath(path);
         }
@@ -1177,12 +1949,8 @@ void CanvasPanel::paintSceneForeground(QPainter* painter, const QRectF& /*viewpo
         }
     }
 
-    // 2. Paint node type pills, live telemetry badges, and TinyML neural cards.
-    QFont badgeFont = painter->font();
-    badgeFont.setPixelSize(10);
-    badgeFont.setWeight(QFont::DemiBold);
-    const QFontMetricsF badgeMetrics{badgeFont};
-
+    // 2. Paint rich telemetry node cards (header, ports, 8-byte CAN frame grid,
+    //    DBC dictionary decoded signals) and TinyML neural cards.
     for (const NodeDescription& node : m_description.nodes()) {
         const QtNodes::NodeId nodeId = m_model->canvasId(node.id);
         if (nodeId == QtNodes::InvalidNodeId) {
@@ -1194,113 +1962,16 @@ void CanvasPanel::paintSceneForeground(QPainter* painter, const QRectF& /*viewpo
             continue;
         }
 
-        const QRectF nodeRect = ngo->sceneBoundingRect().adjusted(2.0, 2.0, -2.0, -2.0);
+        const QSize nodeSize = m_scene->nodeGeometry().size(nodeId);
+        const QRectF nodeRect = ngo->mapRectToScene(QRectF{QPointF{0.0, 0.0}, QSizeF{nodeSize}});
+
         const QString idString = QString::fromStdString(node.id);
         const auto statusIt = m_nodeStatuses.constFind(idString);
         const NodeStatus* status =
             (statusIt != m_nodeStatuses.cend()) ? &statusIt.value() : nullptr;
 
-        // Category/Type pill in the upper-right corner of the block.
-        const QString typeTag = shortTypeBadge(node.typeName);
-        const qreal tagWidth = badgeMetrics.horizontalAdvance(typeTag) + 12.0;
-        const QRectF tagRect{
-            nodeRect.right() - tagWidth - 6.0, nodeRect.top() + 5.0, tagWidth, 16.0};
+        paintNodeTelemetryCard(painter, nodeId, ngo, nodeRect, node, status, pulse);
 
-        QColor tagAccent = m_theme.accent;
-        if (node.typeName == "tinyml.ecu") {
-            tagAccent = QColor{0x10, 0xB9, 0x81}; // Emerald AI accent
-        } else if (node.typeName == "lua.ecu" || node.typeName == "sim.restbus"
-                   || node.typeName == "lua.test") {
-            tagAccent = QColor{0x8B, 0x5C, 0xF6}; // Violet simulation accent
-        } else if (node.typeName == "dbc.decoder" || node.typeName == "j1939.decoder"
-                   || node.typeName == "signal.plot") {
-            tagAccent = m_theme.success;
-        }
-
-        QColor tagFill = tagAccent;
-        tagFill.setAlpha(42);
-        QColor tagBorder = tagAccent;
-        tagBorder.setAlpha(150);
-
-        painter->setFont(badgeFont);
-        painter->setPen(QPen{tagBorder, 1.0});
-        painter->setBrush(tagFill);
-        painter->drawRoundedRect(tagRect, 4.0, 4.0);
-
-        painter->setPen(tagAccent.lighter(130));
-        painter->drawText(tagRect, Qt::AlignCenter, typeTag);
-
-        // Live activity halo and counter badge above active nodes during measurement.
-        if (m_simulationRunning && node.enabled) {
-            bool nodeAlert = false;
-            QString summaryText;
-
-            if (node.typeName == "tinyml.ecu") {
-                const quint64 inferences = counterValue(status, QStringLiteral("Inferences run"));
-                const quint64 anomalyPct =
-                    counterValue(status, QStringLiteral("Anomaly score (%)"));
-                const quint64 regimeCode = counterValue(status, QStringLiteral("Regime class"));
-                const bool injected =
-                    m_injectFaultButton != nullptr && m_injectFaultButton->isChecked();
-                nodeAlert = (anomalyPct >= 65) || (regimeCode == 4) || injected;
-                summaryText = QStringLiteral("%1 • %2 inf • %3% anom")
-                                  .arg(regimeName(injected ? 4 : regimeCode))
-                                  .arg(inferences)
-                                  .arg(injected ? std::max<quint64>(anomalyPct, 88) : anomalyPct);
-            } else if (status != nullptr && !status->counters.isEmpty()) {
-                const NodeCounter& primary = status->counters.front();
-                summaryText = QStringLiteral("%1: %2").arg(primary.label).arg(primary.value);
-                if (counterValue(status, QStringLiteral("Stopped after repeated errors")) > 0) {
-                    nodeAlert = true;
-                }
-            } else if (node.typeName == "can.source") {
-                const std::int64_t ch = node.parameters.integer("channel", 0);
-                if (ch >= 0 && ch < m_channelStatuses.size()) {
-                    const ChannelStatus& cs = m_channelStatuses.at(static_cast<qsizetype>(ch));
-                    summaryText = QStringLiteral("RX %1 (%2/s)")
-                                      .arg(cs.rxFrames)
-                                      .arg(cs.framesPerSecond, 0, 'f', 0);
-                }
-            }
-
-            if (m_animationsEnabled) {
-                QColor haloColor = nodeAlert ? m_theme.error : tagAccent;
-                haloColor.setAlpha(static_cast<int>(55 + 65 * pulse));
-                painter->setPen(QPen{haloColor, nodeAlert ? 2.6 : 1.8});
-                painter->setBrush(Qt::NoBrush);
-                painter->drawRoundedRect(nodeRect.adjusted(-3.0, -3.0, 3.0, 3.0), 6.0, 6.0);
-            }
-
-            if (!summaryText.isEmpty()) {
-                const qreal pillW =
-                    std::max(110.0, badgeMetrics.horizontalAdvance(summaryText) + 24.0);
-                const QRectF pillRect{
-                    nodeRect.center().x() - pillW * 0.5, nodeRect.top() - 24.0, pillW, 19.0};
-
-                QColor pillBg = m_theme.panelAlternate;
-                pillBg.setAlpha(235);
-                const QColor pillBorder = nodeAlert ? m_theme.error : tagAccent;
-
-                painter->setPen(QPen{pillBorder, 1.1});
-                painter->setBrush(pillBg);
-                painter->drawRoundedRect(pillRect, 9.0, 9.0);
-
-                // Pulsing status dot inside the pill.
-                QColor dotColor = nodeAlert ? m_theme.error : m_theme.success;
-                dotColor.setAlpha(static_cast<int>(160 + 95 * pulse));
-                painter->setPen(Qt::NoPen);
-                painter->setBrush(dotColor);
-                painter->drawEllipse(
-                    QPointF{pillRect.left() + 9.0, pillRect.center().y()}, 3.5, 3.5);
-
-                painter->setPen(m_theme.text);
-                painter->drawText(pillRect.adjusted(16.0, 0.0, -6.0, 0.0),
-                                  Qt::AlignVCenter | Qt::AlignLeft,
-                                  summaryText);
-            }
-        }
-
-        // Rich Neural Network & Static Tensor Arena card beneath every `tinyml.ecu` node.
         if (node.typeName == "tinyml.ecu") {
             paintTinyMlVisualizerCard(painter, nodeRect, node, status);
         }
@@ -1309,13 +1980,364 @@ void CanvasPanel::paintSceneForeground(QPainter* painter, const QRectF& /*viewpo
     painter->restore();
 }
 
+void CanvasPanel::paintNodeTelemetryCard(QPainter* painter,
+                                         QtNodes::NodeId nodeId,
+                                         QtNodes::NodeGraphicsObject* ngo,
+                                         const QRectF& nodeRect,
+                                         const NodeDescription& node,
+                                         const NodeStatus* status,
+                                         double pulse) const
+{
+    const QColor tagAccent = accentForNodeType(node.typeName, m_theme);
+    const bool faultInjected =
+        m_injectFaultButton != nullptr && m_injectFaultButton->isChecked() && m_simulationRunning;
+
+    bool nodeAlert = false;
+    QString summaryText;
+
+    if (m_simulationRunning && node.enabled) {
+        if (node.typeName == "tinyml.ecu") {
+            const quint64 inferences = counterValue(status, QStringLiteral("Inferences run"));
+            const quint64 anomalyPct = counterValue(status, QStringLiteral("Anomaly score (%)"));
+            const quint64 regimeCode = counterValue(status, QStringLiteral("Regime class"));
+            nodeAlert = (anomalyPct >= 65) || (regimeCode == 4) || faultInjected;
+            summaryText = QStringLiteral("%1 • %2 inf • %3% anom")
+                              .arg(regimeName(faultInjected ? 4 : regimeCode))
+                              .arg(inferences)
+                              .arg(faultInjected ? std::max<quint64>(anomalyPct, 89) : anomalyPct);
+        } else if (status != nullptr && !status->counters.isEmpty()) {
+            const NodeCounter& primary = status->counters.front();
+            summaryText = QStringLiteral("%1: %2").arg(primary.label).arg(primary.value);
+            if (counterValue(status, QStringLiteral("Stopped after repeated errors")) > 0) {
+                nodeAlert = true;
+            }
+        } else if (node.typeName == "can.source") {
+            const std::int64_t ch = node.parameters.integer("channel", 0);
+            if (ch >= 0 && ch < m_channelStatuses.size()) {
+                const ChannelStatus& cs = m_channelStatuses.at(static_cast<qsizetype>(ch));
+                summaryText = QStringLiteral("RX %1 (%2/s)")
+                                  .arg(cs.rxFrames)
+                                  .arg(cs.framesPerSecond, 0, 'f', 0);
+            }
+        }
+    }
+
+    // --- 0. Card Surface & Border -------------------------------------------
+    const bool isSelected = ngo->isSelected();
+    QColor cardBg = m_theme.panel;
+    cardBg.setAlpha(248);
+
+    QColor borderColor = isSelected ? m_theme.accent : m_theme.border;
+    qreal borderWidth = isSelected ? 2.0 : 1.25;
+    if (m_simulationRunning && node.enabled) {
+        borderColor = nodeAlert ? m_theme.error : (isSelected ? m_theme.accent : tagAccent);
+        borderWidth = isSelected ? 2.2 : 1.6;
+    }
+
+    painter->setPen(QPen{borderColor, borderWidth});
+    painter->setBrush(cardBg);
+    painter->drawRoundedRect(nodeRect, 6.0, 6.0);
+
+    // --- 1. Header Banner (top 24px) ----------------------------------------
+    const QRectF headerRect{
+        nodeRect.left() + 1.0, nodeRect.top() + 1.0, nodeRect.width() - 2.0, 23.0};
+    QColor headerTint = nodeAlert ? m_theme.error : tagAccent;
+    headerTint.setAlpha(isSelected ? 48 : 30);
+
+    QPainterPath headerPath;
+    headerPath.addRoundedRect(headerRect, 5.0, 5.0);
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(headerTint);
+    painter->drawPath(headerPath);
+
+    painter->setPen(QPen{m_theme.border, 1.0});
+    painter->drawLine(QPointF{nodeRect.left() + 1.0, nodeRect.top() + 24.0},
+                      QPointF{nodeRect.right() - 1.0, nodeRect.top() + 24.0});
+
+    // Status LED dot on header left.
+    const QColor ledColor =
+        !node.enabled
+            ? m_theme.textMuted
+            : (m_simulationRunning ? (nodeAlert ? m_theme.error : m_theme.success) : tagAccent);
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(ledColor);
+    painter->drawEllipse(QPointF{nodeRect.left() + 11.0, nodeRect.top() + 12.5}, 3.6, 3.6);
+
+    // Type pill in header right.
+    const QFontMetricsF badgeMetrics{m_badgeFont};
+
+    const QString typeTag = shortTypeBadge(node.typeName);
+    const qreal tagWidth = badgeMetrics.horizontalAdvance(typeTag) + 12.0;
+    const QRectF tagRect{nodeRect.right() - tagWidth - 6.0, nodeRect.top() + 4.5, tagWidth, 15.0};
+
+    QColor tagFill = tagAccent;
+    tagFill.setAlpha(45);
+    QColor tagBorder = tagAccent;
+    tagBorder.setAlpha(165);
+
+    painter->setFont(m_badgeFont);
+    painter->setPen(QPen{tagBorder, 1.0});
+    painter->setBrush(tagFill);
+    painter->drawRoundedRect(tagRect, 3.5, 3.5);
+    painter->setPen(tagAccent.lighter(135));
+    painter->drawText(tagRect, Qt::AlignCenter, typeTag);
+
+    // Node ID + Subtitle in header left.
+    painter->setFont(m_titleFont);
+    painter->setPen(m_theme.text);
+
+    const QString idLabel = QString::fromStdString(node.id);
+    const QString subLabel = nodeSubtitle(node);
+    const QFontMetricsF titleMetrics{m_titleFont};
+    const qreal idWidth = titleMetrics.horizontalAdvance(idLabel);
+
+    const QRectF titleArea{nodeRect.left() + 19.0,
+                           nodeRect.top() + 2.0,
+                           tagRect.left() - nodeRect.left() - 24.0,
+                           20.0};
+    painter->drawText(titleArea, Qt::AlignLeft | Qt::AlignVCenter, idLabel);
+
+    if (!subLabel.isEmpty() && idWidth + 14.0 < titleArea.width()) {
+        painter->setFont(m_subFont);
+        painter->setPen(m_theme.textMuted);
+        const QRectF subRect{titleArea.left() + idWidth + 6.0,
+                             titleArea.top(),
+                             titleArea.width() - idWidth - 6.0,
+                             titleArea.height()};
+        painter->drawText(
+            subRect,
+            Qt::AlignLeft | Qt::AlignVCenter,
+            QFontMetricsF{m_subFont}.elidedText(subLabel, Qt::ElideRight, subRect.width()));
+    }
+
+    // --- 2. Live Frame Inspection + 8-Byte Hex Grid -------------------------
+    const auto cachedIt = m_telemetryCache.constFind(idLabel);
+    const NodeFrameTelemetry fallbackTelemetry =
+        (cachedIt == m_telemetryCache.cend()) ? computeNodeTelemetry(node, status, faultInjected)
+                                              : NodeFrameTelemetry{};
+    const NodeFrameTelemetry& telemetry =
+        (cachedIt != m_telemetryCache.cend()) ? cachedIt.value() : fallbackTelemetry;
+
+    // Frame header strip (y = +27 .. +43)
+    const QRectF frameHeaderRect{
+        nodeRect.left() + 12.0, nodeRect.top() + 26.5, nodeRect.width() - 24.0, 16.0};
+
+    // Direction tag pill (LIVE TX / LIVE RX / STANDBY)
+    QColor dirColor = telemetry.hasLiveFrame ? tagAccent : m_theme.textMuted;
+    if (nodeAlert) {
+        dirColor = m_theme.error;
+    }
+    const qreal dirW = badgeMetrics.horizontalAdvance(telemetry.directionTag) + 8.0;
+    const QRectF dirRect{frameHeaderRect.left(), frameHeaderRect.top() + 1.0, dirW, 14.0};
+    QColor dirBg = dirColor;
+    dirBg.setAlpha(38);
+    painter->setFont(m_badgeFont);
+    painter->setPen(QPen{dirColor, 0.9});
+    painter->setBrush(dirBg);
+    painter->drawRoundedRect(dirRect, 3.0, 3.0);
+    painter->setPen(dirColor.lighter(130));
+    painter->drawText(dirRect, Qt::AlignCenter, telemetry.directionTag);
+
+    // CAN ID + DLC in monospace
+    painter->setFont(m_monoBoldFont);
+    painter->setPen(m_theme.text);
+    const QRectF idTextRect{
+        dirRect.right() + 6.0, frameHeaderRect.top(), frameHeaderRect.width() - dirW - 6.0, 16.0};
+    painter->drawText(idTextRect, Qt::AlignLeft | Qt::AlignVCenter, telemetry.idDlcText);
+
+    // Message name on the right of the frame header
+    if (!telemetry.messageName.isEmpty()) {
+        painter->setFont(m_subFont);
+        painter->setPen(tagAccent.lighter(125));
+        const QFontMetricsF msgMetrics{m_subFont};
+        const QString elidedMsg =
+            msgMetrics.elidedText(telemetry.messageName, Qt::ElideRight, 102.0);
+        painter->drawText(frameHeaderRect, Qt::AlignRight | Qt::AlignVCenter, elidedMsg);
+    }
+
+    // 8-Byte Hex Payload Grid (B0..B7) at y = +45 .. +80
+    const qreal gridLeft = nodeRect.left() + 12.0;
+    const qreal gridWidth = nodeRect.width() - 24.0;
+    const qreal cellGap = 2.5;
+    const qreal cellWidth = (gridWidth - cellGap * 7.0) / 8.0;
+    const qreal cellTop = nodeRect.top() + 45.0;
+    const qreal cellHeight = 33.0;
+
+    static const std::array<QString, 8> kByteLabels{
+        QStringLiteral("B0"),
+        QStringLiteral("B1"),
+        QStringLiteral("B2"),
+        QStringLiteral("B3"),
+        QStringLiteral("B4"),
+        QStringLiteral("B5"),
+        QStringLiteral("B6"),
+        QStringLiteral("B7"),
+    };
+
+    for (std::size_t b = 0; b < 8; ++b) {
+        const qreal cellX = gridLeft + static_cast<qreal>(b) * (cellWidth + cellGap);
+        const QRectF cellRect{cellX, cellTop, cellWidth, cellHeight};
+
+        const bool byteValid = b < telemetry.frame.length;
+        const bool byteChanged =
+            telemetry.hasLiveFrame && ((telemetry.changedMask & (1ULL << b)) != 0);
+
+        QColor cellBg = m_theme.canvas;
+        cellBg.setAlpha(byteValid ? 235 : 130);
+        QColor cellBorder = m_theme.border;
+
+        if (byteChanged) {
+            cellBg = tagAccent;
+            cellBg.setAlpha(48);
+            cellBorder = tagAccent.lighter(120);
+        } else if (telemetry.hasLiveFrame && byteValid) {
+            cellBorder = tagAccent;
+            cellBorder.setAlpha(110);
+        }
+
+        painter->setPen(QPen{cellBorder, byteChanged ? 1.2 : 0.9});
+        painter->setBrush(cellBg);
+        painter->drawRoundedRect(cellRect, 3.5, 3.5);
+
+        // Top index label: B0..B7
+        painter->setFont(m_monoSmallFont);
+        painter->setPen(m_theme.textMuted);
+        painter->drawText(
+            QRectF{cellX, cellTop + 1.5, cellWidth, 11.0}, Qt::AlignCenter, kByteLabels[b]);
+
+        // Bottom hex value: 00..FF or --
+        painter->setFont(m_monoBoldFont);
+        if (byteValid) {
+            painter->setPen(byteChanged ? tagAccent.lighter(145)
+                                        : (telemetry.isPreview ? m_theme.textMuted : m_theme.text));
+        } else {
+            painter->setPen(m_theme.textMuted);
+        }
+        painter->drawText(
+            QRectF{cellX, cellTop + 13.0, cellWidth, 18.0}, Qt::AlignCenter, telemetry.hexBytes[b]);
+    }
+
+    // --- 3. DBC Dictionary & Decoded Signals Box (y = +82 .. bottom - 5) ----
+    const QRectF dbcRect{
+        nodeRect.left() + 10.0, nodeRect.top() + 82.0, nodeRect.width() - 20.0, 50.0};
+    QColor dbcBg = m_theme.canvas;
+    dbcBg.setAlpha(220);
+    QColor dbcBorder = m_theme.border;
+    dbcBorder.setAlpha(180);
+
+    painter->setPen(QPen{dbcBorder, 1.0});
+    painter->setBrush(dbcBg);
+    painter->drawRoundedRect(dbcRect, 4.5, 4.5);
+
+    // Left vertical accent stripe inside the DBC box
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(tagAccent);
+    painter->drawRoundedRect(
+        QRectF{dbcRect.left() + 3.0, dbcRect.top() + 4.0, 2.5, dbcRect.height() - 8.0}, 1.2, 1.2);
+
+    painter->setFont(m_dbcTitleFont);
+    painter->setPen(tagAccent.lighter(130));
+
+    const QString dictHeader = !m_databases.empty() ? QStringLiteral("DBC DICTIONARY DECODE")
+                                                    : QStringLiteral("SIGNAL DICTIONARY DECODE");
+    painter->drawText(
+        QRectF{dbcRect.left() + 9.0, dbcRect.top() + 2.5, dbcRect.width() - 14.0, 11.0},
+        Qt::AlignLeft | Qt::AlignVCenter,
+        dictHeader);
+
+    if (!telemetry.cycleText.isEmpty()) {
+        painter->setFont(m_monoSmallFont);
+        painter->setPen(m_theme.textMuted);
+        painter->drawText(
+            QRectF{dbcRect.left() + 9.0, dbcRect.top() + 2.5, dbcRect.width() - 14.0, 11.0},
+            Qt::AlignRight | Qt::AlignVCenter,
+            telemetry.cycleText);
+    }
+
+    painter->setFont(m_monoSignalFont);
+    const QFontMetricsF sigMetrics{m_monoSignalFont};
+    const qreal textAvailW = dbcRect.width() - 15.0;
+
+    painter->setPen(telemetry.isPreview ? m_theme.textMuted : m_theme.text);
+    painter->drawText(QRectF{dbcRect.left() + 9.0, dbcRect.top() + 15.0, textAvailW, 15.0},
+                      Qt::AlignLeft | Qt::AlignVCenter,
+                      sigMetrics.elidedText(telemetry.decodedLine1, Qt::ElideRight, textAvailW));
+
+    painter->setPen(m_theme.textMuted);
+    painter->drawText(QRectF{dbcRect.left() + 9.0, dbcRect.top() + 31.0, textAvailW, 15.0},
+                      Qt::AlignLeft | Qt::AlignVCenter,
+                      sigMetrics.elidedText(telemetry.decodedLine2, Qt::ElideRight, textAvailW));
+
+    // --- 4. Crisp Port Connection Rings on Left & Right Edges ---------------
+    const auto drawPorts = [&](QtNodes::PortType portType,
+                               const std::vector<PortDescriptor>& ports) {
+        for (std::size_t idx = 0; idx < ports.size(); ++idx) {
+            const QPointF ptScene = m_scene->nodeGeometry().portScenePosition(
+                nodeId, portType, static_cast<QtNodes::PortIndex>(idx), ngo->sceneTransform());
+
+            QColor portColor = m_theme.accent;
+            if (ports[idx].type == PortType::Signals) {
+                portColor = m_theme.success;
+            } else if (ports[idx].type == PortType::Events) {
+                portColor = m_theme.warning;
+            }
+
+            painter->setPen(QPen{m_theme.panel, 1.5});
+            painter->setBrush(portColor);
+            painter->drawEllipse(ptScene, 5.0, 5.0);
+        }
+    };
+
+    if (const NodeTypeInfo* typeInfo = m_catalog.find(node.typeName); typeInfo != nullptr) {
+        drawPorts(QtNodes::PortType::In, typeInfo->inputs);
+        drawPorts(QtNodes::PortType::Out, typeInfo->outputs);
+    }
+
+    // --- 5. Live Activity Halo & Floating Counter Pill Above Node -----------
+    if (m_simulationRunning && node.enabled) {
+        if (m_animationsEnabled) {
+            QColor haloColor = nodeAlert ? m_theme.error : tagAccent;
+            haloColor.setAlpha(static_cast<int>(55 + 65 * pulse));
+            painter->setPen(QPen{haloColor, nodeAlert ? 2.6 : 1.8});
+            painter->setBrush(Qt::NoBrush);
+            painter->drawRoundedRect(nodeRect.adjusted(-3.0, -3.0, 3.0, 3.0), 7.0, 7.0);
+        }
+
+        if (!summaryText.isEmpty()) {
+            const qreal pillW = std::max(110.0, badgeMetrics.horizontalAdvance(summaryText) + 24.0);
+            const QRectF pillRect{
+                nodeRect.center().x() - pillW * 0.5, nodeRect.top() - 23.0, pillW, 18.0};
+
+            QColor pillBg = m_theme.panelAlternate;
+            pillBg.setAlpha(240);
+            const QColor pillBorder = nodeAlert ? m_theme.error : tagAccent;
+
+            painter->setFont(m_badgeFont);
+            painter->setPen(QPen{pillBorder, 1.1});
+            painter->setBrush(pillBg);
+            painter->drawRoundedRect(pillRect, 9.0, 9.0);
+
+            QColor dotColor = nodeAlert ? m_theme.error : m_theme.success;
+            dotColor.setAlpha(static_cast<int>(160 + 95 * pulse));
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(dotColor);
+            painter->drawEllipse(QPointF{pillRect.left() + 9.0, pillRect.center().y()}, 3.5, 3.5);
+
+            painter->setPen(m_theme.text);
+            painter->drawText(pillRect.adjusted(16.0, 0.0, -6.0, 0.0),
+                              Qt::AlignVCenter | Qt::AlignLeft,
+                              summaryText);
+        }
+    }
+}
+
 void CanvasPanel::paintTinyMlVisualizerCard(QPainter* painter,
                                             const QRectF& nodeRect,
                                             const NodeDescription& node,
                                             const NodeStatus* status) const
 {
-    const qreal cardWidth = std::max(nodeRect.width() + 70.0, 276.0);
-    const qreal cardHeight = 116.0;
+    const qreal cardWidth = std::max(nodeRect.width(), 284.0);
+    const qreal cardHeight = 114.0;
     const QRectF cardRect{
         nodeRect.center().x() - cardWidth * 0.5, nodeRect.bottom() + 8.0, cardWidth, cardHeight};
 
@@ -1350,7 +2372,7 @@ void CanvasPanel::paintTinyMlVisualizerCard(QPainter* painter,
         isAnomaly ? m_theme.error : (regimeCode == 3 ? m_theme.warning : QColor{0x10, 0xB9, 0x81});
 
     QColor cardBg = m_theme.panelAlternate;
-    cardBg.setAlpha(242);
+    cardBg.setAlpha(244);
     painter->setPen(
         QPen{isAnomaly ? m_theme.error : statusColor.darker(115), isAnomaly ? 1.6 : 1.1});
     painter->setBrush(cardBg);

@@ -12,6 +12,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QScrollBar>
+#include <QShowEvent>
 #include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QStyle>
@@ -70,6 +71,7 @@ TracePanel::TracePanel(QWidget* parent)
     // The counters are cheap and only need to look live, not be exact.
     auto* statusTimer = new QTimer(this);
     statusTimer->setInterval(250);
+    statusTimer->setTimerType(Qt::CoarseTimer);
     connect(statusTimer, &QTimer::timeout, this, &TracePanel::refreshStatus);
     statusTimer->start();
 }
@@ -186,11 +188,22 @@ void TracePanel::setStore(const TraceStore* store)
     refreshStatus();
 }
 
+void TracePanel::showEvent(QShowEvent* event)
+{
+    QWidget::showEvent(event);
+    refreshStatus();
+    if (m_following && m_view != nullptr && m_model != nullptr && m_model->rowCount() > 0) {
+        m_scrollingProgrammatically = true;
+        m_view->scrollToBottom();
+        m_scrollingProgrammatically = false;
+    }
+}
+
 void TracePanel::onRowsAppended(int firstRow, int lastRow)
 {
     (void)firstRow;
 
-    if (!m_following || m_view == nullptr) {
+    if (!m_following || m_view == nullptr || !isVisible()) {
         return;
     }
 
@@ -258,7 +271,7 @@ void TracePanel::onThemeChanged(const Theme& theme)
 
 void TracePanel::refreshStatus()
 {
-    if (m_statusLabel == nullptr) {
+    if (m_statusLabel == nullptr || !isVisible()) {
         return;
     }
 

@@ -7,6 +7,7 @@
 
 #include "ui/theme/ThemeManager.h"
 
+#include <QFileInfo>
 #include <QHeaderView>
 #include <QPalette>
 #include <QTreeWidget>
@@ -103,6 +104,7 @@ void ProjectExplorerPanel::onThemeChanged()
     // The device rows are rebuilt rather than walked: they are few, and
     // setDevices() is the one place that knows how a device row is composed.
     setDevices(m_devices);
+    setDatabases(m_databasePaths);
 }
 
 void ProjectExplorerPanel::setProjectName(const QString& name)
@@ -148,6 +150,29 @@ void ProjectExplorerPanel::setDevices(const CanDeviceInfoList& devices)
     }
 
     m_hardware->setExpanded(true);
+}
+
+void ProjectExplorerPanel::setDatabases(const QStringList& paths)
+{
+    m_databasePaths = paths;
+    if (m_databases == nullptr) {
+        return;
+    }
+
+    const QList<QTreeWidgetItem*> previous = m_databases->takeChildren();
+    qDeleteAll(previous);
+
+    ThemeManager* themes = ThemeManager::instance();
+    for (const QString& path : paths) {
+        auto* item = new QTreeWidgetItem(m_databases);
+        item->setText(0, QFileInfo{path}.fileName());
+        item->setToolTip(0, path);
+        if (themes != nullptr) {
+            item->setIcon(0, themes->icon(QStringLiteral("database")));
+        }
+    }
+
+    m_databases->setExpanded(true);
 }
 
 void ProjectExplorerPanel::onCurrentItemChanged(QTreeWidgetItem* current)

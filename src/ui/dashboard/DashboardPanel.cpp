@@ -17,6 +17,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPen>
+#include <QShowEvent>
 #include <QTimer>
 
 // For M_PI, which MSVC does not define from <cmath> without _USE_MATH_DEFINES.
@@ -73,12 +74,20 @@ DashboardPanel::DashboardPanel(DashboardDescription& dashboard, QWidget* parent)
 
     auto* timer = new QTimer(this);
     timer->setInterval(kRefreshMs);
+    timer->setTimerType(Qt::CoarseTimer);
     connect(timer, &QTimer::timeout, this, &DashboardPanel::refresh);
     timer->start();
 
     if (ThemeManager* themes = ThemeManager::instance()) {
         connect(themes, &ThemeManager::themeChanged, this, [this] { update(); });
     }
+}
+
+void DashboardPanel::showEvent(QShowEvent* event)
+{
+    QWidget::showEvent(event);
+    m_lastRevisions.clear();
+    refresh();
 }
 
 void DashboardPanel::setPlotStore(const SignalSeriesStore* store)
@@ -178,6 +187,9 @@ void DashboardPanel::write(const DashboardWidget& widget, double value)
 
 void DashboardPanel::refresh()
 {
+    if (!isVisible()) {
+        return;
+    }
     // Repainted only when something a widget is bound to has moved. A dashboard
     // of eight gauges on a stopped measurement would otherwise repaint twenty
     // times a second to draw the same picture.

@@ -75,8 +75,8 @@ constexpr int kValueDivisions = 4;
 PlotView::PlotView(QWidget* parent)
     : QWidget{parent}
 {
+    setAttribute(Qt::WA_OpaquePaintEvent);
     setMouseTracking(true);
-    setAttribute(Qt::WA_OpaquePaintEvent, true);
     setFocusPolicy(Qt::NoFocus);
 }
 
@@ -92,6 +92,9 @@ QSize PlotView::minimumSizeHint() const
 
 void PlotView::setTraces(std::vector<PlotTrace> traces)
 {
+    if (m_traces.empty() && traces.empty()) {
+        return;
+    }
     m_traces = std::move(traces);
     update();
 }
@@ -100,8 +103,12 @@ void PlotView::setWindow(std::uint64_t startNs, std::uint64_t endNs)
 {
     // A window with no width would divide by zero below and, more to the point,
     // is not a window. One millisecond is the floor.
+    const std::uint64_t clampedEnd = std::max(endNs, startNs + 1'000'000ULL);
+    if (m_startNs == startNs && m_endNs == clampedEnd) {
+        return;
+    }
     m_startNs = startNs;
-    m_endNs = std::max(endNs, startNs + 1'000'000ULL);
+    m_endNs = clampedEnd;
 
     update();
 }
@@ -241,12 +248,57 @@ void PlotView::paintTrace(QPainter& painter, const QRectF& area, const PlotTrace
         return;
     }
 
+    const int maxColumns = std::max(1, static_cast<int>(area.width()));
     QPolygonF line;
-    line.reserve(static_cast<qsizetype>(trace.samples.size()));
 
-    for (const SignalSample& point : trace.samples) {
-        line.append(QPointF{xFor(point.timestampNs, area),
-                            yFor(point.value, trace.minimum, trace.maximum, area)});
+    if (trace.samples.size() <= static_cast<std::size_t>(maxColumns)) {
+        line.reserve(static_cast<qsizetype>(trace.samples.size()));
+        for (const SignalSample& point : trace.samples) {
+            line.append(QPointF{xFor(point.timestampNs, area),
+                                yFor(point.value, trace.minimum, trace.maximum, area)});
+        }
+    } else {
+        // Decimate points per horizontal pixel column (preserving min/max envelope)
+        // so drawPolyline never submits thousands of sub-pixel overlapping segments.
+        line.reserve(static_cast<qsizetype>(maxColumns * 2 + 2));
+
+        int currentCol = -1;
+        double colX = 0.0;
+        double minY = 0.0;
+        double maxY = 0.0;
+        double lastY = 0.0;
+
+        const auto flushColumn = [&]() {
+            if (currentCol < 0) {
+                return;
+            }
+            if (std::abs(maxY - minY) > 0.5) {
+                line.append(QPointF{colX, minY});
+                line.append(QPointF{colX, maxY});
+            }
+            line.append(QPointF{colX, lastY});
+        };
+
+        for (const SignalSample& point : trace.samples) {
+            const double x = xFor(point.timestampNs, area);
+            const double y = yFor(point.value, trace.minimum, trace.maximum, area);
+            const int col = static_cast<int>(x - area.left());
+
+            if (col != currentCol) {
+                flushColumn();
+                currentCol = col;
+                colX = x;
+                minY = y;
+                maxY = y;
+                lastY = y;
+            } else {
+                minY = std::min(minY, y);
+                maxY = std::max(maxY, y);
+                lastY = y;
+                colX = x;
+            }
+        }
+        flushColumn();
     }
 
     painter.setBrush(Qt::NoBrush);

@@ -407,6 +407,8 @@ target_link_libraries(torquebus_ui
             torquebus::services
             torquebus::theme
             Qt6::Widgets
+            Qt6::OpenGL
+            Qt6::OpenGLWidgets
             Qt6::Svg
             Qt6::SvgWidgets
             KDAB::kddockwidgets

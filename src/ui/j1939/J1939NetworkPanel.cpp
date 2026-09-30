@@ -12,6 +12,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
+#include <QShowEvent>
 #include <QTimer>
 #include <QTreeWidget>
 #include <QVBoxLayout>
@@ -156,6 +157,7 @@ J1939NetworkPanel::J1939NetworkPanel(QWidget* parent)
 
     auto* timer = new QTimer(this);
     timer->setInterval(kRefreshMs);
+    timer->setTimerType(Qt::CoarseTimer);
     connect(timer, &QTimer::timeout, this, &J1939NetworkPanel::refresh);
     timer->start();
 
@@ -164,6 +166,12 @@ J1939NetworkPanel::J1939NetworkPanel(QWidget* parent)
     }
 
     updateSummary(J1939NetworkSnapshot{});
+}
+
+void J1939NetworkPanel::showEvent(QShowEvent* event)
+{
+    QWidget::showEvent(event);
+    refresh();
 }
 
 void J1939NetworkPanel::buildUi()
@@ -226,7 +234,7 @@ void J1939NetworkPanel::setNetwork(J1939Network* network)
 
 void J1939NetworkPanel::refresh()
 {
-    if (m_network == nullptr) {
+    if (m_network == nullptr || !isVisible()) {
         return;
     }
 

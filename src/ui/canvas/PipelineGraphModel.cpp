@@ -7,7 +7,9 @@
 
 #include <QtNodes/ConnectionIdUtils>
 #include <QtNodes/NodeData>
+#include <QtNodes/StyleCollection>
 
+#include <QJsonObject>
 #include <QPointF>
 #include <QSize>
 
@@ -335,7 +337,7 @@ QVariant PipelineGraphModel::nodeData(QtNodes::NodeId nodeId, QtNodes::NodeRole 
         return QPointF{node->x, node->y};
 
     case QtNodes::NodeRole::Size:
-        return QSize{160, 60};
+        return QSize{284, 138};
 
     case QtNodes::NodeRole::CaptionVisible:
         return true;
@@ -363,6 +365,11 @@ QVariant PipelineGraphModel::nodeData(QtNodes::NodeId nodeId, QtNodes::NodeRole 
         break;
 
     case QtNodes::NodeRole::Style:
+        // QtNodes constructs a NodeStyle from this JSON on every node creation
+        // and paint pass; returning an empty QVariant leaves Opacity = 0.0 and
+        // makes the entire NodeGraphicsObject invisible.
+        return QtNodes::StyleCollection::nodeStyle().toJson().toVariantMap();
+
     case QtNodes::NodeRole::InternalData:
     case QtNodes::NodeRole::ValidationState:
     case QtNodes::NodeRole::ProcessingStatus:
@@ -486,6 +493,118 @@ bool PipelineGraphModel::setPortData(
     // Ports come from the node's type and are not editable. A node with a
     // different shape is a different type.
     return false;
+}
+
+QJsonObject PipelineGraphModel::saveNode(QtNodes::NodeId nodeId) const
+{
+    const NodeDescription* node = description(nodeId);
+    if (node == nullptr) {
+        return {};
+    }
+
+    QJsonObject positionJson;
+    positionJson[QStringLiteral("x")] = node->x;
+    positionJson[QStringLiteral("y")] = node->y;
+
+    QJsonObject paramsJson;
+    for (const auto& [key, param] : node->parameters.values()) {
+        const QString qKey = QString::fromStdString(key);
+        QJsonObject entry;
+        switch (param.type()) {
+        case ParameterValue::Type::Integer:
+            entry[QStringLiteral("kind")] = QStringLiteral("int");
+            entry[QStringLiteral("value")] = static_cast<qint64>(param.asInteger());
+            break;
+        case ParameterValue::Type::Real:
+            entry[QStringLiteral("kind")] = QStringLiteral("real");
+            entry[QStringLiteral("value")] = param.asReal();
+            break;
+        case ParameterValue::Type::Boolean:
+            entry[QStringLiteral("kind")] = QStringLiteral("bool");
+            entry[QStringLiteral("value")] = param.asBoolean();
+            break;
+        case ParameterValue::Type::Text:
+            entry[QStringLiteral("kind")] = QStringLiteral("text");
+            entry[QStringLiteral("value")] = QString::fromStdString(param.asText());
+            break;
+        }
+        paramsJson[qKey] = entry;
+    }
+
+    QJsonObject internalData;
+    internalData[QStringLiteral("descriptionId")] = QString::fromStdString(node->id);
+    internalData[QStringLiteral("typeName")] = QString::fromStdString(node->typeName);
+    internalData[QStringLiteral("enabled")] = node->enabled;
+    internalData[QStringLiteral("parameters")] = paramsJson;
+
+    QJsonObject root;
+    root[QStringLiteral("id")] = static_cast<qint64>(nodeId);
+    root[QStringLiteral("position")] = positionJson;
+    root[QStringLiteral("internal-data")] = internalData;
+    return root;
+}
+
+void PipelineGraphModel::loadNode(const QJsonObject& nodeJson)
+{
+    const QJsonObject internalData = nodeJson[QStringLiteral("internal-data")].toObject();
+    const std::string typeName = internalData[QStringLiteral("typeName")].toString().toStdString();
+    if (typeName.empty() || !m_catalog.contains(typeName)) {
+        return;
+    }
+
+    std::string requestedId =
+        internalData[QStringLiteral("descriptionId")].toString().toStdString();
+    if (requestedId.empty() || m_description.find(requestedId) != nullptr) {
+        std::string base = typeName;
+        std::replace(base.begin(), base.end(), '.', '_');
+        requestedId = m_description.uniqueId(base);
+    }
+
+    NodeDescription node;
+    node.id = requestedId;
+    node.typeName = typeName;
+    node.enabled = internalData[QStringLiteral("enabled")].toBool(true);
+
+    const QJsonObject positionJson = nodeJson[QStringLiteral("position")].toObject();
+    node.x = positionJson[QStringLiteral("x")].toDouble(0.0);
+    node.y = positionJson[QStringLiteral("y")].toDouble(0.0);
+
+    const QJsonObject paramsJson = internalData[QStringLiteral("parameters")].toObject();
+    for (auto it = paramsJson.begin(); it != paramsJson.end(); ++it) {
+        const std::string key = it.key().toStdString();
+        const QJsonObject entry = it.value().toObject();
+        const QString kind = entry[QStringLiteral("kind")].toString();
+        if (kind == QStringLiteral("int")) {
+            node.parameters.set(key,
+                                ParameterValue::fromInteger(static_cast<std::int64_t>(
+                                    entry[QStringLiteral("value")].toInteger())));
+        } else if (kind == QStringLiteral("real")) {
+            node.parameters.set(
+                key, ParameterValue::fromReal(entry[QStringLiteral("value")].toDouble()));
+        } else if (kind == QStringLiteral("bool")) {
+            node.parameters.set(
+                key, ParameterValue::fromBoolean(entry[QStringLiteral("value")].toBool()));
+        } else if (kind == QStringLiteral("text")) {
+            node.parameters.set(
+                key,
+                ParameterValue::fromText(entry[QStringLiteral("value")].toString().toStdString()));
+        }
+    }
+
+    m_description.addNode(node);
+
+    QtNodes::NodeId canvas = static_cast<QtNodes::NodeId>(
+        nodeJson[QStringLiteral("id")].toInteger(static_cast<qint64>(m_nextNodeId)));
+    if (m_toDescription.find(canvas) != m_toDescription.end()) {
+        canvas = m_nextNodeId++;
+    } else if (canvas >= m_nextNodeId) {
+        m_nextNodeId = canvas + 1;
+    }
+
+    m_toDescription.emplace(canvas, node.id);
+    m_toCanvas.emplace(node.id, canvas);
+
+    Q_EMIT nodeCreated(canvas);
 }
 
 } // namespace torquebus::ui

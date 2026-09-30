@@ -119,9 +119,12 @@ private:
 
     bool m_frozen{false};
     bool m_refreshing{false};
+    bool m_tracesDirty{true};
 
     /// How much time the plot shows, in nanoseconds.
     std::uint64_t m_windowNs{10'000'000'000ULL};
+    std::uint64_t m_lastNewestNs{0};
+    std::uint64_t m_lastWindowNs{0};
 
     /// The last value read under the cursor, per selected series, for the
     /// status line. Kept so leaving the plot can put the summary back.

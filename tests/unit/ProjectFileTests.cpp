@@ -651,3 +651,28 @@ TEST(ProjectFileTests, ADashboardThatCouldNotBeDrawnRefusesTheFile)
     ASSERT_TRUE(result.failed());
     EXPECT_TRUE(dashboard.empty());
 }
+
+TEST(ProjectFileTests, DatabasesSurviveASaveAndALoadUnchanged)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+
+    const QString path = pathIn(directory, QStringLiteral("databases.tbsproj"));
+    const QStringList originalDatabases{
+        QStringLiteral("powertrain.dbc"),
+        QStringLiteral("networks/chassis_can.dbc"),
+    };
+
+    GraphDescription pipeline;
+    ASSERT_TRUE(
+        ProjectFile::save(path, pipeline, scratch(), noDashboard(), originalDatabases).succeeded());
+
+    GraphDescription reopenedPipeline;
+    QStringList reopenedDatabases;
+    const Result result =
+        ProjectFile::load(path, reopenedPipeline, scratch(), noDashboard(), &reopenedDatabases);
+
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    ASSERT_TRUE(result.succeeded());
+    EXPECT_EQ(reopenedDatabases, originalDatabases);
+}

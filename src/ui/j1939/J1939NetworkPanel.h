@@ -60,6 +60,9 @@ public:
     /// machine can legitimately have none.
     void setNameTables(const J1939NameTables* tables);
 
+protected:
+    void showEvent(QShowEvent* event) override;
+
 private Q_SLOTS:
     /// Asks the revision counter whether anything moved, and rebuilds only when
     /// it did. The panel's whole clock.

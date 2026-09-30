@@ -51,6 +51,7 @@ public:
     void clear();
 
     [[nodiscard]] int databaseCount() const;
+    [[nodiscard]] QStringList databasePaths() const;
 
     /// The loaded databases, for anything that decodes with them.
     ///

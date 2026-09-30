@@ -170,6 +170,19 @@ void DatabasePanel::buildUi()
 
 bool DatabasePanel::loadDatabase(const QString& path)
 {
+    const QString normalizedNew = QFileInfo{path}.absoluteFilePath();
+    for (const std::shared_ptr<CanDatabase>& existing : m_databases) {
+        if (!existing) {
+            continue;
+        }
+        const QString existingAbs =
+            QFileInfo{QString::fromStdString(existing->sourcePath)}.absoluteFilePath();
+        if (!normalizedNew.isEmpty()
+            && QString::compare(existingAbs, normalizedNew, Qt::CaseInsensitive) == 0) {
+            return true;
+        }
+    }
+
     auto database = std::make_shared<CanDatabase>();
 
     const Result result = DbcParser::parseFile(path.toStdString(), *database);
@@ -288,6 +301,18 @@ std::vector<std::shared_ptr<const CanDatabase>> DatabasePanel::databases() const
 int DatabasePanel::databaseCount() const
 {
     return static_cast<int>(m_databases.size());
+}
+
+QStringList DatabasePanel::databasePaths() const
+{
+    QStringList paths;
+    paths.reserve(static_cast<qsizetype>(m_databases.size()));
+    for (const std::shared_ptr<CanDatabase>& db : m_databases) {
+        if (db && !db->sourcePath.empty()) {
+            paths.push_back(QString::fromStdString(db->sourcePath));
+        }
+    }
+    return paths;
 }
 
 void DatabasePanel::updateSummary()

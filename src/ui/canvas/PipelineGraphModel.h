@@ -102,6 +102,9 @@ public:
                      const QVariant& value,
                      QtNodes::PortRole role = QtNodes::PortRole::Data) override;
 
+    [[nodiscard]] QJsonObject saveNode(QtNodes::NodeId nodeId) const override;
+    void loadNode(const QJsonObject& nodeJson) override;
+
     // --- Our side ---------------------------------------------------------
 
     /// The description's id for a canvas node, or empty when unknown.

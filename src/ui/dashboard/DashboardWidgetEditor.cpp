@@ -101,8 +101,7 @@ void DashboardWidgetEditor::buildUi()
 
     const auto makeSpin = [] {
         auto* spin = new QDoubleSpinBox;
-        spin->setRange(-std::numeric_limits<double>::max() / 4.0,
-                       std::numeric_limits<double>::max() / 4.0);
+        spin->setRange(-1e9, 1e9);
         spin->setDecimals(3);
         return spin;
     };

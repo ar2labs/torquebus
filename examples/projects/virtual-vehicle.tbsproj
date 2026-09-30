@@ -4,6 +4,10 @@
         "widgets": [
         ]
     },
+    "databases": [
+        "D:/Code/qt/TorqueBus/examples/databases/ecu.dbc",
+        "D:/Code/qt/TorqueBus/examples/databases/vehicle.dbc"
+    ],
     "pipeline": {
         "edges": [
             {
@@ -50,7 +54,7 @@
                     "channel": 0
                 },
                 "position": {
-                    "x": -320,
+                    "x": -380,
                     "y": -40
                 },
                 "type": "can.source"
@@ -66,7 +70,7 @@
                 },
                 "position": {
                     "x": -20,
-                    "y": -120
+                    "y": -160
                 },
                 "type": "lua.ecu"
             },
@@ -76,8 +80,8 @@
                     "channel": 0
                 },
                 "position": {
-                    "x": 280,
-                    "y": -120
+                    "x": 340,
+                    "y": -160
                 },
                 "type": "can.transmit"
             },
@@ -93,7 +97,7 @@
                 },
                 "position": {
                     "x": -20,
-                    "y": 60
+                    "y": 40
                 },
                 "type": "tinyml.ecu"
             },
@@ -103,7 +107,7 @@
                     "channel": 0
                 },
                 "position": {
-                    "x": 280,
+                    "x": 340,
                     "y": 20
                 },
                 "type": "can.transmit"
@@ -113,8 +117,8 @@
                 "parameters": {
                 },
                 "position": {
-                    "x": 280,
-                    "y": 130
+                    "x": 340,
+                    "y": 195
                 },
                 "type": "signal.plot"
             },
@@ -124,8 +128,8 @@
                     "channel": 1
                 },
                 "position": {
-                    "x": -320,
-                    "y": 280
+                    "x": -380,
+                    "y": 350
                 },
                 "type": "can.source"
             },
@@ -137,7 +141,7 @@
                 },
                 "position": {
                     "x": -20,
-                    "y": 280
+                    "y": 350
                 },
                 "type": "can.filter"
             }
