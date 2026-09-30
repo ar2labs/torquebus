@@ -89,6 +89,7 @@ find_package(Qt6 6.11 REQUIRED COMPONENTS
     # not in this find_package is a target that does not exist when
     # FetchContent brings the library in.
     OpenGL
+    OpenGLWidgets
 
     # --- Requested on KDDockWidgets' behalf, not ours --------------------
     #

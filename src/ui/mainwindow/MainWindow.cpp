@@ -87,23 +87,23 @@ constexpr auto kDockStatistics = "torquebus.dock.statistics";
 constexpr auto kDockDiagnostics = "torquebus.dock.diagnostics";
 constexpr auto kDockScript = "torquebus.dock.script";
 constexpr auto kDockTest = "torquebus.dock.test";
-constexpr auto kDockJ1939 = "torquebus.dock.j1939";
+[[maybe_unused]] constexpr auto kDockJ1939 = "torquebus.dock.j1939";
 constexpr auto kDockDashboard = "torquebus.dock.dashboard";
 constexpr auto kDockDashboardProperties = "torquebus.dock.dashboard.widget";
 constexpr auto kDockOutput = "torquebus.dock.output";
 
 // Starting geometry of the default arrangement. Wide enough for a channel name
 // and a bitrate without wrapping, narrow enough that the trace keeps the room.
-constexpr int kSidePanelWidth = 260;
+constexpr int kSidePanelWidth = 250;
 constexpr int kSidePanelMinimumWidth = 180;
-constexpr int kConsoleHeight = 160;
+constexpr int kConsoleHeight = 185;
 
 /// Starting height of the Properties/Block half of the left column.
 ///
 /// Not half the window: the explorer's tree grows with the number of channels
 /// and databases, while a property form is a fixed number of rows and stops
 /// being more useful with more space.
-constexpr int kSidePanelSplit = 420;
+constexpr int kSidePanelSplit = 340;
 
 /// Status indicator bullet. The colour carries the state (see the
 /// torquebusState rules in the style sheet); the glyph just gives it a shape,
@@ -127,7 +127,18 @@ constexpr auto kBullet = "●";
 ///   9  v0.13 Test joins the analysis stack
 ///  10  v0.14 Dashboard joins it, and the widget form joins the left column
 ///  11  v0.16 J1939 Network joins it
-constexpr int kDockLayoutVersion = 11;
+///  12  v0.17 Reorganized core workspace tabs (Pipeline, Dashboard, CAN Trace,
+///            Graph, Transmit, DBC Explorer, Script), grouped Output /
+///            Statistics / Diagnostics / Test in the bottom dock, and removed
+///            J1939 Network from the default workspace.
+///  13  v0.17 Moved Transmit right after CAN Trace (before Graph) and added
+///            the collapse/expand button on the Output dock tab bar.
+///  14  v0.17 Balanced left column width/height proportions and fixed
+///            collapsed-dock minimum size invariants.
+///  16  v0.17 Synchronously initialized KDDockWidgets layoutSize before initial
+///            dock placement so Project Explorer and Properties/Block/Widget
+///            split ~60%/40% vertically.
+constexpr int kDockLayoutVersion = 16;
 
 /// Converts one of the frozen dock names above into a QString.
 ///
@@ -250,6 +261,8 @@ void MainWindow::report(const QString& text, bool isError)
 
 MainWindow::~MainWindow()
 {
+    detachOutputCollapseButton();
+
     // m_pipeline is a member of this window and m_catalog is borrowed from the
     // ApplicationContext, which outlives it. The canvas holds a QtNodes scene
     // built on top of both. Members are destroyed before
@@ -265,6 +278,15 @@ MainWindow::~MainWindow()
     // widgets.
     if (m_canvas != nullptr) {
         m_canvas->releaseGraph();
+    }
+
+    // Any dock that is currently closed has been unparented by KDDockWidgets
+    // and would outlive MainWindow (with dangling pointers to m_controller) if
+    // not deleted here while MainWindow's children are still alive.
+    for (DockWidget* dock : std::as_const(m_allDocks)) {
+        if (dock != nullptr && dock->parentWidget() == nullptr) {
+            delete dock;
+        }
     }
 }
 
@@ -427,6 +449,12 @@ void MainWindow::createPanels()
                 // comes next.
                 m_tracePanel->setDatabases(m_databasePanel->databases());
                 m_transmitPanel->setDatabases(m_databasePanel->databases());
+                if (m_canvas != nullptr) {
+                    m_canvas->setDatabases(m_databasePanel->databases());
+                }
+                if (m_projectExplorer != nullptr) {
+                    m_projectExplorer->setDatabases(m_databasePanel->databasePaths());
+                }
             });
 
     // Reported in the Output panel and not in a message box, because the
@@ -447,9 +475,27 @@ void MainWindow::createPanels()
     // engine builds from the same description either way.
     m_canvas = new CanvasPanel(m_pipeline, m_catalog);
     m_canvas->setSystemVariables(&m_controller->engine().variables());
+    m_canvas->setTraceStore(&m_controller->engine().traceStore());
+    m_canvas->setPlotStore(&m_controller->engine().plotStore());
+    m_canvas->setDatabases(m_databasePanel->databases());
 
     connect(m_canvas, &CanvasPanel::nodeSelected, this, &MainWindow::onCanvasNodeSelected);
     connect(m_canvas, &CanvasPanel::graphEdited, this, &MainWindow::onGraphEdited);
+    connect(m_canvas,
+            &CanvasPanel::statusSummaryChanged,
+            this,
+            [this](const QString& summaryText, const QString& stateToken) {
+                if (m_pipelineStatusLabel == nullptr) {
+                    return;
+                }
+                m_pipelineStatusLabel->setText(
+                    QStringLiteral("%1 %2").arg(QString::fromUtf8(kBullet), summaryText));
+                m_pipelineStatusLabel->setToolTip(summaryText);
+                if (m_pipelineStatusLabel->property("torquebusState").toString() != stateToken) {
+                    m_pipelineStatusLabel->setProperty("torquebusState", stateToken);
+                    repolish(m_pipelineStatusLabel);
+                }
+            });
     connect(m_controller, &CanEngineController::started, m_canvas, [this] {
         m_canvas->setSimulationRunning(true);
     });
@@ -574,16 +620,6 @@ void MainWindow::createPanels()
 
     m_testDock = createDockWidget(dockName(kDockTest), tr("Test"), m_testPanel, icon("test"));
 
-    // Who is on the bus. Reads the engine's view, which outlives the graph for
-    // the same reason the test report does - "what was on this machine" is
-    // asked after a run as often as during one.
-    m_j1939Panel = new J1939NetworkPanel;
-    m_j1939Panel->setNameTables(&m_j1939Names);
-    m_j1939Panel->setNetwork(&m_controller->engine().j1939Network());
-
-    m_j1939Dock =
-        createDockWidget(dockName(kDockJ1939), tr("J1939 Network"), m_j1939Panel, icon("network"));
-
     // --- The dashboard, and the form that edits one widget of it -----------
     m_dashboardPanel = new DashboardPanel(m_dashboard);
     m_dashboardPanel->setPlotStore(&m_controller->engine().plotStore());
@@ -631,23 +667,22 @@ void MainWindow::createPanels()
     m_dashboardPropertiesDock = createDockWidget(
         dockName(kDockDashboardProperties), tr("Widget"), m_dashboardEditor, icon("properties"));
 
-    m_allDocks = {m_projectDock,
-                  m_propertiesDock,
-                  m_nodePropertiesDock,
+    m_allDocks = {m_pipelineDock,
+                  m_dashboardDock,
                   m_traceDock,
-                  m_databaseDock,
-                  m_pipelineDock,
                   m_transmitDock,
                   m_graphDock,
-                  m_playbackDock,
+                  m_databaseDock,
+                  m_scriptDock,
+                  m_projectDock,
+                  m_nodePropertiesDock,
+                  m_propertiesDock,
+                  m_dashboardPropertiesDock,
+                  m_outputDock,
                   m_statisticsDock,
                   m_diagnosticsDock,
-                  m_scriptDock,
                   m_testDock,
-                  m_dashboardDock,
-                  m_dashboardPropertiesDock,
-                  m_j1939Dock,
-                  m_outputDock};
+                  m_playbackDock};
 }
 
 void MainWindow::createActions()
@@ -720,6 +755,14 @@ void MainWindow::createActions()
     m_actionFullScreen->setShortcut(QKeySequence{Qt::Key_F11});
     connect(m_actionFullScreen, &QAction::triggered, this, &MainWindow::onToggleFullScreen);
     updateFullScreenAction();
+
+    m_actionToggleOutputCollapse =
+        new QAction(icon("panel-collapse"), tr("Reduce Output Panel"), this);
+    connect(m_actionToggleOutputCollapse,
+            &QAction::triggered,
+            this,
+            &MainWindow::onToggleOutputCollapse);
+    updateOutputCollapseAction(false);
 
     m_actionPreferences = new QAction(icon("properties"), tr("&Preferences..."), this);
 
@@ -880,7 +923,6 @@ void MainWindow::createMenus()
     simulationMenu->addAction(m_actionEditDashboard);
 
     diagnosticsMenu->addAction(m_diagnosticsDock->toggleAction());
-    diagnosticsMenu->addAction(m_j1939Dock->toggleAction());
 
     QMenu* toolsMenu = bar->addMenu(tr("&Tools"));
     toolsMenu->addAction(m_actionPlugins);
@@ -1000,6 +1042,17 @@ void MainWindow::createStatusBar()
     m_channel2Label =
         createStatusLabel(tr("%1 CAN 2  not configured").arg(kBullet), QStringLiteral("offline"));
 
+    const QString initialPipelineText =
+        m_canvas != nullptr ? m_canvas->statusSummaryText() : tr("Pipeline: 0 blocks • 0 wires");
+    const QString initialPipelineState =
+        m_canvas != nullptr ? m_canvas->statusSummaryState() : QStringLiteral("ready");
+    m_pipelineStatusLabel = createStatusLabel(
+        QStringLiteral("%1 %2").arg(QString::fromUtf8(kBullet), initialPipelineText),
+        initialPipelineState);
+    m_pipelineStatusLabel->setMinimumWidth(0);
+    m_pipelineStatusLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_pipelineStatusLabel->setToolTip(initialPipelineText);
+
     m_frameCountLabel = createMetricLabel(tr("0"), 11);
     m_frameRateLabel = createMetricLabel(tr("0 f/s"), 11);
     m_busLoadLabel = createMetricLabel(tr("0.0 %"), 8);
@@ -1014,7 +1067,8 @@ void MainWindow::createStatusBar()
     bar->addWidget(m_channel1Label);
     bar->addWidget(createStatusSeparator());
     bar->addWidget(m_channel2Label);
-    bar->addWidget(new QWidget, 1); // spacer
+    bar->addWidget(createStatusSeparator());
+    bar->addWidget(m_pipelineStatusLabel, 1);
 
     bar->addPermanentWidget(caption(tr("Frames")));
     bar->addPermanentWidget(m_frameCountLabel);
@@ -1033,81 +1087,79 @@ void MainWindow::createStatusBar()
 
 void MainWindow::applyDefaultLayout()
 {
-    // PLAN.md section 37, as it settled after being used: one column on the
-    // left holding the explorer above the property panels, the analysis stack
-    // filling the middle, and the console under that stack.
-    //
-    // ORDER IS THE WHOLE TRICK. In KDDockWidgets a location is relative to the
-    // main window's layout as a whole, not to "whatever is in the middle": the
-    // first dock added occupies everything, and each later one splits a side
-    // off what is already there.
-    //
-    // So the central panel must go in FIRST. Adding it last with Location_OnTop
-    // - as this function originally did - does not put it in the middle at all;
-    // it lays a full-width band across the top of the explorer/properties row,
-    // which is what made the window look like an unarranged pile of panels.
+    detachOutputCollapseButton();
 
-    // 1. The analysis stack becomes the whole layout, and therefore the centre.
-    addDockTo(this, m_traceDock, DockLocation::Top);
+    if (width() < 1000 || height() < 650) {
+        resize(1440, 900);
+    }
+    if (QWidget* central = centralWidget()) {
+        const QSize targetSize{std::max(width(), 1440), std::max(height() - 60, 840)};
+        if (central->width() < 900 || central->height() < 550) {
+            central->resize(targetSize);
+        }
+        for (QWidget* child : central->findChildren<QWidget*>(Qt::FindDirectChildrenOnly)) {
+            if (child->width() < 900 || child->height() < 550) {
+                child->resize(targetSize);
+            }
+        }
+    }
 
-    m_traceDock->addDockWidgetAsTab(m_databaseDock);
-    m_traceDock->addDockWidgetAsTab(m_pipelineDock);
-    m_traceDock->addDockWidgetAsTab(m_transmitDock);
-    m_traceDock->addDockWidgetAsTab(m_graphDock);
-    m_traceDock->addDockWidgetAsTab(m_playbackDock);
-    m_traceDock->addDockWidgetAsTab(m_statisticsDock);
-    m_traceDock->addDockWidgetAsTab(m_diagnosticsDock);
-    m_traceDock->addDockWidgetAsTab(m_scriptDock);
-    m_traceDock->addDockWidgetAsTab(m_testDock);
-    m_traceDock->addDockWidgetAsTab(m_dashboardDock);
-    m_traceDock->addDockWidgetAsTab(m_j1939Dock);
-    m_traceDock->setAsCurrentTab();
+    m_projectDock->setMinimumWidth(kSidePanelMinimumWidth);
+    m_propertiesDock->setMinimumWidth(kSidePanelMinimumWidth);
+    m_nodePropertiesDock->setMinimumWidth(kSidePanelMinimumWidth);
+    m_dashboardPropertiesDock->setMinimumWidth(kSidePanelMinimumWidth);
 
-    // 2. One column down the left, not two columns flanking the centre.
-    //
-    //    Both panels in that column describe *the thing currently selected* -
-    //    the explorer picks it, Properties and Block describe it - so they are
-    //    read together, top then bottom, without the eye crossing the trace to
-    //    get from one to the other. Splitting them to opposite edges put the
-    //    question on the left and its answer on the right, with 900 pixels of
-    //    unrelated data in between.
-    //
-    //    It also leaves the centre one wide region instead of two narrow
-    //    margins, which is what a 64-column trace and a node canvas both want.
+    // Three clean, logically grouped workspace regions:
+    //   1. Centre Workspace: Pipeline, Dashboard, CAN Trace, Transmit, Graph,
+    //      DBC Explorer, Script (ordered by workflow importance, 7 tabs with
+    //      zero horizontal overflow).
+    //   2. Left Column: Project Explorer on top; Properties / Block / Widget
+    //      contextual inspectors below.
+    //   3. Bottom Console & Monitor Dock: Output, Statistics, Diagnostics,
+    //      Test grouped together under the central workspace so the user can
+    //      inspect bus metrics, UDS/OBD-II diagnostics, or logs while keeping
+    //      Pipeline, Dashboard, or CAN Trace visible above.
+
+    // 1. Central workspace goes in first so KDDockWidgets makes it the centre.
+    addDockTo(this, m_pipelineDock, DockLocation::Top);
+
+    m_pipelineDock->addDockWidgetAsTab(m_dashboardDock);
+    m_pipelineDock->addDockWidgetAsTab(m_traceDock);
+    m_pipelineDock->addDockWidgetAsTab(m_transmitDock);
+    m_pipelineDock->addDockWidgetAsTab(m_graphDock);
+    m_pipelineDock->addDockWidgetAsTab(m_databaseDock);
+    m_pipelineDock->addDockWidgetAsTab(m_scriptDock);
+    m_pipelineDock->setAsCurrentTab();
+
+    // 2. Left column: Project Explorer on top, contextual editors below.
     addDockTo(this, m_projectDock, DockLocation::Left, QSize{kSidePanelWidth, 0});
 
     addDockNextTo(
         this, m_propertiesDock, DockLocation::Bottom, m_projectDock, QSize{0, kSidePanelSplit});
 
     m_propertiesDock->addDockWidgetAsTab(m_nodePropertiesDock);
-
-    // Beside the block editor, not beside the dashboard: it is the same job -
-    // "the thing selected, described" - and the left column is where that
-    // question is already answered.
     m_propertiesDock->addDockWidgetAsTab(m_dashboardPropertiesDock);
-    m_propertiesDock->setAsCurrentTab();
+    m_nodePropertiesDock->setAsCurrentTab();
 
-    // 3. The console goes under the *analysis stack*, not under the window.
-    //
-    //    Relative to m_traceDock rather than to the window as a whole, which is
-    //    the difference between a console that spans everything - cutting the
-    //    explorer column off at the knee - and one that occupies the bottom of
-    //    the area it belongs to. The left column then runs the full height,
-    //    which is where a tree of channels wants to be.
-    addDockNextTo(this, m_outputDock, DockLocation::Bottom, m_traceDock, QSize{0, kConsoleHeight});
+    // 3. Bottom Console & Monitor dock under the central workspace.
+    addDockNextTo(
+        this, m_outputDock, DockLocation::Bottom, m_pipelineDock, QSize{0, kConsoleHeight});
 
-    m_projectDock->setMinimumWidth(kSidePanelMinimumWidth);
-    m_propertiesDock->setMinimumWidth(kSidePanelMinimumWidth);
+    m_outputDock->addDockWidgetAsTab(m_statisticsDock);
+    m_outputDock->addDockWidgetAsTab(m_diagnosticsDock);
+    m_outputDock->addDockWidgetAsTab(m_testDock);
+    if (m_playbackDock != nullptr && m_playbackDock->isOpen()) {
+        m_playbackDock->close();
+    }
+    m_outputDock->setAsCurrentTab();
+
+    attachOutputCollapseButton();
 }
 
 void MainWindow::restoreWindowState()
 {
     const QByteArray geometry =
         m_settings.binaryValue(QString::fromLatin1(services::keys::kWindowGeometry));
-
-    if (!geometry.isEmpty()) {
-        restoreGeometry(geometry);
-    }
 
     const bool restoreLayout =
         m_settings.boolValue(QString::fromLatin1(services::keys::kRestoreLayout), true);
@@ -1134,6 +1186,10 @@ void MainWindow::restoreWindowState()
     // applied on top of it.
     applyDefaultLayout();
 
+    if (!geometry.isEmpty()) {
+        restoreGeometry(geometry);
+    }
+
     if (!layoutIsCurrent && savedVersion != 0) {
         m_output->appendInfo(
             tr("The default panel arrangement changed in this version, so your saved "
@@ -1141,10 +1197,15 @@ void MainWindow::restoreWindowState()
         return;
     }
 
-    if (restoreLayout && !layout.isEmpty() && !restoreDockLayout(layout)) {
-        m_output->appendWarning(
-            tr("The saved window layout could not be restored; the default layout was applied."));
-        applyDefaultLayout();
+    if (restoreLayout && !layout.isEmpty()) {
+        detachOutputCollapseButton();
+        if (!restoreDockLayout(layout)) {
+            m_output->appendWarning(tr(
+                "The saved window layout could not be restored; the default layout was applied."));
+            applyDefaultLayout();
+        } else {
+            attachOutputCollapseButton();
+        }
     }
 
     // After the docks are placed, and unconditionally: a divider inside a panel
@@ -1198,7 +1259,12 @@ void MainWindow::closeEvent(QCloseEvent* event)
         m_controller->stop();
     }
 
+    if (m_outputDock != nullptr && isDockGroupCollapsed(m_outputDock)) {
+        setDockGroupCollapsed(m_outputDock, false, kConsoleHeight);
+    }
+
     saveWindowState();
+    detachOutputCollapseButton();
     DockMainWindowBase::closeEvent(event);
 }
 
@@ -1357,6 +1423,7 @@ void MainWindow::onThemeChanged(const Theme& theme)
     m_actionToggleTheme->setIcon(m_themes.icon(QStringLiteral("theme")));
     m_actionAbout->setIcon(m_themes.icon(QStringLiteral("help")));
     updateFullScreenAction();
+    updateOutputCollapseAction(isDockGroupCollapsed(m_outputDock));
 
     // The console's toolbar button carries a tinted icon like any other, and it
     // is the one that would be missed: it belongs to the dock rather than to the
@@ -1372,6 +1439,9 @@ void MainWindow::onThemeChanged(const Theme& theme)
 void MainWindow::onDeviceSelected(const CanDeviceInfo& device)
 {
     m_properties->setDevice(device);
+    if (m_propertiesDock != nullptr) {
+        m_propertiesDock->setAsCurrentTab();
+    }
 }
 
 void MainWindow::onToggleTheme()
@@ -1383,6 +1453,65 @@ void MainWindow::onToggleFullScreen()
 {
     setWindowState(windowState() ^ Qt::WindowFullScreen);
     updateFullScreenAction();
+}
+
+void MainWindow::onToggleOutputCollapse()
+{
+    if (m_outputDock == nullptr) {
+        return;
+    }
+
+    const bool nextCollapsed = !isDockGroupCollapsed(m_outputDock);
+    setDockGroupCollapsed(m_outputDock, nextCollapsed, kConsoleHeight);
+    updateOutputCollapseAction(isDockGroupCollapsed(m_outputDock));
+}
+
+void MainWindow::detachOutputCollapseButton()
+{
+    if (m_outputCollapseButton != nullptr) {
+        setDockGroupCornerWidget(m_outputDock, nullptr);
+        m_outputCollapseButton->setParent(this);
+        m_outputCollapseButton->hide();
+    }
+}
+
+void MainWindow::attachOutputCollapseButton()
+{
+    if (m_outputDock == nullptr || m_actionToggleOutputCollapse == nullptr) {
+        return;
+    }
+
+    if (m_outputCollapseButton == nullptr) {
+        m_outputCollapseButton = new AnimatedToolButton{m_actionToggleOutputCollapse, this};
+        m_outputCollapseButton->setObjectName(QStringLiteral("dockTabCornerButton"));
+        m_outputCollapseButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
+        m_outputCollapseButton->setIconSize(QSize{15, 15});
+        m_outputCollapseButton->setFixedSize(QSize{24, 21});
+        m_outputCollapseButton->setAutoRaise(true);
+        m_outputCollapseButton->setCursor(Qt::PointingHandCursor);
+    }
+
+    setDockGroupCornerWidget(m_outputDock, m_outputCollapseButton, [this](bool collapsed) {
+        updateOutputCollapseAction(collapsed);
+    });
+    updateOutputCollapseAction(isDockGroupCollapsed(m_outputDock));
+}
+
+void MainWindow::updateOutputCollapseAction(bool collapsed)
+{
+    if (m_actionToggleOutputCollapse == nullptr) {
+        return;
+    }
+
+    if (collapsed) {
+        m_actionToggleOutputCollapse->setIcon(m_themes.icon(QStringLiteral("panel-expand")));
+        m_actionToggleOutputCollapse->setText(tr("Expand Output Panel"));
+        m_actionToggleOutputCollapse->setToolTip(tr("Expand Output panel"));
+    } else {
+        m_actionToggleOutputCollapse->setIcon(m_themes.icon(QStringLiteral("panel-collapse")));
+        m_actionToggleOutputCollapse->setText(tr("Reduce Output Panel"));
+        m_actionToggleOutputCollapse->setToolTip(tr("Reduce Output panel to tab bar"));
+    }
 }
 
 void MainWindow::updateFullScreenAction()
@@ -1722,13 +1851,16 @@ void MainWindow::applyWorkspace(const QString& name)
     // them, which they do - the window built them at startup. A blob that still
     // fails to restore leaves the arrangement untouched rather than half
     // applied, so the user sees what they had and a sentence saying why.
+    detachOutputCollapseButton();
     if (!restoreDockLayout(layout)) {
+        attachOutputCollapseButton();
         m_output->appendWarning(
             tr("The workspace '%1' could not be restored; the window was left as it "
                "was.")
                 .arg(name));
         return;
     }
+    attachOutputCollapseButton();
 
     m_output->appendInfo(tr("Workspace '%1'.").arg(name));
 }
@@ -1786,9 +1918,27 @@ void MainWindow::onNewProject()
     }
 
     m_pipeline.clear();
+    m_transmitList.clear();
     m_dashboard.clear();
     m_projectPath.clear();
     m_dirty = false;
+
+    if (m_databasePanel != nullptr) {
+        m_databasePanel->clear();
+    }
+    if (m_tracePanel != nullptr) {
+        m_tracePanel->setDatabases({});
+    }
+    if (m_transmitPanel != nullptr) {
+        m_transmitPanel->setDatabases({});
+    }
+    if (m_canvas != nullptr) {
+        m_canvas->setDatabases({});
+    }
+    if (m_projectExplorer != nullptr) {
+        m_projectExplorer->setProjectName({});
+        m_projectExplorer->setDatabases({});
+    }
 
     // Forgotten as the last project, so quitting from an empty canvas does not
     // reopen yesterday's work tomorrow. It stays on the recent list: New is a
@@ -1975,9 +2125,11 @@ void MainWindow::onImportDatabase()
         return;
     }
 
-    // No confirmDiscardChanges here: importing adds a database to the explorer
-    // and does not touch the pipeline, so there is nothing to lose.
+    const int beforeCount = m_databasePanel != nullptr ? m_databasePanel->databaseCount() : 0;
     if (m_databasePanel->loadDatabase(path)) {
+        if (m_databasePanel->databaseCount() > beforeCount) {
+            markDirty();
+        }
         // Bring the explorer forward. Loading a file and being shown nothing is
         // the kind of silence that reads as a failure.
         if (m_databaseDock != nullptr) {
@@ -1988,11 +2140,13 @@ void MainWindow::onImportDatabase()
 
 void MainWindow::openProject(const QString& path)
 {
+    QStringList savedDatabases;
+
     // Loaded into the live description. ProjectFile leaves it untouched when
     // the read fails, so a broken file cannot leave the canvas showing half a
     // pipeline that was never saved.
-    if (const Result result =
-            services::ProjectFile::load(path, m_pipeline, m_transmitList, m_dashboard);
+    if (const Result result = services::ProjectFile::load(
+            path, m_pipeline, m_transmitList, m_dashboard, &savedDatabases);
         result.failed()) {
         m_output->appendError(tr("Could not open the project: %1")
                                   .arg(QString::fromStdString(std::string{result.message()})));
@@ -2007,6 +2161,77 @@ void MainWindow::openProject(const QString& path)
 
     m_projectPath = path;
     m_dirty = false;
+
+    // Also include any DBC path referenced directly by a dbc.decoder node in
+    // the pipeline so projects created before the databases list existed still
+    // populate DBC Explorer automatically.
+    for (const NodeDescription& node : m_pipeline.nodes()) {
+        if (node.typeName == "dbc.decoder") {
+            const QString nodeDb =
+                QString::fromStdString(std::string{node.parameters.text("database")}).trimmed();
+            if (!nodeDb.isEmpty() && !savedDatabases.contains(nodeDb, Qt::CaseInsensitive)) {
+                savedDatabases.push_back(nodeDb);
+            }
+        }
+    }
+
+    if (m_databasePanel != nullptr) {
+        m_databasePanel->clear();
+    }
+    if (m_tracePanel != nullptr) {
+        m_tracePanel->setDatabases({});
+    }
+    if (m_transmitPanel != nullptr) {
+        m_transmitPanel->setDatabases({});
+    }
+    if (m_canvas != nullptr) {
+        m_canvas->setDatabases({});
+    }
+    if (m_projectExplorer != nullptr) {
+        m_projectExplorer->setProjectName(QFileInfo{path}.completeBaseName());
+        m_projectExplorer->setDatabases({});
+    }
+
+    const QDir projectDir = QFileInfo{path}.absoluteDir();
+    QStringList missingDatabases;
+
+    for (const QString& rawDbPath : std::as_const(savedDatabases)) {
+        const QString trimmed = rawDbPath.trimmed();
+        if (trimmed.isEmpty()) {
+            continue;
+        }
+
+        QString resolvedPath;
+        if (QFileInfo{trimmed}.isAbsolute()) {
+            resolvedPath = QDir::cleanPath(trimmed);
+        } else {
+            const QString candidateInProject = QDir::cleanPath(projectDir.filePath(trimmed));
+            const QString candidateInWorking = QDir::cleanPath(QDir::current().filePath(trimmed));
+            if (QFileInfo::exists(candidateInProject)) {
+                resolvedPath = candidateInProject;
+            } else if (QFileInfo::exists(candidateInWorking)) {
+                resolvedPath = candidateInWorking;
+            } else {
+                resolvedPath = candidateInProject;
+            }
+        }
+
+        const QFileInfo dbFileInfo{resolvedPath};
+        if (!dbFileInfo.exists() || !dbFileInfo.isFile()) {
+            const QString displayPath = QDir::toNativeSeparators(resolvedPath);
+            missingDatabases.push_back(displayPath);
+            m_output->appendError(
+                tr("Database not found: '%1' was removed or deleted from the directory.")
+                    .arg(displayPath));
+            continue;
+        }
+
+        if (m_databasePanel != nullptr
+            && !m_databasePanel->loadDatabase(dbFileInfo.absoluteFilePath())) {
+            const QString displayPath = QDir::toNativeSeparators(dbFileInfo.absoluteFilePath());
+            missingDatabases.push_back(displayPath);
+        }
+    }
 
     // The canvas holds its own id mapping, so it has to be told the graph was
     // replaced wholesale rather than edited.
@@ -2049,16 +2274,50 @@ void MainWindow::openProject(const QString& path)
     rebuildRecentMenu();
     m_settings.setValue(QString::fromLatin1(services::keys::kLastProject), m_projectPath);
 
+    const Result validation = m_pipeline.validate(m_catalog);
+    if (validation.failed()) {
+        m_output->appendWarning(
+            tr("Pipeline: %1").arg(QString::fromStdString(std::string{validation.message()})));
+    } else {
+        m_output->appendInfo(tr("Pipeline: %1 node(s), %2 connection(s).")
+                                 .arg(static_cast<qulonglong>(m_pipeline.nodes().size()))
+                                 .arg(static_cast<qulonglong>(m_pipeline.edges().size())));
+    }
+
+    m_dirty = !missingDatabases.isEmpty();
     updateWindowTitle();
     m_output->appendInfo(tr("Opened %1.").arg(QFileInfo{path}.fileName()));
 
-    onGraphEdited();
+    if (!missingDatabases.isEmpty() && isVisible()) {
+        QMessageBox::warning(
+            this,
+            tr("Missing DBC Database"),
+            tr("One or more DBC dictionaries saved in this project could not be found "
+               "(removed or deleted from the directory):\n\n• %1\n\n"
+               "Please re-import the missing database(s) in DBC Explorer and save the project.")
+                .arg(missingDatabases.join(QStringLiteral("\n• "))));
+    }
 }
 
 bool MainWindow::writeProject(const QString& path)
 {
-    if (const Result result =
-            services::ProjectFile::save(path, m_pipeline, m_transmitList, m_dashboard);
+    QStringList databasesToSave;
+    if (m_databasePanel != nullptr) {
+        const QDir projectDir = QFileInfo{path}.absoluteDir();
+        for (const QString& dbPath : m_databasePanel->databasePaths()) {
+            const QString absDbPath = QFileInfo{dbPath}.absoluteFilePath();
+            const QString relativePath = projectDir.relativeFilePath(absDbPath);
+            if (!relativePath.isEmpty() && !relativePath.startsWith(QStringLiteral(".."))
+                && !QFileInfo{relativePath}.isAbsolute()) {
+                databasesToSave.push_back(QDir::fromNativeSeparators(relativePath));
+            } else {
+                databasesToSave.push_back(QDir::fromNativeSeparators(absDbPath));
+            }
+        }
+    }
+
+    if (const Result result = services::ProjectFile::save(
+            path, m_pipeline, m_transmitList, m_dashboard, databasesToSave);
         result.failed()) {
         m_output->appendError(tr("Could not save the project: %1")
                                   .arg(QString::fromStdString(std::string{result.message()})));
@@ -2067,6 +2326,13 @@ bool MainWindow::writeProject(const QString& path)
 
     m_projectPath = path;
     m_dirty = false;
+
+    if (m_projectExplorer != nullptr) {
+        m_projectExplorer->setProjectName(QFileInfo{path}.completeBaseName());
+        if (m_databasePanel != nullptr) {
+            m_projectExplorer->setDatabases(m_databasePanel->databasePaths());
+        }
+    }
 
     // Save As moves the folder that relative script paths resolve against,
     // and the panel is holding one open.

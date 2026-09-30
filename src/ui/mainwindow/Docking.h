@@ -23,6 +23,8 @@
 #include <QString>
 #include <QStringList>
 
+#include <functional>
+
 namespace torquebus::ui {
 
 /// Base class of the application's main window.
@@ -107,5 +109,20 @@ void addDockNextTo(DockMainWindowBase* window,
 
 /// Translates a TorqueBus location into the framework's own enumeration.
 [[nodiscard]] KDDockWidgets::Location toKddwLocation(DockLocation location);
+
+/// Installs `cornerWidget` at the right end of `dock`'s tab bar strip and
+/// registers an optional callback notified whenever the group's collapsed state
+/// changes.
+void setDockGroupCornerWidget(DockWidget* dock,
+                              QWidget* cornerWidget,
+                              std::function<void(bool)> onCollapsedChanged = {});
+
+/// Returns whether the dock group containing `dock` is currently reduced to its
+/// tab bar row.
+[[nodiscard]] bool isDockGroupCollapsed(DockWidget* dock);
+
+/// Reduces or expands the dock group containing `dock` so that when reduced
+/// only the tab bar row remains visible.
+void setDockGroupCollapsed(DockWidget* dock, bool collapsed, int defaultExpandedHeight = 185);
 
 } // namespace torquebus::ui

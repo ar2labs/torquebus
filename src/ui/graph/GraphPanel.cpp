@@ -167,6 +167,8 @@ void GraphPanel::setStore(SignalSeriesStore* store)
     m_listed.clear();
     m_selected.clear();
     m_windows.clear();
+    m_tracesDirty = true;
+    m_lastNewestNs = 0;
 
     if (m_plot != nullptr) {
         m_plot->setTraces({});
@@ -194,6 +196,7 @@ void GraphPanel::restoreSplitterState(const QByteArray& state)
 void GraphPanel::showEvent(QShowEvent* event)
 {
     QWidget::showEvent(event);
+    m_tracesDirty = true;
     refresh();
 }
 
@@ -223,11 +226,18 @@ void GraphPanel::refresh()
         return;
     }
 
-    m_selected = selectedSeries();
+    std::vector<SeriesId> currentSelection = selectedSeries();
+    if (currentSelection != m_selected) {
+        m_selected = std::move(currentSelection);
+        m_tracesDirty = true;
+    }
 
     if (m_selected.empty()) {
-        m_plot->setTraces({});
-        updateStatus();
+        if (m_tracesDirty) {
+            m_tracesDirty = false;
+            m_plot->setTraces({});
+            updateStatus();
+        }
         return;
     }
 
@@ -235,6 +245,14 @@ void GraphPanel::refresh()
     // in the ones being drawn: a signal that has gone quiet should not drag the
     // view back to when it last spoke.
     const std::uint64_t newest = m_store->newestTimestampNs();
+    if (!m_tracesDirty && newest == m_lastNewestNs && m_windowNs == m_lastWindowNs) {
+        return;
+    }
+
+    m_lastNewestNs = newest;
+    m_lastWindowNs = m_windowNs;
+    m_tracesDirty = false;
+
     const std::uint64_t start = newest > m_windowNs ? newest - m_windowNs : 0;
 
     m_store->readWindows(m_selected, start, kMaximumPointsPerTrace, m_windows);
@@ -243,13 +261,13 @@ void GraphPanel::refresh()
     traces.reserve(m_windows.size());
 
     for (std::size_t index = 0; index < m_windows.size(); ++index) {
-        const SeriesWindow& window = m_windows[index];
+        SeriesWindow& window = m_windows[index];
 
         PlotTrace trace;
         trace.name = QString::fromStdString(window.name);
         trace.unit = QString::fromStdString(window.unit);
         trace.colour = colourFor(index);
-        trace.samples = window.samples;
+        trace.samples = std::move(window.samples);
         trace.minimum = window.minimum;
         trace.maximum = window.maximum;
 
@@ -279,6 +297,7 @@ void GraphPanel::syncSignalList()
     if (infos.size() < static_cast<std::size_t>(m_listed.size())) {
         m_signals->clear();
         m_listed.clear();
+        m_tracesDirty = true;
     }
 
     for (const SeriesInfo& info : infos) {
@@ -288,6 +307,7 @@ void GraphPanel::syncSignalList()
         }
 
         m_listed.insert(name, info.id);
+        m_tracesDirty = true;
 
         auto* item = new QListWidgetItem(name);
         item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable);
@@ -335,7 +355,12 @@ QColor GraphPanel::colourFor(std::size_t index) const
 void GraphPanel::onFreezeToggled(bool frozen)
 {
     m_frozen = frozen;
-    updateStatus();
+    m_tracesDirty = true;
+    if (!frozen) {
+        refresh();
+    } else {
+        updateStatus();
+    }
 }
 
 void GraphPanel::onClear()
@@ -345,6 +370,8 @@ void GraphPanel::onClear()
     }
 
     m_store->clearSamples();
+    m_tracesDirty = true;
+    m_lastNewestNs = 0;
 
     m_plot->setTraces({});
     updateStatus();
@@ -357,6 +384,7 @@ void GraphPanel::onWindowChanged(int index)
     }
 
     m_windowNs = kWindows[static_cast<std::size_t>(index)].nanoseconds;
+    m_tracesDirty = true;
     refresh();
 }
 
@@ -364,6 +392,7 @@ void GraphPanel::onSelectionChanged(QListWidgetItem* /*item*/)
 {
     // Redrawn now rather than at the next tick: a tick is a click, and 50 ms of
     // nothing happening after a click reads as a click that did not register.
+    m_tracesDirty = true;
     refresh();
 }
 

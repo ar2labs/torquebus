@@ -5,6 +5,7 @@
 
 #include "services/ProjectFile.h"
 
+#include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -30,6 +31,7 @@ constexpr auto kApplication = "application";
 constexpr auto kPipeline = "pipeline";
 constexpr auto kNodes = "nodes";
 constexpr auto kEdges = "edges";
+constexpr auto kDatabases = "databases";
 
 constexpr auto kId = "id";
 constexpr auto kType = "type";
@@ -364,7 +366,8 @@ QString ProjectFile::fileFilter()
 Result ProjectFile::save(const QString& path,
                          const GraphDescription& pipeline,
                          const TransmitList& transmit,
-                         const DashboardDescription& dashboard)
+                         const DashboardDescription& dashboard,
+                         const QStringList& databases)
 {
     QJsonArray nodes;
     for (const NodeDescription& node : pipeline.nodes()) {
@@ -408,6 +411,18 @@ Result ProjectFile::save(const QString& path,
     // dashboards existed, which is a different thing.
     root[kDashboard] = panel;
 
+    if (!databases.isEmpty()) {
+        QJsonArray dbArray;
+        for (const QString& dbPath : databases) {
+            if (!dbPath.trimmed().isEmpty()) {
+                dbArray.append(QDir::fromNativeSeparators(dbPath.trimmed()));
+            }
+        }
+        if (!dbArray.isEmpty()) {
+            root[kDatabases] = dbArray;
+        }
+    }
+
     // QSaveFile writes to a temporary beside the target and renames on commit,
     // so a crash or a full disk during the save leaves yesterday's project
     // intact rather than a truncated one.
@@ -435,7 +450,8 @@ Result ProjectFile::save(const QString& path,
 Result ProjectFile::load(const QString& path,
                          GraphDescription& pipeline,
                          TransmitList& transmit,
-                         DashboardDescription& dashboard)
+                         DashboardDescription& dashboard,
+                         QStringList* databases)
 {
     QFile file{path};
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -604,6 +620,14 @@ Result ProjectFile::load(const QString& path,
             std::format("'{}': {}", path.toStdString(), std::string{result.message()}));
     }
 
+    QStringList loadedDatabases;
+    for (const QJsonValue& entry : root.value(kDatabases).toArray()) {
+        const QString dbPath = entry.toString().trimmed();
+        if (!dbPath.isEmpty()) {
+            loadedDatabases.push_back(dbPath);
+        }
+    }
+
     pipeline = std::move(loaded);
 
     // Replaced wholesale, like the pipeline: opening a project means opening
@@ -614,6 +638,9 @@ Result ProjectFile::load(const QString& path,
     }
 
     dashboard = std::move(panel);
+    if (databases != nullptr) {
+        *databases = std::move(loadedDatabases);
+    }
 
     return Result::ok();
 }

@@ -27,6 +27,7 @@
 #include "core/transmit/TransmitList.h"
 
 #include <QString>
+#include <QStringList>
 
 namespace torquebus::services {
 
@@ -57,40 +58,27 @@ public:
     /// A file filter for QFileDialog.
     [[nodiscard]] static QString fileFilter();
 
-    /// Writes `pipeline` to `path`.
+    /// Writes `pipeline`, `transmit`, `dashboard`, and loaded `databases` to `path`.
     ///
     /// Atomic: written to a temporary file and renamed, so an interrupted save
     /// cannot leave a truncated project behind. Losing yesterday's work to a
     /// crash during today's save is not a trade anyone agreed to.
-    /// Writes the project: the pipeline, and the transmit list beside it.
-    ///
-    /// Three out-parameters now, and this is the last one that goes in as a
-    /// parameter: when the database list joins the file, these become a
-    /// document object. Three is where a fourth would start being passed in the
-    /// wrong order by somebody, and no compiler would notice.
-    ///
-    /// Not defaulted, deliberately. An overload that left the dashboard out
-    /// would compile at every existing call site and silently erase a dashboard
-    /// on the next save, which is the worst kind of convenience.
     [[nodiscard]] static Result save(const QString& path,
                                      const GraphDescription& pipeline,
                                      const TransmitList& transmit,
-                                     const DashboardDescription& dashboard);
+                                     const DashboardDescription& dashboard,
+                                     const QStringList& databases = {});
 
-    /// Reads `path` into `pipeline`, replacing its contents.
-    ///
-    /// On failure `pipeline` is left untouched: a half-read project would leave
-    /// the canvas showing something that was never saved.
     /// Reads a project. Every argument is left untouched when it fails.
     ///
-    /// A file with no dashboard in it - every project written before this
-    /// version - loads with an empty one rather than failing. That is what the
-    /// version field is for, and it is the whole reason an older project still
-    /// opens here.
+    /// A file with no dashboard or databases in it loads with empty ones rather
+    /// than failing. That is what the version field is for, and it is the whole
+    /// reason an older project still opens here.
     [[nodiscard]] static Result load(const QString& path,
                                      GraphDescription& pipeline,
                                      TransmitList& transmit,
-                                     DashboardDescription& dashboard);
+                                     DashboardDescription& dashboard,
+                                     QStringList* databases = nullptr);
 };
 
 } // namespace torquebus::services

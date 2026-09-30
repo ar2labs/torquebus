@@ -47,6 +47,9 @@ public:
     /// True while the view is following new rows.
     [[nodiscard]] bool isFollowing() const noexcept { return m_following; }
 
+protected:
+    void showEvent(QShowEvent* event) override;
+
 private Q_SLOTS:
     void onRowsAppended(int firstRow, int lastRow);
     void onScrolled();

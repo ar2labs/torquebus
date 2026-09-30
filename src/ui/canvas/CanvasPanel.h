@@ -21,27 +21,36 @@
 #pragma once
 
 #include "core/dashboard/SystemVariables.h"
+#include "core/database/CanMessage.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
+#include "core/plot/SignalSeries.h"
+#include "core/trace/TraceStore.h"
 #include "ui/engine/CanEngineController.h"
 #include "ui/theme/Theme.h"
 
 #include <QtNodes/internal/Definitions.hpp>
 
 #include <QByteArray>
+#include <QFont>
 #include <QHash>
 #include <QList>
 #include <QPointF>
+#include <QString>
 #include <QWidget>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
-class QLabel;
+class QEvent;
+class QHideEvent;
 class QMenu;
 class QPainter;
 class QPushButton;
+class QShowEvent;
 class QSplitter;
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -50,6 +59,7 @@ class QVariantAnimation;
 namespace QtNodes {
 class BasicGraphicsScene;
 class GraphicsView;
+class NodeGraphicsObject;
 } // namespace QtNodes
 
 namespace torquebus::ui {
@@ -80,11 +90,32 @@ public:
     /// live TinyML metrics and toggle interactive anomaly injection.
     void setSystemVariables(SystemVariables* variables);
 
+    /// Binds the live frame trace store so node cards can inspect and display
+    /// the current 8-byte CAN frame and ID passing through each block.
+    void setTraceStore(const TraceStore* store);
+
+    /// Binds the decoded signal series store for live signal readouts on plot
+    /// and decoder blocks.
+    void setPlotStore(const SignalSeriesStore* store);
+
+    /// Supplies the loaded DBC databases so node cards can decode physical
+    /// signals and message names directly inside each block.
+    void setDatabases(std::vector<std::shared_ptr<const CanDatabase>> databases);
+
     /// The position of the divider inside this panel, for the settings file.
     [[nodiscard]] QByteArray splitterState() const;
 
     /// Ignores an empty or unusable state, leaving the default proportions.
     void restoreSplitterState(const QByteArray& state);
+
+    /// Compact Pipeline & TinyML status summary for the main window's footer.
+    [[nodiscard]] QString statusSummaryText() const noexcept { return m_statusSummaryText; }
+    [[nodiscard]] QString statusSummaryState() const noexcept { return m_statusSummaryState; }
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
+    void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
 
 Q_SIGNALS:
     /// The user selected a node. The Properties panel shows its settings.
@@ -97,26 +128,50 @@ Q_SIGNALS:
     /// a wire drawn. The status bar says whether it still compiles.
     void graphEdited();
 
+    /// Emitted when the compact Pipeline / TinyML summary changes, for display
+    /// in the application status bar footer.
+    void statusSummaryChanged(const QString& summaryText, const QString& stateToken);
+
 public Q_SLOTS:
     /// Repaints the canvas in the current theme.
     void applyTheme(const Theme& theme);
 
-    /// Starts or stops the 60 FPS canvas wire-flow and neural network animation.
+    /// Starts or stops the canvas wire-flow and neural network animation.
     void setSimulationRunning(bool running);
 
     /// Updates the live per-node counters displayed on Canvas telemetry badges.
     void setNodeStatuses(const QList<NodeStatus>& nodes);
 
-    /// Updates the live channel bitrate / frame rate summary in the Canvas HUD.
+    /// Updates the live channel bitrate / frame rate summary.
     void setChannelStatuses(const QList<ChannelStatus>& channels);
 
+    /// Deletes all currently selected nodes and wires on the Canvas.
+    void deleteSelectedItems();
+
 private:
+    struct NodeFrameTelemetry final {
+        bool hasLiveFrame{false};
+        bool isPreview{false};
+        CanFrame frame{};
+        std::uint32_t cycleUs{0};
+        std::uint64_t changedMask{0};
+        QString directionTag;
+        QString idDlcText;
+        QString cycleText;
+        std::array<QString, 8> hexBytes{};
+        QString messageName;
+        QString decodedLine1;
+        QString decodedLine2;
+    };
+
     static void applyStyles(const Theme& theme);
 
     void buildPalette();
     void addNodeFromPalette(QTreeWidgetItem* item);
+    void addSelectedPaletteNode();
 
     void addNodeAt(const QString& typeName, const QPointF& scenePosition);
+    [[nodiscard]] QPointF findNonOverlappingPosition(const QPointF& desired) const;
 
     [[nodiscard]] QMenu* buildSceneMenu(const QPointF& scenePosition);
     void showNodeMenu(QtNodes::NodeId nodeId, const QPointF& scenePosition);
@@ -141,7 +196,20 @@ private:
 
     void updateAnimationState();
     void updateHudLabels();
+    void refreshTelemetryCache();
+    [[nodiscard]] NodeFrameTelemetry computeNodeTelemetry(const NodeDescription& node,
+                                                          const NodeStatus* status,
+                                                          bool faultInjected) const;
+    void decodeFromDatabasesOrBuiltin(const NodeDescription& node,
+                                      NodeFrameTelemetry& telemetry) const;
     void paintSceneForeground(QPainter* painter, const QRectF& viewportRect);
+    void paintNodeTelemetryCard(QPainter* painter,
+                                QtNodes::NodeId nodeId,
+                                QtNodes::NodeGraphicsObject* ngo,
+                                const QRectF& nodeRect,
+                                const NodeDescription& node,
+                                const NodeStatus* status,
+                                double pulse) const;
     void paintTinyMlVisualizerCard(QPainter* painter,
                                    const QRectF& nodeRect,
                                    const NodeDescription& node,
@@ -150,6 +218,9 @@ private:
     GraphDescription& m_description;
     const NodeCatalog& m_catalog;
     SystemVariables* m_variables{nullptr};
+    const TraceStore* m_traceStore{nullptr};
+    const SignalSeriesStore* m_plotStore{nullptr};
+    std::vector<std::shared_ptr<const CanDatabase>> m_databases;
 
     std::unique_ptr<PipelineGraphModel> m_model;
     QtNodes::BasicGraphicsScene* m_scene{nullptr};
@@ -158,8 +229,8 @@ private:
     QTreeWidget* m_palette{nullptr};
 
     QWidget* m_hudBar{nullptr};
-    QLabel* m_hudStatusLabel{nullptr};
-    QLabel* m_hudMetricsLabel{nullptr};
+    QPushButton* m_addBlockButton{nullptr};
+    QPushButton* m_deleteBlockButton{nullptr};
     QPushButton* m_animateButton{nullptr};
     QPushButton* m_injectFaultButton{nullptr};
     QPushButton* m_demoPipelineButton{nullptr};
@@ -170,8 +241,19 @@ private:
     bool m_animationsEnabled{true};
 
     QHash<QString, NodeStatus> m_nodeStatuses;
+    QHash<QString, NodeFrameTelemetry> m_telemetryCache;
     QList<ChannelStatus> m_channelStatuses;
+    QString m_statusSummaryText;
+    QString m_statusSummaryState{QStringLiteral("ready")};
     Theme m_theme;
+
+    QFont m_monoBoldFont;
+    QFont m_monoSmallFont;
+    QFont m_monoSignalFont;
+    QFont m_badgeFont;
+    QFont m_titleFont;
+    QFont m_subFont;
+    QFont m_dbcTitleFont;
 };
 
 } // namespace torquebus::ui

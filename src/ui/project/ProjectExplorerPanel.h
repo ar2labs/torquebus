@@ -14,6 +14,7 @@
 
 #include <QHash>
 #include <QString>
+#include <QStringList>
 #include <QWidget>
 
 class QTreeWidget;
@@ -29,6 +30,9 @@ public:
 
     /// Rebuilds the Hardware section from the given device list.
     void setDevices(const CanDeviceInfoList& devices);
+
+    /// Rebuilds the Databases section from the loaded .dbc file paths.
+    void setDatabases(const QStringList& paths);
 
     /// Name shown on the root node.
     void setProjectName(const QString& name);
@@ -64,6 +68,7 @@ private:
     QTreeWidgetItem* m_logs{nullptr};
 
     CanDeviceInfoList m_devices;
+    QStringList m_databasePaths;
 
     /// Icon resource stem per category item, so a theme change can re-tint
     /// them without rebuilding the tree and losing the user's selection.

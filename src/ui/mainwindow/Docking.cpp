@@ -7,16 +7,35 @@
 
 #include "ui/mainwindow/DockChrome.h"
 
+#include <kddockwidgets/core/Group.h>
+#include <kddockwidgets/core/Layout.h>
+#include <kddockwidgets/core/MainWindow.h>
 #include <kddockwidgets/qtcommon/View.h>
 #include <kddockwidgets/qtwidgets/ViewFactory.h>
 #include <kddockwidgets/qtwidgets/views/Group.h>
+#include <kddockwidgets/qtwidgets/views/Stack.h>
 
 #include <QGraphicsView>
 #include <QIcon>
 #include <QPaintEvent>
 #include <QPalette>
+#include <QResizeEvent>
+#include <QStackedWidget>
+#include <QTabWidget>
 #include <QVBoxLayout>
 #include <QWidget>
+
+#include <algorithm>
+#include <utility>
+
+namespace KDDockWidgets::Core {
+class Item {
+public:
+    void setMinSize(Size sz);
+    void setMaxSizeHint(Size sz);
+    void requestResize(int left, int top, int right, int bottom);
+};
+} // namespace KDDockWidgets::Core
 
 /// Registers KDDockWidgets' own icon resource.
 ///
@@ -47,10 +66,93 @@ static void initializeDockingResources()
 namespace torquebus::ui {
 namespace {
 
-/// A Group that leaves its frame to the style sheet.
+/// A Group that leaves its frame to the style sheet and supports collapsing its
+/// content pane so only the tab strip remains visible.
 class StyledGroup final : public KDDockWidgets::QtWidgets::Group {
 public:
     using KDDockWidgets::QtWidgets::Group::Group;
+
+    [[nodiscard]] int collapsedHeight() const { return m_collapsedHeight; }
+
+    [[nodiscard]] QSize minSize() const override
+    {
+        if (m_group == nullptr || m_group->inDtor() || m_group->beingDeletedLater()) {
+            return KDDockWidgets::Core::View::hardcodedMinimumSize();
+        }
+        const QSize baseMin = KDDockWidgets::QtWidgets::Group::minSize();
+        if (!m_collapsed) {
+            return baseMin;
+        }
+        return QSize{baseMin.width(), m_collapsedHeight};
+    }
+
+    [[nodiscard]] QSize maxSizeHint() const override
+    {
+        if (m_group == nullptr || m_group->inDtor() || m_group->beingDeletedLater()) {
+            return QSize{QWIDGETSIZE_MAX, QWIDGETSIZE_MAX};
+        }
+        if (!m_collapsed) {
+            return KDDockWidgets::QtWidgets::Group::maxSizeHint();
+        }
+        return QSize{QWIDGETSIZE_MAX, QWIDGETSIZE_MAX};
+    }
+
+    [[nodiscard]] bool isCollapsed() const { return m_collapsed; }
+
+    void setOnCollapsedChanged(std::function<void(bool)> callback)
+    {
+        m_onCollapsedChanged = std::move(callback);
+    }
+
+    void setCollapsed(bool collapsed, int defaultExpandedHeight = 185)
+    {
+        if (m_group == nullptr || m_group->inDtor() || m_group->beingDeletedLater()
+            || m_collapsed == collapsed) {
+            return;
+        }
+
+        if (const auto* tabBar = findChild<QTabBar*>()) {
+            if (tabBar->height() > 0) {
+                m_collapsedHeight = std::max(26, tabBar->height() + 2);
+            }
+        }
+
+        const int tabBarHeight = m_collapsedHeight;
+        if (collapsed) {
+            if (height() > tabBarHeight + 16) {
+                m_expandedHeight = height();
+            }
+            m_collapsed = true;
+            setContentPagesVisible(false);
+
+            if (auto* item = m_group->layoutItem()) {
+                item->setMinSize(minSize());
+                item->setMaxSizeHint(maxSizeHint());
+                const int delta = tabBarHeight - height();
+                if (delta != 0) {
+                    item->requestResize(0, delta, 0, 0);
+                }
+            }
+        } else {
+            m_collapsed = false;
+            setContentPagesVisible(true);
+
+            const int targetHeight =
+                m_expandedHeight > tabBarHeight + 16 ? m_expandedHeight : defaultExpandedHeight;
+            if (auto* item = m_group->layoutItem()) {
+                item->setMinSize(minSize());
+                item->setMaxSizeHint(maxSizeHint());
+                const int delta = targetHeight - height();
+                if (delta != 0) {
+                    item->requestResize(0, delta, 0, 0);
+                }
+            }
+        }
+
+        if (m_onCollapsedChanged) {
+            m_onCollapsedChanged(m_collapsed);
+        }
+    }
 
 protected:
     void paintEvent(QPaintEvent* event) override
@@ -60,7 +162,66 @@ protected:
         // entire point - see createGroup below for what it was painting.
         QWidget::paintEvent(event);
     }
+
+    void resizeEvent(QResizeEvent* event) override
+    {
+        KDDockWidgets::QtWidgets::Group::resizeEvent(event);
+
+        if (m_group == nullptr || m_group->inDtor() || m_group->beingDeletedLater()
+            || !m_onCollapsedChanged) {
+            return;
+        }
+
+        const int h = event->size().height();
+        const int tabBarHeight = m_collapsedHeight;
+        if (m_collapsed && h > tabBarHeight + 14) {
+            m_collapsed = false;
+            setContentPagesVisible(true);
+            if (auto* item = m_group->layoutItem()) {
+                item->setMinSize(minSize());
+                item->setMaxSizeHint(maxSizeHint());
+            }
+            m_expandedHeight = h;
+            m_onCollapsedChanged(false);
+        } else if (!m_collapsed && h > tabBarHeight + 20) {
+            m_expandedHeight = h;
+        }
+    }
+
+private:
+    void setContentPagesVisible(bool visible)
+    {
+        if (auto* stacked =
+                findChild<QStackedWidget*>(QStringLiteral("qt_tabwidget_stackedwidget"))) {
+            stacked->setVisible(visible);
+        }
+    }
+
+    bool m_collapsed{false};
+    int m_collapsedHeight{28};
+    int m_expandedHeight{185};
+    std::function<void(bool)> m_onCollapsedChanged;
 };
+
+[[nodiscard]] StyledGroup* findStyledGroup(DockWidget* dock)
+{
+    for (QWidget* w = dock; w != nullptr; w = w->parentWidget()) {
+        if (auto* group = dynamic_cast<StyledGroup*>(w)) {
+            return group;
+        }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] QTabWidget* findDockTabWidget(DockWidget* dock)
+{
+    for (QWidget* w = dock; w != nullptr; w = w->parentWidget()) {
+        if (auto* tabWidget = qobject_cast<QTabWidget*>(w)) {
+            return tabWidget;
+        }
+    }
+    return nullptr;
+}
 
 /// Supplies TorqueBus' own glyphs for the panel title-bar buttons, and a Group
 /// that does not paint over the style sheet.
@@ -404,6 +565,16 @@ void addDockTo(DockMainWindowBase* window,
         return;
     }
 
+    if (auto* coreWindow = window->mainWindow()) {
+        if (auto* dropLayout = coreWindow->layout()) {
+            if (dropLayout->visibleCount() == 0) {
+                const QSize targetSize{std::max(window->width(), 1280),
+                                       std::max(window->height() - 60, 780)};
+                dropLayout->setLayoutSize(targetSize.expandedTo(dropLayout->layoutMinimumSize()));
+            }
+        }
+    }
+
     if (initialSize.isNull()) {
         window->addDockWidget(dock, toKddwLocation(location));
         return;
@@ -449,6 +620,41 @@ bool restoreDockLayout(const QByteArray& serialized)
 
     KDDockWidgets::LayoutSaver saver;
     return saver.restoreLayout(serialized);
+}
+
+void setDockGroupCornerWidget(DockWidget* dock,
+                              QWidget* cornerWidget,
+                              std::function<void(bool)> onCollapsedChanged)
+{
+    if (dock == nullptr) {
+        return;
+    }
+    if (auto* tabWidget = findDockTabWidget(dock)) {
+        if (tabWidget->cornerWidget(Qt::TopRightCorner) != cornerWidget) {
+            tabWidget->setCornerWidget(cornerWidget, Qt::TopRightCorner);
+        }
+        if (cornerWidget != nullptr) {
+            cornerWidget->show();
+        }
+    }
+    if (auto* group = findStyledGroup(dock)) {
+        group->setOnCollapsedChanged(std::move(onCollapsedChanged));
+    }
+}
+
+bool isDockGroupCollapsed(DockWidget* dock)
+{
+    if (const auto* group = findStyledGroup(dock)) {
+        return group->isCollapsed();
+    }
+    return false;
+}
+
+void setDockGroupCollapsed(DockWidget* dock, bool collapsed, int defaultExpandedHeight)
+{
+    if (auto* group = findStyledGroup(dock)) {
+        group->setCollapsed(collapsed, defaultExpandedHeight);
+    }
 }
 
 KDDockWidgets::Location toKddwLocation(DockLocation location)

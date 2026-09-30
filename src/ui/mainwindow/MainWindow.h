@@ -27,6 +27,7 @@
 #include "ui/theme/Theme.h"
 
 #include <QList>
+#include <QPointer>
 #include <QString>
 #include <QVector>
 
@@ -42,6 +43,7 @@ class SettingsStore;
 
 namespace torquebus::ui {
 
+class AnimatedToolButton;
 class CanvasPanel;
 class DatabasePanel;
 class DiagnosticsPanel;
@@ -104,6 +106,7 @@ private Q_SLOTS:
     void onDeviceSelected(const torquebus::CanDeviceInfo& device);
     void onToggleTheme();
     void onToggleFullScreen();
+    void onToggleOutputCollapse();
     void onPreferences();
 
     /// Hardware > Configuration. Edits which interfaces become CAN 1..N.
@@ -187,6 +190,10 @@ private:
     /// Keeps the full-screen toolbar button's icon, label and tooltip in sync
     /// with whether the window is currently in full screen.
     void updateFullScreenAction();
+
+    void detachOutputCollapseButton();
+    void attachOutputCollapseButton();
+    void updateOutputCollapseAction(bool collapsed);
 
     void saveWindowState() const;
     void restoreWindowState();
@@ -319,6 +326,8 @@ private:
 
     QAction* m_actionToggleTheme{nullptr};
     QAction* m_actionFullScreen{nullptr};
+    QAction* m_actionToggleOutputCollapse{nullptr};
+    QPointer<AnimatedToolButton> m_outputCollapseButton;
     QAction* m_actionPreferences{nullptr};
     QAction* m_actionResetLayout{nullptr};
     QAction* m_actionInspectChrome{nullptr};
@@ -330,6 +339,7 @@ private:
     // --- Status bar -------------------------------------------------------
     QLabel* m_channel1Label{nullptr};
     QLabel* m_channel2Label{nullptr};
+    QLabel* m_pipelineStatusLabel{nullptr};
     QLabel* m_frameCountLabel{nullptr};
     QLabel* m_frameRateLabel{nullptr};
     QLabel* m_busLoadLabel{nullptr};
