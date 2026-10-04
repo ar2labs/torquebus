@@ -83,7 +83,7 @@ void TransmitPanel::buildUi()
         return themes != nullptr ? themes->icon(QString::fromLatin1(name)) : QIcon{};
     };
 
-    m_actionAdd = new QAction(icon("new"), tr("Add"), this);
+    m_actionAdd = new QAction(icon("add"), tr("Add"), this);
     m_actionAdd->setToolTip(tr("Add an empty row, to be filled in by hand."));
     connect(m_actionAdd, &QAction::triggered, this, &TransmitPanel::onAdd);
 
@@ -418,7 +418,7 @@ int TransmitPanel::selectedMessageIndex() const
 void TransmitPanel::onThemeChanged()
 {
     if (ThemeManager* themes = ThemeManager::instance()) {
-        m_actionAdd->setIcon(themes->icon(QStringLiteral("new")));
+        m_actionAdd->setIcon(themes->icon(QStringLiteral("add")));
         m_actionAddFromMessage->setIcon(themes->icon(QStringLiteral("database")));
         m_actionRemove->setIcon(themes->icon(QStringLiteral("clear")));
         m_actionSend->setIcon(themes->icon(QStringLiteral("transmit")));
