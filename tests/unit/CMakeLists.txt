@@ -91,17 +91,17 @@ target_compile_definitions(torquebus_unit_tests
             TORQUEBUS_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
 )
 
-# The Qt this build was configured against, on the DLL search path for both
-# moments the binary runs: the enumeration at build time and the tests under
-# ctest. See the module's header - covering only the second cost a build.
-torquebus_test_dl_paths(TORQUEBUS_TEST_DL_PATHS)
-
 # The timeout is not a performance budget - the slowest of these is well under a
 # second - it is the difference between a hang that fails and a hang that waits.
 # This suite had none, which is why it was the one that sat at zero CPU for
 # twelve minutes.
+#
+# Where the Qt comes from is not said here: tests/CMakeLists.txt puts it on the
+# PATH of the ctest that runs this binary, both to enumerate it and to run its
+# tests. There is no argument for it here on purpose - gtest_discover_tests
+# ignores a keyword it does not know, without a word, which is how an earlier
+# attempt did nothing for a while.
 gtest_discover_tests(torquebus_unit_tests
-    DL_PATHS ${TORQUEBUS_TEST_DL_PATHS}
     PROPERTIES
         TIMEOUT 60
 )

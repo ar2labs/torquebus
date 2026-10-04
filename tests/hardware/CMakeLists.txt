@@ -25,13 +25,11 @@ target_link_libraries(torquebus_hardware_tests PRIVATE Threads::Threads)
 
 set_target_properties(torquebus_hardware_tests PROPERTIES FOLDER "Tests")
 
-# The Qt this build was configured against, on the DLL search path for both
-# moments the binary runs: the enumeration at build time and the tests under
-# ctest. See the module's header - covering only the second cost a build.
-torquebus_test_dl_paths(TORQUEBUS_TEST_DL_PATHS)
-
+# This binary does link Qt - the PEAK backend reaches the vendor through Qt
+# SerialBus - so it needs the Qt the build was configured against as much as the
+# unit tests do, including when it is enumerated. That comes from the ctest
+# environment set up in tests/CMakeLists.txt.
 gtest_discover_tests(torquebus_hardware_tests
-    DL_PATHS ${TORQUEBUS_TEST_DL_PATHS}
     PROPERTIES
         LABELS "hardware"
         TIMEOUT 120

@@ -23,7 +23,7 @@ pull request. It is short, and it is the contract.
 ```powershell
 cmake --preset windows-msvc-strict     # warnings as errors, like CI
 cmake --build --preset windows-msvc-strict
-ctest --preset windows-msvc-debug
+ctest --preset windows-msvc-strict
 ```
 
 Every pull request must pass, on Windows x64 with MSVC:
@@ -49,9 +49,9 @@ fine locally and is rejected remotely.
 Tests that need a physical adapter carry the `hardware` label and are excluded
 from the default run.
 
-> executed. Everything above is real and checked — by the script, on the machine
-> the code is written on. Saying "enforced by CI" of a CI that has never run
-> would be the same kind of claim this project spends its time removing.
+CI (`.github/workflows/ci.yml`) runs the same gates on every pull request. The
+script is for finding out sooner, on your own machine, instead of from a red
+check a few minutes after the push.
 
 ---
 
@@ -87,6 +87,12 @@ before pushing:
 ```powershell
 clang-format -i <your files>
 ```
+
+Use **clang-format 21.1.0**, the version CI pins. A different version formats
+differently, so a tree that is clean under yours can still fail there — and the
+copy bundled with Visual Studio is an older one. `clang-format --version` says
+which you have; `docs/development/getting-started.md` says where to get the
+right one.
 
 This advice was the opposite until the tree was reformatted: 250 of 267 files
 disagreed with the config, so running it over a file you touched rewrote the

@@ -562,22 +562,42 @@ prevents startup.
 
 ```
 src/
-  core/        vendor-neutral, Qt-free domain model
-    can/       CanFrame, CanTypes
-    logging/   logging engine            (v0.9)
-    database/  DBC / ARXML parsing       (v0.7)
-    diagnostics/ ISO-TP, UDS             (v0.11-v0.12)
-    scripting/ embedded Lua 5.5          (v0.7)
-    project/   .tbsproj model            (v0.10)
+  app/           Main.cpp, ApplicationContext - the executable
+  core/          vendor-neutral, Qt-free domain model
+    can/         CanFrame, CanTypes, engine, channels, queues
+    database/    DBC parsing, signals, messages
+    diagnostics/ UDS client and server, service catalogue
+    isotp/       ISO-TP
+    j1939/       J1939 / ISOBUS: address claiming, transport, DM1/DM2
+    log/         trace log and export, log sink / replay source nodes
+    pipeline/    the typed graph, node catalogue, nodes/
+    plot/        signal series
+    scripting/   embedded Lua 5.5: ECUs, test sequences
+    simulation/  rest-bus simulation
+    tinyml/      the TinyML virtual ECU
+    trace/       trace store
+    transmit/    transmit list
+    dashboard/   dashboard description, system variables
+    testing/     test reports
   drivers/
-    api/       ICanBackend, registry
-    virtual/   in-memory bus (always available)
-    kvaser/    CANlib backend            (v0.3)
-    peak/      Qt SerialBus / PCAN-Basic (v0.5)
-  services/    settings, projects, workspaces
-  ui/          widgets, theming, docking
-  plugins/     out-of-tree extension points
+    api/         ICanBackend, registry
+    virtual/     in-memory bus (always available - the only built-in backend)
+  plugins/
+    host/        the plugin ABI (PluginApi.h) and the loader
+    driver-kvaser/  CANlib backend, loaded rather than linked
+    driver-peak/    Qt SerialBus / PCAN-Basic, loaded rather than linked
+  services/      settings, projects, workspaces
+  ui/            widgets, theming, docking
 ```
+
+The tree that used to be here named two directories that never existed:
+`core/logging` became `core/log`, and `core/project` became `services` - a
+project or a workspace is application state, not bus domain. The Kvaser and PEAK
+backends also left `drivers/` in v0.17: they are plugins now, loaded rather than
+linked, so `drivers/` holds what every build has - the interface and the virtual
+bus, which is enough for an application with no plugins at all to open, build a
+graph and run a measurement. `PLAN.md` section 10 has the same tree with the
+rest of the repository around it.
 
 ---
 

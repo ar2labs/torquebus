@@ -1,6 +1,6 @@
 {
   "version": 6,
-  "cmakeMinimumRequired": { "major": 3, "minor": 24, "patch": 0 },
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
   "configurePresets": [
     {
       "name": "base",
@@ -79,19 +79,36 @@
   "testPresets": [
     {
       "name": "windows-msvc-vs",
+      "description": "Each build preset has a test preset of the same name, and the test preset is the one that knows which build directory to look in. noTestsAction is error because ctest's default for an empty run is to print 'No tests were found!!!' and exit 0 - which is what a preset pointed at a directory that was never built reports, and it reads as a pass.",
       "configurePreset": "windows-msvc-vs",
       "configuration": "Debug",
       "output": { "outputOnFailure": true },
-      "execution": { "jobs": 4 },
+      "execution": { "jobs": 4, "noTestsAction": "error" },
       "filter": { "exclude": { "label": "hardware" } }
+    },
+    {
+      "name": "windows-msvc-vs-release",
+      "inherits": "windows-msvc-vs",
+      "configuration": "RelWithDebInfo"
     },
     {
       "name": "windows-msvc-debug",
       "configurePreset": "windows-msvc-debug",
       "description": "gtest_discover_tests registers every GoogleTest case as its own CTest test, so the 520 tests are 520 process launches and the run is dominated by startup, not by the tests - which take about 10s of actual work. Serially that is about 31s; 4 jobs brings it to about 8s and one job per processor, which is what jobs 0 means here, to about 4.5s. Any number is safe: the fixtures in TraceExportTests, TraceLogTests and NodePathTests build their temp paths through UniqueTempPath.h, which mixes in a per-process tag. Before that they used a counter that restarted in every process, and concurrent cases deleted each other files in TEMP.",
       "output": { "outputOnFailure": true },
-      "execution": { "jobs": 4 },
+      "execution": { "jobs": 4, "noTestsAction": "error" },
       "filter": { "exclude": { "label": "hardware" } }
+    },
+    {
+      "name": "windows-msvc-release",
+      "inherits": "windows-msvc-debug",
+      "configurePreset": "windows-msvc-release"
+    },
+    {
+      "name": "windows-msvc-strict",
+      "description": "The tests for the build that CONTRIBUTING.md and the pre-push script use.",
+      "inherits": "windows-msvc-debug",
+      "configurePreset": "windows-msvc-strict"
     }
   ]
 }

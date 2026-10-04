@@ -41,7 +41,9 @@ visual identity, an open architecture and a GPLv3 licence.
   i7-11700K — and drops what will not fit, because the queues are bounded on
   purpose and say how much they discarded. Both numbers are printed by the
   tests that measure them, in the configuration named: `cmake --build --preset
-  windows-msvc-release`, then `ctest -R throughput`.
+  windows-msvc-release`, then
+  `ctest --preset windows-msvc-release -R Throughput -V -j1` (`-V` because a
+  passing test prints nothing otherwise, `-j1` so they do not compete for cores).
 - **Recording outlives the UI.** Close the Trace panel; the log keeps writing.
 - **Protocols above the frame.** ISO-TP and UDS, and J1939/ISOBUS with address
   claiming, transport (BAM, RTS/CTS, ETP) and DM1/DM2 — checked line by line
@@ -57,11 +59,14 @@ visual identity, an open architecture and a GPLv3 licence.
 | | |
 |---|---|
 | Platform | Windows 11 x64 |
-| Compiler | MSVC 2022 (x64), C++23 |
+| Compiler | MSVC 2022 (x64), C++23 — Visual Studio 2022 or just its Build Tools |
 | Qt | **6.11.2 exactly**, with the **Qt SerialBus** module |
-| Build | CMake ≥ 3.24, Ninja (both ship with Visual Studio) |
+| Build | CMake ≥ 3.25, Ninja (both ship with Visual Studio 2022) |
+| Contributing | clang-format **21.1.0** (the version CI pins) and PowerShell 7, for `tools\check-before-push.ps1` |
 
 KDDockWidgets, GoogleTest and Lua are built for you — nothing else to install.
+Not sure what you have? [`docs/development/getting-started.md`](docs/development/getting-started.md#check-what-you-have)
+has a short check to run before the first configure.
 
 The Qt version is an exact pin, not a minimum: KDDockWidgets uses Qt's private
 modules, which tie the binary to the Qt build it was compiled against.
@@ -100,7 +105,11 @@ From *any* prompt, with no setup at all:
 ```bat
 cmake --preset windows-msvc-vs
 cmake --build --preset windows-msvc-vs
+ctest --preset windows-msvc-vs
 ```
+
+Each build preset has a test preset of the same name, and `ctest` needs the one
+that matches the preset you built: every preset has its own build directory.
 
 The Visual Studio generator finds its own toolchain, and CMake finds Qt at
 `C:\Qt\6.11.2\msvc2022_64` or wherever `QTDIR` points. Slower to build than
