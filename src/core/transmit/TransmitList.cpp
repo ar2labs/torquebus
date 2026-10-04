@@ -48,6 +48,22 @@ void TransmitList::update(std::size_t index, TransmitEntry entry)
     entry.sentCount = m_entries[index].sentCount;
     entry.lastSentUs = m_entries[index].lastSentUs;
 
+    // The panel edits through here, not through setEnabled(), so the schedule
+    // has to follow the edit from this side too. Without it a row switched on
+    // by its checkbox kept the due time from whenever it last ran and sat idle
+    // until then, and a long cycle shortened to 100 ms was still waiting out
+    // the old one.
+    const TransmitEntry& before = m_entries[index];
+    const bool switchedOn = entry.enabled && !before.enabled;
+    const bool becamePeriodic = entry.isPeriodic() && !before.isPeriodic();
+
+    if (switchedOn || becamePeriodic) {
+        m_nextDueUs[index] = 0;
+    } else if (entry.isPeriodic() && entry.cycleMs != before.cycleMs) {
+        const std::uint64_t latest = before.lastSentUs + periodMicroseconds(entry);
+        m_nextDueUs[index] = std::min(m_nextDueUs[index], latest);
+    }
+
     m_entries[index] = std::move(entry);
 }
 

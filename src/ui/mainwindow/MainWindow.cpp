@@ -1934,6 +1934,7 @@ void MainWindow::onNewProject()
     }
     if (m_transmitPanel != nullptr) {
         m_transmitPanel->setDatabases({});
+        m_transmitPanel->reload();
     }
     if (m_canvas != nullptr) {
         m_canvas->setDatabases({});
@@ -2186,6 +2187,7 @@ void MainWindow::openProject(const QString& path)
     }
     if (m_transmitPanel != nullptr) {
         m_transmitPanel->setDatabases({});
+        m_transmitPanel->reload();
     }
     if (m_canvas != nullptr) {
         m_canvas->setDatabases({});

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-add_executable(torquebus_ui_tests DockingTests.cpp)
+add_executable(torquebus_ui_tests DockingTests.cpp TransmitPanelTests.cpp)
 target_link_libraries(torquebus_ui_tests
     PRIVATE torquebus::ui torquebus::warnings GTest::gtest
 )
