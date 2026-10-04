@@ -85,6 +85,11 @@ constexpr int kRefreshMs = 200;
 }
 
 /// Reads "52 03 00" or "520300" into the payload.
+///
+/// Refuses a length the frame cannot carry: 8 bytes at most for a classic frame,
+/// and for an FD frame only the sizes a DLC can encode (0-8, 12, 16, 20, 24, 32,
+/// 48, 64). Anything else would be silently padded or truncated on the way out,
+/// and the row would say one thing while the bus carried another.
 [[nodiscard]] bool parsePayload(QString text, CanFrame& frame)
 {
     text.remove(QLatin1Char(' '));
@@ -99,6 +104,12 @@ constexpr int kRefreshMs = 200;
         return false;
     }
 
+    const auto length = static_cast<std::uint8_t>(count);
+    const std::uint8_t dlc = dlcFromPayloadLength(length, frame.fd);
+    if (payloadLengthFromDlc(dlc, frame.fd) != length) {
+        return false;
+    }
+
     std::array<std::uint8_t, kMaxCanPayload> bytes{};
     for (int i = 0; i < count; ++i) {
         bool ok = false;
@@ -110,8 +121,8 @@ constexpr int kRefreshMs = 200;
     }
 
     frame.data = bytes;
-    frame.length = static_cast<std::uint8_t>(count);
-    frame.dlc = dlcFromPayloadLength(frame.length, frame.fd);
+    frame.length = length;
+    frame.dlc = dlc;
     return true;
 }
 
@@ -147,6 +158,10 @@ void TransmitPanel::buildUi()
     m_actionAddFromMessage = m_toolBar->addAction(tr("Add from message..."));
     m_actionAddFromMessage->setToolTip(
         tr("Add a row shaped like a message from a loaded database."));
+
+    // Until a database is imported there is nothing to add from; setDatabases()
+    // switches it on.
+    m_actionAddFromMessage->setEnabled(false);
 
     m_actionRemove = m_toolBar->addAction(tr("Remove"));
     m_toolBar->addSeparator();
@@ -253,8 +268,17 @@ void TransmitPanel::reload()
         m_table->setItem(row,
                          ColumnFormat,
                          new QTableWidgetItem{entry.frame.isExtended() ? tr("Ext") : tr("Std")});
-        m_table->setItem(
-            row, ColumnLength, new QTableWidgetItem{QString::number(entry.frame.length)});
+        // Length is derived from the data, so it is shown and not typed. Its
+        // flags are set *before* the item goes into the table: QTableWidgetItem
+        // ::setFlags on an item that is already in a table emits itemChanged,
+        // and doing it afterwards - which this used to, in a loop after
+        // m_populating had been cleared - made every reload commit every row,
+        // which reloaded, which did it again, until the stack ran out. That is
+        // what closed the application on Add.
+        auto* length = new QTableWidgetItem{QString::number(entry.frame.length)};
+        length->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        m_table->setItem(row, ColumnLength, length);
+
         m_table->setItem(row, ColumnData, new QTableWidgetItem{formatPayload(entry.frame)});
 
         auto* periodic = new QTableWidgetItem;
@@ -273,13 +297,6 @@ void TransmitPanel::reload()
     }
 
     m_populating = false;
-
-    // Length is derived from the data, so it is shown and not typed.
-    for (int row = 0; row < m_table->rowCount(); ++row) {
-        if (QTableWidgetItem* item = m_table->item(row, ColumnLength)) {
-            item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-        }
-    }
 
     m_status->setText(tr("%n row(s)", nullptr, m_table->rowCount()));
 
@@ -392,6 +409,10 @@ void TransmitPanel::onRemove()
 
     m_list.remove(static_cast<std::size_t>(row));
     reload();
+
+    if (m_table->rowCount() > 0) {
+        m_table->selectRow(std::min(row, m_table->rowCount() - 1));
+    }
 }
 
 void TransmitPanel::onSendSelected()
@@ -468,10 +489,12 @@ void TransmitPanel::updateActionState()
     const int row = selectedRow();
 
     TransmitEntry entry;
-    const bool known = row >= 0 && m_list.entryAt(static_cast<std::size_t>(row), entry)
-                       && messageFor(entry) != nullptr;
+    const bool exists = row >= 0 && m_list.entryAt(static_cast<std::size_t>(row), entry);
+    const bool known = exists && messageFor(entry) != nullptr;
 
     m_actionEditSignals->setEnabled(known);
+    m_actionRemove->setEnabled(exists);
+    m_actionSend->setEnabled(exists);
 }
 
 int TransmitPanel::selectedRow() const
@@ -574,8 +597,24 @@ void TransmitPanel::commitRow(int row)
     // visibly snaps back rather than sitting there looking committed. Somebody
     // believing they are transmitting on an identifier they are not is the
     // failure this prevents.
-    reload();
-    m_table->selectRow(row);
+    //
+    // Queued, not done here: this runs inside the itemChanged emission of a
+    // cell, and reload() replaces every item in the table - including the one
+    // still being reported. Qt does not promise that survives, and the cost of
+    // waiting one pass of the event loop is not visible.
+    if (!m_redrawPending) {
+        m_redrawPending = true;
+        QMetaObject::invokeMethod(
+            this,
+            [this, row] {
+                m_redrawPending = false;
+                reload();
+                if (row < m_table->rowCount()) {
+                    m_table->selectRow(row);
+                }
+            },
+            Qt::QueuedConnection);
+    }
 
     if (rejected) {
         Q_EMIT reported(tr("Row %1: some of that could not be read, and was put back. "

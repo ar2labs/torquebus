@@ -54,6 +54,14 @@ public:
     /// with, handed over by the window when one is imported.
     void setDatabases(std::vector<std::shared_ptr<const CanDatabase>> databases);
 
+    /// Rebuilds every row from the list.
+    ///
+    /// Public because the list is the project's, not the panel's: opening or
+    /// clearing a project replaces it, and a table that notices only when the
+    /// row count differs would keep showing the old rows whenever the new
+    /// project happened to have as many.
+    void reload();
+
 Q_SIGNALS:
     /// Something the Output panel should say - a frame refused by a full queue,
     /// a row that could not be parsed. Not a message box: the user is mid-edit
@@ -75,9 +83,6 @@ private Q_SLOTS:
 
 private:
     void buildUi();
-
-    /// Rebuilds every row from the list. Used after add, remove and load.
-    void reload();
 
     /// Writes row `row` back into the list, parsing what the user typed.
     ///
@@ -122,6 +127,9 @@ private:
     /// and committed to the list - a feedback loop that would overwrite a row
     /// twenty times a second with its own display text.
     bool m_populating{false};
+
+    /// True while a redraw queued by commitRow() has not run yet.
+    bool m_redrawPending{false};
 };
 
 } // namespace torquebus::ui

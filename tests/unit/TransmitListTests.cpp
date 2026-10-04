@@ -361,3 +361,65 @@ TEST(TransmitListTests, APressMadeWhileStoppedDoesNotFireWhenTheRunStarts)
     collect(list, ms(0), out);
     EXPECT_TRUE(out.empty());
 }
+
+TEST(TransmitListTests, SwitchingARowOnByEditingItStartsItNowNotAtItsOldDueTime)
+{
+    // The panel edits a row through update(), not setEnabled(). A row that
+    // ran, was switched off and was switched on again from its checkbox must
+    // go out at once, like one switched on through setEnabled().
+    TransmitList list;
+    const std::size_t index = list.add(periodic(0x500, 1000));
+
+    std::vector<CanFrame> out;
+    collect(list, ms(0), out);
+    ASSERT_EQ(out.size(), 1U);
+
+    TransmitEntry edited;
+    ASSERT_TRUE(list.entryAt(index, edited));
+    edited.enabled = false;
+    list.update(index, edited);
+
+    edited.enabled = true;
+    list.update(index, edited);
+
+    out.clear();
+    collect(list, ms(10), out);
+    EXPECT_EQ(out.size(), 1U);
+}
+
+TEST(TransmitListTests, ShorteningACycleDoesNotWaitOutTheOldOne)
+{
+    TransmitList list;
+    const std::size_t index = list.add(periodic(0x501, 10000));
+
+    std::vector<CanFrame> out;
+    collect(list, ms(0), out);
+    ASSERT_EQ(out.size(), 1U);
+
+    TransmitEntry edited;
+    ASSERT_TRUE(list.entryAt(index, edited));
+    edited.cycleMs = 100;
+    list.update(index, edited);
+
+    out.clear();
+    collect(list, ms(150), out);
+    EXPECT_EQ(out.size(), 1U);
+}
+
+TEST(TransmitListTests, ARowTurnedPeriodicStartsAtOnce)
+{
+    TransmitList list;
+    const std::size_t index = list.add(manual(0x502));
+
+    std::vector<CanFrame> out;
+    collect(list, ms(5000), out);
+    EXPECT_TRUE(out.empty());
+
+    TransmitEntry edited;
+    ASSERT_TRUE(list.entryAt(index, edited));
+    edited.trigger = TransmitTrigger::Periodic;
+    list.update(index, edited);
+
+    collect(list, ms(5001), out);
+    EXPECT_EQ(out.size(), 1U);
+}
