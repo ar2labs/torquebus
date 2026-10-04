@@ -46,6 +46,8 @@ public:
 
 private:
     QTreeWidget* m_tree{nullptr};
+    QString m_title;
+    QVector<Row> m_rows;
 };
 
 } // namespace torquebus::ui

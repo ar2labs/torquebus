@@ -21,6 +21,35 @@ QString yesNo(bool value)
     return value ? PropertiesPanel::tr("Yes") : PropertiesPanel::tr("No");
 }
 
+[[nodiscard]] QString iconNameForProperty(const QString& name)
+{
+    if (name.contains(QLatin1String("Name"), Qt::CaseInsensitive)
+        || name.contains(QLatin1String("Backend"), Qt::CaseInsensitive)
+        || name.contains(QLatin1String("Handle"), Qt::CaseInsensitive)
+        || name.contains(QLatin1String("Serial"), Qt::CaseInsensitive)
+        || name.contains(QLatin1String("Type"), Qt::CaseInsensitive)) {
+        return QStringLiteral("hardware");
+    }
+    if (name.contains(QLatin1String("CAN"), Qt::CaseInsensitive)
+        || name.contains(QLatin1String("Channel"), Qt::CaseInsensitive)) {
+        return QStringLiteral("network");
+    }
+    if (name.contains(QLatin1String("Bit rate"), Qt::CaseInsensitive)) {
+        return QStringLiteral("gauge");
+    }
+    if (name.contains(QLatin1String("Filter"), Qt::CaseInsensitive)
+        || name.contains(QLatin1String("Listen"), Qt::CaseInsensitive)) {
+        return QStringLiteral("filter");
+    }
+    if (name.contains(QLatin1String("timestamp"), Qt::CaseInsensitive)) {
+        return QStringLiteral("time-format");
+    }
+    if (name.contains(QLatin1String("Error"), Qt::CaseInsensitive)) {
+        return QStringLiteral("diagnostics");
+    }
+    return QStringLiteral("properties");
+}
+
 } // namespace
 
 PropertiesPanel::PropertiesPanel(QWidget* parent)
@@ -35,6 +64,7 @@ PropertiesPanel::PropertiesPanel(QWidget* parent)
     m_tree->setSelectionMode(QAbstractItemView::NoSelection);
     m_tree->setFocusPolicy(Qt::NoFocus);
     m_tree->setFrameShape(QFrame::NoFrame);
+    m_tree->setIconSize(QSize(16, 16));
     m_tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_tree->header()->setSectionResizeMode(1, QHeaderView::Stretch);
 
@@ -42,11 +72,23 @@ PropertiesPanel::PropertiesPanel(QWidget* parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(m_tree);
 
+    if (ThemeManager* themes = ThemeManager::instance()) {
+        connect(themes, &ThemeManager::themeChanged, this, [this] {
+            if (m_rows.isEmpty()) {
+                clearProperties();
+            } else {
+                setProperties(m_title, m_rows);
+            }
+        });
+    }
+
     clearProperties();
 }
 
 void PropertiesPanel::setProperties(const QString& title, const QVector<Row>& rows)
 {
+    m_title = title;
+    m_rows = rows;
     m_tree->clear();
 
     if (rows.isEmpty()) {
@@ -57,6 +99,9 @@ void PropertiesPanel::setProperties(const QString& title, const QVector<Row>& ro
     m_tree->setHeaderLabels({title.isEmpty() ? tr("Property") : title, tr("Value")});
 
     const ThemeManager* themes = ThemeManager::instance();
+    if (themes != nullptr && m_tree->headerItem() != nullptr) {
+        m_tree->headerItem()->setIcon(0, themes->icon(QStringLiteral("properties")));
+    }
 
     for (const Row& row : rows) {
         auto* item = new QTreeWidgetItem(m_tree);
@@ -64,8 +109,11 @@ void PropertiesPanel::setProperties(const QString& title, const QVector<Row>& ro
         item->setText(1, row.value);
         item->setToolTip(1, row.value);
 
-        if (row.highlighted && themes != nullptr) {
-            item->setForeground(1, themes->theme().accent);
+        if (themes != nullptr) {
+            item->setIcon(0, themes->icon(iconNameForProperty(row.name)));
+            if (row.highlighted) {
+                item->setForeground(1, themes->theme().accent);
+            }
         }
     }
 }
@@ -99,8 +147,16 @@ void PropertiesPanel::setDevice(const CanDeviceInfo& device)
 
 void PropertiesPanel::clearProperties()
 {
+    m_rows.clear();
+    m_title.clear();
     m_tree->clear();
     m_tree->setHeaderLabels({tr("Property"), tr("Value")});
+
+    if (const ThemeManager* themes = ThemeManager::instance()) {
+        if (m_tree->headerItem() != nullptr) {
+            m_tree->headerItem()->setIcon(0, themes->icon(QStringLiteral("properties")));
+        }
+    }
 
     auto* item = new QTreeWidgetItem(m_tree);
     item->setText(0, tr("Nothing selected"));
