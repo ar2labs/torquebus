@@ -28,13 +28,11 @@ target_compile_definitions(torquebus_integration_tests
 
 # These drive real threads and real timing, so they get more headroom than the
 # CTest default before being declared hung.
-# The Qt this build was configured against, on the DLL search path for both
-# moments the binary runs: the enumeration at build time and the tests under
-# ctest. See the module's header - covering only the second cost a build.
-torquebus_test_dl_paths(TORQUEBUS_TEST_DL_PATHS)
-
+#
+# This binary links no Qt today. It runs under the same ctest environment as the
+# rest all the same (see tests/CMakeLists.txt), so that the day a dependency
+# brings Qt in, nothing else has to change.
 gtest_discover_tests(torquebus_integration_tests
-    DL_PATHS ${TORQUEBUS_TEST_DL_PATHS}
     PROPERTIES
         LABELS "integration"
         TIMEOUT 120

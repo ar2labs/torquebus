@@ -145,6 +145,58 @@ against what it does, which turned up more than expected.
   bus. `vehicle.dbc` does; `ecu.dbc` carries identifiers 1 and 255 and pairs
   with `ecu_motor.lua`, which is a different example. A test now runs each
   script and asks its database about every identifier it actually emitted.
+- **The first build of the Visual Studio preset stopped at test discovery, on any
+  machine without Qt on `PATH`.** `windows-msvc-vs` — the one the README calls
+  "start here" — failed in `torquebus_unit_tests` with `0xc0000135`
+  (`STATUS_DLL_NOT_FOUND`), and a second build went through, because by then the
+  application's post-build step had copied Qt beside the executables. The tests
+  were meant to carry their own Qt (an entry above says they do), through
+  `DL_PATHS` on `gtest_discover_tests` — which is an option of Catch2's
+  `catch_discover_tests`. It came across unchanged in the move to GoogleTest, and
+  `gtest_discover_tests` does not know it and ignores it without a word: the path
+  was computed, passed and dropped, and the discovery command ran with an empty
+  executor. Nothing else failed. CI puts Qt on `PATH`, and the protection against
+  a *different* Qt earlier on `PATH` was not in force, which no passing test could
+  show. The hardware binary, which links Qt SerialBus, failed the same way. The
+  tests are now enumerated inside `ctest` instead of at build time
+  (`DISCOVERY_MODE PRE_TEST`), with the Qt from the build put at the front of
+  `PATH` in `ctest`'s own environment, which the enumeration and every test
+  inherit. A build no longer runs a test binary at all. Both halves are set once,
+  in `tests/CMakeLists.txt`, so a suite added later gets them without anybody
+  remembering to ask. The obvious fix — `TEST_LAUNCHER`, a `cmake -E env` in front
+  of every test — worked and was not usable: it took the 616 unit tests from 12
+  seconds to 125. (#1)
+- **The guides sent people to the tests of a build they had not made.**
+  `getting-started.md` built `windows-msvc-vs` and then ran `ctest --preset
+  windows-msvc-debug`; CONTRIBUTING and the pre-PR checklist built
+  `windows-msvc-strict` and ran the same. Those are different build directories,
+  the second of which did not exist, and ctest answered `No tests were found!!!`
+  with exit code 0 — a pass, to anyone skimming. There was no test preset for
+  `windows-msvc-strict` to point at in the first place. `validation.md` made the
+  mirror-image mistake: `ctest --preset windows-msvc-debug -L hardware` selects
+  nothing, because the preset excludes that label and the exclusion wins. (#2)
+- **`ctest -R throughput` matched nothing.** It was the README's way to see the
+  throughput numbers, and the tests say `Throughput`: `-R` is case-sensitive, so
+  it found no tests and exited 0. The numbers are also printed only with `-V` — a
+  passing test prints nothing — which the command did not say either. (#2)
+- **The pre-push script passed without checking formatting.** With no
+  `clang-format` installed it printed a grey "skipped" and ended on "Passed.", and
+  the difference showed up only in CI. It also named clang-format 17 as CI's
+  version, which CI does not run. It now reads the pinned version out of the
+  workflow, says when yours differs, and lists a skipped check among the notes at
+  the end. The difference is not hypothetical: the clang-format bundled with
+  Visual Studio (19.1.5 in 17.14) reformats a file that 21.1.0 leaves alone. (#2)
+- **`tools\torquebus-prompt.bat` died with "was unexpected at this time" on any
+  path containing `)`.** `%VAR%` inside a parenthesised block is expanded when the
+  block is parsed, so an unquoted path with `(x86)` in it closed the block early
+  — whether or not that branch ever ran. The Build Tools for Visual Studio 2022
+  install under `Program Files (x86)`. (#2)
+- **Documentation that had fallen behind the code.** `ARCHITECTURE.md` still drew
+  `drivers/kvaser` and `drivers/peak`, which became plugins in v0.17, and a
+  `core/` that has since grown; `validation.md` showed version 0.12.0 and no PEAK
+  line in the configure summary; the pre-push script's header said no workflow
+  had ever run, and so did a truncated sentence at the end of a section of
+  `CONTRIBUTING.md`. (#2)
 
 ### Added
 
@@ -200,6 +252,22 @@ against what it does, which turned up more than expected.
   editor already followed selection; what it did not do was come to the front,
   and an editor behind another tab is an editor the user does not know they
   have. CANoe puts a pencil on the node for the same reason.
+- **A test preset for every build preset**: `windows-msvc-strict`,
+  `windows-msvc-release` and `windows-msvc-vs-release` join the two that existed,
+  so a preset's build and its tests have the same name. All of them now fail on
+  an empty run (`noTestsAction`), which is what a preset pointed at a directory
+  that was never built produces. (#2)
+- **"Check what you have" in `getting-started.md`**: the commands to run before the
+  first configure — Visual Studio with the C++ toolset, Qt with its Serial Bus
+  module, the versions of the tools — and what each should print. The tools table
+  now lists what contributing needs as well as what building does (clang-format
+  21.1.0, PowerShell 7), and says that the Build Tools for Visual Studio are
+  enough. (#2)
+- **`tools\torquebus-prompt.bat` takes Qt from `QTDIR`**, which its own error
+  message already told people to set and which it then ignored, always using
+  `C:\Qt\6.11.2\msvc2022_64`. It asks the same question `TorqueBusDependencies.cmake`
+  asks — `QTDIR` first, then the installer default, and only a `QTDIR` that holds a
+  Qt 6 — so the prompt and the configure cannot pick different Qts. (#2)
 
 ### Changed
 
@@ -228,6 +296,17 @@ against what it does, which turned up more than expected.
   38 differing only by reordered includes, reflowed comments and one block of
   `using` declarations — and `.git-blame-ignore-revs` keeps `git blame` pointing
   at whoever wrote each line.
+- **CMake 3.25 is the minimum**, where the documentation and
+  `cmake_minimum_required` said 3.24. That number was already wrong:
+  `CMakePresets.json` is schema version 6 and `FetchContent_Declare` is called
+  with `SYSTEM`, both of which need 3.25, and CI — which always runs the latest
+  CMake — could not notice. A CMake older than that is refused by the presets file
+  before anything else runs. The number is also the policy baseline, so the bump
+  was measured rather than assumed: the only difference in what gets compiled is
+  how MSVC's debug-information flag is spelled, and no link line changes.
+  (Going further is not free: from 3.28 CMake scans every C++20-or-later source
+  for module imports, which is one more compiler run for each of 125 translation
+  units here, so the floor is no higher than the project needs.) (#2)
 
 ### Removed
 

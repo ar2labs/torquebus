@@ -757,7 +757,7 @@ void MainWindow::createActions()
     updateFullScreenAction();
 
     m_actionToggleOutputCollapse =
-        new QAction(icon("panel-collapse"), tr("Reduce Output Panel"), this);
+        new QAction(icon("panel-collapse"), tr("Collapse Bottom Panel"), this);
     connect(m_actionToggleOutputCollapse,
             &QAction::triggered,
             this,
@@ -1485,8 +1485,8 @@ void MainWindow::attachOutputCollapseButton()
         m_outputCollapseButton = new AnimatedToolButton{m_actionToggleOutputCollapse, this};
         m_outputCollapseButton->setObjectName(QStringLiteral("dockTabCornerButton"));
         m_outputCollapseButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
-        m_outputCollapseButton->setIconSize(QSize{15, 15});
-        m_outputCollapseButton->setFixedSize(QSize{24, 21});
+        m_outputCollapseButton->setIconSize(QSize{20, 20});
+        m_outputCollapseButton->setFixedSize(QSize{32, 28});
         m_outputCollapseButton->setAutoRaise(true);
         m_outputCollapseButton->setCursor(Qt::PointingHandCursor);
     }
@@ -1505,12 +1505,15 @@ void MainWindow::updateOutputCollapseAction(bool collapsed)
 
     if (collapsed) {
         m_actionToggleOutputCollapse->setIcon(m_themes.icon(QStringLiteral("panel-expand")));
-        m_actionToggleOutputCollapse->setText(tr("Expand Output Panel"));
-        m_actionToggleOutputCollapse->setToolTip(tr("Expand Output panel"));
+        m_actionToggleOutputCollapse->setText(tr("Expand Bottom Panel"));
+        m_actionToggleOutputCollapse->setToolTip(tr("Expand bottom panel to its previous height"));
     } else {
         m_actionToggleOutputCollapse->setIcon(m_themes.icon(QStringLiteral("panel-collapse")));
-        m_actionToggleOutputCollapse->setText(tr("Reduce Output Panel"));
-        m_actionToggleOutputCollapse->setToolTip(tr("Reduce Output panel to tab bar"));
+        m_actionToggleOutputCollapse->setText(tr("Collapse Bottom Panel"));
+        m_actionToggleOutputCollapse->setToolTip(tr("Collapse bottom panel to tabs"));
+    }
+    if (m_outputCollapseButton != nullptr) {
+        m_outputCollapseButton->setAccessibleName(m_actionToggleOutputCollapse->text());
     }
 }
 

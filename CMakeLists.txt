@@ -5,7 +5,22 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.25)
+
+# 3.25, because that is what this project actually needs. The number used to be
+# 3.24, and that was wrong: CMakePresets.json is schema version 6 and
+# FetchContent_Declare below takes SYSTEM, and both of those arrived in 3.25.
+# Nothing showed it because CI always runs the latest CMake.
+#
+# The same number is in CMakePresets.json (cmakeMinimumRequired), in the README's
+# requirements and in docs/development/getting-started.md. Change them together.
+#
+# Raising it also raises the policy baseline, so it was measured rather than
+# assumed: from 3.24 to 3.25 the only thing that changes in what gets compiled is
+# how MSVC's debug-information flag is spelled (-Zi for /Zi, which is the same
+# flag). No link line changes. Raising it much further is another matter - from
+# 3.28 CMake starts scanning every C++20-or-later source for module imports, and
+# this project is C++23 throughout - so go past 3.27 on purpose, not in passing.
 
 # C alongside CXX because of the vendored Lua: it is 32 .c files, and without C
 # enabled here CMake configures happily and then fails at *generate* time with
@@ -132,6 +147,35 @@ endif()
 # which Ninja was already doing by compiling one file per process.
 if(MSVC)
     add_compile_options(/FS)
+endif()
+
+# --------------------------------------------------------------------------
+# /EHsc, stated and not inherited
+# --------------------------------------------------------------------------
+#
+# This project throws and catches: ThreadGuard is a try/catch around every thread
+# body and every destructor that flushes, the plugin loader survives a plugin that
+# throws, and the standard library throws on its own account. Exceptions with
+# proper unwinding are an MSVC compiler option, /EHsc, and nothing here asked for
+# it. It arrived anyway, because CMake puts it into CMAKE_CXX_FLAGS the first time
+# a build directory is configured - and a directory whose cache holds no default
+# flags compiles without it. One did: a directory whose cache read
+# "CMAKE_CXX_FLAGS:STRING=" built the whole tree with
+#
+#   warning C4530: C++ exception handler used, but unwind semantics are not
+#   enabled. Specify /EHsc
+#
+# on nearly every translation unit. The warnings are the visible part. What they
+# say is that unwinding is off, so a destructor need not run as an exception
+# passes - which is exactly what ThreadGuard is there to make safe.
+#
+# So the project says it, the way it says /FS and for the same reason: as a
+# directory-level option, so that what FetchContent brings in is built the same
+# way. Only when CMAKE_CXX_FLAGS does not already choose an exception model, so a
+# healthy directory gets no duplicate and somebody who deliberately passes /EHa
+# keeps it. C++ only: /EH means nothing to the vendored Lua.
+if(MSVC AND NOT CMAKE_CXX_FLAGS MATCHES "[/-]EH")
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/EHsc>")
 endif()
 
 # --------------------------------------------------------------------------

@@ -18,13 +18,34 @@ rem
 rem Order matters only in one direction: vcvars first, so that Qt's bin ends up
 rem ahead of it on PATH and windeployqt resolves to the Qt we are building for.
 rem
+rem Which Qt: QTDIR when it names a Qt 6 installation, the installer default
+rem otherwise. That is the order cmake/TorqueBusDependencies.cmake looks in, so
+rem the prompt and the configure cannot disagree about which Qt this is - and it
+rem is how to use a Qt installed on another disk: set QTDIR, or edit TORQUEBUS_QT
+rem below. A QTDIR that does not hold a Qt 6 is ignored and not trusted, because a
+rem stale one - left by another project's prompt, say - should not beat a Qt that
+rem is actually there.
+rem
 rem Usage:  tools\torquebus-prompt.bat
 rem Then:   cmake --preset windows-msvc-debug
 
 setlocal EnableDelayedExpansion
 
 set "TORQUEBUS_QT=C:\Qt\6.11.2\msvc2022_64"
+set "TORQUEBUS_QT_NOTE="
 set "TORQUEBUS_VS="
+
+rem One line of chained ifs, which is an AND, rather than a parenthesised block.
+rem A path under "Program Files (x86)" has a ")" in it, and %VAR% inside a block
+rem is expanded when the block is *parsed* - so an unquoted one ends the block
+rem early even if that branch never runs, and the script dies with "was
+rem unexpected at this time". Where a block has to print a path, it uses !VAR!,
+rem which is expanded when the line runs. This is not hypothetical for the VS
+rem path below: the Build Tools for Visual Studio 2022 install under
+rem "Program Files (x86)".
+if defined QTDIR if exist "%QTDIR%\bin\qtenv2.bat" if exist "%QTDIR%\lib\cmake\Qt6\Qt6Config.cmake" set "TORQUEBUS_QT=%QTDIR%"
+
+if defined QTDIR if /i not "%TORQUEBUS_QT%"=="%QTDIR%" set "TORQUEBUS_QT_NOTE=QTDIR is set to %QTDIR%, but that has no bin\qtenv2.bat and lib\cmake\Qt6 - so it was ignored."
 
 rem vswhere ships with every VS 2017+ installer, at a fixed path, and is the
 rem supported way to locate an installation. Hard-coding "Community" would
@@ -48,7 +69,7 @@ if not defined TORQUEBUS_VS (
 if not exist "%TORQUEBUS_VS%\VC\Auxiliary\Build\vcvars64.bat" (
     echo.
     echo   Found Visual Studio at:
-    echo     %TORQUEBUS_VS%
+    echo     !TORQUEBUS_VS!
     echo   but not its vcvars64.bat, so the C++ toolset is not installed.
     echo.
     exit /b 1
@@ -57,8 +78,11 @@ if not exist "%TORQUEBUS_VS%\VC\Auxiliary\Build\vcvars64.bat" (
 if not exist "%TORQUEBUS_QT%\bin\qtenv2.bat" (
     echo.
     echo   Qt was not found at:
-    echo     %TORQUEBUS_QT%
-    echo   Edit TORQUEBUS_QT at the top of this file, or set QTDIR yourself.
+    echo     !TORQUEBUS_QT!
+    if defined TORQUEBUS_QT_NOTE echo   !TORQUEBUS_QT_NOTE!
+    echo   Set QTDIR to your Qt 6 installation - the folder that holds bin and lib,
+    echo   for example C:\Qt\6.11.2\msvc2022_64 - or edit TORQUEBUS_QT at the top of
+    echo   this file.
     echo.
     exit /b 1
 )

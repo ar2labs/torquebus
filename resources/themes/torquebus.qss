@@ -132,8 +132,14 @@ QToolButton {
 }
 
 QToolButton#dockTabCornerButton {
-    padding: 2px 4px;
-    margin: 1px 4px 1px 2px;
+    border-color: @border;
+    padding: 0px;
+    margin: 1px 3px;
+}
+
+QToolButton#dockTabCornerButton:hover,
+QToolButton#dockTabCornerButton:focus {
+    border-color: @accent;
 }
 
 /* The hover *fill* is not here: AnimatedToolButton paints it, so that it fades

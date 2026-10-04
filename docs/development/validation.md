@@ -44,7 +44,7 @@ so it needs network access and takes a few minutes.
 CMakeLists.txt)
 
 ```
-TorqueBus Studio 0.12.0
+TorqueBus Studio 0.17.0
   Build type ............ Debug
   Compiler .............. MSVC 19.x
   Qt .................... 6.11.2
@@ -52,10 +52,14 @@ TorqueBus Studio 0.12.0
   Tests ................. ON
   Scripting ............. Lua 5.5.0 (vendored)
   Kvaser backend ........ ON
+  PEAK backend .......... ON
 ```
 
 `Kvaser backend ........ OFF` is fine — it means CANlib was not found, and the
-virtual bus covers everything below except step 6.
+virtual bus covers everything below except step 6. `PEAK backend` is the build
+option (`TORQUEBUS_ENABLE_PEAK`), not a detection: it reads `ON` whether or not
+PCAN-Basic is installed, because the Qt SerialBus plugin loads the DLL at
+runtime.
 
 **If it fails:** [`getting-started.md`](getting-started.md#troubleshooting) covers
 the three failures that actually happen — GNU `ld` instead of `link.exe`, a
@@ -1127,8 +1131,12 @@ moved out, and it is the one thing here that a person cannot see by looking.
 Only with a Kvaser adapter and CANlib installed.
 
 ```bat
-ctest --preset windows-msvc-debug -L hardware
+ctest --test-dir build\windows-msvc-debug -L hardware --output-on-failure
 ```
+
+Not `ctest --preset windows-msvc-debug -L hardware`: the preset excludes the
+`hardware` label, and the exclusion wins over the `-L`, so that command selects
+no test at all.
 
 Then, in the application: **Hardware → Refresh**, pick a Kvaser channel in the
 Project Explorer, **Start**, and confirm frames arrive in the trace. The

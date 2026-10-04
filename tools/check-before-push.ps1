@@ -4,16 +4,14 @@
 #
 # --- Why this exists --------------------------------------------------------
 #
-# `.github/workflows/ci.yml` describes those gates, and CONTRIBUTING.md says a
-# pull request must pass them. Both were written before the repository had
-# anywhere to push to: there is no remote, so no workflow in this repository has
-# ever executed. "Enforced on every pull request" described a machine that has
-# never run.
+# `.github/workflows/ci.yml` runs these gates on every pull request, and
+# CONTRIBUTING.md says a pull request must pass them. This file runs the same
+# ones where the code actually is, because finding out locally beats finding out
+# from a red tick eight minutes later.
 #
-# Two ways to fix that. One is to add a remote, which is not a script's decision
-# to make. The other is to make the gates runnable where the code actually is,
-# which is this file - and which stays useful afterwards, because finding out
-# locally beats finding out from a red tick eight minutes later.
+# It was written before the repository had a remote, when no workflow had ever
+# executed and this was the only place the gates ran at all. That is over - CI
+# runs - and this is the convenient copy of it, not the only one.
 #
 # It deliberately runs the *strict* preset. That is the one with warnings as
 # errors, and it is what CI configures; passing Debug and failing strict is the
@@ -201,19 +199,41 @@ try {
     # disagreed with the config; the tree was reformatted in one commit and the
     # check can pass, so it is allowed to fail.
     #
-    # The version matters and is reported when it disagrees: CI pins
-    # clang-format-17, and a different one formats differently. A local 21
-    # saying 30 files differ, against a CI that is happy, is a version gap and
-    # not a formatting problem.
+    # The version matters and is reported when it disagrees: CI pins one exact
+    # clang-format, and a different one formats differently. A local 19 saying
+    # 30 files differ, against a CI that is happy, is a version gap and not a
+    # formatting problem - and Visual Studio bundles exactly such a 19.
+    #
+    # The pinned version is read out of the workflow rather than written down a
+    # second time here. This script said 17 for as long as it did because a
+    # number in a comment does not notice when the thing it describes moves.
+    #
+    # And a missing clang-format is a note in the verdict, not a silent skip:
+    # "Passed." with no formatting check behind it is how a change looks fine
+    # here and is rejected there.
 
     Write-Heading "Formatting"
 
     $clangFormat = Get-Command "clang-format" -ErrorAction SilentlyContinue
 
+    $pinnedVersion = $null
+    $workflow = Join-Path $root ".github/workflows/ci.yml"
+    if (Test-Path $workflow) {
+        $pin = Select-String -Path $workflow -Pattern 'clang-format==([0-9][0-9.]*)' |
+            Select-Object -First 1
+        if ($pin) { $pinnedVersion = $pin.Matches[0].Groups[1].Value }
+    }
+    $pinnedText = if ($pinnedVersion) { $pinnedVersion } else { "the version in ci.yml" }
+
     if (-not $clangFormat) {
-        Write-Host "  clang-format not found - skipped" -ForegroundColor DarkGray
+        Write-Host "  clang-format not found - formatting NOT checked" -ForegroundColor Yellow
+        Write-Host "  CI checks it with clang-format $pinnedText; see docs/development/getting-started.md" `
+            -ForegroundColor DarkGray
+        $advisories += "formatting: not checked, clang-format is not installed (CI runs $pinnedText)"
     } else {
-        $version = (& clang-format --version) -replace '.*version ([0-9]+).*', '$1'
+        $versionText = (& clang-format --version) -join " "
+        $version = if ($versionText -match 'version ([0-9]+(\.[0-9]+)*)') { $Matches[1] } else { "unknown" }
+        $versionGap = $pinnedVersion -and ($version -ne $pinnedVersion)
 
         $files = git ls-files '*.cpp' '*.h' | Where-Object { $_ -notlike "third_party/*" }
 
@@ -235,6 +255,10 @@ try {
 
         if ($dirty.Count -eq 0) {
             Write-Host "  ok - $($files.Count) files" -ForegroundColor Green
+            if ($versionGap) {
+                # Clean under a different version proves less than it looks like.
+                $advisories += "formatting: checked with clang-format $version, CI runs $pinnedVersion - a clean result here can still fail there"
+            }
         } else {
             Write-Host ("  clang-format {0} would change {1} of {2} files:" -f
                         $version, $dirty.Count, $files.Count) -ForegroundColor Red
@@ -245,8 +269,10 @@ try {
                 Write-Host ("    ... and {0} more" -f ($dirty.Count - 20)) -ForegroundColor Red
             }
             Write-Host "  clang-format -i on those files fixes it." -ForegroundColor DarkGray
-            Write-Host "  CI pins clang-format-17; if yours is a different major, that may be why." `
-                -ForegroundColor DarkGray
+            if ($versionGap) {
+                Write-Host "  CI pins clang-format $pinnedVersion and this is $version - that may be why." `
+                    -ForegroundColor Yellow
+            }
 
             $failures += "formatting: $($dirty.Count) files differ"
         }

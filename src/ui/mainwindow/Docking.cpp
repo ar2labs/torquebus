@@ -7,6 +7,7 @@
 
 #include "ui/mainwindow/DockChrome.h"
 
+#include <kddockwidgets/core/DockWidget.h>
 #include <kddockwidgets/core/Group.h>
 #include <kddockwidgets/core/Layout.h>
 #include <kddockwidgets/core/MainWindow.h>
@@ -20,6 +21,7 @@
 #include <QPaintEvent>
 #include <QPalette>
 #include <QResizeEvent>
+#include <QScopedValueRollback>
 #include <QStackedWidget>
 #include <QTabWidget>
 #include <QVBoxLayout>
@@ -27,15 +29,6 @@
 
 #include <algorithm>
 #include <utility>
-
-namespace KDDockWidgets::Core {
-class Item {
-public:
-    void setMinSize(Size sz);
-    void setMaxSizeHint(Size sz);
-    void requestResize(int left, int top, int right, int bottom);
-};
-} // namespace KDDockWidgets::Core
 
 /// Registers KDDockWidgets' own icon resource.
 ///
@@ -66,6 +59,40 @@ static void initializeDockingResources()
 namespace torquebus::ui {
 namespace {
 
+/// QTabWidget includes every page's minimum size even when its page stack is
+/// hidden. Give Qt's parent layout the same tab-only height as the dock layout.
+class StyledStack final : public KDDockWidgets::QtWidgets::Stack {
+public:
+    using KDDockWidgets::QtWidgets::Stack::Stack;
+
+    void setCollapsedHeight(int height)
+    {
+        m_collapsedHeight = height;
+        updateGeometry();
+    }
+
+    [[nodiscard]] QSize minimumSizeHint() const override
+    {
+        QSize hint = KDDockWidgets::QtWidgets::Stack::minimumSizeHint();
+        if (m_collapsedHeight > 0) {
+            hint.setHeight(m_collapsedHeight);
+        }
+        return hint;
+    }
+
+    [[nodiscard]] QSize sizeHint() const override
+    {
+        QSize hint = KDDockWidgets::QtWidgets::Stack::sizeHint();
+        if (m_collapsedHeight > 0) {
+            hint.setHeight(m_collapsedHeight);
+        }
+        return hint;
+    }
+
+private:
+    int m_collapsedHeight{0};
+};
+
 /// A Group that leaves its frame to the style sheet and supports collapsing its
 /// content pane so only the tab strip remains visible.
 class StyledGroup final : public KDDockWidgets::QtWidgets::Group {
@@ -81,7 +108,7 @@ public:
         }
         const QSize baseMin = KDDockWidgets::QtWidgets::Group::minSize();
         if (!m_collapsed) {
-            return baseMin;
+            return baseMin.expandedTo(QSize{80, 90});
         }
         return QSize{baseMin.width(), m_collapsedHeight};
     }
@@ -94,7 +121,7 @@ public:
         if (!m_collapsed) {
             return KDDockWidgets::QtWidgets::Group::maxSizeHint();
         }
-        return QSize{QWIDGETSIZE_MAX, QWIDGETSIZE_MAX};
+        return QSize{QWIDGETSIZE_MAX, m_collapsedHeight};
     }
 
     [[nodiscard]] bool isCollapsed() const { return m_collapsed; }
@@ -102,6 +129,16 @@ public:
     void setOnCollapsedChanged(std::function<void(bool)> callback)
     {
         m_onCollapsedChanged = std::move(callback);
+        QObject::disconnect(m_tabClickedConnection);
+        if (auto* tabBar = findChild<QTabBar*>()) {
+            // tabBarClicked also fires for the already selected tab.
+            m_tabClickedConnection =
+                connect(tabBar, &QTabBar::tabBarClicked, this, [this](int index) {
+                    if (index >= 0 && m_collapsed) {
+                        setCollapsed(false);
+                    }
+                });
+        }
     }
 
     void setCollapsed(bool collapsed, int defaultExpandedHeight = 185)
@@ -110,6 +147,10 @@ public:
             || m_collapsed == collapsed) {
             return;
         }
+
+        // Updating visibility and constraints can synchronously resize the group.
+        // Those intermediate sizes must not replace the height we restore.
+        const QScopedValueRollback changing{m_changingCollapsed, true};
 
         if (const auto* tabBar = findChild<QTabBar*>()) {
             if (tabBar->height() > 0) {
@@ -125,28 +166,14 @@ public:
             m_collapsed = true;
             setContentPagesVisible(false);
 
-            if (auto* item = m_group->layoutItem()) {
-                item->setMinSize(minSize());
-                item->setMaxSizeHint(maxSizeHint());
-                const int delta = tabBarHeight - height();
-                if (delta != 0) {
-                    item->requestResize(0, delta, 0, 0);
-                }
-            }
+            resizeInLayout(tabBarHeight);
         } else {
             m_collapsed = false;
             setContentPagesVisible(true);
 
             const int targetHeight =
                 m_expandedHeight > tabBarHeight + 16 ? m_expandedHeight : defaultExpandedHeight;
-            if (auto* item = m_group->layoutItem()) {
-                item->setMinSize(minSize());
-                item->setMaxSizeHint(maxSizeHint());
-                const int delta = targetHeight - height();
-                if (delta != 0) {
-                    item->requestResize(0, delta, 0, 0);
-                }
-            }
+            resizeInLayout(targetHeight);
         }
 
         if (m_onCollapsedChanged) {
@@ -168,29 +195,36 @@ protected:
         KDDockWidgets::QtWidgets::Group::resizeEvent(event);
 
         if (m_group == nullptr || m_group->inDtor() || m_group->beingDeletedLater()
-            || !m_onCollapsedChanged) {
+            || m_changingCollapsed) {
             return;
         }
 
         const int h = event->size().height();
         const int tabBarHeight = m_collapsedHeight;
-        if (m_collapsed && h > tabBarHeight + 14) {
-            m_collapsed = false;
-            setContentPagesVisible(true);
-            if (auto* item = m_group->layoutItem()) {
-                item->setMinSize(minSize());
-                item->setMaxSizeHint(maxSizeHint());
-            }
-            m_expandedHeight = h;
-            m_onCollapsedChanged(false);
-        } else if (!m_collapsed && h > tabBarHeight + 20) {
+        if (!m_collapsed && h > tabBarHeight + 20) {
             m_expandedHeight = h;
         }
     }
 
 private:
+    void resizeInLayout(int targetHeight)
+    {
+        // Group's layout reports the new min/max hints to KDDockWidgets.
+        // Use its public dock API to move the separator above the bottom panel.
+        if (auto* groupLayout = layout()) {
+            groupLayout->invalidate();
+        }
+        if (auto* dock = m_group->dockWidgetAt(0)) {
+            dock->resizeInLayout(0, targetHeight - height(), 0, 0);
+        }
+    }
+
     void setContentPagesVisible(bool visible)
     {
+        if (auto* stack =
+                dynamic_cast<StyledStack*>(findChild<KDDockWidgets::QtWidgets::Stack*>())) {
+            stack->setCollapsedHeight(visible ? 0 : m_collapsedHeight);
+        }
         if (auto* stacked =
                 findChild<QStackedWidget*>(QStringLiteral("qt_tabwidget_stackedwidget"))) {
             stacked->setVisible(visible);
@@ -198,9 +232,11 @@ private:
     }
 
     bool m_collapsed{false};
+    bool m_changingCollapsed{false};
     int m_collapsedHeight{28};
     int m_expandedHeight{185};
     std::function<void(bool)> m_onCollapsedChanged;
+    QMetaObject::Connection m_tabClickedConnection;
 };
 
 [[nodiscard]] StyledGroup* findStyledGroup(DockWidget* dock)
@@ -240,6 +276,13 @@ private:
 /// behaviour and layout stay KDDockWidgets'. Only the painting changes.
 class DockButtonIconFactory final : public KDDockWidgets::QtWidgets::ViewFactory {
 public:
+    [[nodiscard]] KDDockWidgets::Core::View*
+    createStack(KDDockWidgets::Core::Stack* controller,
+                KDDockWidgets::Core::View* parent) const override
+    {
+        return new StyledStack{controller, KDDockWidgets::QtCommon::View_qt::asQWidget(parent)};
+    }
+
     /// Substitutes a Group that does not paint the library's hardcoded frame.
     ///
     /// This is the white border, found at last, and it was never in our style
@@ -359,6 +402,11 @@ void configureDockingSystem()
     initializeDockingResources();
 
     auto& config = KDDockWidgets::Config::self();
+
+    // Its default 90px floor also clamps item geometry, independently of the
+    // group's size hints. Expanded groups keep that floor in StyledGroup;
+    // collapsed groups need the framework to allow a single tab row.
+    config.setAbsoluteWidgetMinSize(QSize{80, 1});
 
     // Ownership is taken by Config.
     config.setViewFactory(new DockButtonIconFactory);
