@@ -7,47 +7,59 @@
 
 #include "ui/theme/ThemeManager.h"
 #include "ui/trace/TraceModel.h"
+#include "ui/trace/TraceTreeDelegate.h"
+#include "ui/trace/TraceTreeFilterModel.h"
+#include "ui/trace/TraceTreeModel.h"
 
 #include <QAction>
+#include <QComboBox>
 #include <QHeaderView>
 #include <QLabel>
+#include <QLineEdit>
 #include <QScrollBar>
 #include <QShowEvent>
 #include <QSignalBlocker>
 #include <QSizePolicy>
+#include <QSplitter>
 #include <QStyle>
 #include <QTableView>
 #include <QTimer>
 #include <QToolBar>
+#include <QTreeView>
 #include <QVBoxLayout>
 
 namespace torquebus::ui {
 namespace {
 
-/// Starting width per column, in pixels. Sized to the widest value each column
-/// actually holds - an eight-digit extended identifier, sixty-four hex bytes -
-/// so the table stops reflowing after the first screenful.
 constexpr int kColumnWidths[TraceModel::ColumnCount] = {
-    104, // Time
-    78, // Delta
-    64, // Channel
-    44, // Direction
-    92, // Identifier
-    156, // Name
-    64, // Type
-    46, // DLC
-    264, // Data
-    310, // Signals - the widest column, because a decoded row is the point
-    78, // Cycle
-    76, // Count
-    64, // Flags
+    110, // Time
+    85, // Delta
+    70, // Channel
+    75, // Direction
+    110, // Identifier
+    165, // Name
+    75, // Type
+    55, // DLC
+    270, // Data
+    320, // Signals
+    95, // Cycle
+    80, // Count
+    65, // Flags
 };
 
-/// How close to the bottom still counts as "at the bottom".
-///
-/// Not zero: a scrollbar lands a pixel or two short after a programmatic
-/// scroll, and treating that as "the user scrolled away" would switch following
-/// off at random.
+constexpr int kTreeColumnWidths[TreeColumnCount] = {
+    130, // Bus ("Receive" / "Transmit" + branch expander + "CAN 1" + margins)
+    85, // Type ("STD", "EXT", "FD", "FD EXT", "J1939" pill badges)
+    125, // CAN-ID (Hex) ("CAN-ID (Hex)" header + sort arrow + 8-digit hex)
+    100, // PGN / Dec ("PGN / Dec" header + 6-digit PGNs)
+    70, // Length ("Length" header)
+    240, // Symbol ("Symbol" header + 📦 message name / 🏷️ signal name)
+    270, // Data ("Data" header + 8-byte hex with change pills / signal values)
+    105, // Cycle Time ("Cycle Time" header + "100.0 ms")
+    85, // Count ("Count" header + numbers)
+    250 // Description ("Description" header + DBC comments, stretches to right edge)
+};
+
 constexpr int kBottomTolerance = 4;
 
 } // namespace
@@ -55,25 +67,93 @@ constexpr int kBottomTolerance = 4;
 TracePanel::TracePanel(QWidget* parent)
     : QWidget{parent}
 {
+    createViews();
     createToolBar();
-    createView();
 
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     layout->addWidget(m_toolBar);
-    layout->addWidget(m_view, 1);
+    layout->addWidget(m_splitter, 1);
 
     if (ThemeManager* themes = ThemeManager::instance()) {
         connect(themes, &ThemeManager::themeChanged, this, &TracePanel::onThemeChanged);
     }
 
-    // The counters are cheap and only need to look live, not be exact.
     auto* statusTimer = new QTimer(this);
     statusTimer->setInterval(250);
     statusTimer->setTimerType(Qt::CoarseTimer);
     connect(statusTimer, &QTimer::timeout, this, &TracePanel::refreshStatus);
     statusTimer->start();
+
+    setViewMode(ViewMode::Grouped);
+}
+
+void TracePanel::createViews()
+{
+    m_splitter = new QSplitter(Qt::Horizontal, this);
+    m_splitter->setObjectName(QStringLiteral("torquebusTraceSplitter"));
+    m_splitter->setChildrenCollapsible(false);
+
+    // 1. Hierarchical Tree View (PCAN-Explorer 7 / CANoe grouped mode)
+    m_treeModel = new TraceTreeModel(this);
+    m_proxyModel = new TraceTreeFilterModel(this);
+    m_proxyModel->setSourceModel(m_treeModel);
+
+    m_treeView = new QTreeView(this);
+    m_treeView->setObjectName(QStringLiteral("torquebusTraceTree"));
+    m_treeView->setFont(ThemeManager::monospaceFont(9.5));
+    m_treeView->setModel(m_proxyModel);
+    m_treeView->setItemDelegate(new TraceTreeDelegate(this));
+    m_treeView->setUniformRowHeights(true);
+    m_treeView->setAlternatingRowColors(true);
+    m_treeView->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_treeView->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_treeView->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_treeView->setAnimated(true);
+    m_treeView->setIndentation(16);
+    m_treeView->setExpandsOnDoubleClick(true);
+    m_treeView->header()->setStretchLastSection(true);
+    m_treeView->header()->setHighlightSections(false);
+
+    connect(
+        m_treeModel, &TraceTreeModel::groupPopulated, this, [this](const QModelIndex& groupIdx) {
+            const QModelIndex proxyIdx = m_proxyModel->mapFromSource(groupIdx);
+            if (proxyIdx.isValid() && !m_treeView->isExpanded(proxyIdx)) {
+                m_treeView->expand(proxyIdx);
+            }
+        });
+
+    m_splitter->addWidget(m_treeView);
+
+    // 2. Chronological Streaming Table View
+    m_model = new TraceModel(this);
+
+    m_view = new QTableView(this);
+    m_view->setObjectName(QStringLiteral("torquebusTraceTable"));
+    m_view->setFont(ThemeManager::monospaceFont(9.5));
+    m_view->setModel(m_model);
+    m_view->setFrameShape(QFrame::NoFrame);
+    m_view->verticalHeader()->setVisible(false);
+    m_view->verticalHeader()->setDefaultSectionSize(20);
+    m_view->setShowGrid(false);
+    m_view->setAlternatingRowColors(true);
+    m_view->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_view->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_view->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_view->setWordWrap(false);
+    m_view->setTextElideMode(Qt::ElideRight);
+    m_view->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_view->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_view->horizontalHeader()->setStretchLastSection(true);
+    m_view->horizontalHeader()->setHighlightSections(false);
+
+    connect(m_model, &TraceModel::rowsAppended, this, &TracePanel::onRowsAppended);
+    connect(m_view->verticalScrollBar(), &QScrollBar::valueChanged, this, &TracePanel::onScrolled);
+
+    m_splitter->addWidget(m_view);
+
+    applyColumnWidths();
 }
 
 void TracePanel::createToolBar()
@@ -90,6 +170,18 @@ void TracePanel::createToolBar()
         return themes != nullptr ? themes->icon(QString::fromLatin1(name)) : QIcon{};
     };
 
+    // Mode Selector
+    m_modeCombo = new QComboBox(m_toolBar);
+    m_modeCombo->addItem(tr("Grouped (Tree)"));
+    m_modeCombo->addItem(tr("Chronological"));
+    m_modeCombo->addItem(tr("Split View"));
+    m_modeCombo->setToolTip(tr("Switch between Grouped Tree (PCAN/CANoe style), "
+                               "Chronological Stream, or Split View"));
+    connect(m_modeCombo, &QComboBox::currentIndexChanged, this, &TracePanel::onViewModeChanged);
+    m_toolBar->addWidget(m_modeCombo);
+
+    m_toolBar->addSeparator();
+
     m_actionFreeze = new QAction(icon("pause"), tr("Freeze"), this);
     m_actionFreeze->setCheckable(true);
     m_actionFreeze->setToolTip(tr("Stop adding new frames to this view. The measurement, "
@@ -99,6 +191,33 @@ void TracePanel::createToolBar()
     m_actionClear = new QAction(icon("clear"), tr("Clear"), this);
     m_actionClear->setToolTip(tr("Discard the frames currently held by this view"));
     connect(m_actionClear, &QAction::triggered, this, &TracePanel::onClear);
+
+    m_toolBar->addAction(m_actionFreeze);
+    m_toolBar->addAction(m_actionClear);
+    m_toolBar->addSeparator();
+
+    m_actionExpandAll = new QAction(icon("panel-expand"), tr("Expand All"), this);
+    m_actionExpandAll->setToolTip(tr("Expand all messages to show decoded signals"));
+    connect(m_actionExpandAll, &QAction::triggered, this, &TracePanel::onExpandAll);
+
+    m_actionCollapseAll = new QAction(icon("panel-collapse"), tr("Collapse All"), this);
+    m_actionCollapseAll->setToolTip(tr("Collapse signals"));
+    connect(m_actionCollapseAll, &QAction::triggered, this, &TracePanel::onCollapseAll);
+
+    m_toolBar->addAction(m_actionExpandAll);
+    m_toolBar->addAction(m_actionCollapseAll);
+    m_toolBar->addSeparator();
+
+    // Instant Filter Box
+    m_filterEdit = new QLineEdit(m_toolBar);
+    m_filterEdit->setPlaceholderText(tr("Filter (ID, Symbol, Signal)..."));
+    m_filterEdit->setClearButtonEnabled(true);
+    m_filterEdit->setMaximumWidth(220);
+    m_filterEdit->setToolTip(
+        tr("Search across CAN IDs, message names, signal names and descriptions"));
+    connect(
+        m_filterEdit, &QLineEdit::textChanged, m_proxyModel, &TraceTreeFilterModel::setFilterText);
+    m_toolBar->addWidget(m_filterEdit);
 
     m_actionFollow = new QAction(icon("trace"), tr("Follow"), this);
     m_actionFollow->setCheckable(true);
@@ -114,9 +233,6 @@ void TracePanel::createToolBar()
         }
     });
 
-    m_toolBar->addAction(m_actionFreeze);
-    m_toolBar->addAction(m_actionClear);
-    m_toolBar->addSeparator();
     m_toolBar->addAction(m_actionFollow);
 
     auto* spacer = new QWidget(m_toolBar);
@@ -129,38 +245,67 @@ void TracePanel::createToolBar()
     m_toolBar->addWidget(m_statusLabel);
 }
 
-void TracePanel::createView()
+void TracePanel::setViewMode(ViewMode mode)
 {
-    m_model = new TraceModel(this);
+    m_viewMode = mode;
+    switch (mode) {
+    case ViewMode::Grouped:
+        m_treeView->show();
+        m_view->hide();
+        m_actionExpandAll->setVisible(true);
+        m_actionCollapseAll->setVisible(true);
+        m_filterEdit->setVisible(true);
+        m_actionFollow->setVisible(false);
+        break;
 
-    m_view = new QTableView(this);
-    m_view->setObjectName(QStringLiteral("torquebusTraceTable"));
-    m_view->setFont(ThemeManager::monospaceFont(9.5));
-    m_view->setModel(m_model);
-    m_view->setFrameShape(QFrame::NoFrame);
+    case ViewMode::Chronological:
+        m_treeView->hide();
+        m_view->show();
+        m_actionExpandAll->setVisible(false);
+        m_actionCollapseAll->setVisible(false);
+        m_filterEdit->setVisible(false);
+        m_actionFollow->setVisible(true);
+        break;
 
-    // The settings that make a million-row table survivable. Without
-    // uniform row heights, Qt measures every row to size the scrollbar - which
-    // at a million rows is a freeze, not a slowdown.
-    m_view->verticalHeader()->setVisible(false);
-    m_view->verticalHeader()->setDefaultSectionSize(20);
-    m_view->setShowGrid(false);
-    m_view->setAlternatingRowColors(true);
-    m_view->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_view->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    m_view->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_view->setWordWrap(false);
-    m_view->setTextElideMode(Qt::ElideRight);
-    m_view->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
-    m_view->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    case ViewMode::Split:
+        m_treeView->show();
+        m_view->show();
+        m_actionExpandAll->setVisible(true);
+        m_actionCollapseAll->setVisible(true);
+        m_filterEdit->setVisible(true);
+        m_actionFollow->setVisible(true);
+        const int half = std::max(width() / 2, 200);
+        m_splitter->setSizes({half, half});
+        break;
+    }
+}
 
-    m_view->horizontalHeader()->setStretchLastSection(true);
-    m_view->horizontalHeader()->setHighlightSections(false);
+void TracePanel::onViewModeChanged(int index)
+{
+    setViewMode(static_cast<ViewMode>(index));
+}
 
-    applyColumnWidths();
+void TracePanel::onExpandAll()
+{
+    if (m_treeView != nullptr) {
+        m_treeView->expandAll();
+    }
+}
 
-    connect(m_model, &TraceModel::rowsAppended, this, &TracePanel::onRowsAppended);
-    connect(m_view->verticalScrollBar(), &QScrollBar::valueChanged, this, &TracePanel::onScrolled);
+void TracePanel::onCollapseAll()
+{
+    if (m_treeView != nullptr && m_treeModel != nullptr && m_proxyModel != nullptr) {
+        m_treeView->collapseAll();
+        // Keep the top-level Receive and Transmit groups expanded
+        const QModelIndex rxIdx = m_proxyModel->mapFromSource(m_treeModel->rxGroupIndex());
+        const QModelIndex txIdx = m_proxyModel->mapFromSource(m_treeModel->txGroupIndex());
+        if (rxIdx.isValid()) {
+            m_treeView->expand(rxIdx);
+        }
+        if (txIdx.isValid()) {
+            m_treeView->expand(txIdx);
+        }
+    }
 }
 
 void TracePanel::applyColumnWidths()
@@ -168,29 +313,49 @@ void TracePanel::applyColumnWidths()
     for (int column = 0; column < TraceModel::ColumnCount; ++column) {
         m_view->setColumnWidth(column, kColumnWidths[column]);
     }
+    for (int column = 0; column < TreeColumnCount; ++column) {
+        m_treeView->setColumnWidth(column, kTreeColumnWidths[column]);
+    }
 }
 
 void TracePanel::setDatabases(std::vector<std::shared_ptr<const CanDatabase>> databases)
 {
-    m_model->setDatabases(std::move(databases));
+    m_model->setDatabases(databases);
+    m_treeModel->setDatabases(std::move(databases));
 }
 
 void TracePanel::applyPreferences(int refreshMs, bool decimalIdentifiers)
 {
     m_model->setRefreshIntervalMs(refreshMs);
     m_model->setDecimalIdentifiers(decimalIdentifiers);
+
+    m_treeModel->setRefreshIntervalMs(refreshMs);
+    m_treeModel->setDecimalIdentifiers(decimalIdentifiers);
+}
+
+void TracePanel::poll()
+{
+    if (m_model != nullptr) {
+        QMetaObject::invokeMethod(m_model, "pollStore");
+    }
+    if (m_treeModel != nullptr) {
+        m_treeModel->pollStore();
+    }
 }
 
 void TracePanel::setStore(const TraceStore* store)
 {
     m_store = store;
     m_model->setStore(store);
+    m_treeModel->setStore(store);
+    poll();
     refreshStatus();
 }
 
 void TracePanel::showEvent(QShowEvent* event)
 {
     QWidget::showEvent(event);
+    poll();
     refreshStatus();
     if (m_following && m_view != nullptr && m_model != nullptr && m_model->rowCount() > 0) {
         m_scrollingProgrammatically = true;
@@ -218,9 +383,6 @@ void TracePanel::onScrolled()
         return;
     }
 
-    // Following is a consequence of where the user is looking, not a mode they
-    // have to manage: scroll up to read and it stops, scroll back down and it
-    // resumes. The toolbar button reflects that rather than driving it.
     const QScrollBar* bar = m_view->verticalScrollBar();
     const bool atBottom = bar->value() >= bar->maximum() - kBottomTolerance;
 
@@ -235,6 +397,7 @@ void TracePanel::onScrolled()
 void TracePanel::onFreezeToggled(bool frozen)
 {
     m_model->setFrozen(frozen);
+    m_treeModel->setFrozen(frozen);
 
     m_actionFreeze->setText(frozen ? tr("Resume") : tr("Freeze"));
 
@@ -247,10 +410,8 @@ void TracePanel::onFreezeToggled(bool frozen)
 
 void TracePanel::onClear()
 {
-    // Clears the view only. The store belongs to the pipeline node, and
-    // emptying a measurement's data from a view's button would be a surprise -
-    // that belongs to Stop, or to a new measurement.
     m_model->reset();
+    m_treeModel->reset();
 }
 
 void TracePanel::onThemeChanged(const Theme& theme)
@@ -261,11 +422,15 @@ void TracePanel::onThemeChanged(const Theme& theme)
         m_actionFreeze->setIcon(themes->icon(QStringLiteral("pause")));
         m_actionClear->setIcon(themes->icon(QStringLiteral("clear")));
         m_actionFollow->setIcon(themes->icon(QStringLiteral("trace")));
+        m_actionExpandAll->setIcon(themes->icon(QStringLiteral("panel-expand")));
+        m_actionCollapseAll->setIcon(themes->icon(QStringLiteral("panel-collapse")));
     }
 
-    // The model paints from the theme, so every visible cell needs repainting.
     if (m_view != nullptr) {
         m_view->viewport()->update();
+    }
+    if (m_treeView != nullptr) {
+        m_treeView->viewport()->update();
     }
 }
 
@@ -284,16 +449,14 @@ void TracePanel::refreshStatus()
     const std::uint64_t dropped = m_store->discarded();
 
     if (dropped > 0) {
-        // Said plainly rather than hidden: the user is looking at a window onto
-        // a longer measurement, and needs to know that scrolling to the top is
-        // not the beginning.
-        m_statusLabel->setText(tr("%L1 frames  ·  showing the last %L2  ·  %L3 scrolled off")
+        m_statusLabel->setText(tr("%L1 frames  ·  showing last %L2  ·  %L3 dropped  ·  %L4 IDs")
                                    .arg(total)
                                    .arg(m_store->size())
-                                   .arg(dropped));
+                                   .arg(dropped)
+                                   .arg(m_store->identifiers().size()));
     } else {
         m_statusLabel->setText(
-            tr("%L1 frames  ·  %L2 identifiers").arg(total).arg(m_store->identifiers().size()));
+            tr("%L1 frames  ·  %L2 unique IDs").arg(total).arg(m_store->identifiers().size()));
     }
 }
 

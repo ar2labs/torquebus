@@ -371,10 +371,22 @@ qt_add_library(torquebus_ui STATIC
     ui/statistics/StatisticsPanel.cpp
     ui/trace/TraceModel.h
     ui/trace/TraceModel.cpp
+    ui/trace/TraceTreeModel.h
+    ui/trace/TraceTreeModel.cpp
+    ui/trace/TraceTreeDelegate.h
+    ui/trace/TraceTreeDelegate.cpp
+    ui/trace/TraceTreeFilterModel.h
+    ui/trace/TraceTreeFilterModel.cpp
     ui/trace/TracePanel.h
     ui/trace/TracePanel.cpp
     ui/transmit/SignalValueDialog.h
     ui/transmit/SignalValueDialog.cpp
+    ui/transmit/TransmitTreeModel.h
+    ui/transmit/TransmitTreeModel.cpp
+    ui/transmit/TransmitTreeDelegate.h
+    ui/transmit/TransmitTreeDelegate.cpp
+    ui/transmit/TransmitTreeFilterModel.h
+    ui/transmit/TransmitTreeFilterModel.cpp
     ui/transmit/TransmitPanel.h
     ui/transmit/TransmitPanel.cpp
 )

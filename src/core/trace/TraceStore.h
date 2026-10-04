@@ -84,6 +84,7 @@ struct TraceIdentifierStats final {
     std::uint8_t channel{};
     std::uint32_t identifier{};
     CanFrameFormat format{CanFrameFormat::Standard};
+    CanDirection direction{CanDirection::Rx};
 
     std::uint64_t count{};
 
@@ -150,10 +151,11 @@ public:
     }
 
 private:
-    /// Packs channel, format and identifier into one key.
+    /// Packs channel, format, direction and identifier into one key.
     [[nodiscard]] static std::uint64_t keyFor(const CanFrame& frame) noexcept
     {
-        return (static_cast<std::uint64_t>(frame.channel) << 40U)
+        return (static_cast<std::uint64_t>(frame.direction == CanDirection::Tx ? 1U : 0U) << 48U)
+               | (static_cast<std::uint64_t>(frame.channel) << 40U)
                | (static_cast<std::uint64_t>(frame.isExtended() ? 1U : 0U) << 32U)
                | frame.identifier;
     }

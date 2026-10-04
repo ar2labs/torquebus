@@ -238,6 +238,14 @@ void PipelineGraphModel::addConnection(QtNodes::ConnectionId connectionId)
         return;
     }
 
+    if (connectionExists(connectionId)) {
+        return;
+    }
+
+    if (!connectionPossible(connectionId)) {
+        return;
+    }
+
     m_description.addEdge(
         EdgeDescription{from, connectionId.outPortIndex, to, connectionId.inPortIndex});
 
@@ -337,7 +345,7 @@ QVariant PipelineGraphModel::nodeData(QtNodes::NodeId nodeId, QtNodes::NodeRole 
         return QPointF{node->x, node->y};
 
     case QtNodes::NodeRole::Size:
-        return QSize{284, 138};
+        return QSize{310, 196};
 
     case QtNodes::NodeRole::CaptionVisible:
         return true;

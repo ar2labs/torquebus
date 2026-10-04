@@ -148,6 +148,9 @@ public Q_SLOTS:
     /// Deletes all currently selected nodes and wires on the Canvas.
     void deleteSelectedItems();
 
+    /// Deletes a specific block and all its connections by description ID.
+    void deleteBlock(const QString& descriptionId);
+
 private:
     struct NodeFrameTelemetry final {
         bool hasLiveFrame{false};
