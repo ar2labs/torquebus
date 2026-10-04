@@ -16,6 +16,7 @@
 #include "core/pipeline/PipelineGraph.h"
 #include "core/pipeline/nodes/FrameNodes.h"
 #include "core/scripting/LuaEcuNode.h"
+#include "core/scripting/LuaRuntime.h"
 
 #include <chrono>
 #include <string>
@@ -549,4 +550,24 @@ TEST(LuaEcuNodeTests, TwoECUsOnOneBusEachKeepTheirOwnState)
     ASSERT_TRUE(out.size() == 2);
     ASSERT_TRUE(out[0].identifier == 0x401U);
     ASSERT_TRUE(out[1].identifier == 0x402U);
+}
+
+TEST(LuaEcuNodeTests, CheckSyntaxAcceptsValidScriptAndDetectsSyntaxErrors)
+{
+    LuaRuntime runtime;
+    (void)runtime.openLibraries();
+
+    const char* validScript = R"(
+        local x = 42
+        function test()
+            return x * 2
+        end
+    )";
+    const Result validResult = runtime.checkSyntax(validScript, "valid.lua");
+    EXPECT_TRUE(validResult.succeeded());
+
+    const char* badScript = "local x = 42\nfunction test()\n    return x *\nend\n";
+    const Result badResult = runtime.checkSyntax(badScript, "bad.lua");
+    EXPECT_TRUE(badResult.failed());
+    EXPECT_NE(badResult.message().find("bad.lua:4"), std::string::npos);
 }

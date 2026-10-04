@@ -93,6 +93,7 @@ private Q_SLOTS:
     /// Collects reload outcomes. The panel's whole clock.
     void refresh();
 
+    void onCheckSyntax();
     void onReload();
     void onRevert();
     void onTextChanged();
@@ -100,6 +101,7 @@ private Q_SLOTS:
 
 private:
     void buildUi();
+    void applyIcons();
     void updateAvailability();
 
     /// Writes the editor's text where this script lives - the file, or the
@@ -142,6 +144,7 @@ private:
     /// theme change repaints it in the colour it already had.
     bool m_statusIsError{false};
 
+    QPushButton* m_check{nullptr};
     QPushButton* m_reload{nullptr};
     QPushButton* m_revert{nullptr};
 };

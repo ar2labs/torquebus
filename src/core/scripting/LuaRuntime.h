@@ -105,6 +105,10 @@ public:
     /// should be the script's file name.
     [[nodiscard]] Result load(std::string_view source, std::string_view chunkName);
 
+    /// Compiles a chunk without executing it, checking its syntax.
+    [[nodiscard]] Result checkSyntax(std::string_view source,
+                                     std::string_view chunkName = "script.lua");
+
     [[nodiscard]] Result loadFile(const std::string& path);
 
     /// True when a global function of that name exists - which is how the node

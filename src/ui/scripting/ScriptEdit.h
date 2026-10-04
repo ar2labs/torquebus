@@ -49,6 +49,9 @@ public:
 
     [[nodiscard]] int errorLine() const noexcept { return m_errorLine; }
 
+    /// Re-applies font and colors matching the CAN Trace monospace standard.
+    void applyTheme();
+
 protected:
     void resizeEvent(QResizeEvent* event) override;
 

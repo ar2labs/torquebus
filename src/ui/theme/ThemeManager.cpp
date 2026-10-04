@@ -265,33 +265,21 @@ void ThemeManager::applyFont() const
 
 QFont ThemeManager::monospaceFont(qreal pointSize)
 {
-    static QString cachedFamily;
-    if (cachedFamily.isEmpty()) {
-        const QStringList preferred{
-            QStringLiteral("Cascadia Mono"),
-            QStringLiteral("JetBrains Mono"),
-            QStringLiteral("Cascadia Code"),
-            QStringLiteral("Consolas"),
-            QStringLiteral("SF Mono"),
-            QStringLiteral("Menlo"),
-            QStringLiteral("DejaVu Sans Mono"),
-            QStringLiteral("Ubuntu Mono"),
-            QStringLiteral("Liberation Mono"),
-        };
-
-        const QStringList available = QFontDatabase::families();
-        for (const QString& family : preferred) {
-            if (available.contains(family)) {
-                cachedFamily = family;
-                break;
-            }
-        }
-    }
-
-    QFont font = cachedFamily.isEmpty() ? QFontDatabase::systemFont(QFontDatabase::FixedFont)
-                                        : QFont{cachedFamily};
+    QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    font.setFamilies({
+        QStringLiteral("Cascadia Mono"),
+        QStringLiteral("Consolas"),
+        QStringLiteral("JetBrains Mono"),
+        QStringLiteral("Cascadia Code"),
+        QStringLiteral("SF Mono"),
+        QStringLiteral("Segoe UI Mono"),
+        QStringLiteral("DejaVu Sans Mono"),
+        QStringLiteral("Menlo"),
+        QStringLiteral("Ubuntu Mono"),
+        QStringLiteral("Liberation Mono"),
+    });
     font.setPointSizeF(pointSize);
-    font.setStyleHint(QFont::Monospace);
+    font.setStyleHint(QFont::Monospace, QFont::PreferQuality);
     font.setFixedPitch(true);
     font.setHintingPreference(QFont::PreferFullHinting);
     return font;

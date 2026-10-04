@@ -52,16 +52,16 @@ private:
 ScriptEdit::ScriptEdit(QWidget* parent)
     : QPlainTextEdit{parent}
 {
-    setFont(ThemeManager::monospaceFont());
+    setProperty("torquebusRole", QStringLiteral("code"));
 
     // A script is code: it wraps where the author wrapped it, and nowhere else.
     // Soft-wrapped Lua puts a continuation where no line ends, which is exactly
     // the confusion an error line number is supposed to remove.
     setLineWrapMode(QPlainTextEdit::NoWrap);
 
-    setTabStopDistance(4 * fontMetrics().horizontalAdvance(QLatin1Char{' '}));
-
     m_lineNumbers = new LineNumberArea(this);
+
+    applyTheme();
 
     connect(this, &QPlainTextEdit::blockCountChanged, this, &ScriptEdit::updateLineNumberAreaWidth);
     connect(this, &QPlainTextEdit::updateRequest, this, &ScriptEdit::updateLineNumberArea);
@@ -69,6 +69,25 @@ ScriptEdit::ScriptEdit(QWidget* parent)
 
     updateLineNumberAreaWidth();
     highlightLines();
+}
+
+void ScriptEdit::applyTheme()
+{
+    const QFont mono = ThemeManager::monospaceFont(10.0);
+    setFont(mono);
+    if (document() != nullptr) {
+        document()->setDefaultFont(mono);
+    }
+    if (m_lineNumbers != nullptr) {
+        m_lineNumbers->setFont(mono);
+    }
+
+    setTabStopDistance(4 * fontMetrics().horizontalAdvance(QLatin1Char{' '}));
+    updateLineNumberAreaWidth();
+    highlightLines();
+    if (m_lineNumbers != nullptr) {
+        m_lineNumbers->update();
+    }
 }
 
 int ScriptEdit::lineNumberAreaWidth() const
@@ -81,9 +100,9 @@ int ScriptEdit::lineNumberAreaWidth() const
         ++digits;
     }
 
-    // Three digits' worth at minimum, so the text does not shift sideways the
-    // moment a script grows past line 99.
-    return 10 + fontMetrics().horizontalAdvance(QLatin1Char{'9'}) * qMax(3, digits);
+    // Three digits' worth at minimum, plus clean left & right padding
+    const int charWidth = fontMetrics().horizontalAdvance(QLatin1Char{'9'});
+    return 18 + charWidth * qMax(3, digits);
 }
 
 void ScriptEdit::updateLineNumberAreaWidth()
@@ -184,6 +203,20 @@ void ScriptEdit::paintLineNumbers(QPaintEvent* event)
     QPainter painter{m_lineNumbers};
     painter.fillRect(event->rect(), theme.panelAlternate);
 
+    // Clean vertical dividing line separating line numbers from the code editor
+    painter.setPen(QPen{theme.border, 1.0});
+    painter.drawLine(m_lineNumbers->width() - 1,
+                     event->rect().top(),
+                     m_lineNumbers->width() - 1,
+                     event->rect().bottom());
+
+    const QFont baseFont = font();
+    QFont activeFont = baseFont;
+    activeFont.setWeight(QFont::DemiBold);
+
+    QFont errorFont = baseFont;
+    errorFont.setWeight(QFont::Bold);
+
     QTextBlock block = firstVisibleBlock();
     int number = block.blockNumber();
 
@@ -194,22 +227,23 @@ void ScriptEdit::paintLineNumbers(QPaintEvent* event)
 
     while (block.isValid() && top <= event->rect().bottom()) {
         if (block.isVisible() && bottom >= event->rect().top()) {
-            // Three states, and each one earns its colour: the line an error is
-            // on, the line the cursor is on, and every other line.
+            const int blockH = static_cast<int>(blockBoundingRect(block).height());
+            const QRect textRect{4, top, m_lineNumbers->width() - 12, blockH};
+
+            // Three states: error line, current active line, and normal lines
             if (number + 1 == m_errorLine) {
+                painter.setFont(errorFont);
                 painter.setPen(theme.error);
             } else if (number == currentLine) {
+                painter.setFont(activeFont);
                 painter.setPen(theme.text);
             } else {
+                painter.setFont(baseFont);
                 painter.setPen(theme.textMuted);
             }
 
-            painter.drawText(0,
-                             top,
-                             m_lineNumbers->width() - 5,
-                             fontMetrics().height(),
-                             Qt::AlignRight | Qt::AlignVCenter,
-                             QString::number(number + 1));
+            painter.drawText(
+                textRect, Qt::AlignRight | Qt::AlignVCenter, QString::number(number + 1));
         }
 
         block = block.next();

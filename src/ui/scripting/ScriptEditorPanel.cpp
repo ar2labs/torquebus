@@ -6,6 +6,7 @@
 #include "ui/scripting/ScriptEditorPanel.h"
 
 #include "core/pipeline/GraphDescription.h"
+#include "core/scripting/LuaRuntime.h"
 #include "core/scripting/ScriptLibrary.h"
 #include "ui/scripting/LuaHighlighter.h"
 #include "ui/scripting/ScriptEdit.h"
@@ -108,6 +109,12 @@ void ScriptEditorPanel::buildUi()
     connect(m_revert, &QPushButton::clicked, this, &ScriptEditorPanel::onRevert);
     row->addWidget(m_revert);
 
+    m_check = new QPushButton(tr("Check Syntax"));
+    m_check->setToolTip(tr("Checks the Lua script syntax without running it (F7)."));
+    m_check->setShortcut(QKeySequence{Qt::Key_F7});
+    connect(m_check, &QPushButton::clicked, this, &ScriptEditorPanel::onCheckSyntax);
+    row->addWidget(m_check);
+
     m_reload = new QPushButton(tr("Reload"));
     m_reload->setDefault(true);
     m_reload->setShortcut(QKeySequence{Qt::Key_F5});
@@ -117,11 +124,34 @@ void ScriptEditorPanel::buildUi()
     connect(m_reload, &QPushButton::clicked, this, &ScriptEditorPanel::onReload);
     row->addWidget(m_reload);
 
+    applyIcons();
+
     body->addLayout(row);
 
     layout->addWidget(m_body, 1);
 
     m_body->setVisible(false);
+}
+
+void ScriptEditorPanel::applyIcons()
+{
+    ThemeManager* themes = ThemeManager::instance();
+    if (themes == nullptr) {
+        return;
+    }
+
+    if (m_check != nullptr) {
+        m_check->setIcon(themes->icon(QStringLiteral("check")));
+        m_check->setIconSize(QSize(14, 14));
+    }
+    if (m_reload != nullptr) {
+        m_reload->setIcon(themes->icon(QStringLiteral("replay")));
+        m_reload->setIconSize(QSize(14, 14));
+    }
+    if (m_revert != nullptr) {
+        m_revert->setIcon(themes->icon(QStringLiteral("skip-back")));
+        m_revert->setIconSize(QSize(14, 14));
+    }
 }
 
 void ScriptEditorPanel::setLibrary(ScriptLibrary* library)
@@ -166,10 +196,8 @@ void ScriptEditorPanel::showNode(const QString& descriptionId)
     const NodeDescription* node =
         descriptionId.isEmpty() ? nullptr : m_description.find(descriptionId.toStdString());
 
-    // Only Lua ECUs have a script. A filter block selected on the canvas leaves
-    // the panel showing what it was showing rather than emptying itself, so
-    // clicking about the canvas does not lose an edit in progress.
-    if (node == nullptr || node->typeName != "lua.ecu") {
+    // Lua ECUs and Test Sequences have a script.
+    if (node == nullptr || (node->typeName != "lua.ecu" && node->typeName != "lua.test")) {
         if (m_nodeId.isEmpty()) {
             clear();
         }
@@ -282,9 +310,54 @@ bool ScriptEditorPanel::commit(QString& error)
     return true;
 }
 
+void ScriptEditorPanel::onCheckSyntax()
+{
+    if (m_editor == nullptr) {
+        return;
+    }
+
+    const QString source = m_editor->toPlainText();
+    const std::string chunk =
+        m_isFile ? QFileInfo{m_filePath}.fileName().toStdString()
+                 : (m_nodeId.isEmpty() ? "script.lua" : (m_nodeId.toStdString() + ".lua"));
+
+    LuaRuntime runtime;
+    (void)runtime.openLibraries();
+    const Result result = runtime.checkSyntax(source.toStdString(), chunk);
+
+    if (result.succeeded()) {
+        m_editor->setErrorLine(0);
+        setStatus(tr("✓ Syntax check passed: No errors found."), false);
+    } else {
+        const QString message = QString::fromStdString(std::string{result.message()});
+        const int line = errorLineOf(message);
+        m_editor->setErrorLine(line);
+        setStatus(tr("Syntax error: %1").arg(message), true);
+    }
+}
+
 void ScriptEditorPanel::onReload()
 {
     if (m_nodeId.isEmpty()) {
+        return;
+    }
+
+    // Validate Lua syntax before committing or offering reload
+    const QString source = m_editor->toPlainText();
+    const std::string chunk =
+        m_isFile ? QFileInfo{m_filePath}.fileName().toStdString()
+                 : (m_nodeId.isEmpty() ? "script.lua" : (m_nodeId.toStdString() + ".lua"));
+
+    LuaRuntime runtime;
+    (void)runtime.openLibraries();
+    const Result syntaxResult = runtime.checkSyntax(source.toStdString(), chunk);
+    if (syntaxResult.failed()) {
+        const QString message = QString::fromStdString(std::string{syntaxResult.message()});
+        const int line = errorLineOf(message);
+        m_editor->setErrorLine(line);
+        const QString errReport = tr("Syntax error: %1 (not reloaded)").arg(message);
+        setStatus(errReport, true);
+        Q_EMIT reported(errReport, true);
         return;
     }
 
@@ -302,7 +375,7 @@ void ScriptEditorPanel::onReload()
     m_editor->setErrorLine(0);
 
     if (!m_running || m_library == nullptr) {
-        setStatus(tr("Saved. It will be used the next time the measurement starts."), false);
+        setStatus(tr("✓ Saved & syntax validated. Will be used at next Start."), false);
         return;
     }
 
@@ -409,7 +482,8 @@ void ScriptEditorPanel::setStatus(const QString& text, bool isError)
     m_statusIsError = isError;
 
     const Theme theme = currentTheme();
-    const QColor colour = isError ? theme.error : theme.textMuted;
+    const QColor colour =
+        isError ? theme.error : (text.startsWith(QChar(0x2713)) ? theme.success : theme.textMuted);
 
     m_status->setStyleSheet(QStringLiteral("color: %1;").arg(colour.name()));
 }
@@ -422,6 +496,9 @@ void ScriptEditorPanel::updateAvailability()
 
     const bool hasNode = !m_nodeId.isEmpty();
 
+    if (m_check != nullptr) {
+        m_check->setEnabled(hasNode);
+    }
     m_reload->setEnabled(hasNode);
     m_revert->setEnabled(hasNode && isModified());
 
@@ -432,6 +509,12 @@ void ScriptEditorPanel::updateAvailability()
 
 void ScriptEditorPanel::onThemeChanged()
 {
+    applyIcons();
+
+    if (m_editor != nullptr) {
+        m_editor->applyTheme();
+    }
+
     if (m_highlighter != nullptr) {
         m_highlighter->applyTheme();
     }
