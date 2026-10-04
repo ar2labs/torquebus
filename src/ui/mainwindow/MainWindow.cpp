@@ -536,6 +536,14 @@ void MainWindow::createPanels()
     connect(m_nodeProperties, &NodePropertiesEditor::nodeEdited, this, [this](const QString&) {
         onGraphEdited();
     });
+    connect(m_nodeProperties,
+            &NodePropertiesEditor::deleteBlockRequested,
+            this,
+            [this](const QString& id) {
+                if (m_canvas != nullptr) {
+                    m_canvas->deleteBlock(id);
+                }
+            });
 
     m_nodePropertiesDock =
         createDockWidget(dockName(kDockBlock), tr("Block"), m_nodeProperties, icon("properties"));

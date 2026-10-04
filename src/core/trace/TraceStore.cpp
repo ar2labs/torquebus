@@ -89,11 +89,13 @@ void TraceStore::appendOne(const CanFrame& frame)
         stats.minCycleUs = stats.minCycleUs == 0 ? cycleUs : std::min(stats.minCycleUs, cycleUs);
         stats.maxCycleUs = std::max(stats.maxCycleUs, cycleUs);
         stats.lastFrame = frame;
+        stats.direction = frame.direction;
     } else {
         TraceIdentifierStats stats;
         stats.channel = frame.channel;
         stats.identifier = frame.identifier;
         stats.format = frame.format;
+        stats.direction = frame.direction;
         stats.count = 1;
         stats.lastFrame = frame;
         // Cycle stays zero on a first sighting: there is nothing to measure

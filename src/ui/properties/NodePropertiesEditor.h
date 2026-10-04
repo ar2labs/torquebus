@@ -60,6 +60,9 @@ Q_SIGNALS:
     /// pipeline still builds - the same report an edit on the canvas produces.
     void nodeEdited(const QString& descriptionId);
 
+    /// The user requested to delete this block from the pipeline.
+    void deleteBlockRequested(const QString& descriptionId);
+
 private:
     void rebuild();
 

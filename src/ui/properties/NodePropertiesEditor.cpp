@@ -252,6 +252,25 @@ void NodePropertiesEditor::rebuild()
     }
 
     addScriptParameterRows(*node, *info);
+
+    auto* deleteButton = new QPushButton(tr("Delete Block"), m_formHost);
+    deleteButton->setObjectName(QStringLiteral("deleteBlockButton"));
+    deleteButton->setToolTip(tr("Delete this block and all its connections from the Pipeline"));
+    deleteButton->setStyleSheet(
+        QStringLiteral("QPushButton#deleteBlockButton { "
+                       "  background-color: #ef4444; color: white; font-weight: bold; "
+                       "  border: none; border-radius: 4px; padding: 6px 14px; margin-top: 14px; "
+                       "} "
+                       "QPushButton#deleteBlockButton:hover { background-color: #dc2626; } "
+                       "QPushButton#deleteBlockButton:pressed { background-color: #b91c1c; }"));
+    connect(deleteButton, &QPushButton::clicked, this, [this] {
+        const QString nodeId = m_nodeId;
+        if (!nodeId.isEmpty()) {
+            clear();
+            Q_EMIT deleteBlockRequested(nodeId);
+        }
+    });
+    m_form->addRow(QString{}, deleteButton);
 }
 
 void NodePropertiesEditor::addDeclaredRow(const NodeDescription& node,
