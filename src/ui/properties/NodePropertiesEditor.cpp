@@ -5,6 +5,8 @@
 
 #include "ui/properties/NodePropertiesEditor.h"
 
+#include "ui/theme/ThemeManager.h"
+
 #include <QCheckBox>
 #include <QDoubleSpinBox>
 #include <QEvent>
@@ -27,6 +29,59 @@
 
 namespace torquebus::ui {
 namespace {
+
+[[nodiscard]] QString iconNameForNodeType(const QString& typeName)
+{
+    if (typeName == QLatin1String("can.source")) {
+        return QStringLiteral("hardware");
+    }
+    if (typeName == QLatin1String("transmit.list")) {
+        return QStringLiteral("transmit");
+    }
+    if (typeName == QLatin1String("log.source")) {
+        return QStringLiteral("replay");
+    }
+    if (typeName == QLatin1String("can.filter")) {
+        return QStringLiteral("filter");
+    }
+    if (typeName == QLatin1String("dbc.decoder")) {
+        return QStringLiteral("database");
+    }
+    if (typeName == QLatin1String("j1939.decoder")) {
+        return QStringLiteral("network");
+    }
+    if (typeName == QLatin1String("lua.ecu")) {
+        return QStringLiteral("script");
+    }
+    if (typeName == QLatin1String("sim.restbus")) {
+        return QStringLiteral("restbus");
+    }
+    if (typeName == QLatin1String("lua.test")) {
+        return QStringLiteral("test");
+    }
+    if (typeName == QLatin1String("tinyml.ecu")) {
+        return QStringLiteral("neural");
+    }
+    if (typeName == QLatin1String("uds.client")) {
+        return QStringLiteral("diagnostics");
+    }
+    if (typeName == QLatin1String("isotp.transport")) {
+        return QStringLiteral("network");
+    }
+    if (typeName == QLatin1String("can.transmit")) {
+        return QStringLiteral("transmit");
+    }
+    if (typeName == QLatin1String("trace.sink")) {
+        return QStringLiteral("trace");
+    }
+    if (typeName == QLatin1String("can.log")) {
+        return QStringLiteral("save");
+    }
+    if (typeName == QLatin1String("signal.plot")) {
+        return QStringLiteral("graph");
+    }
+    return QStringLiteral("hardware");
+}
 
 /// Parameters whose value is a whole Lua script rather than a line of text.
 ///
@@ -179,6 +234,10 @@ NodePropertiesEditor::NodePropertiesEditor(GraphDescription& description,
     layout->addWidget(m_placeholder);
     layout->addWidget(scroll);
 
+    if (ThemeManager* themes = ThemeManager::instance()) {
+        connect(themes, &ThemeManager::themeChanged, this, [this] { rebuild(); });
+    }
+
     clear();
 }
 
@@ -229,12 +288,52 @@ void NodePropertiesEditor::rebuild()
         return;
     }
 
-    // Identity first, read-only: the id is set by renaming the block on the
-    // canvas, where it is also what the wires refer to.
-    m_form->addRow(tr("Block"), new QLabel(m_nodeId));
-    m_form->addRow(tr("Type"), new QLabel(QString::fromStdString(info->displayName)));
+    ThemeManager* themes = ThemeManager::instance();
 
-    auto* enabled = new QCheckBox(tr("Enabled"));
+    // High quality Block Summary Card with crisp SVG icon and metadata
+    auto* headerCard = new QFrame(m_formHost);
+    headerCard->setObjectName(QStringLiteral("nodeHeaderCard"));
+    headerCard->setFrameShape(QFrame::StyledPanel);
+    headerCard->setStyleSheet(
+        QStringLiteral("QFrame#nodeHeaderCard { "
+                       "  background: rgba(128, 128, 128, 0.08); "
+                       "  border: 1px solid rgba(128, 128, 128, 0.2); "
+                       "  border-radius: 6px; padding: 6px; margin-bottom: 6px; "
+                       "}"));
+
+    auto* cardLayout = new QHBoxLayout(headerCard);
+    cardLayout->setContentsMargins(6, 4, 6, 4);
+    cardLayout->setSpacing(8);
+
+    auto* iconLabel = new QLabel(headerCard);
+    iconLabel->setFixedSize(28, 28);
+    iconLabel->setAlignment(Qt::AlignCenter);
+    const QString nodeIcon = iconNameForNodeType(QString::fromStdString(node->typeName));
+    if (themes != nullptr) {
+        iconLabel->setPixmap(themes->icon(nodeIcon).pixmap(24, 24));
+    }
+    cardLayout->addWidget(iconLabel);
+
+    auto* textLayout = new QVBoxLayout;
+    textLayout->setSpacing(1);
+    textLayout->setContentsMargins(0, 0, 0, 0);
+
+    auto* titleLabel = new QLabel(m_nodeId, headerCard);
+    QFont titleFont = titleLabel->font();
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    textLayout->addWidget(titleLabel);
+
+    const QString subtitle = QStringLiteral("%1  •  %2")
+                                 .arg(QString::fromStdString(info->displayName))
+                                 .arg(QString::fromStdString(info->category));
+    auto* subtitleLabel = new QLabel(subtitle, headerCard);
+    subtitleLabel->setStyleSheet(QStringLiteral("color: gray; font-size: 11px;"));
+    textLayout->addWidget(subtitleLabel);
+
+    cardLayout->addLayout(textLayout, 1);
+
+    auto* enabled = new QCheckBox(tr("Enabled"), headerCard);
     enabled->setChecked(node->enabled);
     enabled->setToolTip(tr("A disabled block stays in the project with its settings "
                            "and position, and is skipped when the pipeline is built."));
@@ -245,7 +344,9 @@ void NodePropertiesEditor::rebuild()
             Q_EMIT nodeEdited(m_nodeId);
         }
     });
-    m_form->addRow(QString{}, enabled);
+    cardLayout->addWidget(enabled);
+
+    m_form->addRow(headerCard);
 
     for (const ParameterDescriptor& parameter : info->parameters) {
         addDeclaredRow(*node, parameter);
@@ -256,6 +357,10 @@ void NodePropertiesEditor::rebuild()
     auto* deleteButton = new QPushButton(tr("Delete Block"), m_formHost);
     deleteButton->setObjectName(QStringLiteral("deleteBlockButton"));
     deleteButton->setToolTip(tr("Delete this block and all its connections from the Pipeline"));
+    if (themes != nullptr) {
+        deleteButton->setIcon(themes->icon(QStringLiteral("clear")));
+        deleteButton->setIconSize(QSize(14, 14));
+    }
     deleteButton->setStyleSheet(
         QStringLiteral("QPushButton#deleteBlockButton { "
                        "  background-color: #ef4444; color: white; font-weight: bold; "
@@ -358,8 +463,15 @@ void NodePropertiesEditor::addDeclaredRow(const NodeDescription& node,
 
             const FileChoice choice = fileChoiceFor(parameter.name);
 
-            auto* browse = new QPushButton(tr("..."));
+            auto* browse = new QPushButton(m_formHost);
             browse->setFixedWidth(28);
+            ThemeManager* themes = ThemeManager::instance();
+            if (themes != nullptr) {
+                browse->setIcon(themes->icon(QStringLiteral("open")));
+                browse->setIconSize(QSize(14, 14));
+            } else {
+                browse->setText(tr("..."));
+            }
             browse->setToolTip(choice.title);
             connect(browse, &QPushButton::clicked, this, [this, name, edit, choice] {
                 const QString chosen =
@@ -432,7 +544,12 @@ void NodePropertiesEditor::addScriptParameterRows(const NodeDescription& node,
     auto* name = new QLineEdit;
     name->setPlaceholderText(tr("name"));
 
-    auto* add = new QPushButton(tr("Add"));
+    auto* add = new QPushButton(tr("Add"), m_formHost);
+    ThemeManager* themes = ThemeManager::instance();
+    if (themes != nullptr) {
+        add->setIcon(themes->icon(QStringLiteral("add")));
+        add->setIconSize(QSize(14, 14));
+    }
     add->setEnabled(false);
 
     connect(name, &QLineEdit::textChanged, add, [add](const QString& text) {

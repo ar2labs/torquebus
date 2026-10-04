@@ -68,6 +68,79 @@ namespace {
 /// The role holding a palette entry's catalog type name.
 constexpr int kTypeNameRole = Qt::UserRole + 1;
 
+[[nodiscard]] QString iconNameForCategory(const QString& category)
+{
+    if (category.compare(QLatin1String("Sources"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("source");
+    }
+    if (category.compare(QLatin1String("Transforms"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("transform");
+    }
+    if (category.compare(QLatin1String("Simulation"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("simulation");
+    }
+    if (category.compare(QLatin1String("Diagnostics"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("diagnostics");
+    }
+    if (category.compare(QLatin1String("Sinks"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("sink");
+    }
+    return QStringLiteral("project");
+}
+
+[[nodiscard]] QString iconNameForNodeType(const QString& typeName)
+{
+    if (typeName == QLatin1String("can.source")) {
+        return QStringLiteral("hardware");
+    }
+    if (typeName == QLatin1String("transmit.list")) {
+        return QStringLiteral("transmit");
+    }
+    if (typeName == QLatin1String("log.source")) {
+        return QStringLiteral("replay");
+    }
+    if (typeName == QLatin1String("can.filter")) {
+        return QStringLiteral("filter");
+    }
+    if (typeName == QLatin1String("dbc.decoder")) {
+        return QStringLiteral("database");
+    }
+    if (typeName == QLatin1String("j1939.decoder")) {
+        return QStringLiteral("network");
+    }
+    if (typeName == QLatin1String("lua.ecu")) {
+        return QStringLiteral("script");
+    }
+    if (typeName == QLatin1String("sim.restbus")) {
+        return QStringLiteral("restbus");
+    }
+    if (typeName == QLatin1String("lua.test")) {
+        return QStringLiteral("test");
+    }
+    if (typeName == QLatin1String("tinyml.ecu")) {
+        return QStringLiteral("neural");
+    }
+    if (typeName == QLatin1String("uds.client")) {
+        return QStringLiteral("diagnostics");
+    }
+    if (typeName == QLatin1String("isotp.transport")) {
+        return QStringLiteral("network");
+    }
+    if (typeName == QLatin1String("can.transmit")) {
+        return QStringLiteral("transmit");
+    }
+    if (typeName == QLatin1String("trace.sink")) {
+        return QStringLiteral("trace");
+    }
+    if (typeName == QLatin1String("can.log")) {
+        return QStringLiteral("save");
+    }
+    if (typeName == QLatin1String("signal.plot")) {
+        return QStringLiteral("graph");
+    }
+    return QStringLiteral("hardware");
+}
+
 /// Duration of one full cycle of packet motion along a wire on the Canvas.
 constexpr int kFlowCycleDurationMs = 1350;
 
@@ -952,6 +1025,7 @@ CanvasPanel::CanvasPanel(GraphDescription& description, const NodeCatalog& catal
     m_palette->setDragDropMode(QAbstractItemView::DragOnly);
     m_palette->setMinimumWidth(160);
     m_palette->setMaximumWidth(260);
+    m_palette->setIconSize(QSize(16, 16));
     m_palette->setToolTip(
         tr("Double-click or drag a block onto the Pipeline canvas, or select one and click "
            "'+ Add Block'."));
@@ -1423,6 +1497,28 @@ void CanvasPanel::buildPalette()
             new QTreeWidgetItem{group, QStringList{QString::fromStdString(info.displayName)}};
         entry->setData(0, kTypeNameRole, QString::fromStdString(info.typeName));
         entry->setToolTip(0, QString::fromStdString(info.description));
+    }
+
+    applyPaletteIcons();
+}
+
+void CanvasPanel::applyPaletteIcons()
+{
+    ThemeManager* themes = ThemeManager::instance();
+    if (themes == nullptr || m_palette == nullptr) {
+        return;
+    }
+
+    for (int i = 0; i < m_palette->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* group = m_palette->topLevelItem(i);
+        const QString category = group->text(0);
+        group->setIcon(0, themes->icon(iconNameForCategory(category)));
+
+        for (int j = 0; j < group->childCount(); ++j) {
+            QTreeWidgetItem* entry = group->child(j);
+            const QString typeName = entry->data(0, kTypeNameRole).toString();
+            entry->setIcon(0, themes->icon(iconNameForNodeType(typeName)));
+        }
     }
 }
 
@@ -1957,6 +2053,7 @@ void CanvasPanel::applyTheme(const Theme& theme)
         palette.setColor(QPalette::Base, theme.panel);
         palette.setColor(QPalette::Window, theme.panel);
         m_palette->setPalette(palette);
+        applyPaletteIcons();
     }
 
     if (m_hudBar != nullptr) {

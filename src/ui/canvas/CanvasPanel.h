@@ -170,6 +170,7 @@ private:
     static void applyStyles(const Theme& theme);
 
     void buildPalette();
+    void applyPaletteIcons();
     void addNodeFromPalette(QTreeWidgetItem* item);
     void addSelectedPaletteNode();
 

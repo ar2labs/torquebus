@@ -40,6 +40,7 @@ constexpr int kKindRole = Qt::UserRole + 1;
 constexpr int kPathRole = Qt::UserRole + 2;
 constexpr int kMessageRole = Qt::UserRole + 3;
 constexpr int kSignalRole = Qt::UserRole + 4;
+constexpr int kMultiplexRole = Qt::UserRole + 5;
 
 /// The identifier in the form the rest of the application shows it: three hex
 /// digits for standard, eight for extended. A trace that writes 0x101 and a
@@ -152,7 +153,8 @@ void DatabasePanel::buildUi()
     m_tree->setFrameShape(QFrame::NoFrame);
     m_tree->header()->setStretchLastSection(true);
     m_tree->header()->setSectionResizeMode(ColumnName, QHeaderView::Interactive);
-    m_tree->setColumnWidth(ColumnName, 220);
+    m_tree->setIconSize(QSize(16, 16));
+    m_tree->setColumnWidth(ColumnName, 240);
     m_tree->setColumnWidth(ColumnPosition, 170);
     m_tree->setColumnWidth(ColumnRange, 170);
     m_tree->setColumnWidth(ColumnUnit, 60);
@@ -250,6 +252,8 @@ void DatabasePanel::addDatabaseToTree(const CanDatabase& database)
             signalItem->setData(0, kPathRole, path);
             signalItem->setData(0, kMessageRole, QString::fromStdString(message.name));
             signalItem->setData(0, kSignalRole, QString::fromStdString(signal.name));
+            signalItem->setData(
+                0, kMultiplexRole, signal.isMultiplexer || signal.multiplexerValue.has_value());
 
             // The comment column carries whichever of the three things the
             // signal actually has. A comment is the most useful, then the
@@ -388,15 +392,24 @@ void DatabasePanel::applyIcons()
         return;
     }
 
-    const QIcon database = themes->icon(QStringLiteral("database"));
-    const QIcon trace = themes->icon(QStringLiteral("trace"));
+    const QIcon databaseIcon = themes->icon(QStringLiteral("database"));
+    const QIcon messageIcon = themes->icon(QStringLiteral("message"));
+    const QIcon signalIcon = themes->icon(QStringLiteral("signal"));
+    const QIcon signalMuxIcon = themes->icon(QStringLiteral("signal-multiplex"));
 
     for (int i = 0; i < m_tree->topLevelItemCount(); ++i) {
         QTreeWidgetItem* root = m_tree->topLevelItem(i);
-        root->setIcon(ColumnName, database);
+        root->setIcon(ColumnName, databaseIcon);
 
         for (int j = 0; j < root->childCount(); ++j) {
-            root->child(j)->setIcon(ColumnName, trace);
+            QTreeWidgetItem* messageItem = root->child(j);
+            messageItem->setIcon(ColumnName, messageIcon);
+
+            for (int k = 0; k < messageItem->childCount(); ++k) {
+                QTreeWidgetItem* signalItem = messageItem->child(k);
+                const bool isMux = signalItem->data(0, kMultiplexRole).toBool();
+                signalItem->setIcon(ColumnName, isMux ? signalMuxIcon : signalIcon);
+            }
         }
     }
 }
