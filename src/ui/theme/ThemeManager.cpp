@@ -18,6 +18,9 @@
 #include <QStringList>
 #include <QStyleFactory>
 #include <QStyleHints>
+#include <QSvgRenderer>
+
+#include <cmath>
 
 namespace torquebus::ui {
 namespace {
@@ -29,30 +32,73 @@ ThemeManager* g_instance = nullptr;
 /// can never drift apart structurally.
 constexpr auto kStyleSheetResource = ":/themes/torquebus.qss";
 
-/// Recolours a monochrome SVG by painting `color` through the rendered alpha
-/// channel. Cheaper and far more maintainable than shipping two icon sets.
+/// Recolours a monochrome SVG by rasterising via QSvgRenderer across multiple
+/// logical dimensions and device pixel ratio scales (1.0x to 3.0x), then painting
+/// `color` through the alpha channel. Yields crisp vector icons at any DPI on both themes.
 [[nodiscard]] QIcon tintedIcon(const QString& resourcePath, const QColor& color)
 {
-    const QIcon source{resourcePath};
-    if (source.isNull()) {
+    if (!QFile::exists(resourcePath)) {
+        return {};
+    }
+
+    QSvgRenderer renderer{resourcePath};
+    if (!renderer.isValid()) {
         return {};
     }
 
     QIcon result;
-    const QList<QSize> sizes{QSize{16, 16}, QSize{24, 24}, QSize{32, 32}};
 
-    for (const QSize& size : sizes) {
-        QPixmap pixmap = source.pixmap(size);
-        if (pixmap.isNull()) {
-            continue;
+    // Logical sizes covering toolbars (16, 18, 20, 24), menus (16), dialogs/chrome (24, 32, 48)
+    const QList<int> logicalSizes{14, 16, 18, 20, 22, 24, 28, 32, 48, 64};
+    // Device pixel ratio scales to support standard and high-DPI displays (100%, 125%, 150%, 175%,
+    // 200%, 250%, 300%)
+    const QList<qreal> dprScales{1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0};
+
+    // Clean monochrome disabled state
+    QColor disabledColor = color;
+    disabledColor.setAlpha(static_cast<int>(disabledColor.alpha() * 0.38));
+
+    for (const int logical : logicalSizes) {
+        for (const qreal dpr : dprScales) {
+            const int physical = static_cast<int>(std::round(logical * dpr));
+            if (physical < 1) {
+                continue;
+            }
+
+            // Normal state
+            QImage image{QSize{physical, physical}, QImage::Format_ARGB32_Premultiplied};
+            image.fill(Qt::transparent);
+
+            QPainter painter{&image};
+            painter.setRenderHint(QPainter::Antialiasing, true);
+            painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+            renderer.render(&painter);
+            painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+            painter.fillRect(image.rect(), color);
+            painter.end();
+
+            image.setDevicePixelRatio(dpr);
+            const QPixmap pixmap = QPixmap::fromImage(image);
+            result.addPixmap(pixmap, QIcon::Normal, QIcon::Off);
+            result.addPixmap(pixmap, QIcon::Normal, QIcon::On);
+
+            // Disabled state
+            QImage disabledImage{QSize{physical, physical}, QImage::Format_ARGB32_Premultiplied};
+            disabledImage.fill(Qt::transparent);
+
+            QPainter disPainter{&disabledImage};
+            disPainter.setRenderHint(QPainter::Antialiasing, true);
+            disPainter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+            renderer.render(&disPainter);
+            disPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+            disPainter.fillRect(disabledImage.rect(), disabledColor);
+            disPainter.end();
+
+            disabledImage.setDevicePixelRatio(dpr);
+            const QPixmap disPixmap = QPixmap::fromImage(disabledImage);
+            result.addPixmap(disPixmap, QIcon::Disabled, QIcon::Off);
+            result.addPixmap(disPixmap, QIcon::Disabled, QIcon::On);
         }
-
-        QPainter painter{&pixmap};
-        painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-        painter.fillRect(pixmap.rect(), color);
-        painter.end();
-
-        result.addPixmap(pixmap);
     }
 
     return result;

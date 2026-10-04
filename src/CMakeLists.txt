@@ -355,6 +355,8 @@ qt_add_library(torquebus_ui STATIC
     ui/dashboard/DashboardWidgetEditor.cpp
     ui/graph/PlotView.h
     ui/graph/PlotView.cpp
+    ui/graph/PlotSettingsDialog.h
+    ui/graph/PlotSettingsDialog.cpp
     ui/graph/GraphPanel.h
     ui/graph/GraphPanel.cpp
     ui/playback/TimelineBar.h
