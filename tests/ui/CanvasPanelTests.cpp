@@ -18,6 +18,7 @@
 
 #include <QApplication>
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QUndoStack>
@@ -189,6 +190,58 @@ TEST_F(CanvasPanelTest, DeleteBlockClearsNodeAndWires)
     scene()->nodeGraphicsObject(transmitCanvas)->setSelected(true);
     panel.deleteSelectedItems();
     EXPECT_EQ(description.nodes().size(), 0U);
+}
+
+TEST_F(CanvasPanelTest, ScriptEditRequestedEmittedOnLuaNodeDoubleClickAndEditClick)
+{
+    addFromPalette("lua.ecu");
+    ASSERT_EQ(description.nodes().size(), 1U);
+    const std::string ecuId = description.nodes()[0].id;
+
+    auto* model = &scene()->graphModel();
+    const auto ecuCanvas = qobject_cast<PipelineGraphModel*>(model)->canvasId(ecuId);
+    ASSERT_NE(ecuCanvas, QtNodes::InvalidNodeId);
+
+    auto* ngo = scene()->nodeGraphicsObject(ecuCanvas);
+    ASSERT_NE(ngo, nullptr);
+
+    QString requestedScriptId;
+    QObject::connect(&panel, &CanvasPanel::editScriptRequested, [&](const QString& id) {
+        requestedScriptId = id;
+    });
+
+    // 1. Double clicking the node emits editScriptRequested
+    const QPointF sceneCenter = ngo->sceneBoundingRect().center();
+    const QPoint viewPos = view()->mapFromScene(sceneCenter);
+
+    QMouseEvent dblClick{QEvent::MouseButtonDblClick,
+                         QPointF{viewPos},
+                         QPointF{viewPos},
+                         Qt::LeftButton,
+                         Qt::LeftButton,
+                         Qt::NoModifier};
+    QApplication::sendEvent(view()->viewport(), &dblClick);
+    settleCanvas();
+
+    EXPECT_EQ(requestedScriptId, QString::fromStdString(ecuId));
+
+    requestedScriptId.clear();
+
+    // 2. Clicking the pencil edit button emits editScriptRequested
+    const QRectF nodeRect = ngo->mapRectToScene(QRectF{0.0, 0.0, 310.0, 196.0});
+    const QPointF btnScenePos{nodeRect.right() - 103.0, nodeRect.top() + 10.0};
+    const QPoint btnViewPos = view()->mapFromScene(btnScenePos);
+
+    QMouseEvent click{QEvent::MouseButtonPress,
+                      QPointF{btnViewPos},
+                      QPointF{btnViewPos},
+                      Qt::LeftButton,
+                      Qt::LeftButton,
+                      Qt::NoModifier};
+    QApplication::sendEvent(view()->viewport(), &click);
+    settleCanvas();
+
+    EXPECT_EQ(requestedScriptId, QString::fromStdString(ecuId));
 }
 
 } // namespace

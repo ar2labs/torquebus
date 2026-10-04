@@ -219,6 +219,9 @@ private:
                                    const NodeDescription& node,
                                    const NodeStatus* status) const;
 
+    [[nodiscard]] QString findScriptNodeAt(const QPointF& scenePosition,
+                                           bool onlyEditButtons) const;
+
     GraphDescription& m_description;
     const NodeCatalog& m_catalog;
     SystemVariables* m_variables{nullptr};
@@ -250,6 +253,9 @@ private:
     QString m_statusSummaryText;
     QString m_statusSummaryState{QStringLiteral("ready")};
     Theme m_theme;
+
+    bool m_hoveringScriptEdit{false};
+    QString m_hoveredScriptNodeId;
 
     QFont m_monoBoldFont;
     QFont m_monoSmallFont;

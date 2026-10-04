@@ -138,7 +138,6 @@ void LuaHighlighter::applyTheme()
     // --- Comments, last, so a `--` inside a string does not win ------------
     m_commentFormat = QTextCharFormat{};
     m_commentFormat.setForeground(theme.textMuted);
-    m_commentFormat.setFontItalic(true);
 
     add(QStringLiteral("--[^\\[\\n][^\\n]*"), m_commentFormat);
     add(QStringLiteral("--$"), m_commentFormat);

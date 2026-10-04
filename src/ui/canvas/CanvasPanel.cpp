@@ -32,6 +32,7 @@
 #include <QGraphicsItem>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QHelpEvent>
 #include <QHideEvent>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -40,6 +41,7 @@
 #include <QLinearGradient>
 #include <QMap>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPalette>
@@ -50,6 +52,7 @@
 #include <QSplitter>
 #include <QString>
 #include <QStringList>
+#include <QToolTip>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 #include <QVariantAnimation>
@@ -333,6 +336,11 @@ public:
         return theme.warning;
     }
     return theme.accent;
+}
+
+[[nodiscard]] bool isScriptNodeType(std::string_view typeName) noexcept
+{
+    return typeName == "lua.ecu" || typeName == "lua.test";
 }
 
 [[nodiscard]] QString regimeName(quint64 regimeCode)
@@ -1228,6 +1236,56 @@ void CanvasPanel::setDatabases(std::vector<std::shared_ptr<const CanDatabase>> d
     }
 }
 
+QString CanvasPanel::findScriptNodeAt(const QPointF& scenePosition, bool onlyEditButtons) const
+{
+    if (!m_model || m_scene == nullptr) {
+        return {};
+    }
+
+    const QFontMetricsF badgeMetrics{m_badgeFont};
+
+    for (const NodeDescription& node : m_description.nodes()) {
+        if (!isScriptNodeType(node.typeName)) {
+            continue;
+        }
+
+        const QtNodes::NodeId nodeId = m_model->canvasId(node.id);
+        if (nodeId == QtNodes::InvalidNodeId) {
+            continue;
+        }
+
+        QtNodes::NodeGraphicsObject* ngo = m_scene->nodeGraphicsObject(nodeId);
+        if (ngo == nullptr) {
+            continue;
+        }
+
+        const QSize nodeSize = m_scene->nodeGeometry().size(nodeId);
+        const QRectF nodeRect = ngo->mapRectToScene(QRectF{QPointF{0.0, 0.0}, QSizeF{nodeSize}});
+
+        if (onlyEditButtons) {
+            const QString typeTag = shortTypeBadge(node.typeName);
+            const qreal tagWidth = badgeMetrics.horizontalAdvance(typeTag) + 12.0;
+            const QRectF tagRect{
+                nodeRect.right() - tagWidth - 6.0, nodeRect.top() + 4.5, tagWidth, 15.0};
+            const QRectF headerEditRect{tagRect.left() - 72.0, nodeRect.top() + 4.0, 66.0, 16.0};
+
+            const QRectF dbcRect{
+                nodeRect.left() + 10.0, nodeRect.top() + 132.0, nodeRect.width() - 20.0, 54.0};
+            const QRectF specsEditRect{dbcRect.right() - 76.0, dbcRect.top() + 2.5, 72.0, 16.0};
+
+            if (headerEditRect.contains(scenePosition) || specsEditRect.contains(scenePosition)) {
+                return QString::fromStdString(node.id);
+            }
+        } else {
+            if (nodeRect.contains(scenePosition)) {
+                return QString::fromStdString(node.id);
+            }
+        }
+    }
+
+    return {};
+}
+
 bool CanvasPanel::eventFilter(QObject* watched, QEvent* event)
 {
     if (event == nullptr || m_view == nullptr) {
@@ -1235,7 +1293,78 @@ bool CanvasPanel::eventFilter(QObject* watched, QEvent* event)
     }
 
     if (watched == m_view->viewport()) {
-        if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
+        if (event->type() == QEvent::MouseMove) {
+            auto* mouseEvent = static_cast<QMouseEvent*>(event);
+            const QPointF scenePos = m_view->mapToScene(mouseEvent->position().toPoint());
+            const QString hitId = findScriptNodeAt(scenePos, true);
+            const bool hovering = !hitId.isEmpty();
+
+            if (hovering != m_hoveringScriptEdit || hitId != m_hoveredScriptNodeId) {
+                m_hoveringScriptEdit = hovering;
+                m_hoveredScriptNodeId = hitId;
+                if (hovering) {
+                    m_view->viewport()->setCursor(Qt::PointingHandCursor);
+                } else {
+                    m_view->viewport()->unsetCursor();
+                }
+                m_view->viewport()->update();
+            }
+        } else if (event->type() == QEvent::Leave) {
+            if (m_hoveringScriptEdit) {
+                m_hoveringScriptEdit = false;
+                m_hoveredScriptNodeId.clear();
+                m_view->viewport()->unsetCursor();
+                m_view->viewport()->update();
+            }
+        } else if (event->type() == QEvent::ToolTip) {
+            auto* helpEvent = static_cast<QHelpEvent*>(event);
+            const QPointF scenePos = m_view->mapToScene(helpEvent->pos());
+            const QString hitId = findScriptNodeAt(scenePos, true);
+            if (!hitId.isEmpty()) {
+                QToolTip::showText(
+                    helpEvent->globalPos(),
+                    tr("Click to open and edit Lua script for '%1' in the Script Editor")
+                        .arg(hitId),
+                    m_view->viewport());
+                return true;
+            }
+        } else if (event->type() == QEvent::MouseButtonPress) {
+            auto* mouseEvent = static_cast<QMouseEvent*>(event);
+            if (mouseEvent->button() == Qt::LeftButton) {
+                const QPointF scenePos = m_view->mapToScene(mouseEvent->position().toPoint());
+                const QString hitId = findScriptNodeAt(scenePos, true);
+                if (!hitId.isEmpty()) {
+                    const QtNodes::NodeId nodeId = m_model->canvasId(hitId.toStdString());
+                    if (nodeId != QtNodes::InvalidNodeId) {
+                        if (auto* ngo = m_scene->nodeGraphicsObject(nodeId)) {
+                            m_scene->clearSelection();
+                            ngo->setSelected(true);
+                        }
+                    }
+                    Q_EMIT nodeSelected(hitId);
+                    Q_EMIT editScriptRequested(hitId);
+                    return true;
+                }
+            }
+        } else if (event->type() == QEvent::MouseButtonDblClick) {
+            auto* mouseEvent = static_cast<QMouseEvent*>(event);
+            if (mouseEvent->button() == Qt::LeftButton) {
+                const QPointF scenePos = m_view->mapToScene(mouseEvent->position().toPoint());
+                const QString hitId = findScriptNodeAt(scenePos, false);
+                if (!hitId.isEmpty()) {
+                    const QtNodes::NodeId nodeId = m_model->canvasId(hitId.toStdString());
+                    if (nodeId != QtNodes::InvalidNodeId) {
+                        if (auto* ngo = m_scene->nodeGraphicsObject(nodeId)) {
+                            m_scene->clearSelection();
+                            ngo->setSelected(true);
+                        }
+                    }
+                    Q_EMIT nodeSelected(hitId);
+                    Q_EMIT editScriptRequested(hitId);
+                    return true;
+                }
+            }
+        } else if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
             auto* dragEvent = static_cast<QDropEvent*>(event);
             if (dragEvent->source() == m_palette && m_palette != nullptr
                 && m_palette->currentItem() != nullptr
@@ -1666,6 +1795,9 @@ void CanvasPanel::showNodeMenu(QtNodes::NodeId nodeId, const QPointF& scenePosit
 
     if (typeName == "lua.ecu" || typeName == "lua.test") {
         QAction* edit = menu.addAction(tr("Edit script"));
+        if (ThemeManager* tm = ThemeManager::instance()) {
+            edit->setIcon(tm->icon(QStringLiteral("edit")));
+        }
         connect(edit, &QAction::triggered, this, [this, descriptionId] {
             Q_EMIT editScriptRequested(QString::fromStdString(descriptionId));
         });
@@ -2312,18 +2444,50 @@ void CanvasPanel::paintNodeTelemetryCard(QPainter* painter,
     painter->setPen(tagAccent.lighter(135));
     painter->drawText(tagRect, Qt::AlignCenter, typeTag);
 
+    const bool isScriptNode = isScriptNodeType(node.typeName);
+    const QString idLabel = QString::fromStdString(node.id);
+    const bool isNodeScriptHovered = m_hoveringScriptEdit && (m_hoveredScriptNodeId == idLabel);
+
+    QRectF headerEditRect;
+    if (isScriptNode) {
+        headerEditRect = QRectF{tagRect.left() - 72.0, nodeRect.top() + 4.0, 66.0, 16.0};
+
+        QColor btnFill = tagAccent;
+        btnFill.setAlpha(isNodeScriptHovered ? 80 : 40);
+        QColor btnBorder = tagAccent.lighter(isNodeScriptHovered ? 140 : 110);
+        btnBorder.setAlpha(isNodeScriptHovered ? 255 : 170);
+
+        painter->setFont(m_badgeFont);
+        painter->setPen(QPen{btnBorder, isNodeScriptHovered ? 1.3 : 1.0});
+        painter->setBrush(btnFill);
+        painter->drawRoundedRect(headerEditRect, 3.5, 3.5);
+
+        const QRectF iconRect{headerEditRect.left() + 5.0, headerEditRect.top() + 2.0, 12.0, 12.0};
+        if (ThemeManager* tm = ThemeManager::instance()) {
+            const QIcon editIco = tm->icon(QStringLiteral("edit"), tagAccent.lighter(145));
+            editIco.paint(painter, iconRect.toRect());
+        }
+
+        painter->setPen(tagAccent.lighter(145));
+        const QRectF textRect{iconRect.right() + 4.0,
+                              headerEditRect.top(),
+                              headerEditRect.width() - 21.0,
+                              headerEditRect.height()};
+        painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, tr("Script"));
+    }
+
     // Node ID + Subtitle in header left.
     painter->setFont(m_titleFont);
     painter->setPen(m_theme.text);
 
-    const QString idLabel = QString::fromStdString(node.id);
     const QString subLabel = nodeSubtitle(node);
     const QFontMetricsF titleMetrics{m_titleFont};
     const qreal idWidth = titleMetrics.horizontalAdvance(idLabel);
 
+    const qreal rightLimit = isScriptNode ? (headerEditRect.left() - 8.0) : (tagRect.left() - 8.0);
     const QRectF titleArea{nodeRect.left() + 19.0,
                            nodeRect.top() + 2.0,
-                           tagRect.left() - nodeRect.left() - 24.0,
+                           std::max<qreal>(30.0, rightLimit - (nodeRect.left() + 19.0)),
                            20.0};
     painter->drawText(titleArea, Qt::AlignLeft | Qt::AlignVCenter, idLabel);
 
@@ -2540,12 +2704,37 @@ void CanvasPanel::paintNodeTelemetryCard(QPainter* painter,
         !m_simulationRunning ? QStringLiteral("BLOCK CONFIGURATION & SPECS")
                              : (!m_databases.empty() ? QStringLiteral("DBC DICTIONARY DECODE")
                                                      : QStringLiteral("CAN TELEMETRY DECODE"));
-    painter->drawText(
-        QRectF{dbcRect.left() + 9.0, dbcRect.top() + 3.0, dbcRect.width() - 14.0, 11.0},
-        Qt::AlignLeft | Qt::AlignVCenter,
-        dictHeader);
+    const qreal headerWidth = isScriptNode ? (dbcRect.width() - 92.0) : (dbcRect.width() - 14.0);
+    painter->drawText(QRectF{dbcRect.left() + 9.0, dbcRect.top() + 3.0, headerWidth, 11.0},
+                      Qt::AlignLeft | Qt::AlignVCenter,
+                      dictHeader);
 
-    if (!telemetry.cycleText.isEmpty()) {
+    if (isScriptNode) {
+        const QRectF specsEditRect{dbcRect.right() - 76.0, dbcRect.top() + 2.5, 72.0, 16.0};
+
+        QColor btnFill = tagAccent;
+        btnFill.setAlpha(isNodeScriptHovered ? 80 : 36);
+        QColor btnBorder = tagAccent.lighter(isNodeScriptHovered ? 140 : 110);
+        btnBorder.setAlpha(isNodeScriptHovered ? 255 : 160);
+
+        painter->setFont(m_badgeFont);
+        painter->setPen(QPen{btnBorder, isNodeScriptHovered ? 1.3 : 0.9});
+        painter->setBrush(btnFill);
+        painter->drawRoundedRect(specsEditRect, 3.5, 3.5);
+
+        const QRectF iconRect{specsEditRect.left() + 5.0, specsEditRect.top() + 2.0, 12.0, 12.0};
+        if (ThemeManager* tm = ThemeManager::instance()) {
+            const QIcon editIco = tm->icon(QStringLiteral("edit"), tagAccent.lighter(145));
+            editIco.paint(painter, iconRect.toRect());
+        }
+
+        painter->setPen(tagAccent.lighter(145));
+        const QRectF textRect{iconRect.right() + 4.0,
+                              specsEditRect.top(),
+                              specsEditRect.width() - 21.0,
+                              specsEditRect.height()};
+        painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, tr("Edit Lua"));
+    } else if (!telemetry.cycleText.isEmpty()) {
         painter->setFont(m_monoSmallFont);
         painter->setPen(m_theme.textMuted);
         painter->drawText(

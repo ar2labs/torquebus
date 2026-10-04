@@ -136,6 +136,22 @@ Result LuaRuntime::load(std::string_view source, std::string_view chunkName)
     return Result::ok();
 }
 
+Result LuaRuntime::checkSyntax(std::string_view source, std::string_view chunkName)
+{
+    if (m_state == nullptr) {
+        return Result::error(ErrorCode::Unknown, "Lua interpreter could not be created");
+    }
+
+    const std::string name = std::format("={}", chunkName);
+
+    if (luaL_loadbuffer(m_state, source.data(), source.size(), name.c_str()) != LUA_OK) {
+        return Result::error(ErrorCode::ParseError, takeError(m_state));
+    }
+
+    lua_pop(m_state, 1);
+    return Result::ok();
+}
+
 Result LuaRuntime::loadFile(const std::string& path)
 {
     std::ifstream file{path, std::ios::binary};
