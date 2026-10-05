@@ -279,7 +279,9 @@ static void init_var (FuncState *fs, expdesc *e, int vidx) {
 
 
 /*
-** Raises an error if variable described by 'e' is read only
+** Raises an error if variable described by 'e' is read only; moreover,
+** if 'e' is t[exp] where t is the vararg parameter, change it to index
+** a real table. (Virtual vararg tables cannot be changed.)
 */
 static void check_readonly (LexState *ls, expdesc *e) {
   FuncState *fs = ls->fs;
@@ -289,7 +291,7 @@ static void check_readonly (LexState *ls, expdesc *e) {
       varname = ls->dyd->actvar.arr[e->u.info].vd.name;
       break;
     }
-    case VLOCAL: {
+    case VLOCAL: case VVARGVAR: {
       Vardesc *vardesc = getlocalvardesc(fs, e->u.var.vidx);
       if (vardesc->vd.kind != VDKREG)  /* not a regular variable? */
         varname = vardesc->vd.name;
@@ -301,6 +303,10 @@ static void check_readonly (LexState *ls, expdesc *e) {
         varname = up->name;
       break;
     }
+    case VVARGIND: {
+      needvatab(fs->f);  /* function will need a vararg table */
+      e->k = VINDEXED;
+    }  /* FALLTHROUGH */
     case VINDEXUP: case VINDEXSTR: case VINDEXED: {  /* global variable */
       if (e->u.ind.ro)  /* read-only? */
         varname = tsvalue(&fs->f->k[e->u.ind.keystr]);
@@ -426,8 +432,11 @@ static int searchvar (FuncState *fs, TString *n, expdesc *var) {
     else if (eqstr(n, vd->vd.name)) {  /* found? */
       if (vd->vd.kind == RDKCTC)  /* compile-time constant? */
         init_exp(var, VCONST, fs->firstlocal + i);
-      else  /* local variable */
+      else {  /* local variable */
         init_var(fs, var, i);
+        if (vd->vd.kind == RDKVAVAR)  /* vararg parameter? */
+          var->k = VVARGVAR;
+      }
       return cast_int(var->k);
     }
   }
@@ -467,8 +476,13 @@ static void marktobeclosed (FuncState *fs) {
 static void singlevaraux (FuncState *fs, TString *n, expdesc *var, int base) {
   int v = searchvar(fs, n, var);  /* look up variables at current level */
   if (v >= 0) {  /* found? */
-    if (v == VLOCAL && !base)
-      markupval(fs, var->u.var.vidx);  /* local will be used as an upval */
+    if (!base) {
+      if (var->k == VVARGVAR)  /* vararg parameter? */
+        luaK_vapar2local(fs, var);  /* change it to a regular local */
+      if (var->k == VLOCAL)
+        markupval(fs, var->u.var.vidx);  /* will be used as an upvalue */
+    }
+    /* else nothing else to be done */
   }
   else {  /* not found at current level; try upvalues */
     int idx = searchupvalue(fs, n);  /* try existing upvalues */
@@ -491,8 +505,8 @@ static void buildglobal (LexState *ls, TString *varname, expdesc *var) {
   init_exp(var, VGLOBAL, -1);  /* global by default */
   singlevaraux(fs, ls->envn, var, 1);  /* get environment variable */
   if (var->k == VGLOBAL)
-    luaK_semerror(ls, "_ENV is global when accessing variable '%s'",
-                      getstr(varname));
+    luaK_semerror(ls, "%s is global when accessing variable '%s'",
+                      LUA_ENV, getstr(varname));
   luaK_exp2anyregup(fs, var);  /* _ENV could be a constant */
   codestring(&key, varname);  /* key is variable name */
   luaK_indexed(fs, var, &key);  /* 'var' represents _ENV[varname] */
@@ -533,6 +547,7 @@ static void singlevar (LexState *ls, expdesc *var) {
 static void adjust_assign (LexState *ls, int nvars, int nexps, expdesc *e) {
   FuncState *fs = ls->fs;
   int needed = nvars - nexps;  /* extra values needed */
+  luaK_checkstack(fs, needed);
   if (hasmultret(e->k)) {  /* last expression has multiple returns? */
     int extra = needed + 1;  /* discount last expression itself */
     if (extra < 0)
@@ -806,8 +821,7 @@ static void open_func (LexState *ls, FuncState *fs, BlockCnt *bl) {
   luaC_objbarrier(L, f, f->source);
   f->maxstacksize = 2;  /* registers 0/1 are always valid */
   fs->kcache = luaH_new(L);  /* create table for function */
-  sethvalue2s(L, L->top.p, fs->kcache);  /* anchor it */
-  luaD_inctop(L);
+  luaD_anchorobj(L, ls->h, obj2gco(fs->kcache));  /* anchor it */
   enterblock(fs, bl, 0);
 }
 
@@ -816,6 +830,7 @@ static void close_func (LexState *ls) {
   lua_State *L = ls->L;
   FuncState *fs = ls->fs;
   Proto *f = fs->f;
+  TValue temp;
   luaK_ret(fs, luaY_nvarstack(fs), 0);  /* final return */
   leaveblock(fs);
   lua_assert(fs->bl == NULL);
@@ -828,8 +843,10 @@ static void close_func (LexState *ls) {
   luaM_shrinkvector(L, f->p, f->sizep, fs->np, Proto *);
   luaM_shrinkvector(L, f->locvars, f->sizelocvars, fs->ndebugvars, LocVar);
   luaM_shrinkvector(L, f->upvalues, f->sizeupvalues, fs->nups, Upvaldesc);
+  /* remove kcache table from scanner table ("weigh" its anchor) */
+  sethvalue(L, &temp, fs->kcache);  /* key to be set to nil */
+  luaH_set(L, ls->h, &temp, &G(L)->nilvalue);
   ls->fs = fs->prev;
-  L->top.p--;  /* pop kcache table */
   luaC_checkGC(L);
 }
 
@@ -905,6 +922,19 @@ typedef struct ConsControl {
 } ConsControl;
 
 
+/*
+** Maximum number of elements in a constructor, to control the following:
+** * counter overflows;
+** * overflows in 'extra' for OP_NEWTABLE and OP_SETLIST;
+** * overflows when adding multiple returns in OP_SETLIST.
+*/
+#define MAX_CNST	(INT_MAX/2)
+#if MAX_CNST/(MAXARG_vC + 1) > MAXARG_Ax
+#undef MAX_CNST
+#define MAX_CNST	(MAXARG_Ax * (MAXARG_vC + 1))
+#endif
+
+
 static void recfield (LexState *ls, ConsControl *cc) {
   /* recfield -> (NAME | '['exp']') = exp */
   FuncState *fs = ls->fs;
@@ -925,7 +955,7 @@ static void recfield (LexState *ls, ConsControl *cc) {
 
 
 static void closelistfield (FuncState *fs, ConsControl *cc) {
-  if (cc->v.k == VVOID) return;  /* there is no list item */
+  lua_assert(cc->tostore > 0);
   luaK_exp2nextreg(fs, &cc->v);
   cc->v.k = VVOID;
   if (cc->tostore >= cc->maxtostore) {
@@ -1013,10 +1043,12 @@ static void constructor (LexState *ls, expdesc *t) {
   checknext(ls, '{' /*}*/);
   cc.maxtostore = maxtostore(fs);
   do {
-    lua_assert(cc.v.k == VVOID || cc.tostore > 0);
     if (ls->t.token == /*{*/ '}') break;
-    closelistfield(fs, &cc);
+    if (cc.v.k != VVOID)  /* is there a previous list item? */
+      closelistfield(fs, &cc);  /* close it */
     field(ls, &cc);
+    luaY_checklimit(fs, cc.tostore + cc.na + cc.nh, MAX_CNST,
+                    "items in a constructor");
   } while (testnext(ls, ',') || testnext(ls, ';'));
   check_match(ls, /*{*/ '}', '{' /*}*/, line);
   lastlistfield(fs, &cc);
@@ -1026,9 +1058,9 @@ static void constructor (LexState *ls, expdesc *t) {
 /* }====================================================================== */
 
 
-static void setvararg (FuncState *fs, int nparams) {
-  fs->f->flag |= PF_ISVARARG;
-  luaK_codeABC(fs, OP_VARARGPREP, nparams, 0, 0);
+static void setvararg (FuncState *fs) {
+  fs->f->flag |= PF_VAHID;  /* by default, use hidden vararg arguments */
+  luaK_codeABC(fs, OP_VARARGPREP, 0, 0, 0);
 }
 
 
@@ -1037,7 +1069,7 @@ static void parlist (LexState *ls) {
   FuncState *fs = ls->fs;
   Proto *f = fs->f;
   int nparams = 0;
-  int isvararg = 0;
+  int varargk = 0;
   if (ls->t.token != ')') {  /* is 'parlist' not empty? */
     do {
       switch (ls->t.token) {
@@ -1047,19 +1079,26 @@ static void parlist (LexState *ls) {
           break;
         }
         case TK_DOTS: {
-          luaX_next(ls);
-          isvararg = 1;
+          varargk = 1;
+          luaX_next(ls);  /* skip '...' */
+          if (ls->t.token == TK_NAME)
+            new_varkind(ls, str_checkname(ls), RDKVAVAR);
+          else
+            new_localvarliteral(ls, "(vararg table)");
           break;
         }
         default: luaX_syntaxerror(ls, "<name> or '...' expected");
       }
-    } while (!isvararg && testnext(ls, ','));
+    } while (!varargk && testnext(ls, ','));
   }
   adjustlocalvars(ls, nparams);
   f->numparams = cast_byte(fs->nactvar);
-  if (isvararg)
-    setvararg(fs, f->numparams);  /* declared vararg */
-  luaK_reserveregs(fs, fs->nactvar);  /* reserve registers for parameters */
+  if (varargk) {
+    setvararg(fs);  /* declared vararg */
+    adjustlocalvars(ls, 1);  /* vararg parameter */
+  }
+  /* reserve registers for parameters (plus vararg parameter, if present) */
+  luaK_reserveregs(fs, fs->nactvar);
 }
 
 
@@ -1127,6 +1166,7 @@ static void funcargs (LexState *ls, expdesc *f) {
     }
     default: {
       luaX_syntaxerror(ls, "function arguments expected");
+      return;  /* to avoid warnings */
     }
   }
   lua_assert(f->k == VNONRELOC);
@@ -1246,9 +1286,9 @@ static void simpleexp (LexState *ls, expdesc *v) {
     }
     case TK_DOTS: {  /* vararg */
       FuncState *fs = ls->fs;
-      check_condition(ls, fs->f->flag & PF_ISVARARG,
+      check_condition(ls, isvararg(fs->f),
                       "cannot use '...' outside a vararg function");
-      init_exp(v, VVARARG, luaK_codeABC(fs, OP_VARARG, 0, 0, 1));
+      init_exp(v, VVARARG, luaK_codeABC(fs, OP_VARARG, 0, fs->f->numparams, 1));
       break;
     }
     case '{' /*}*/: {  /* constructor */
@@ -1574,7 +1614,6 @@ static void repeatstat (LexState *ls, int line) {
   statlist(ls);
   check_match(ls, TK_UNTIL, TK_REPEAT, line);
   condexit = cond(ls);  /* read condition (inside scope block) */
-  leaveblock(fs);  /* finish scope */
   if (bl2.upval) {  /* upvalues? */
     int exit = luaK_jump(fs);  /* normal exit must jump over fix */
     luaK_patchtohere(fs, condexit);  /* repetition must close upvalues */
@@ -1583,6 +1622,7 @@ static void repeatstat (LexState *ls, int line) {
     luaK_patchtohere(fs, exit);  /* normal exit comes to here */
   }
   luaK_patchlist(fs, condexit, repeat_init);  /* close the loop */
+  leaveblock(fs);  /* finish scope */
   leaveblock(fs);  /* finish loop */
 }
 
@@ -1827,11 +1867,50 @@ static lu_byte getglobalattribute (LexState *ls, lu_byte df) {
   switch (kind) {
     case RDKTOCLOSE:
       luaK_semerror(ls, "global variables cannot be to-be-closed");
-      break;  /* to avoid warnings */
+      return kind;  /* to avoid warnings */
     case RDKCONST:
       return GDKCONST;  /* adjust kind for global variable */
     default:
       return kind;
+  }
+}
+
+
+static void checkglobal (LexState *ls, TString *varname, int line) {
+  FuncState *fs = ls->fs;
+  expdesc var;
+  int k;
+  buildglobal(ls, varname, &var);  /* create global variable in 'var' */
+  k = var.u.ind.keystr;  /* index of global name in 'k' */
+  luaK_codecheckglobal(fs, &var, k, line);
+}
+
+
+/*
+** Recursively traverse list of globals to be initalized. When
+** going, generate table description for the global. In the end,
+** after all indices have been generated, read list of initializing
+** expressions. When returning, generate the assignment of the value on
+** the stack to the corresponding table description. 'n' is the variable
+** being handled, range [0, nvars - 1].
+*/
+static void initglobal (LexState *ls, int nvars, int firstidx, int n,
+                        int line) {
+  if (n == nvars) {  /* traversed all variables? */
+    expdesc e;
+    int nexps = explist(ls, &e);  /* read list of expressions */
+    adjust_assign(ls, nvars, nexps, &e);
+  }
+  else {  /* handle variable 'n' */
+    FuncState *fs = ls->fs;
+    expdesc var;
+    TString *varname = getlocalvardesc(fs, firstidx + n)->vd.name;
+    buildglobal(ls, varname, &var);  /* create global variable in 'var' */
+    enterlevel(ls);  /* control recursion depth */
+    initglobal(ls, nvars, firstidx, n + 1, line);
+    leavelevel(ls);
+    checkglobal(ls, varname, line);
+    storevartop(fs, &var);
   }
 }
 
@@ -1846,18 +1925,8 @@ static void globalnames (LexState *ls, lu_byte defkind) {
     lastidx = new_varkind(ls, vname, kind);
     nvars++;
   } while (testnext(ls, ','));
-  if (testnext(ls, '=')) {  /* initialization? */
-    expdesc e;
-    int i;
-    int nexps = explist(ls, &e);  /* read list of expressions */
-    adjust_assign(ls, nvars, nexps, &e);
-    for (i = 0; i < nvars; i++) {  /* for each variable */
-      expdesc var;
-      TString *varname = getlocalvardesc(fs, lastidx - i)->vd.name;
-      buildglobal(ls, varname, &var);  /* create global variable in 'var' */
-      storevartop(fs, &var);
-    }
-  }
+  if (testnext(ls, '='))  /* initialization? */
+    initglobal(ls, nvars, lastidx - nvars + 1, 0, ls->linenumber);
   fs->nactvar = cast_short(fs->nactvar + nvars);  /* activate declaration */
 }
 
@@ -1887,6 +1956,7 @@ static void globalfunc (LexState *ls, int line) {
   fs->nactvar++;  /* enter its scope */
   buildglobal(ls, fname, &var);
   body(ls, &b, 0, ls->linenumber);  /* compile and return closure in 'b' */
+  checkglobal(ls, fname, line);
   luaK_storevar(fs, &var, &b);
   luaK_fixline(fs, line);  /* definition "happens" in the first line */
 }
@@ -2044,7 +2114,7 @@ static void statement (LexState *ls) {
       gotostat(ls, line);
       break;
     }
-#if defined(LUA_COMPAT_GLOBAL)
+#if LUA_COMPAT_GLOBAL
     case TK_NAME: {
       /* compatibility code to parse global keyword when "global"
          is not reserved */
@@ -2084,7 +2154,7 @@ static void mainfunc (LexState *ls, FuncState *fs) {
   BlockCnt bl;
   Upvaldesc *env;
   open_func(ls, fs, &bl);
-  setvararg(fs, 0);  /* main function is always declared vararg */
+  setvararg(fs);  /* main function is always vararg */
   env = allocupvalue(fs);  /* ...set environment upvalue */
   env->instack = 1;
   env->idx = 0;
@@ -2098,16 +2168,14 @@ static void mainfunc (LexState *ls, FuncState *fs) {
 }
 
 
-LClosure *luaY_parser (lua_State *L, ZIO *z, Mbuffer *buff,
+LClosure *luaY_parser (lua_State *L, ZIO *z, Table *anchor, Mbuffer *buff,
                        Dyndata *dyd, const char *name, int firstchar) {
   LexState lexstate;
   FuncState funcstate;
-  LClosure *cl = luaF_newLclosure(L, 1);  /* create main closure */
-  setclLvalue2s(L, L->top.p, cl);  /* anchor it (to avoid being collected) */
-  luaD_inctop(L);
-  lexstate.h = luaH_new(L);  /* create table for scanner */
-  sethvalue2s(L, L->top.p, lexstate.h);  /* anchor it */
-  luaD_inctop(L);
+  LClosure *cl;
+  lexstate.h = anchor;  /* table for scanner */
+  cl = luaF_newLclosure(L, 1);  /* create main closure */
+  luaD_anchorobj(L, anchor, obj2gco(cl));  /* anchor it in scanner table */
   funcstate.f = cl->p = luaF_newproto(L);
   luaC_objbarrier(L, cl, cl->p);
   funcstate.f->source = luaS_new(L, name);  /* create and anchor TString */
@@ -2120,7 +2188,6 @@ LClosure *luaY_parser (lua_State *L, ZIO *z, Mbuffer *buff,
   lua_assert(!funcstate.prev && funcstate.nups == 1 && !lexstate.fs);
   /* all scopes should be correctly finished */
   lua_assert(dyd->actvar.n == 0 && dyd->gt.n == 0 && dyd->label.n == 0);
-  L->top.p--;  /* remove scanner's table */
-  return cl;  /* closure is on the stack, too */
+  return cl;
 }
 

@@ -125,6 +125,8 @@ public:
         return m_values.find(name) != m_values.end();
     }
 
+    bool erase(const std::string& name) { return m_values.erase(name) > 0; }
+
     /// The value, or `fallback` when absent. For optional parameters.
     [[nodiscard]] bool boolean(const std::string& name, bool fallback = false) const
     {

@@ -57,10 +57,18 @@
 ** =======================================================
 */
 
+/* chained list of long jump buffers */
+typedef struct lua_longjmp {
+  struct lua_longjmp *previous;
+  jmp_buf b;
+  volatile TStatus status;  /* error code */
+} lua_longjmp;
+
+
 /*
 ** LUAI_THROW/LUAI_TRY define how Lua does exception handling. By
 ** default, Lua handles errors with exceptions when compiling as
-** C++ code, with _longjmp/_setjmp when asked to use them, and with
+** C++ code, with _longjmp/_setjmp when available (POSIX), and with
 ** longjmp/setjmp otherwise.
 */
 #if !defined(LUAI_THROW)				/* { */
@@ -69,36 +77,36 @@
 
 /* C++ exceptions */
 #define LUAI_THROW(L,c)		throw(c)
-#define LUAI_TRY(L,c,f,ud) \
-    try { (f)(L, ud); } catch(...) { if ((c)->status == 0) (c)->status = -1; }
-#define luai_jmpbuf		int  /* dummy field */
+
+static void LUAI_TRY (lua_State *L, lua_longjmp *c, Pfunc f, void *ud) {
+  try {
+    f(L, ud);  /* call function protected */
+  }
+  catch (lua_longjmp *c1) { /* Lua error */
+    if (c1 != c)  /* not the correct level? */
+      throw;  /* rethrow to upper level */
+  }
+  catch (...) {  /* non-Lua exception */
+    c->status = -1;  /* create some error code */
+  }
+}
+
 
 #elif defined(LUA_USE_POSIX)				/* }{ */
 
-/* in POSIX, try _longjmp/_setjmp (more efficient) */
+/* in POSIX, use _longjmp/_setjmp (more efficient) */
 #define LUAI_THROW(L,c)		_longjmp((c)->b, 1)
 #define LUAI_TRY(L,c,f,ud)	if (_setjmp((c)->b) == 0) ((f)(L, ud))
-#define luai_jmpbuf		jmp_buf
 
 #else							/* }{ */
 
 /* ISO C handling with long jumps */
 #define LUAI_THROW(L,c)		longjmp((c)->b, 1)
 #define LUAI_TRY(L,c,f,ud)	if (setjmp((c)->b) == 0) ((f)(L, ud))
-#define luai_jmpbuf		jmp_buf
 
 #endif							/* } */
 
 #endif							/* } */
-
-
-
-/* chain list of long jump buffers */
-struct lua_longjmp {
-  struct lua_longjmp *previous;
-  luai_jmpbuf b;
-  volatile TStatus status;  /* error code */
-};
 
 
 void luaD_seterrorobj (lua_State *L, TStatus errcode, StkId oldtop) {
@@ -151,7 +159,7 @@ l_noret luaD_throwbaselevel (lua_State *L, TStatus errcode) {
 
 TStatus luaD_rawrunprotected (lua_State *L, Pfunc f, void *ud) {
   l_uint32 oldnCcalls = L->nCcalls;
-  struct lua_longjmp lj;
+  lua_longjmp lj;
   lj.status = LUA_OK;
   lj.previous = L->errorJmp;  /* chain new error handler */
   L->errorJmp = &lj;
@@ -203,12 +211,31 @@ TStatus luaD_rawrunprotected (lua_State *L, Pfunc f, void *ud) {
 #define ERRORSTACKSIZE	(MAXSTACK + STACKERRSPACE)
 
 
-/* raise an error while running the message handler */
+/* raise a stack error while running the message handler */
 l_noret luaD_errerr (lua_State *L) {
   TString *msg = luaS_newliteral(L, "error in error handling");
   setsvalue2s(L, L->top.p, msg);
   L->top.p++;  /* assume EXTRA_STACK */
   luaD_throw(L, LUA_ERRERR);
+}
+
+
+/*
+** Check whether stacks have enough space to run a simple function (such
+** as a finalizer): At least BASIC_STACK_SIZE in the Lua stack, two
+** available CallInfos, and two "slots" in the C stack.
+*/
+int luaD_checkminstack (lua_State *L) {
+  if (getCcalls(L) >= LUAI_MAXCCALLS - 2)
+    return 0;  /* not enough C-stack slots */
+  if (L->ci->next == NULL && luaE_extendCI(L, 0) == NULL)
+    return 0;  /* unable to allocate first ci */
+  if (L->ci->next->next == NULL && luaE_extendCI(L, 0) == NULL)
+    return 0;  /* unable to allocate second ci */
+  if (L->stack_last.p - L->top.p >= BASIC_STACK_SIZE)
+    return 1;  /* enough (BASIC_STACK_SIZE) free slots in the Lua stack */
+  else  /* try to grow stack to a size with enough free slots */
+    return luaD_growstack(L, BASIC_STACK_SIZE, 0);
 }
 
 
@@ -322,7 +349,7 @@ int luaD_reallocstack (lua_State *L, int newsize, int raiseerror) {
   correctstack(L, oldstack);  /* change offsets back to pointers */
   L->stack_last.p = L->stack.p + newsize;
   for (i = oldsize + EXTRA_STACK; i < newsize + EXTRA_STACK; i++)
-    setnilvalue(s2v(newstack + i)); /* erase new segment */
+    setnilvalue2s(newstack + i); /* erase new segment */
   return 1;
 }
 
@@ -339,7 +366,7 @@ int luaD_growstack (lua_State *L, int n, int raiseerror) {
        a stack error; cannot grow further than that. */
     lua_assert(stacksize(L) == ERRORSTACKSIZE);
     if (raiseerror)
-      luaD_errerr(L);  /* error inside message handler */
+      luaD_errerr(L);  /* stack error inside message handler */
     return 0;  /* if not 'raiseerror', just signal it */
   }
   else if (n < MAXSTACK) {  /* avoids arithmetic overflows */
@@ -401,12 +428,6 @@ void luaD_shrinkstack (lua_State *L) {
   else  /* don't change stack */
     condmovestack(L,(void)0,(void)0);  /* (change only for debugging) */
   luaE_shrinkCI(L);  /* shrink CI list */
-}
-
-
-void luaD_inctop (lua_State *L) {
-  L->top.p++;
-  luaD_checkstack(L, 1);
 }
 
 /* }================================================================== */
@@ -479,7 +500,7 @@ static void rethook (lua_State *L, CallInfo *ci, int nres) {
     int ftransfer;
     if (isLua(ci)) {
       Proto *p = ci_func(ci)->p;
-      if (p->flag & PF_ISVARARG)
+      if (p->flag & PF_VAHID)
         delta = ci->u.l.nextraargs + p->numparams + 1;
     }
     ci->func.p += delta;  /* if vararg, back to virtual 'func' */
@@ -527,7 +548,7 @@ l_sinline void genmoveresults (lua_State *L, StkId res, int nres,
   for (i = 0; i < nres; i++)  /* move all results to correct place */
     setobjs2s(L, res + i, firstresult + i);
   for (; i < wanted; i++)  /* complete wanted number of results */
-    setnilvalue(s2v(res + i));
+    setnilvalue2s(res + i);
   L->top.p = res + wanted;  /* top points after the last result */
 }
 
@@ -547,7 +568,7 @@ l_sinline void moveresults (lua_State *L, StkId res, int nres,
       return;
     case 1 + 1:  /* one value needed */
       if (nres == 0)   /* no results? */
-        setnilvalue(s2v(res));  /* adjust with nil */
+        setnilvalue2s(res);  /* adjust with nil */
       else  /* at least one result */
         setobjs2s(L, res, L->top.p - nres);  /* move it to proper place */
       L->top.p = res + 1;
@@ -597,7 +618,7 @@ void luaD_poscall (lua_State *L, CallInfo *ci, int nres) {
 
 
 
-#define next_ci(L)  (L->ci->next ? L->ci->next : luaE_extendCI(L))
+#define next_ci(L)  (L->ci->next ? L->ci->next : luaE_extendCI(L, 1))
 
 
 /*
@@ -667,7 +688,7 @@ int luaD_pretailcall (lua_State *L, CallInfo *ci, StkId func,
         setobjs2s(L, ci->func.p + i, func + i);
       func = ci->func.p;  /* moved-down function */
       for (; narg1 <= nfixparams; narg1++)
-        setnilvalue(s2v(func + narg1));  /* complete missing arguments */
+        setnilvalue2s(func + narg1);  /* complete missing arguments */
       ci->top.p = func + 1 + fsize;  /* top for new function */
       lua_assert(ci->top.p <= L->stack_last.p);
       ci->u.l.savedpc = p->code;  /* starting point */
@@ -714,7 +735,7 @@ CallInfo *luaD_precall (lua_State *L, StkId func, int nresults) {
       L->ci = ci = prepCallInfo(L, func, status, func + 1 + fsize);
       ci->u.l.savedpc = p->code;  /* starting point */
       for (; narg < nfixparams; narg++)
-        setnilvalue(s2v(L->top.p++));  /* complete missing arguments */
+        setnilvalue2s(L->top.p++);  /* complete missing arguments */
       lua_assert(ci->top.p <= L->stack_last.p);
       return ci;
     }
@@ -1101,25 +1122,51 @@ static void checkmode (lua_State *L, const char *mode, const char *x) {
 }
 
 
+/*
+** Before the first call to the reader function, Lua reserves a slot
+** with a table for anchoring stuff.
+*/
 static void f_parser (lua_State *L, void *ud) {
   LClosure *cl;
   struct SParser *p = cast(struct SParser *, ud);
   const char *mode = p->mode ? p->mode : "bt";
-  int c = zgetc(p->z);  /* read first character */
+  int c;
+  Table *anchor;
+  ptrdiff_t otop = savestack(L, L->top.p);  /* original top */
+  luaD_checkstack(L, 2);
+  anchor = luaH_new(L);  /* create the anchor table */
+  sethvalue2s(L, L->top.p++, anchor);  /* anchor the anchor table */
+  c = zgetc(p->z);  /* read first character */
   if (c == LUA_SIGNATURE[0]) {
     int fixed = 0;
     if (strchr(mode, 'B') != NULL)
       fixed = 1;
     else
       checkmode(L, mode, "binary");
-    cl = luaU_undump(L, p->z, p->name, fixed);
+    cl = luaU_undump(L, p->z, anchor, p->name, fixed);
   }
   else {
     checkmode(L, mode, "text");
-    cl = luaY_parser(L, p->z, &p->buff, &p->dyd, p->name, c);
+    cl = luaY_parser(L, p->z, anchor, &p->buff, &p->dyd, p->name, c);
   }
+  L->top.p = restorestack(L, otop);  /* restore stack */
+  setclLvalue2s(L, L->top.p++, cl);  /* push closure */
   lua_assert(cl->nupvalues == cl->p->sizeupvalues);
   luaF_initupvals(L, cl);
+}
+
+
+/*
+** Anchor an object in a table in the stack.  First, anchor the object
+** temporarily in the stack, as luaH_set may call an emergency GC.
+** Then, add it in the table with itself as its key.
+*/
+void luaD_anchorobj (lua_State *L, Table *anchor, GCObject *obj) {
+  setgcovalue(L, s2v(L->top.p++), obj);  /* temporary anchor in the stack */
+  luaH_set(L, anchor, s2v(L->top.p - 1), s2v(L->top.p - 1));
+  /* Because this is a new key, luaH_set will call the GC barrier, so
+     we don't need to call the barrier again here */
+  L->top.p--;
 }
 
 

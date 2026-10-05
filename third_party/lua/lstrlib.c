@@ -141,8 +141,8 @@ static int str_rep (lua_State *L) {
   const char *s = luaL_checklstring(L, 1, &len);
   lua_Integer n = luaL_checkinteger(L, 2);
   const char *sep = luaL_optlstring(L, 3, "", &lsep);
-  if (n <= 0)
-    lua_pushliteral(L, "");
+  if (n <= 0 || (len | lsep) == 0)
+    lua_pushliteral(L, "");  /* no repetitions or both strings empty */
   else if (l_unlikely(len > MAX_SIZE - lsep ||
                cast_st2S(len + lsep) > cast_st2S(MAX_SIZE) / n))
     return luaL_error(L, "resulting string too large");
@@ -269,11 +269,18 @@ static int tonum (lua_State *L, int arg) {
 }
 
 
-static void trymt (lua_State *L, const char *mtname) {
+/*
+** To be here, either the first operand was a string or the first
+** operand didn't have a corresponding metamethod. (Otherwise, that
+** other metamethod would have been called.) So, if this metamethod
+** doesn't work, the only other option would be for the second
+** operand to have a different metamethod.
+*/
+static void trymt (lua_State *L, const char *mtkey, const char *opname) {
   lua_settop(L, 2);  /* back to the original arguments */
   if (l_unlikely(lua_type(L, 2) == LUA_TSTRING ||
-                 !luaL_getmetafield(L, 2, mtname)))
-    luaL_error(L, "attempt to %s a '%s' with a '%s'", mtname + 2,
+                 !luaL_getmetafield(L, 2, mtkey)))
+    luaL_error(L, "attempt to %s a '%s' with a '%s'", opname,
                   luaL_typename(L, -2), luaL_typename(L, -1));
   lua_insert(L, -3);  /* put metamethod before arguments */
   lua_call(L, 2, 1);  /* call metamethod */
@@ -284,7 +291,7 @@ static int arith (lua_State *L, int op, const char *mtname) {
   if (tonum(L, 1) && tonum(L, 2))
     lua_arith(L, op);  /* result will be on the top */
   else
-    trymt(L, mtname);
+    trymt(L, mtname, mtname + 2);
   return 1;
 }
 
@@ -750,19 +757,25 @@ static int nospecials (const char *p, size_t l) {
 }
 
 
+/*
+** Prepare state for matches. These fields are not affected by each match.
+*/
 static void prepstate (MatchState *ms, lua_State *L,
                        const char *s, size_t ls, const char *p, size_t lp) {
   ms->L = L;
-  ms->matchdepth = MAXCCALLS;
   ms->src_init = s;
   ms->src_end = s + ls;
   ms->p_end = p + lp;
 }
 
 
+/*
+** (Re)prepare state for a match, setting fields that change during
+** each match.
+*/
 static void reprepstate (MatchState *ms) {
+  ms->matchdepth = MAXCCALLS;
   ms->level = 0;
-  lua_assert(ms->matchdepth == MAXCCALLS);
 }
 
 
@@ -961,7 +974,7 @@ static int str_gsub (lua_State *L) {
     reprepstate(&ms);  /* (re)prepare state for new match */
     if ((e = match(&ms, src, p)) != NULL && e != lastmatch) {  /* match? */
       n++;
-      changed = add_value(&ms, &b, src, e, tr) | changed;
+      changed = add_value(&ms, &b, src, e, tr) || changed;
       src = lastmatch = e;
     }
     else if (src < ms.src_end)  /* otherwise, skip one character */
@@ -1719,7 +1732,7 @@ static int str_packsize (lua_State *L) {
     luaL_argcheck(L, opt != Kstring && opt != Kzstr, 1,
                      "variable-length format");
     size += ntoalign;  /* total space used by option */
-    luaL_argcheck(L, totalsize <= LUA_MAXINTEGER - size,
+    luaL_argcheck(L, totalsize <= MAX_SIZE - size,
                      1, "format result too large");
     totalsize += size;
   }

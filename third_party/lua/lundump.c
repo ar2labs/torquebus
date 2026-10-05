@@ -147,20 +147,20 @@ static void loadString (LoadState *S, Proto *p, TString **sl) {
   TString *ts;
   TValue sv;
   size_t size = loadSize(S);
-  if (size == 0) {  /* no string? */
-    lua_assert(*sl == NULL);  /* must be prefilled */
-    return;
-  }
-  else if (size == 1) {  /* previously saved string? */
+  if (size == 0) {  /* previously saved string? */
     lua_Unsigned idx = loadVarint(S, LUA_MAXUNSIGNED);  /* get its index */
     TValue stv;
+    if (idx == 0) {  /* no string? */
+      lua_assert(*sl == NULL);  /* must be prefilled */
+      return;
+    }
     if (novariant(luaH_getint(S->h, l_castU2S(idx), &stv)) != LUA_TSTRING)
       error(S, "invalid string index");
     *sl = ts = tsvalue(&stv);  /* get its value */
     luaC_objbarrier(L, p, ts);
     return;  /* do not save it again */
   }
-  else if ((size -= 2) <= LUAI_MAXSHORTLEN) {  /* short string? */
+  else if ((size -= 1) <= LUAI_MAXSHORTLEN) {  /* short string? */
     char buff[LUAI_MAXSHORTLEN + 1];  /* extra space for '\0' */
     loadVector(S, buff, size + 1);  /* load string into buffer */
     *sl = ts = luaS_newlstr(L, buff, size);  /* create string */
@@ -327,7 +327,8 @@ static void loadFunction (LoadState *S, Proto *f) {
   f->linedefined = loadInt(S);
   f->lastlinedefined = loadInt(S);
   f->numparams = loadByte(S);
-  f->flag = loadByte(S) & PF_ISVARARG;  /* get only the meaningful flags */
+  /* get only the meaningful flags */
+  f->flag = cast_byte(loadByte(S) & ~PF_FIXED);
   if (S->fixed)
     f->flag |= PF_FIXED;  /* signal that code is fixed */
   f->maxstacksize = loadByte(S);
@@ -391,7 +392,8 @@ static void checkHeader (LoadState *S) {
 /*
 ** Load precompiled chunk.
 */
-LClosure *luaU_undump (lua_State *L, ZIO *Z, const char *name, int fixed) {
+LClosure *luaU_undump (lua_State *L, ZIO *Z, Table *anchor, const char *name,
+                       int fixed) {
   LoadState S;
   LClosure *cl;
   if (*name == '@' || *name == '=')
@@ -404,20 +406,16 @@ LClosure *luaU_undump (lua_State *L, ZIO *Z, const char *name, int fixed) {
   S.fixed = cast_byte(fixed);
   S.offset = 1;  /* fist byte was already read */
   checkHeader(&S);
-  cl = luaF_newLclosure(L, loadByte(&S));
-  setclLvalue2s(L, L->top.p, cl);
-  luaD_inctop(L);
-  S.h = luaH_new(L);  /* create list of saved strings */
+  S.h = anchor;
   S.nstr = 0;
-  sethvalue2s(L, L->top.p, S.h);  /* anchor it */
-  luaD_inctop(L);
+  cl = luaF_newLclosure(L, loadByte(&S));
+  luaD_anchorobj(L, anchor, obj2gco(cl));
   cl->p = luaF_newproto(L);
   luaC_objbarrier(L, cl, cl->p);
   loadFunction(&S, cl->p);
   if (cl->nupvalues != cl->p->sizeupvalues)
     error(&S, "corrupted chunk");
   luai_verifycode(L, cl->p);
-  L->top.p--;  /* pop table */
   return cl;
 }
 

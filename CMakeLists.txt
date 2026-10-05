@@ -218,7 +218,7 @@ message(STATUS "  Compiler .............. ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_C
 message(STATUS "  Qt .................... ${Qt6_VERSION}")
 message(STATUS "  Docking ............... KDDockWidgets (FetchContent)")
 message(STATUS "  Tests ................. ${TORQUEBUS_BUILD_TESTS}")
-message(STATUS "  Scripting ............. Lua 5.5.0 (vendored)")
+message(STATUS "  Scripting ............. Lua 5.5.1 (vendored)")
 message(STATUS "  Kvaser backend ........ ${TORQUEBUS_HAVE_KVASER}")
 message(STATUS "  PEAK backend .......... ${TORQUEBUS_HAVE_PEAK}")
 message(STATUS "")
