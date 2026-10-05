@@ -513,12 +513,25 @@ static const luaL_Reg boxmt[] = {  /* box metamethods */
 };
 
 
+/*
+** Get/create metatable (MT) for boxes
+*/
+static void getBoxMT (lua_State *L) {
+  const char *BOXMT = "_UBOX*"; /* key for the metatable */
+  if (luaL_getmetatable(L, BOXMT) == LUA_TNIL) {  /* MT not created yet? */
+    luaL_newlibtable(L, boxmt);  /* create it */
+    luaL_setfuncs(L, boxmt, 0);  /* initialize it */
+    lua_copy(L, -1, -2);  /* change stack from nil,MT to MT,MT */
+    lua_setfield(L, LUA_REGISTRYINDEX, BOXMT);  /* store MT in the registry */
+  }
+}
+
+
 static void newbox (lua_State *L) {
   UBox *box = (UBox *)lua_newuserdatauv(L, sizeof(UBox), 0);
   box->box = NULL;
   box->bsize = 0;
-  if (luaL_newmetatable(L, "_UBOX*"))  /* creating metatable? */
-    luaL_setfuncs(L, boxmt, 0);  /* set its metamethods */
+  getBoxMT(L);
   lua_setmetatable(L, -2);
 }
 
@@ -742,7 +755,7 @@ typedef struct LoadF {
 
 static const char *getF (lua_State *L, void *ud, size_t *size) {
   LoadF *lf = (LoadF *)ud;
-  (void)L;  /* not used */
+  UNUSED(L);
   if (lf->n > 0) {  /* are there pre-read characters to be read? */
     *size = lf->n;  /* return them (chars already in buffer) */
     lf->n = 0;  /* no more pre-read characters */
@@ -856,7 +869,7 @@ typedef struct LoadS {
 
 static const char *getS (lua_State *L, void *ud, size_t *size) {
   LoadS *ls = (LoadS *)ud;
-  (void)L;  /* not used */
+  UNUSED(L);
   if (ls->size == 0) return NULL;
   *size = ls->size;
   ls->size = 0;
@@ -874,7 +887,7 @@ LUALIB_API int luaL_loadbufferx (lua_State *L, const char *buff, size_t size,
 
 
 LUALIB_API int luaL_loadstring (lua_State *L, const char *s) {
-  return luaL_loadbuffer(L, s, strlen(s), s);
+  return luaL_loadbufferx(L, s, strlen(s), s, "t");
 }
 
 /* }====================================================== */
@@ -1046,8 +1059,8 @@ LUALIB_API const char *luaL_gsub (lua_State *L, const char *s,
 }
 
 
-static void *l_alloc (void *ud, void *ptr, size_t osize, size_t nsize) {
-  (void)ud; (void)osize;  /* not used */
+void *luaL_alloc (void *ud, void *ptr, size_t osize, size_t nsize) {
+  UNUSED(ud); UNUSED(osize);
   if (nsize == 0) {
     free(ptr);
     return NULL;
@@ -1172,16 +1185,20 @@ static unsigned int luai_makeseed (void) {
 
 
 LUALIB_API unsigned int luaL_makeseed (lua_State *L) {
-  (void)L;  /* unused */
+  UNUSED(L);
   return luai_makeseed();
 }
 
 
-LUALIB_API lua_State *luaL_newstate (void) {
-  lua_State *L = lua_newstate(l_alloc, NULL, luai_makeseed());
+/*
+** Use the name with parentheses so that headers can redefine it
+** as a macro.
+*/
+LUALIB_API lua_State *(luaL_newstate) (void) {
+  lua_State *L = lua_newstate(luaL_alloc, NULL, luaL_makeseed(NULL));
   if (l_likely(L)) {
     lua_atpanic(L, &panic);
-    lua_setwarnf(L, warnfoff, L);  /* default is warnings off */
+    lua_setwarnf(L, warnfon, L);
   }
   return L;
 }

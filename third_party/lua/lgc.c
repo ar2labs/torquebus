@@ -594,10 +594,10 @@ static void traversestrongtable (global_State *g, Table *h) {
 */
 static int getmode (global_State *g, Table *h) {
   const TValue *mode = gfasttm(g, h->metatable, TM_MODE);
-  if (mode == NULL || !ttisshrstring(mode))
-    return 0;  /* ignore non-(short)string modes */
+  if (mode == NULL || !ttisstring(mode))
+    return 0;  /* ignore non-string modes */
   else {
-    const char *smode = getshrstr(tsvalue(mode));
+    const char *smode = getstr(tsvalue(mode));
     const char *weakkey = strchr(smode, 'k');
     const char *weakvalue = strchr(smode, 'v');
     return ((weakkey != NULL) << 1) | (weakvalue != NULL);
@@ -624,7 +624,7 @@ static l_mem traversetable (global_State *g, Table *h) {
         linkgclist(h, g->allweak);  /* must clear collected entries */
       break;
   }
-  return 1 + 2*sizenode(h) + h->asize;
+  return cast(l_mem, 1 + 2*sizenode(h) + h->asize);
 }
 
 
@@ -709,7 +709,7 @@ static l_mem traversethread (global_State *g, lua_State *th) {
     if (!g->gcemergency)
       luaD_shrinkstack(th); /* do not change stack in emergency cycle */
     for (o = th->top.p; o < th->stack_last.p + EXTRA_STACK; o++)
-      setnilvalue(s2v(o));  /* clear dead stack slice */
+      setnilvalue2s(o);  /* clear dead stack slice */
     /* 'remarkupvals' may have removed thread from 'twups' list */
     if (!isintwups(th) && th->openupval != NULL) {
       th->twups = g->twups;  /* link it back to the list */
@@ -1293,7 +1293,7 @@ static void finishgencycle (lua_State *L, global_State *g) {
   correctgraylists(g);
   checkSizes(L, g);
   g->gcstate = GCSpropagate;  /* skip restart */
-  if (!g->gcemergency)
+  if (g->tobefnz != NULL && !g->gcemergency && luaD_checkminstack(L))
     callallpendingfinalizers(L);
 }
 
@@ -1472,7 +1472,8 @@ static int checkmajorminor (lua_State *L, global_State *g) {
   if (g->gckind == KGC_GENMAJOR) {  /* generational mode? */
     l_mem numbytes = gettotalbytes(g);
     l_mem addedbytes = numbytes - g->GCmajorminor;
-    l_mem limit = applygcparam(g, MAJORMINOR, addedbytes);
+    l_mem limit = (addedbytes < 0) ? 0
+                                   : applygcparam(g, MAJORMINOR, addedbytes);
     l_mem tobecollected = numbytes - g->GCmarked;
     if (tobecollected > limit) {
       atomic2gen(L, g);  /* return to generational mode */
@@ -1667,12 +1668,13 @@ static l_mem singlestep (lua_State *L, int fast) {
       break;
     }
     case GCScallfin: {  /* call finalizers */
-      if (g->tobefnz && !g->gcemergency) {
+      if (g->tobefnz && !g->gcemergency && luaD_checkminstack(L)) {
         g->gcstopem = 0;  /* ok collections during finalizers */
         GCTM(L);  /* call one finalizer */
         stepresult = CWUFIN;
       }
-      else {  /* emergency mode or no more finalizers */
+      else {  /* no more finalizers or emergency mode or not enough stack
+                 to run finalizers */
         g->gcstate = GCSpause;  /* finish collection */
         stepresult = step2pause;
       }

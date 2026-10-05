@@ -3,26 +3,18 @@
 // TorqueBus Studio
 // Copyright (C) TorqueBus contributors
 //
-// A plain text editor that knows about lines.
-//
-// Two things only, and both exist for the same reason: a Lua error says
-// `ecu_motor.lua:42: '=' expected near 'end'`, and a text box with no line
-// numbers turns that 42 into counting with a finger down the screen.
-//
-//   * a gutter with line numbers, and
-//   * one line that can be marked as the one the error is on.
-//
-// Everything else - completion, folding, a project tree of scripts - is not
-// here on purpose. This is the editor for changing a number and pressing
-// Reload, and the people who want an IDE already have one open; a script kept
-// in a file goes on being editable there, and this panel picks the change up.
+// A plain text editor designed for writing and debugging Lua scripts.
+// Provides line numbers, error highlighting, auto-indentation, smart tabs,
+// comment toggling, zoom controls, and find/replace support.
 
 #pragma once
 
 #include <QPlainTextEdit>
 
+class QKeyEvent;
 class QPaintEvent;
 class QResizeEvent;
+class QWheelEvent;
 class QWidget;
 
 namespace torquebus::ui {
@@ -40,11 +32,6 @@ public:
 
     /// Marks one line as the one an error is on, and scrolls to it. Zero -
     /// which is not a line number - clears the mark.
-    ///
-    /// Marked rather than jumped to and selected: the error is information
-    /// about the text, and taking the cursor away from where somebody is typing
-    /// to make a point about a line they can already see is how an editor
-    /// becomes annoying to use.
     void setErrorLine(int line);
 
     [[nodiscard]] int errorLine() const noexcept { return m_errorLine; }
@@ -52,8 +39,37 @@ public:
     /// Re-applies font and colors matching the CAN Trace monospace standard.
     void applyTheme();
 
+    /// Professional editing actions
+    void toggleComment();
+    void indentSelection();
+    void unindentSelection();
+    void insertSnippet(const QString& snippet);
+
+    /// Zoom controls
+    void zoomIn(qreal delta = 1.0);
+    void zoomOut(qreal delta = 1.0);
+    void resetZoom();
+    [[nodiscard]] qreal pointSize() const noexcept { return m_pointSize; }
+
+    /// Search and replace operations
+    bool findText(const QString& query, bool matchCase, bool wholeWords, bool backward);
+    bool replaceCurrent(const QString& query,
+                        const QString& replacement,
+                        bool matchCase,
+                        bool wholeWords);
+    int
+    replaceAll(const QString& query, const QString& replacement, bool matchCase, bool wholeWords);
+
+    /// Cursor & document position info
+    [[nodiscard]] int currentLine() const;
+    [[nodiscard]] int currentColumn() const;
+    [[nodiscard]] int lineCount() const;
+    [[nodiscard]] int characterCount() const;
+
 protected:
     void resizeEvent(QResizeEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
 
 private Q_SLOTS:
     void updateLineNumberAreaWidth();
@@ -65,6 +81,9 @@ private:
 
     /// 1-based, or 0 for "no error".
     int m_errorLine{0};
+
+    /// Base font point size (default 10.0pt).
+    qreal m_pointSize{10.0};
 };
 
 } // namespace torquebus::ui

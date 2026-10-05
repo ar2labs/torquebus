@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 #
-# Lua 5.5.0, vendored.
+# Lua 5.5.1, vendored.
 #
 # Lua ships a Makefile, not a CMake build, so this file is ours. The sources
 # below are upstream and unmodified - the only thing TorqueBus adds is how they

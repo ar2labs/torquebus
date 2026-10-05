@@ -455,6 +455,9 @@ void MainWindow::createPanels()
                 if (m_projectExplorer != nullptr) {
                     m_projectExplorer->setDatabases(m_databasePanel->databasePaths());
                 }
+                if (m_scriptEditor != nullptr) {
+                    m_scriptEditor->setDatabases(m_databasePanel->databases());
+                }
             });
 
     // Reported in the Output panel and not in a message box, because the
@@ -594,6 +597,10 @@ void MainWindow::createPanels()
     // reported puts what happened in the Output panel.
     m_scriptEditor = new ScriptEditorPanel(m_pipeline);
     m_scriptEditor->setLibrary(&m_controller->engine().scriptLibrary());
+    if (m_databasePanel != nullptr) {
+        m_scriptEditor->setDatabases(m_databasePanel->databases());
+    }
+    m_scriptEditor->setVariables(&m_controller->engine().variables());
 
     connect(m_scriptEditor, &ScriptEditorPanel::nodeEdited, this, [this](const QString&) {
         onGraphEdited();
@@ -1951,6 +1958,10 @@ void MainWindow::onNewProject()
         m_projectExplorer->setProjectName({});
         m_projectExplorer->setDatabases({});
     }
+    if (m_scriptEditor != nullptr) {
+        m_scriptEditor->setDatabases({});
+        m_scriptEditor->setVariables(&m_controller->engine().variables());
+    }
 
     // Forgotten as the last project, so quitting from an empty canvas does not
     // reopen yesterday's work tomorrow. It stays on the recent list: New is a
@@ -2204,6 +2215,10 @@ void MainWindow::openProject(const QString& path)
         m_projectExplorer->setProjectName(QFileInfo{path}.completeBaseName());
         m_projectExplorer->setDatabases({});
     }
+    if (m_scriptEditor != nullptr) {
+        m_scriptEditor->setDatabases({});
+        m_scriptEditor->setVariables(&m_controller->engine().variables());
+    }
 
     const QDir projectDir = QFileInfo{path}.absoluteDir();
     QStringList missingDatabases;
@@ -2266,6 +2281,10 @@ void MainWindow::openProject(const QString& path)
         // launched from.
         m_scriptEditor->setBasePath(
             m_projectPath.isEmpty() ? QString{} : QFileInfo{m_projectPath}.absolutePath());
+        if (m_databasePanel != nullptr) {
+            m_scriptEditor->setDatabases(m_databasePanel->databases());
+        }
+        m_scriptEditor->setVariables(&m_controller->engine().variables());
     }
 
     // The dashboard was replaced wholesale too, and the panel is holding a
