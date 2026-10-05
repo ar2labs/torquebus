@@ -279,7 +279,8 @@ TEST(ScriptEditorPanelTests, RevertRestoresCommittedScript)
     // Call onRevert()
     panel.onRevert();
     EXPECT_FALSE(panel.isModified());
-    EXPECT_TRUE(panel.editor()->toPlainText().contains(QStringLiteral("ECU simulation initialized")));
+    EXPECT_TRUE(
+        panel.editor()->toPlainText().contains(QStringLiteral("ECU simulation initialized")));
 }
 
 TEST(ScriptEditorPanelTests, FilterReapplicationAcrossTreeUpdates)

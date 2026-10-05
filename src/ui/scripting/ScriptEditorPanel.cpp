@@ -324,7 +324,8 @@ void ScriptEditorPanel::setupToolbar()
     // --- Toggle Symbol & API Explorer Sidebar -----------------------------
     m_actionToggleSidebar =
         m_toolBar->addAction(getIcon(QStringLiteral("properties")), tr("Symbol Explorer"));
-    m_actionToggleSidebar->setToolTip(tr("Show or hide the Symbol & API Explorer sidebar (Ctrl+B)"));
+    m_actionToggleSidebar->setToolTip(
+        tr("Show or hide the Symbol & API Explorer sidebar (Ctrl+B)"));
     m_actionToggleSidebar->setShortcut(QKeySequence{Qt::CTRL | Qt::Key_B});
     m_actionToggleSidebar->setCheckable(true);
     m_actionToggleSidebar->setChecked(true);
@@ -581,13 +582,13 @@ void ScriptEditorPanel::showNode(const QString& descriptionId)
     }
 
     if (isModified() && isVisible()) {
-        const auto reply =
-            QMessageBox::question(this,
-                                  tr("Unsaved Changes"),
-                                  tr("The script for \"%1\" has unsaved changes. Do you want to save "
-                                     "before switching?")
-                                      .arg(m_nodeId.isEmpty() ? tr("Untitled") : m_nodeId),
-                                  QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
+        const auto reply = QMessageBox::question(
+            this,
+            tr("Unsaved Changes"),
+            tr("The script for \"%1\" has unsaved changes. Do you want to save "
+               "before switching?")
+                .arg(m_nodeId.isEmpty() ? tr("Untitled") : m_nodeId),
+            QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
 
         if (reply == QMessageBox::Save) {
             if (!onSave()) {
@@ -1009,12 +1010,12 @@ void ScriptEditorPanel::onRevert()
     }
 
     if (isVisible()) {
-        const auto reply = QMessageBox::question(
-            this,
-            tr("Revert Script"),
-            tr("Are you sure you want to discard all unsaved changes and revert to the last saved state?"),
-            QMessageBox::Yes | QMessageBox::No,
-            QMessageBox::No);
+        const auto reply = QMessageBox::question(this,
+                                                 tr("Revert Script"),
+                                                 tr("Are you sure you want to discard all unsaved "
+                                                    "changes and revert to the last saved state?"),
+                                                 QMessageBox::Yes | QMessageBox::No,
+                                                 QMessageBox::No);
 
         if (reply != QMessageBox::Yes) {
             return;
@@ -1415,8 +1416,10 @@ void ScriptEditorPanel::setupSidebar()
     m_insertSnippetBtn->setIcon(getIcon(QStringLiteral("add")));
     m_insertSnippetBtn->setToolTip(tr("Insert selected symbol or template code into editor"));
     m_insertSnippetBtn->setEnabled(false);
-    connect(
-        m_insertSnippetBtn, &QPushButton::clicked, this, &ScriptEditorPanel::onInsertSelectedSnippet);
+    connect(m_insertSnippetBtn,
+            &QPushButton::clicked,
+            this,
+            &ScriptEditorPanel::onInsertSelectedSnippet);
     detailsHeaderLayout->addWidget(m_insertSnippetBtn);
 
     detailsLayout->addLayout(detailsHeaderLayout);
@@ -1476,10 +1479,7 @@ void ScriptEditorPanel::setupSignalsTab(QWidget* parent)
             &ScriptEditorPanel::onSignalItemSelectionChanged);
 
     connect(
-        m_signalsTree,
-        &QTreeWidget::customContextMenuRequested,
-        this,
-        [this](const QPoint& pos) {
+        m_signalsTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
             QTreeWidgetItem* item = m_signalsTree->itemAt(pos);
             if (item == nullptr) {
                 return;
@@ -1608,10 +1608,7 @@ void ScriptEditorPanel::setupVariablesTab(QWidget* parent)
             &ScriptEditorPanel::onVariableItemSelectionChanged);
 
     connect(
-        m_variablesTree,
-        &QTreeWidget::customContextMenuRequested,
-        this,
-        [this](const QPoint& pos) {
+        m_variablesTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
             QTreeWidgetItem* item = m_variablesTree->itemAt(pos);
             if (item == nullptr) {
                 return;
@@ -1621,11 +1618,10 @@ void ScriptEditorPanel::setupVariablesTab(QWidget* parent)
             if (type == QStringLiteral("variable")) {
                 const QString varName = item->data(0, Qt::UserRole + 1).toString();
                 QMenu menu(this);
-                menu.addAction(
-                    tr("Insert var_get(\"%1\")").arg(varName), this, [this, varName] {
-                        m_editor->insertSnippet(
-                            QStringLiteral("local %1 = var_get(\"%1\")\n").arg(varName));
-                    });
+                menu.addAction(tr("Insert var_get(\"%1\")").arg(varName), this, [this, varName] {
+                    m_editor->insertSnippet(
+                        QStringLiteral("local %1 = var_get(\"%1\")\n").arg(varName));
+                });
                 menu.addAction(
                     tr("Insert var_set(\"%1\", value)").arg(varName), this, [this, varName] {
                         m_editor->insertSnippet(
@@ -1701,10 +1697,10 @@ void ScriptEditorPanel::populateSignalsTree()
                 auto* sigItem = new QTreeWidgetItem(msgItem);
                 sigItem->setIcon(0, sig.isMultiplexer ? sigMuxIcon : sigIcon);
                 sigItem->setText(0, QString::fromStdString(sig.name));
-                const QString unitStr = sig.unit.empty()
-                                            ? QString()
-                                            : QStringLiteral(" [%1]").arg(
-                                                  QString::fromStdString(sig.unit));
+                const QString unitStr =
+                    sig.unit.empty()
+                        ? QString()
+                        : QStringLiteral(" [%1]").arg(QString::fromStdString(sig.unit));
                 sigItem->setText(1, QStringLiteral("%1b%2").arg(sig.bitLength).arg(unitStr));
 
                 sigItem->setData(0, Qt::UserRole, QStringLiteral("signal"));
@@ -1716,7 +1712,7 @@ void ScriptEditorPanel::populateSignalsTree()
                 sigItem->setData(0,
                                  Qt::UserRole + 6,
                                  sig.byteOrder == ByteOrder::Intel ? QStringLiteral("Intel")
-                                                                    : QStringLiteral("Motorola"));
+                                                                   : QStringLiteral("Motorola"));
                 sigItem->setData(0, Qt::UserRole + 7, sig.factor);
                 sigItem->setData(0, Qt::UserRole + 8, sig.offset);
                 sigItem->setData(0, Qt::UserRole + 9, sig.minimum);
@@ -1746,9 +1742,11 @@ void ScriptEditorPanel::populateFunctionsTree()
     const QIcon eventIcon = themes != nullptr ? themes->icon(QStringLiteral("start")) : funcIcon;
     const QIcon txIcon = themes != nullptr ? themes->icon(QStringLiteral("transmit")) : funcIcon;
     const QIcon rxIcon = themes != nullptr ? themes->icon(QStringLiteral("trace")) : funcIcon;
-    const QIcon timerIcon = themes != nullptr ? themes->icon(QStringLiteral("time-format")) : funcIcon;
+    const QIcon timerIcon =
+        themes != nullptr ? themes->icon(QStringLiteral("time-format")) : funcIcon;
     const QIcon varIcon = themes != nullptr ? themes->icon(QStringLiteral("gauge")) : funcIcon;
-    const QIcon diagIcon = themes != nullptr ? themes->icon(QStringLiteral("diagnostics")) : funcIcon;
+    const QIcon diagIcon =
+        themes != nullptr ? themes->icon(QStringLiteral("diagnostics")) : funcIcon;
     const QIcon testIcon = themes != nullptr ? themes->icon(QStringLiteral("test")) : funcIcon;
     const QIcon utilIcon = themes != nullptr ? themes->icon(QStringLiteral("console")) : funcIcon;
 
@@ -1763,137 +1761,272 @@ void ScriptEditorPanel::populateFunctionsTree()
 
     const std::vector<ApiEntry> entries = {
         // --- Event Handlers (Callbacks) ---
-        {tr("Event Handlers"), eventIcon, QStringLiteral("on_start"), QStringLiteral("function on_start()"),
-         tr("Called once when measurement begins or script is hot-reloaded. Ideal for initializing timers and state variables."),
-         QStringLiteral("function on_start()\n    log_message(\"Simulation initialized\")\n    set_timer(50) -- 20 Hz\nend\n")},
-        {tr("Event Handlers"), eventIcon, QStringLiteral("on_message"), QStringLiteral("function on_message(frame)"),
-         tr("Called on every incoming CAN frame. Provides frame.id, frame.data, frame.channel, and frame.extended."),
-         QStringLiteral("function on_message(frame)\n    if frame.id == 0x100 then\n        -- Process frame data\n    end\nend\n")},
-        {tr("Event Handlers"), eventIcon, QStringLiteral("on_timer"), QStringLiteral("function on_timer(interval_ms)"),
+        {tr("Event Handlers"),
+         eventIcon,
+         QStringLiteral("on_start"),
+         QStringLiteral("function on_start()"),
+         tr("Called once when measurement begins or script is hot-reloaded. Ideal for initializing "
+            "timers and state variables."),
+         QStringLiteral("function on_start()\n    log_message(\"Simulation initialized\")\n    "
+                        "set_timer(50) -- 20 Hz\nend\n")},
+        {tr("Event Handlers"),
+         eventIcon,
+         QStringLiteral("on_message"),
+         QStringLiteral("function on_message(frame)"),
+         tr("Called on every incoming CAN frame. Provides frame.id, frame.data, frame.channel, and "
+            "frame.extended."),
+         QStringLiteral("function on_message(frame)\n    if frame.id == 0x100 then\n        -- "
+                        "Process frame data\n    end\nend\n")},
+        {tr("Event Handlers"),
+         eventIcon,
+         QStringLiteral("on_timer"),
+         QStringLiteral("function on_timer(interval_ms)"),
          tr("Called periodically at the interval configured by set_timer(ms)."),
          QStringLiteral("function on_timer(interval_ms)\n    -- Periodic execution logic\nend\n")},
-        {tr("Event Handlers"), eventIcon, QStringLiteral("on_stop"), QStringLiteral("function on_stop()"),
+        {tr("Event Handlers"),
+         eventIcon,
+         QStringLiteral("on_stop"),
+         QStringLiteral("function on_stop()"),
          tr("Called when measurement stops. Use for teardown and cleanup operations."),
          QStringLiteral("function on_stop()\n    log_message(\"Simulation stopped\")\nend\n")},
-        {tr("Event Handlers"), eventIcon, QStringLiteral("on_security_seed"), QStringLiteral("function on_security_seed(seed)"),
-         tr("Called when UDS SecurityAccess (0x27) request arrives. Return the expected unlock key."),
-         QStringLiteral("function on_security_seed(seed)\n    -- Compute and return response key\n    return seed\nend\n")},
-        {tr("Event Handlers"), eventIcon, QStringLiteral("on_uds_request"), QStringLiteral("function on_uds_request(request)"),
-         tr("Custom UDS diagnostic request hook. Return response payload bytes, or nil to let the server handle it."),
-         QStringLiteral("function on_uds_request(request)\n    -- Return response bytes or nil\n    return nil\nend\n")},
+        {tr("Event Handlers"),
+         eventIcon,
+         QStringLiteral("on_security_seed"),
+         QStringLiteral("function on_security_seed(seed)"),
+         tr("Called when UDS SecurityAccess (0x27) request arrives. Return the expected unlock "
+            "key."),
+         QStringLiteral("function on_security_seed(seed)\n    -- Compute and return response key\n "
+                        "   return seed\nend\n")},
+        {tr("Event Handlers"),
+         eventIcon,
+         QStringLiteral("on_uds_request"),
+         QStringLiteral("function on_uds_request(request)"),
+         tr("Custom UDS diagnostic request hook. Return response payload bytes, or nil to let the "
+            "server handle it."),
+         QStringLiteral("function on_uds_request(request)\n    -- Return response bytes or nil\n   "
+                        " return nil\nend\n")},
 
         // --- CAN Transmit & Cyclic ---
-        {tr("CAN Transmit"), txIcon, QStringLiteral("emit"), QStringLiteral("emit(id, data, [options])"),
-         tr("Transmits a raw CAN frame on this node's output port. Options: {channel = 0, extended = false}."),
+        {tr("CAN Transmit"),
+         txIcon,
+         QStringLiteral("emit"),
+         QStringLiteral("emit(id, data, [options])"),
+         tr("Transmits a raw CAN frame on this node's output port. Options: {channel = 0, extended "
+            "= false}."),
          QStringLiteral("emit(0x100, \"\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\")\n")},
-        {tr("CAN Transmit"), txIcon, QStringLiteral("emit_signal"), QStringLiteral("emit_signal(signal_name, value)"),
-         tr("Packs physical value into its message according to loaded DBC and transmits the frame."),
+        {tr("CAN Transmit"),
+         txIcon,
+         QStringLiteral("emit_signal"),
+         QStringLiteral("emit_signal(signal_name, value)"),
+         tr("Packs physical value into its message according to loaded DBC and transmits the "
+            "frame."),
          QStringLiteral("emit_signal(\"EngineSpeed\", 2500.0)\n")},
-        {tr("CAN Transmit"), txIcon, QStringLiteral("cyclic"), QStringLiteral("cyclic(id, ms, payload_or_fn)"),
-         tr("Registers autonomous periodic transmission of a frame at given interval in milliseconds."),
-         QStringLiteral("cyclic(0x100, 50, function()\n    return \"\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\"\nend)\n")},
-        {tr("CAN Transmit"), txIcon, QStringLiteral("stop_cyclic"), QStringLiteral("stop_cyclic(id)"),
+        {tr("CAN Transmit"),
+         txIcon,
+         QStringLiteral("cyclic"),
+         QStringLiteral("cyclic(id, ms, payload_or_fn)"),
+         tr("Registers autonomous periodic transmission of a frame at given interval in "
+            "milliseconds."),
+         QStringLiteral("cyclic(0x100, 50, function()\n    return "
+                        "\"\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\"\nend)\n")},
+        {tr("CAN Transmit"),
+         txIcon,
+         QStringLiteral("stop_cyclic"),
+         QStringLiteral("stop_cyclic(id)"),
          tr("Stops an active cyclic transmission previously registered with cyclic()."),
          QStringLiteral("stop_cyclic(0x100)\n")},
-        {tr("CAN Transmit"), txIcon, QStringLiteral("fault"), QStringLiteral("fault(frame, fault_type)"),
+        {tr("CAN Transmit"),
+         txIcon,
+         QStringLiteral("fault"),
+         QStringLiteral("fault(frame, fault_type)"),
          tr("Injects bus error or frame corruption for robustness testing."),
          QStringLiteral("fault(frame, \"crc\")\n")},
 
         // --- CAN Receive & Query ---
-        {tr("CAN Receive"), rxIcon, QStringLiteral("decode"), QStringLiteral("decode(frame)"),
-         tr("Decodes CAN frame payload into a dictionary of physical signal values using the loaded DBC."),
-         QStringLiteral("local signals = decode(frame)\nif signals and signals.EngineSpeed then\n    local speed = signals.EngineSpeed\nend\n")},
-        {tr("CAN Receive"), rxIcon, QStringLiteral("bus_last"), QStringLiteral("bus_last(id)"),
+        {tr("CAN Receive"),
+         rxIcon,
+         QStringLiteral("decode"),
+         QStringLiteral("decode(frame)"),
+         tr("Decodes CAN frame payload into a dictionary of physical signal values using the "
+            "loaded DBC."),
+         QStringLiteral("local signals = decode(frame)\nif signals and signals.EngineSpeed then\n  "
+                        "  local speed = signals.EngineSpeed\nend\n")},
+        {tr("CAN Receive"),
+         rxIcon,
+         QStringLiteral("bus_last"),
+         QStringLiteral("bus_last(id)"),
          tr("Retrieves the last frame observed on the bus for the given identifier."),
          QStringLiteral("local last = bus_last(0x100)\n")},
-        {tr("CAN Receive"), rxIcon, QStringLiteral("bus_stats"), QStringLiteral("bus_stats()"),
+        {tr("CAN Receive"),
+         rxIcon,
+         QStringLiteral("bus_stats"),
+         QStringLiteral("bus_stats()"),
          tr("Retrieves bus statistics including load percentage, frame counts, and errors."),
          QStringLiteral("local stats = bus_stats()\n")},
 
         // --- Timers & Clock ---
-        {tr("Timers & Time"), timerIcon, QStringLiteral("set_timer"), QStringLiteral("set_timer(interval_ms)"),
+        {tr("Timers & Time"),
+         timerIcon,
+         QStringLiteral("set_timer"),
+         QStringLiteral("set_timer(interval_ms)"),
          tr("Configures the recurrence period for the on_timer(interval_ms) callback."),
          QStringLiteral("set_timer(50) -- 20 Hz\n")},
-        {tr("Timers & Time"), timerIcon, QStringLiteral("every"), QStringLiteral("every(interval_ms, fn)"),
+        {tr("Timers & Time"),
+         timerIcon,
+         QStringLiteral("every"),
+         QStringLiteral("every(interval_ms, fn)"),
          tr("Schedules an independent software timer callback executing at the given interval."),
          QStringLiteral("every(100, function()\n    -- 100 ms recurring task\nend)\n")},
-        {tr("Timers & Time"), timerIcon, QStringLiteral("get_time_us"), QStringLiteral("get_time_us()"),
+        {tr("Timers & Time"),
+         timerIcon,
+         QStringLiteral("get_time_us"),
+         QStringLiteral("get_time_us()"),
          tr("Returns measurement time in microseconds elapsed since Start."),
          QStringLiteral("local us = get_time_us()\n")},
-        {tr("Timers & Time"), timerIcon, QStringLiteral("tb.now"), QStringLiteral("tb.now()"),
+        {tr("Timers & Time"),
+         timerIcon,
+         QStringLiteral("tb.now"),
+         QStringLiteral("tb.now()"),
          tr("Returns measurement time in fractional seconds (float)."),
          QStringLiteral("local sec = tb.now()\n")},
 
         // --- System Variables ---
-        {tr("System Variables"), varIcon, QStringLiteral("var_get"), QStringLiteral("var_get(name)"),
-         tr("Reads atomic value of a system variable shared with Dashboard gauges, sliders, and nodes."),
+        {tr("System Variables"),
+         varIcon,
+         QStringLiteral("var_get"),
+         QStringLiteral("var_get(name)"),
+         tr("Reads atomic value of a system variable shared with Dashboard gauges, sliders, and "
+            "nodes."),
          QStringLiteral("local value = var_get(\"VariableName\")\n")},
-        {tr("System Variables"), varIcon, QStringLiteral("var_set"), QStringLiteral("var_set(name, value)"),
+        {tr("System Variables"),
+         varIcon,
+         QStringLiteral("var_set"),
+         QStringLiteral("var_set(name, value)"),
          tr("Writes atomic value to a system variable shared across the project."),
          QStringLiteral("var_set(\"VariableName\", 100.0)\n")},
 
         // --- Diagnostics (UDS) ---
-        {tr("Diagnostics (UDS)"), diagIcon, QStringLiteral("uds_did"), QStringLiteral("uds_did(did, value, [options])"),
+        {tr("Diagnostics (UDS)"),
+         diagIcon,
+         QStringLiteral("uds_did"),
+         QStringLiteral("uds_did(did, value, [options])"),
          tr("Registers or updates a UDS Data Identifier (DID) for simulated ECU diagnostics."),
          QStringLiteral("uds_did(0xF190, \"WVWZZZ1KZ9W123456\")\n")},
-        {tr("Diagnostics (UDS)"), diagIcon, QStringLiteral("uds_dtc"), QStringLiteral("uds_dtc(dtc, status)"),
+        {tr("Diagnostics (UDS)"),
+         diagIcon,
+         QStringLiteral("uds_dtc"),
+         QStringLiteral("uds_dtc(dtc, status)"),
          tr("Registers or updates a Diagnostic Trouble Code (DTC) in simulated fault memory."),
          QStringLiteral("uds_dtc(0x012800, 0x2F)\n")},
-        {tr("Diagnostics (UDS)"), diagIcon, QStringLiteral("uds_clear_dtc"), QStringLiteral("uds_clear_dtc()"),
+        {tr("Diagnostics (UDS)"),
+         diagIcon,
+         QStringLiteral("uds_clear_dtc"),
+         QStringLiteral("uds_clear_dtc()"),
          tr("Clears all active DTC faults in ECU diagnostic memory."),
          QStringLiteral("uds_clear_dtc()\n")},
-        {tr("Diagnostics (UDS)"), diagIcon, QStringLiteral("uds_session"), QStringLiteral("uds_session()"),
+        {tr("Diagnostics (UDS)"),
+         diagIcon,
+         QStringLiteral("uds_session"),
+         QStringLiteral("uds_session()"),
          tr("Returns current diagnostic session ID (Default, Extended, Programming)."),
          QStringLiteral("local session = uds_session()\n")},
 
         // --- Signal Generators (tb.*) ---
-        {tr("Signal Generators"), funcIcon, QStringLiteral("tb.ramp"), QStringLiteral("tb.ramp(low, high, period)"),
+        {tr("Signal Generators"),
+         funcIcon,
+         QStringLiteral("tb.ramp"),
+         QStringLiteral("tb.ramp(low, high, period)"),
          tr("Returns a generator function sweeping linearly from low to high over period seconds."),
          QStringLiteral("local gen_ramp = tb.ramp(0, 100, 10)\n")},
-        {tr("Signal Generators"), funcIcon, QStringLiteral("tb.sine"), QStringLiteral("tb.sine(low, high, period)"),
+        {tr("Signal Generators"),
+         funcIcon,
+         QStringLiteral("tb.sine"),
+         QStringLiteral("tb.sine(low, high, period)"),
          tr("Returns a generator function oscillating sinusoidally between low and high."),
          QStringLiteral("local gen_sine = tb.sine(800, 6000, 5)\n")},
-        {tr("Signal Generators"), funcIcon, QStringLiteral("tb.square"), QStringLiteral("tb.square(low, high, period)"),
+        {tr("Signal Generators"),
+         funcIcon,
+         QStringLiteral("tb.square"),
+         QStringLiteral("tb.square(low, high, period)"),
          tr("Returns a generator function alternating between low and high 50% duty cycle."),
          QStringLiteral("local gen_square = tb.square(0, 1, 2)\n")},
-        {tr("Signal Generators"), funcIcon, QStringLiteral("tb.drift"), QStringLiteral("tb.drift(low, high, step)"),
+        {tr("Signal Generators"),
+         funcIcon,
+         QStringLiteral("tb.drift"),
+         QStringLiteral("tb.drift(low, high, step)"),
          tr("Returns a generator simulating realistic sensor random drift noise within bounds."),
          QStringLiteral("local gen_drift = tb.drift(19.0, 25.0, 0.2)\n")},
-        {tr("Signal Generators"), funcIcon, QStringLiteral("tb.counter"), QStringLiteral("tb.counter(bits)"),
+        {tr("Signal Generators"),
+         funcIcon,
+         QStringLiteral("tb.counter"),
+         QStringLiteral("tb.counter(bits)"),
          tr("Returns a rolling rollover counter generator (e.g. 4 bits = 0..15)."),
          QStringLiteral("local roll_cnt = tb.counter(4)\n")},
-        {tr("Signal Generators"), funcIcon, QStringLiteral("tb.e2e"), QStringLiteral("tb.e2e(payload, counter)"),
+        {tr("Signal Generators"),
+         funcIcon,
+         QStringLiteral("tb.e2e"),
+         QStringLiteral("tb.e2e(payload, counter)"),
          tr("Builds AUTOSAR End-to-End Profile 1 payload with CRC-8 and rolling alive counter."),
          QStringLiteral("local body = tb.e2e(payload, roll_cnt())\n")},
 
         // --- Testing Framework ---
-        {tr("Test Framework"), testIcon, QStringLiteral("test"), QStringLiteral("test(name, fn)"),
+        {tr("Test Framework"),
+         testIcon,
+         QStringLiteral("test"),
+         QStringLiteral("test(name, fn)"),
          tr("Declares an asynchronous test case executed in a coroutine sequence."),
-         QStringLiteral("test(\"Verify engine idle speed\", function()\n    wait(100)\n    assert_between(signals.EngineSpeed or 0, 750, 850, \"Idle speed in range\")\nend)\n")},
-        {tr("Test Framework"), testIcon, QStringLiteral("wait"), QStringLiteral("wait(milliseconds)"),
+         QStringLiteral("test(\"Verify engine idle speed\", function()\n    wait(100)\n    "
+                        "assert_between(signals.EngineSpeed or 0, 750, 850, \"Idle speed in "
+                        "range\")\nend)\n")},
+        {tr("Test Framework"),
+         testIcon,
+         QStringLiteral("wait"),
+         QStringLiteral("wait(milliseconds)"),
          tr("Yields test coroutine for the specified delay while measurement continues."),
          QStringLiteral("wait(100)\n")},
-        {tr("Test Framework"), testIcon, QStringLiteral("expect"), QStringLiteral("expect(id, [options])"),
+        {tr("Test Framework"),
+         testIcon,
+         QStringLiteral("expect"),
+         QStringLiteral("expect(id, [options])"),
          tr("Awaits a CAN frame with timeout (within=ms) and optional predicate (where=fn)."),
-         QStringLiteral("local frame = expect(0x100, { within = 500 })\nassert_true(frame ~= nil, \"Frame 0x100 received\")\n")},
-        {tr("Test Framework"), testIcon, QStringLiteral("assert_true"), QStringLiteral("assert_true(cond, desc)"),
+         QStringLiteral("local frame = expect(0x100, { within = 500 })\nassert_true(frame ~= nil, "
+                        "\"Frame 0x100 received\")\n")},
+        {tr("Test Framework"),
+         testIcon,
+         QStringLiteral("assert_true"),
+         QStringLiteral("assert_true(cond, desc)"),
          tr("Verifies condition is true; records check in test report and fails case if false."),
          QStringLiteral("assert_true(speed > 0, \"Vehicle is moving\")\n")},
-        {tr("Test Framework"), testIcon, QStringLiteral("assert_equal"), QStringLiteral("assert_equal(act, exp, desc)"),
+        {tr("Test Framework"),
+         testIcon,
+         QStringLiteral("assert_equal"),
+         QStringLiteral("assert_equal(act, exp, desc)"),
          tr("Verifies actual value equals expected value."),
          QStringLiteral("assert_equal(gear, 1, \"Gear is first\")\n")},
-        {tr("Test Framework"), testIcon, QStringLiteral("assert_near"), QStringLiteral("assert_near(act, exp, tol, desc)"),
+        {tr("Test Framework"),
+         testIcon,
+         QStringLiteral("assert_near"),
+         QStringLiteral("assert_near(act, exp, tol, desc)"),
          tr("Verifies floating-point value is within tolerance of expected value."),
          QStringLiteral("assert_near(voltage, 12.6, 0.2, \"Battery voltage normal\")\n")},
-        {tr("Test Framework"), testIcon, QStringLiteral("assert_between"), QStringLiteral("assert_between(act, low, high, desc)"),
+        {tr("Test Framework"),
+         testIcon,
+         QStringLiteral("assert_between"),
+         QStringLiteral("assert_between(act, low, high, desc)"),
          tr("Verifies actual value falls between low and high limits."),
          QStringLiteral("assert_between(temp, 85.0, 95.0, \"Coolant temp in range\")\n")},
 
         // --- Output & Logging ---
-        {tr("Output & Logging"), utilIcon, QStringLiteral("log_message"), QStringLiteral("log_message(text)"),
+        {tr("Output & Logging"),
+         utilIcon,
+         QStringLiteral("log_message"),
+         QStringLiteral("log_message(text)"),
          tr("Prints informational line to the TorqueBus Studio Output panel."),
          QStringLiteral("log_message(\"Checkpoint reached\")\n")},
-        {tr("Output & Logging"), utilIcon, QStringLiteral("print"), QStringLiteral("print(...)"),
+        {tr("Output & Logging"),
+         utilIcon,
+         QStringLiteral("print"),
+         QStringLiteral("print(...)"),
          tr("Standard Lua output printed to log."),
          QStringLiteral("print(\"Value: \" .. tostring(val))\n")},
     };
@@ -1940,7 +2073,8 @@ void ScriptEditorPanel::populateVariablesTree()
 
     ThemeManager* themes = ThemeManager::instance();
     const QIcon varIcon = themes != nullptr ? themes->icon(QStringLiteral("gauge")) : QIcon{};
-    const QIcon paramIcon = themes != nullptr ? themes->icon(QStringLiteral("properties")) : varIcon;
+    const QIcon paramIcon =
+        themes != nullptr ? themes->icon(QStringLiteral("properties")) : varIcon;
 
     // 1. System Variables Group
     auto* sysGroup = new QTreeWidgetItem(m_variablesTree);
@@ -1977,20 +2111,33 @@ void ScriptEditorPanel::populateVariablesTree()
     paramGroup->setText(1, tr("Read-only context"));
     paramGroup->setData(0, Qt::UserRole, QStringLiteral("category"));
 
-    auto addParam = [&](const QString& name, const QString& type, const QString& desc, const QString& snippet) {
-        auto* item = new QTreeWidgetItem(paramGroup);
-        item->setIcon(0, paramIcon);
-        item->setText(0, name);
-        item->setText(1, type);
-        item->setData(0, Qt::UserRole, QStringLiteral("parameter"));
-        item->setData(0, Qt::UserRole + 1, snippet);
-        item->setData(0, Qt::UserRole + 2, desc);
-    };
+    auto addParam =
+        [&](const QString& name, const QString& type, const QString& desc, const QString& snippet) {
+            auto* item = new QTreeWidgetItem(paramGroup);
+            item->setIcon(0, paramIcon);
+            item->setText(0, name);
+            item->setText(1, type);
+            item->setData(0, Qt::UserRole, QStringLiteral("parameter"));
+            item->setData(0, Qt::UserRole + 1, snippet);
+            item->setData(0, Qt::UserRole + 2, desc);
+        };
 
-    addParam(QStringLiteral("channel"), tr("Integer (0..N)"), tr("CAN Channel this ECU transmits and receives on."), QStringLiteral("channel"));
-    addParam(QStringLiteral("parameters.channel"), tr("Integer"), tr("Node parameter for CAN channel."), QStringLiteral("parameters.channel"));
-    addParam(QStringLiteral("parameters.scriptPath"), tr("String"), tr("Path to the loaded external script file."), QStringLiteral("parameters.scriptPath"));
-    addParam(QStringLiteral("descriptionId"), tr("String"), tr("Unique node ID in the pipeline graph."), QStringLiteral("\"%1\"").arg(m_nodeId));
+    addParam(QStringLiteral("channel"),
+             tr("Integer (0..N)"),
+             tr("CAN Channel this ECU transmits and receives on."),
+             QStringLiteral("channel"));
+    addParam(QStringLiteral("parameters.channel"),
+             tr("Integer"),
+             tr("Node parameter for CAN channel."),
+             QStringLiteral("parameters.channel"));
+    addParam(QStringLiteral("parameters.scriptPath"),
+             tr("String"),
+             tr("Path to the loaded external script file."),
+             QStringLiteral("parameters.scriptPath"));
+    addParam(QStringLiteral("descriptionId"),
+             tr("String"),
+             tr("Unique node ID in the pipeline graph."),
+             QStringLiteral("\"%1\"").arg(m_nodeId));
 
     paramGroup->setExpanded(true);
 
@@ -2042,8 +2189,7 @@ bool ScriptEditorPanel::applyTreeFilter(QTreeWidgetItem* item, const QString& ne
         }
     }
 
-    const bool matches = needle.isEmpty()
-                         || item->text(0).contains(needle, Qt::CaseInsensitive)
+    const bool matches = needle.isEmpty() || item->text(0).contains(needle, Qt::CaseInsensitive)
                          || item->text(1).contains(needle, Qt::CaseInsensitive);
 
     const bool visible = matches || anyChildVisible;
@@ -2159,12 +2305,11 @@ void ScriptEditorPanel::onFunctionItemSelectionChanged()
     const QString description = item->data(0, Qt::UserRole + 3).toString();
     const QString snippet = item->data(0, Qt::UserRole + 4).toString();
 
-    const QString html = QStringLiteral("<b><code>%1</code></b><br/>"
-                                        "<i>%2</i><br/><br/>"
-                                        "<b>Snippet:</b><br/><code>%3</code>")
-                             .arg(signature.toHtmlEscaped(),
-                                  description.toHtmlEscaped(),
-                                  snippet.toHtmlEscaped());
+    const QString html =
+        QStringLiteral("<b><code>%1</code></b><br/>"
+                       "<i>%2</i><br/><br/>"
+                       "<b>Snippet:</b><br/><code>%3</code>")
+            .arg(signature.toHtmlEscaped(), description.toHtmlEscaped(), snippet.toHtmlEscaped());
     m_detailsText->setHtml(html);
     if (m_insertSnippetBtn != nullptr) {
         m_insertSnippetBtn->setEnabled(true);
@@ -2244,8 +2389,8 @@ void ScriptEditorPanel::onFunctionItemDoubleClicked(QTreeWidgetItem* item, int /
     }
     const QString snippet = item->data(0, Qt::UserRole + 4).toString();
     if (!snippet.isEmpty()) {
-        m_editor->insertSnippet(
-            snippet.endsWith(QLatin1Char('\n')) ? snippet : snippet + QLatin1Char('\n'));
+        m_editor->insertSnippet(snippet.endsWith(QLatin1Char('\n')) ? snippet
+                                                                    : snippet + QLatin1Char('\n'));
     }
 }
 
