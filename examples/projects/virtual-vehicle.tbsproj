@@ -2,6 +2,21 @@
     "application": "TorqueBus Studio",
     "dashboard": {
         "widgets": [
+            {
+                "binding": {
+                },
+                "height": 315,
+                "id": "cluster",
+                "kind": "cluster",
+                "maximum": 100,
+                "minimum": 0,
+                "position": {
+                    "x": 20,
+                    "y": 20
+                },
+                "profile": "example-11bit",
+                "width": 720
+            }
         ]
     },
     "databases": [
