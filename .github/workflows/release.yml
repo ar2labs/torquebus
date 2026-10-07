@@ -57,7 +57,11 @@ jobs:
       - name: Package
         run: |
           cmake --install build/windows-msvc-release --prefix dist --component torquebus
-          windeployqt --release --no-translations dist/TorqueBusStudio.exe
+
+          # --qmldir is how windeployqt learns which of Qt's QML modules the
+          # application uses: they are plugins the QML engine loads by name, and
+          # nothing imports them. See the same step in ci.yml.
+          windeployqt --release --no-translations --qmldir src/ui/dashboard/cluster/qml dist/TorqueBusStudio.exe
 
           # And once per plugin, into the same directory. windeployqt asks the
           # binary it is given what it needs, and the executable does not link
