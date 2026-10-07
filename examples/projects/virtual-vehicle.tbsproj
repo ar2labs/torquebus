@@ -2,11 +2,26 @@
     "application": "TorqueBus Studio",
     "dashboard": {
         "widgets": [
+            {
+                "binding": {
+                },
+                "height": 315,
+                "id": "cluster",
+                "kind": "cluster",
+                "maximum": 100,
+                "minimum": 0,
+                "position": {
+                    "x": 20,
+                    "y": 20
+                },
+                "profile": "example-11bit",
+                "width": 720
+            }
         ]
     },
     "databases": [
-        "D:/Code/qt/TorqueBus/examples/databases/ecu.dbc",
-        "D:/Code/qt/TorqueBus/examples/databases/vehicle.dbc"
+        "../databases/ecu.dbc",
+        "../databases/vehicle.dbc"
     ],
     "pipeline": {
         "edges": [

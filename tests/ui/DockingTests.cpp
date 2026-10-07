@@ -5,6 +5,10 @@
 
 #include <gtest/gtest.h>
 
+#ifdef _MSC_VER
+#include <crtdbg.h>
+#endif
+
 #include <QApplication>
 #include <QMouseEvent>
 #include <QStackedWidget>
@@ -169,6 +173,17 @@ int main(int argc, char** argv)
         return RUN_ALL_TESTS();
     }
     qputenv("QT_QPA_PLATFORM", "offscreen");
+
+#ifdef _MSC_VER
+    // A failed assertion in a debug build (the CRT's, and Qt's, which Qt reports through it) opens
+    // a dialog, and nothing in a test run is there to close it: the test would sit until its
+    // timeout instead of failing with the text of the assertion. To stderr, then.
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+#endif
+
     QApplication app{argc, argv};
     configureDockingSystem();
     return RUN_ALL_TESTS();

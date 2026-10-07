@@ -1,10 +1,18 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-add_executable(torquebus_ui_tests DockingTests.cpp TransmitPanelTests.cpp CanvasPanelTests.cpp TracePanelTests.cpp GraphPanelTests.cpp ScriptEditorPanelTests.cpp)
+add_executable(torquebus_ui_tests DockingTests.cpp TransmitPanelTests.cpp CanvasPanelTests.cpp TracePanelTests.cpp GraphPanelTests.cpp ScriptEditorPanelTests.cpp IconImageProviderTests.cpp ClusterThemeSyncTests.cpp ClusterViewTests.cpp ClusterHostTests.cpp)
 target_link_libraries(torquebus_ui_tests
-    PRIVATE torquebus::ui torquebus::warnings GTest::gtest
+    PRIVATE torquebus::ui torquebus_clusterplugin torquebus::warnings GTest::gtest
 )
 set_target_properties(torquebus_ui_tests PROPERTIES FOLDER "Tests")
+
+# The cluster tests load its QML from the source tree, and Qt's own modules from
+# the Qt that was found: the Qt libraries beside the test executable are copies, and Qt looks
+# for its QML modules relative to the libraries it was loaded from.
+target_compile_definitions(torquebus_ui_tests PRIVATE
+    TORQUEBUS_CLUSTER_QML_DIR="${CMAKE_SOURCE_DIR}/src/ui/dashboard/cluster/qml"
+    TORQUEBUS_QT_QML_DIR="${QT6_INSTALL_PREFIX}/${QT6_INSTALL_QML}"
+)
 
 get_target_property(TORQUEBUS_OFFSCREEN_PLUGIN Qt6::QOffscreenIntegrationPlugin LOCATION)
 get_filename_component(TORQUEBUS_PLATFORM_PLUGIN_DIR "${TORQUEBUS_OFFSCREEN_PLUGIN}" DIRECTORY)

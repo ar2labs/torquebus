@@ -49,6 +49,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -65,6 +67,8 @@ class SystemVariables;
 
 namespace torquebus::ui {
 
+class ClusterHost;
+
 class DashboardPanel final : public QWidget {
     Q_OBJECT
 
@@ -72,6 +76,7 @@ public:
     /// The description is not owned and must outlive the panel. Edits are
     /// written straight into it, like the canvas writes the graph.
     explicit DashboardPanel(DashboardDescription& dashboard, QWidget* parent = nullptr);
+    ~DashboardPanel() override;
 
     /// Where signal bindings read from. Not owned; null shows every signal
     /// widget as having no value, which is what a stopped measurement is.
@@ -119,9 +124,20 @@ private:
     struct Reading final {
         double value{0.0};
         bool known{false};
+
+        /// For a CAN signal, the timestamp of the sample this is: which one it is, not when. The
+        /// cluster watches it for change, to tell a signal that stopped from one that is steady.
+        std::uint64_t stamp{0};
+        bool timed{false};
     };
 
     [[nodiscard]] Reading read(const DashboardWidget& widget) const;
+
+    /// The same, for a binding on its own: what a cluster asks for each of its roles.
+    [[nodiscard]] Reading readBinding(const DashboardBinding& binding) const;
+
+    /// Lays the QML clusters over the panel as the description and the mode say. See ClusterHost.
+    void syncClusters();
 
     /// Writes a control's value where its binding points. Does nothing for a
     /// binding that cannot be written, which validate() has already refused -
@@ -169,6 +185,10 @@ private:
                      const Reading& reading);
     void paintLabel(QPainter& painter, const DashboardWidget& widget, const QRectF& rect);
 
+    /// A cluster draws itself, in QML, over the panel; what the panel paints is what is under it
+    /// when it is not there - Edit mode, or a cluster that could not load.
+    void paintCluster(QPainter& painter, const DashboardWidget& widget, const QRectF& rect);
+
     /// The text under a widget: its title, or what it is bound to.
     [[nodiscard]] QString captionOf(const DashboardWidget& widget) const;
 
@@ -178,6 +198,10 @@ private:
     void removeSelected();
 
     DashboardDescription& m_dashboard;
+
+    /// A member, not a child: it has to go before the QQuickWidgets it made, which are children.
+    /// ClusterHost explains why.
+    std::unique_ptr<ClusterHost> m_clusters;
 
     const SignalSeriesStore* m_plots{nullptr};
     SystemVariables* m_variables{nullptr};

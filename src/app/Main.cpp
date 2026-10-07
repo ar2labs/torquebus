@@ -17,6 +17,11 @@
 #include <QCommandLineParser>
 #include <QFileInfo>
 #include <QIcon>
+#include <QQmlExtensionPlugin>
+
+// The Dashboard cluster's QML module is a static plugin, and nothing finds a static plugin by
+// itself: this is what makes `import TorqueBus.Cluster` resolve in this executable.
+Q_IMPORT_QML_PLUGIN(TorqueBus_ClusterPlugin)
 
 namespace {
 

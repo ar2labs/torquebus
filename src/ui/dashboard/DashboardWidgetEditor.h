@@ -80,6 +80,9 @@ private:
 
     QLabel* m_kindLabel{nullptr};
 
+    /// A cluster's data profile: where each of its values comes from. In place of the binding.
+    QComboBox* m_profile{nullptr};
+
     QComboBox* m_source{nullptr};
     QLineEdit* m_message{nullptr};
     QLineEdit* m_signal{nullptr};

@@ -99,7 +99,13 @@ jobs:
         if: matrix.preset == 'windows-msvc-release'
         run: |
           cmake --install build/${{ matrix.preset }} --prefix dist --component torquebus
-          windeployqt --release --no-translations --no-system-d3d-compiler dist/TorqueBusStudio.exe
+
+          # --qmldir is how windeployqt learns which of Qt's QML modules the
+          # application uses: it imports no DLL for them, they are plugins the QML
+          # engine loads by name. The Dashboard's instrument cluster is the first
+          # QML in the application, and without this the package has Qt Quick's
+          # libraries and none of its modules.
+          windeployqt --release --no-translations --no-system-d3d-compiler --qmldir src/ui/dashboard/cluster/qml dist/TorqueBusStudio.exe
 
           # And once per plugin, into the same directory. windeployqt asks the
           # binary it is given what it needs, and the executable does not link

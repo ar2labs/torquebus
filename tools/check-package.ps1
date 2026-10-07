@@ -69,6 +69,17 @@ Require-Path "plugins/torquebus-driver-peak.dll" `
 Require-Path "data/j1939-names-functions.csv" `
     "J1939 function names; without it the network panel shows bare numbers"
 
+# The Dashboard's instrument cluster is QML, and Qt's QML modules are plugins that the engine
+# loads by name: nothing imports them, so the check of imports below cannot see them missing.
+# A package without them starts, shows every other panel, and draws a cluster that is an error
+# message - which is why they are named here and not left to that check.
+Require-Path "qml/QtQuick/qmldir" `
+    "Qt Quick's module; without it the instrument cluster cannot load"
+Require-Path "qml/QtQuick/Shapes/qmldir" `
+    "QtQuick.Shapes, which the cluster's frame uses"
+Require-Path "qml/QtQuick/Effects/qmldir" `
+    "QtQuick.Effects, which gives the cluster's frame its shadow"
+
 # --- Does everything in the package have what it imports? -------------------
 #
 # Asking by name was not enough, and both ways it failed are worth keeping.
