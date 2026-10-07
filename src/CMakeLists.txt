@@ -310,6 +310,8 @@ qt_add_library(torquebus_ui STATIC
     ui/engine/CanEngineController.cpp
     ui/theme/ThemeManager.h
     ui/theme/ThemeManager.cpp
+    ui/theme/IconRaster.h
+    ui/theme/IconRaster.cpp
     ui/mainwindow/Docking.h
     ui/mainwindow/Docking.cpp
     ui/mainwindow/DockChrome.h
