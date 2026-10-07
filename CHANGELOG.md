@@ -210,7 +210,10 @@ against what it does, which turned up more than expected.
   store, through the Dashboard's own bindings. The only profile today is the
   example vehicle's; with the example running, the AI panel follows the TinyML ECU,
   and speed, engine speed and temperature wait for the example's pipeline to decode
-  them. The first QML in the application - `ARCHITECTURE.md` had reserved it for the
+  them. A signal that stops arriving goes back to dashes once it is older than an age
+  its profile sets (two seconds by default), where a Gauge holds the last value the plot
+  store has: right for a plot, wrong for a speedometer. The first QML in the
+  application - `ARCHITECTURE.md` had reserved it for the
   Dashboard - as a static `qt_add_qml_module`, with `docs/development/cluster.md`,
   a preview window that reloads on save, and `windeployqt --qmldir` in the
   packaging so the QML modules reach the package. A saved project that contains a

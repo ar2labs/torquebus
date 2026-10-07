@@ -11,13 +11,17 @@
 namespace torquebus {
 namespace {
 
-[[nodiscard]] ClusterSource signalSource(ClusterRole role, std::string message, std::string signal)
+[[nodiscard]] ClusterSource signalSource(ClusterRole role,
+                                         std::string message,
+                                         std::string signal,
+                                         std::uint32_t maxAgeMs = kClusterDefaultMaxAgeMs)
 {
     ClusterSource source;
     source.role = role;
     source.binding.source = DashboardBinding::Source::Signal;
     source.binding.message = std::move(message);
     source.binding.signal = std::move(signal);
+    source.maxAgeMs = maxAgeMs;
     return source;
 }
 
@@ -36,7 +40,8 @@ namespace {
 
     profile.sources = {
         signalSource(ClusterRole::Speed, "VehicleSpeed", "SpeedKmh"),
-        signalSource(ClusterRole::Coolant, "EngineTemp", "EngTemp"),
+        // Sent once a second by the example's ECU, so the default two seconds would be two periods.
+        signalSource(ClusterRole::Coolant, "EngineTemp", "EngTemp", 3000),
         signalSource(ClusterRole::Rpm, "EngineSpeed", "RPM"),
 
         signalSource(ClusterRole::AiRegime, "TinyML_Telemetry", "RegimeClass"),

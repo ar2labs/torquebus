@@ -252,11 +252,12 @@ void ClusterHost::sync(const DashboardDescription& dashboard, bool editing)
     }
 }
 
-void ClusterHost::feed(const ClusterDataSource::Reader& read)
+void ClusterHost::feed(const ClusterDataSource::Reader& read,
+                       ClusterDataSource::Clock::time_point now)
 {
     for (Entry& entry : m_entries) {
         if (entry.view->isVisible()) {
-            entry.data->update(read);
+            entry.data->update(read, now);
         }
     }
 }

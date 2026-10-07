@@ -20,14 +20,31 @@
 #include "core/dashboard/DashboardDescription.h"
 #include "core/dashboard/cluster/ClusterRole.h"
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
 namespace torquebus {
 
+/// How long a bus signal may go without a new sample before the cluster stops showing it. Two
+/// seconds: a signal sent every 100 ms has missed twenty, and a person looking at a speedometer has
+/// long since stopped believing it.
+inline constexpr std::uint32_t kClusterDefaultMaxAgeMs = 2000;
+
 struct ClusterSource final {
     ClusterRole role{ClusterRole::Speed};
     DashboardBinding binding;
+
+    /// For a CAN signal: how long without a new sample before the role is no data again, as it is
+    /// for a signal never seen - the cluster draws dashes rather than the last number the bus
+    /// sent. The store keeps that number for ever, which is right for a plot and wrong for an
+    /// instrument.
+    ///
+    /// A profile sets this per role because messages are sent at their own rates: about three
+    /// times the message's cycle time, and never less than the default. **Zero means never**, which
+    /// is what a message sent only when something changes needs - a lamp that is lit stays lit
+    /// through the silence. A variable has no age at all: one written once is a steady value.
+    std::uint32_t maxAgeMs{kClusterDefaultMaxAgeMs};
 };
 
 struct ClusterProfile final {
@@ -39,12 +56,12 @@ struct ClusterProfile final {
 
     std::vector<ClusterSource> sources;
 
-    /// The binding of `role`, or nullptr when the profile has no source for it.
-    [[nodiscard]] const DashboardBinding* sourceOf(ClusterRole role) const noexcept
+    /// The source of `role`, or nullptr when the profile has none for it.
+    [[nodiscard]] const ClusterSource* sourceOf(ClusterRole role) const noexcept
     {
         for (const ClusterSource& source : sources) {
             if (source.role == role) {
-                return &source.binding;
+                return &source;
             }
         }
 

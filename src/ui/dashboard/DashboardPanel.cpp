@@ -169,6 +169,8 @@ DashboardPanel::Reading DashboardPanel::readBinding(const DashboardBinding& bind
 
         std::uint64_t when = 0;
         reading.known = m_plots->latest(id, reading.value, when);
+        reading.stamp = when;
+        reading.timed = reading.known;
         break;
     }
 
@@ -215,9 +217,16 @@ void DashboardPanel::refresh()
     // nothing but compare rectangles.
     syncClusters();
 
-    m_clusters->feed([this](const DashboardBinding& binding) -> std::optional<double> {
+    m_clusters->feed([this](const DashboardBinding& binding) -> std::optional<ClusterReading> {
         const Reading reading = readBinding(binding);
-        return reading.known ? std::optional<double>{reading.value} : std::nullopt;
+
+        if (!reading.known) {
+            return std::nullopt;
+        }
+
+        return ClusterReading{reading.value,
+                              reading.timed ? std::optional<std::uint64_t>{reading.stamp}
+                                            : std::nullopt};
     });
 
     // Repainted only when something a widget is bound to has moved. A dashboard

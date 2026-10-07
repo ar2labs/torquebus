@@ -986,7 +986,10 @@ The instrument cluster (`docs/development/cluster.md`):
     already on the Dashboard, and its AI panel follows the TinyML virtual ECU - the
     regime, the risk, the confidence, the thermal health. Speed, engine speed and
     temperature stay as dashes: the example emits `0x101` and `0x102` but no block
-    decodes them into the plot store. That is the example, not the cluster.
+    decodes them into the plot store. That is the example, not the cluster. Press
+    **Stop**: within a few seconds the AI panel goes back to dashes - *AI waiting for
+    bus data* - instead of holding the last values, because a signal that stopped
+    arriving is no data. **Start** again and it returns.
 13. Switch to Edit and back. The cluster leaves a picture of itself under the
     selection outline while it is being moved or resized (drag its corner: the
     instruments stay in proportion, centred in whatever shape it is given), and is
