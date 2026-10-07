@@ -312,6 +312,8 @@ qt_add_library(torquebus_ui STATIC
     ui/theme/ThemeManager.cpp
     ui/theme/IconRaster.h
     ui/theme/IconRaster.cpp
+    ui/theme/IconImageProvider.h
+    ui/theme/IconImageProvider.cpp
     ui/mainwindow/Docking.h
     ui/mainwindow/Docking.cpp
     ui/mainwindow/DockChrome.h
@@ -427,6 +429,7 @@ target_link_libraries(torquebus_ui
             Qt6::OpenGLWidgets
             Qt6::Svg
             Qt6::SvgWidgets
+            Qt6::Quick
             KDAB::kddockwidgets
             QtNodes::QtNodes
     PRIVATE torquebus::warnings
@@ -545,7 +548,7 @@ torquebus_forbid_link(torquebus_ui
 # Two copies, because they answer different questions.
 #
 # $<TARGET_RUNTIME_DLLS> knows what the executable links - Qt6Core, Qt6Gui,
-# Qt6Widgets, Qt6Svg - and nothing else. It does not know about Qt's plugins,
+# Qt6Widgets, Qt6Svg, Qt6Quick - and nothing else. It does not know about Qt's plugins,
 # because nothing links them: Qt loads them by path at runtime. A build tree
 # with the DLLs and no platform plugin starts and immediately dies with "could
 # not find or load the Qt platform plugin windows", which reads like a broken Qt

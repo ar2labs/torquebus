@@ -84,6 +84,11 @@ find_package(Qt6 6.11 REQUIRED COMPONENTS
     SvgWidgets
     SerialBus
 
+    # QQuickImageProvider, which serves the icon set to QML (ui/theme/IconImageProvider).
+    # Part of every Qt 6 kit; the Dashboard's instrument cluster is the first QML in
+    # the application.
+    Quick
+
     # Requested on QtNodes' behalf: it links Qt6::OpenGL publicly (its
     # CMakeLists names Core, Widgets, Gui and OpenGL), and a component that is
     # not in this find_package is a target that does not exist when
