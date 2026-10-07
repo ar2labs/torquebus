@@ -547,6 +547,14 @@ TEST(ProjectFileTests, ADashboardSurvivesASaveAndALoadUnchanged)
     label.title = "Bench 2";
     original.add(label);
 
+    DashboardWidget cluster;
+    cluster.id = "cluster";
+    cluster.kind = DashboardWidgetKind::Cluster;
+    cluster.profile = "example-11bit";
+    cluster.width = 720.0;
+    cluster.height = 300.0;
+    original.add(cluster);
+
     GraphDescription pipeline;
     const QString path = pathIn(directory, QStringLiteral("dash.tbsproj"));
 
@@ -618,6 +626,38 @@ TEST(ProjectFileTests, AWidgetKindThisBuildDoesNotHaveRefusesTheFile)
     ASSERT_TRUE(result.failed());
     SCOPED_TRACE(::testing::Message() << std::string{result.message()});
     EXPECT_TRUE(std::string{result.message()}.find("hologram") != std::string::npos);
+}
+
+TEST(ProjectFileTests, AClusterFedByAProfileThisBuildDoesNotHaveRefusesTheFile)
+{
+    // The cluster's equivalent of a widget kind from a newer version: the profile is what says
+    // where every value on it comes from, and a cluster that falls back to another profile shows
+    // another vehicle's numbers as if they were this one's.
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+
+    const QString path = pathIn(directory, QStringLiteral("future-profile.tbsproj"));
+
+    QFile file{path};
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Text));
+    file.write(R"({
+        "version": 3,
+        "pipeline": { "nodes": [], "edges": [] },
+        "transmit": [],
+        "dashboard": { "widgets": [ { "id": "cluster", "kind": "cluster", "profile": "from-the-future",
+                                      "width": 720, "height": 300 } ] }
+    })");
+    file.close();
+
+    GraphDescription pipeline;
+    DashboardDescription dashboard;
+
+    const Result result = ProjectFile::load(path, pipeline, scratch(), dashboard);
+
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("from-the-future") != std::string::npos);
+    EXPECT_TRUE(dashboard.empty());
 }
 
 TEST(ProjectFileTests, ADashboardThatCouldNotBeDrawnRefusesTheFile)
