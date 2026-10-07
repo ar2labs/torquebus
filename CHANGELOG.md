@@ -23,6 +23,15 @@ against what it does, which turned up more than expected.
 
 ### Fixed
 
+- **The example project named its databases by a path on the machine that saved it.**
+  `virtual-vehicle.tbsproj` listed `D:/Code/qt/TorqueBus/examples/databases/...`, so
+  opening it anywhere else began with a "Missing DBC Database" dialog, an empty DBC
+  Explorer and a project already marked as modified, in the first project somebody
+  opens. The paths are now relative to the project's folder, which is how the loader
+  resolves them, and a test checks that each one is relative and exists. Saving the
+  example from the application still writes an absolute path for a database outside the
+  project's folder: the writer keeps a path relative only when it stays inside that
+  folder, which is a separate behaviour and is not changed here.
 - **The package did not contain the vendor plugins.** v0.17 moved the Kvaser
   and PEAK backends out of the executable and the install rules were never
   told, so for three milestones a release would have carried no hardware
@@ -200,6 +209,24 @@ against what it does, which turned up more than expected.
 
 ### Added
 
+- **An instrument cluster for the Dashboard, in QML.** Speed, engine speed,
+  temperatures, tell-tales and the TinyML panel on one screen, added from the
+  context menu like a Gauge (**Add Cluster**) and present in
+  `virtual-vehicle.tbsproj`. It works on *roles* and a *profile* says where each
+  comes from, so one cluster serves a vehicle that reports a lot and one that
+  reports a little: a role with no source shows dashes, is never hidden, and lights
+  up when a source arrives. It reads what a Gauge would read, from the same plot
+  store, through the Dashboard's own bindings. The only profile today is the
+  example vehicle's; with the example running, the AI panel follows the TinyML ECU,
+  and speed, engine speed and temperature wait for the example's pipeline to decode
+  them. A signal that stops arriving goes back to dashes once it is older than an age
+  its profile sets (two seconds by default), where a Gauge holds the last value the plot
+  store has: right for a plot, wrong for a speedometer. The first QML in the
+  application - `ARCHITECTURE.md` had reserved it for the
+  Dashboard - as a static `qt_add_qml_module`, with `docs/development/cluster.md`,
+  a preview window that reloads on save, and `windeployqt --qmldir` in the
+  packaging so the QML modules reach the package. A saved project that contains a
+  cluster is refused by an older build, as for any widget kind it does not have.
 - **The J1939 function-name table ships.** Derived from AgIsoStack++ under the
   MIT licence, so it is ours to pass on with its notice attached. The network
   panel reads `Engine (0)` out of the box instead of `0`. Manufacturer names

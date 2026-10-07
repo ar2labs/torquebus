@@ -6,6 +6,7 @@
 #include "ui/dashboard/DashboardWidgetEditor.h"
 
 #include "core/dashboard/DashboardDescription.h"
+#include "core/dashboard/cluster/ClusterProfiles.h"
 #include "ui/theme/Theme.h"
 #include "ui/theme/ThemeManager.h"
 
@@ -72,6 +73,18 @@ void DashboardWidgetEditor::buildUi()
     m_kindLabel = new QLabel;
     m_layout->addRow(tr("Widget"), m_kindLabel);
 
+    // The cluster shows dozens of values and is bound to none of them: what it asks for instead is
+    // a profile, and the registered ones are the choices. A profile registered later - by a plugin
+    // - is listed the next time the editor is built.
+    m_profile = new QComboBox;
+    for (const ClusterProfile& profile : ClusterProfiles::instance().all()) {
+        m_profile->addItem(QString::fromStdString(profile.name),
+                           QString::fromStdString(profile.id));
+    }
+    m_profile->setToolTip(tr("Where each value on the cluster comes from. A value the profile has "
+                             "no source for is shown as dashes until one is available."));
+    m_layout->addRow(tr("Data profile"), m_profile);
+
     m_source = new QComboBox;
     m_source->addItem(tr("Nothing"), kSourceNone);
     m_source->addItem(tr("CAN signal"), kSourceSignal);
@@ -132,6 +145,7 @@ void DashboardWidgetEditor::buildUi()
     // somebody leaves half-applied - and the description is the live one, so
     // there is nothing to commit.
     connect(m_source, &QComboBox::currentIndexChanged, this, [this](int) { onFieldChanged(); });
+    connect(m_profile, &QComboBox::currentIndexChanged, this, [this](int) { onFieldChanged(); });
 
     for (QLineEdit* field : {m_message, m_signal, m_variable, m_title, m_unit}) {
         connect(field, &QLineEdit::textEdited, this, [this](const QString&) { onFieldChanged(); });
@@ -178,6 +192,7 @@ void DashboardWidgetEditor::reload()
     // Blocked for the whole repopulation: filling a combo box emits
     // currentIndexChanged, and a form that wrote back while it was being read
     // would save the value it is in the middle of loading.
+    const QSignalBlocker blockProfile{m_profile};
     const QSignalBlocker blockSource{m_source};
     const QSignalBlocker blockMessage{m_message};
     const QSignalBlocker blockSignal{m_signal};
@@ -193,6 +208,11 @@ void DashboardWidgetEditor::reload()
 
     m_kindLabel->setText(QString::fromUtf8(kind.data(), static_cast<qsizetype>(kind.size()))
                          + QStringLiteral("  ·  ") + m_widgetId);
+
+    // -1 for a profile the registry does not have, which validate() refuses at load but a widget
+    // can still be in if the registry lost it since: the combo then shows nothing rather than
+    // another profile's name.
+    m_profile->setCurrentIndex(m_profile->findData(QString::fromStdString(widget->profile)));
 
     m_source->setCurrentIndex(indexOf(widget->binding.source));
 
@@ -214,6 +234,12 @@ void DashboardWidgetEditor::reload()
 void DashboardWidgetEditor::applyVisibility(const DashboardWidget& widget)
 {
     const bool isLabel = widget.kind == DashboardWidgetKind::Label;
+    const bool isCluster = widget.kind == DashboardWidgetKind::Cluster;
+
+    // Neither has a value of its own to bind or sweep: a label has nothing to show, a cluster has a
+    // profile, and everything below this is about one value.
+    const bool hasNoValue = isLabel || isCluster;
+
     const bool control = writesItsBinding(widget.kind);
     const bool signalBound = widget.binding.source == DashboardBinding::Source::Signal;
     const bool variableBound = widget.binding.source == DashboardBinding::Source::Variable;
@@ -227,17 +253,22 @@ void DashboardWidgetEditor::applyVisibility(const DashboardWidget& widget)
         field->setVisible(visible);
     };
 
-    showRow(m_source, !isLabel);
-    showRow(m_message, !isLabel && signalBound);
-    showRow(m_signal, !isLabel && signalBound);
-    showRow(m_variable, !isLabel && variableBound);
+    showRow(m_profile, isCluster);
+
+    // A cluster draws no caption, so a field for one would be a field that does nothing.
+    showRow(m_title, !isCluster);
+
+    showRow(m_source, !hasNoValue);
+    showRow(m_message, !hasNoValue && signalBound);
+    showRow(m_signal, !hasNoValue && signalBound);
+    showRow(m_variable, !hasNoValue && variableBound);
 
     showRow(m_unit,
-            !isLabel && widget.kind != DashboardWidgetKind::Lamp
+            !hasNoValue && widget.kind != DashboardWidgetKind::Lamp
                 && widget.kind != DashboardWidgetKind::Button
                 && widget.kind != DashboardWidgetKind::Switch);
 
-    const bool needsRange = !isLabel && widget.kind != DashboardWidgetKind::Lamp;
+    const bool needsRange = !hasNoValue && widget.kind != DashboardWidgetKind::Lamp;
     showRow(m_minimum, needsRange);
     showRow(m_maximum, needsRange);
 
@@ -245,7 +276,7 @@ void DashboardWidgetEditor::applyVisibility(const DashboardWidget& widget)
             widget.kind == DashboardWidgetKind::Lamp || widget.kind == DashboardWidgetKind::Switch
                 || widget.kind == DashboardWidgetKind::Button);
 
-    showRow(m_decimals, !isLabel && widget.kind != DashboardWidgetKind::Lamp);
+    showRow(m_decimals, !hasNoValue && widget.kind != DashboardWidgetKind::Lamp);
 
     // The one refusal worth explaining rather than only enforcing: a control
     // bound to a signal moves under the mouse and changes nothing on the bus.
@@ -277,6 +308,12 @@ void DashboardWidgetEditor::onFieldChanged()
     default:
         widget->binding.source = DashboardBinding::Source::None;
         break;
+    }
+
+    // Only a cluster has one, and only when the combo has an answer: an empty combo is a registry
+    // that lost the profile, not a request to clear it.
+    if (widget->kind == DashboardWidgetKind::Cluster && m_profile->currentIndex() >= 0) {
+        widget->profile = m_profile->currentData().toString().toStdString();
     }
 
     widget->binding.message = m_message->text().toStdString();

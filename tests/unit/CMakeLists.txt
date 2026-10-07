@@ -29,6 +29,7 @@ add_executable(torquebus_unit_tests
     HardwareProfileTests.cpp
     IsoTpNodeTests.cpp
     IsoTpTests.cpp
+    InstrumentThemeTests.cpp
     J1939IdTests.cpp
     J1939NameTests.cpp
     J1939TransportTests.cpp
@@ -38,6 +39,7 @@ add_executable(torquebus_unit_tests
     J1939NodeTests.cpp
     PluginLoaderTests.cpp
     DashboardTests.cpp
+    ClusterProfilesTests.cpp
     RestBusTests.cpp
     LuaBusAndFaultTests.cpp
     LuaHotReloadTests.cpp
@@ -83,6 +85,11 @@ set_target_properties(torquebus_unit_tests PROPERTIES FOLDER "Tests")
 target_compile_definitions(torquebus_unit_tests
     PRIVATE TORQUEBUS_EXAMPLE_SCRIPT_DIR="${CMAKE_SOURCE_DIR}/examples/scripts"
             TORQUEBUS_EXAMPLE_PROJECT_DIR="${CMAKE_SOURCE_DIR}/examples/projects"
+            TORQUEBUS_EXAMPLE_DATABASE_DIR="${CMAKE_SOURCE_DIR}/examples/databases"
+
+            # The cluster's QML in the source tree: one test reads ClusterView.qml to check that
+            # it reads the roles the core defines and no others.
+            TORQUEBUS_CLUSTER_QML_DIR="${CMAKE_SOURCE_DIR}/src/ui/dashboard/cluster/qml"
 
             # The data directory in the source tree, not the copy beside the
             # executable: the test is about the file that goes into the package,

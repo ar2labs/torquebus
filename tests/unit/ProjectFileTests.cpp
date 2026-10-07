@@ -23,6 +23,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -335,6 +336,36 @@ TEST(ProjectFileTests, TheShippedExampleProjectOpensAndValidates)
     EXPECT_FALSE(ecu->parameters.text("script").empty());
 }
 
+TEST(ProjectFileTests, TheShippedExampleNamesItsDatabasesRelativeToItself)
+{
+    // The example is opened on whatever machine somebody clones the repository to. A database
+    // named by the path it had on the machine that saved the project is a file that is not there on
+    // any other, and opening the project says so with a dialog before anything else is seen.
+    //
+    // The rule is the one MainWindow applies when it opens a project: a relative path is relative
+    // to the folder of the project file.
+    const QString path = QStringLiteral(TORQUEBUS_EXAMPLE_PROJECT_DIR "/virtual-vehicle.tbsproj");
+
+    QFile file{path};
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+
+    const QJsonArray databases = QJsonDocument::fromJson(file.readAll())
+                                     .object()
+                                     .value(QStringLiteral("databases"))
+                                     .toArray();
+    ASSERT_FALSE(databases.isEmpty());
+
+    const QDir folder = QFileInfo{path}.absoluteDir();
+
+    for (const QJsonValue& entry : databases) {
+        const QString name = entry.toString();
+        SCOPED_TRACE(name.toStdString());
+
+        EXPECT_FALSE(QFileInfo{name}.isAbsolute());
+        EXPECT_TRUE(QFileInfo{folder.filePath(name)}.isFile());
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The transmit list
 // ---------------------------------------------------------------------------
@@ -547,6 +578,14 @@ TEST(ProjectFileTests, ADashboardSurvivesASaveAndALoadUnchanged)
     label.title = "Bench 2";
     original.add(label);
 
+    DashboardWidget cluster;
+    cluster.id = "cluster";
+    cluster.kind = DashboardWidgetKind::Cluster;
+    cluster.profile = "example-11bit";
+    cluster.width = 720.0;
+    cluster.height = 300.0;
+    original.add(cluster);
+
     GraphDescription pipeline;
     const QString path = pathIn(directory, QStringLiteral("dash.tbsproj"));
 
@@ -618,6 +657,38 @@ TEST(ProjectFileTests, AWidgetKindThisBuildDoesNotHaveRefusesTheFile)
     ASSERT_TRUE(result.failed());
     SCOPED_TRACE(::testing::Message() << std::string{result.message()});
     EXPECT_TRUE(std::string{result.message()}.find("hologram") != std::string::npos);
+}
+
+TEST(ProjectFileTests, AClusterFedByAProfileThisBuildDoesNotHaveRefusesTheFile)
+{
+    // The cluster's equivalent of a widget kind from a newer version: the profile is what says
+    // where every value on it comes from, and a cluster that falls back to another profile shows
+    // another vehicle's numbers as if they were this one's.
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+
+    const QString path = pathIn(directory, QStringLiteral("future-profile.tbsproj"));
+
+    QFile file{path};
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Text));
+    file.write(R"({
+        "version": 3,
+        "pipeline": { "nodes": [], "edges": [] },
+        "transmit": [],
+        "dashboard": { "widgets": [ { "id": "cluster", "kind": "cluster", "profile": "from-the-future",
+                                      "width": 720, "height": 300 } ] }
+    })");
+    file.close();
+
+    GraphDescription pipeline;
+    DashboardDescription dashboard;
+
+    const Result result = ProjectFile::load(path, pipeline, scratch(), dashboard);
+
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_TRUE(std::string{result.message()}.find("from-the-future") != std::string::npos);
+    EXPECT_TRUE(dashboard.empty());
 }
 
 TEST(ProjectFileTests, ADashboardThatCouldNotBeDrawnRefusesTheFile)

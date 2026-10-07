@@ -134,6 +134,11 @@ add_library(torquebus_core STATIC
     core/dashboard/SystemVariables.cpp
     core/dashboard/DashboardDescription.h
     core/dashboard/DashboardDescription.cpp
+    core/dashboard/cluster/ClusterRole.h
+    core/dashboard/cluster/ClusterRole.cpp
+    core/dashboard/cluster/ClusterProfile.h
+    core/dashboard/cluster/ClusterProfiles.h
+    core/dashboard/cluster/ClusterProfiles.cpp
 
     # The driver interface belongs to the core, not to the drivers: the core
     # defines the abstraction, and each vendor implements it (dependency
@@ -310,6 +315,10 @@ qt_add_library(torquebus_ui STATIC
     ui/engine/CanEngineController.cpp
     ui/theme/ThemeManager.h
     ui/theme/ThemeManager.cpp
+    ui/theme/IconRaster.h
+    ui/theme/IconRaster.cpp
+    ui/theme/IconImageProvider.h
+    ui/theme/IconImageProvider.cpp
     ui/mainwindow/Docking.h
     ui/mainwindow/Docking.cpp
     ui/mainwindow/DockChrome.h
@@ -425,12 +434,18 @@ target_link_libraries(torquebus_ui
             Qt6::OpenGLWidgets
             Qt6::Svg
             Qt6::SvgWidgets
+            Qt6::Quick
+            Qt6::QuickWidgets
             KDAB::kddockwidgets
             QtNodes::QtNodes
     PRIVATE torquebus::warnings
 )
 
 set_target_properties(torquebus_ui PROPERTIES FOLDER "Libraries")
+
+# The Dashboard's instrument cluster: its C++, its QML module and its preview tool. Everything
+# that is the cluster's is in that directory; see its CMakeLists.txt for what cannot be.
+add_subdirectory(ui/dashboard/cluster)
 
 # ---------------------------------------------------------------------------
 # TorqueBusStudio - the executable
@@ -442,9 +457,12 @@ qt_add_executable(TorqueBusStudio
     app/ApplicationContext.cpp
 )
 
+# torquebus_clusterplugin is the Dashboard cluster's QML module, a static plugin that nothing finds
+# by itself: it is linked here and named in app/Main.cpp.
 target_link_libraries(TorqueBusStudio
     PRIVATE torquebus::ui
             torquebus::plugin_host
+            torquebus_clusterplugin
             torquebus::warnings
 )
 
@@ -543,7 +561,7 @@ torquebus_forbid_link(torquebus_ui
 # Two copies, because they answer different questions.
 #
 # $<TARGET_RUNTIME_DLLS> knows what the executable links - Qt6Core, Qt6Gui,
-# Qt6Widgets, Qt6Svg - and nothing else. It does not know about Qt's plugins,
+# Qt6Widgets, Qt6Svg, Qt6Quick - and nothing else. It does not know about Qt's plugins,
 # because nothing links them: Qt loads them by path at runtime. A build tree
 # with the DLLs and no platform plugin starts and immediately dies with "could
 # not find or load the Qt platform plugin windows", which reads like a broken Qt

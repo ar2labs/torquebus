@@ -315,7 +315,10 @@ try {
             if ($LASTEXITCODE -ne 0) {
                 $advisories += "package: install failed"
             } elseif (Get-Command "windeployqt" -ErrorAction SilentlyContinue) {
+                # --qmldir: Qt's QML modules are plugins the engine loads by name,
+                # and the cluster is the first QML in the application.
                 windeployqt --release --no-translations --no-system-d3d-compiler `
+                    --qmldir (Join-Path $root "src/ui/dashboard/cluster/qml") `
                     (Join-Path $staging "TorqueBusStudio.exe") 2>&1 | Out-Null
 
                 # And once per plugin. windeployqt asks the binary it is given

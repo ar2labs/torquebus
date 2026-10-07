@@ -72,6 +72,12 @@ enum class DashboardWidgetKind : std::uint8_t {
 
     /// Fixed text. No binding, no value - a title over a group of gauges.
     Label,
+
+    /// An instrument cluster: speed, engine speed, temperatures, tell-tales and the TinyML panel on
+    /// one screen. It has no binding of its own - a profile (`DashboardWidget::profile`) says where
+    /// each of its many values comes from. Last in the enum, as a kind added after the file format
+    /// settled has to be.
+    Cluster,
 };
 
 [[nodiscard]] std::string_view nameOf(DashboardWidgetKind kind);
@@ -156,6 +162,10 @@ struct DashboardWidget final {
     /// pretending to be precision.
     int decimals{1};
 
+    /// For a Cluster: the id of the ClusterProfile that says where its values come from. Empty for
+    /// every other kind, which have a binding instead.
+    std::string profile;
+
     [[nodiscard]] friend bool operator==(const DashboardWidget&, const DashboardWidget&) = default;
 };
 
@@ -185,7 +195,7 @@ public:
     /// Everything that can be checked without a database, a measurement or a
     /// screen: duplicate ids, a widget bound to nothing that needs a binding, a
     /// range that is empty or inverted, a control bound to a signal it cannot
-    /// write, a negative size.
+    /// write, a negative size, a cluster whose profile this build does not have.
     ///
     /// Checked here rather than when drawing, so a dashboard says what is wrong
     /// with it while it is being built - the same reason GraphDescription

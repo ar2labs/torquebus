@@ -973,6 +973,35 @@ drive the simulation with their hands.
    Opening it **fails**, naming the kind. Drawing a numeric readout where a
    gauge was would be a lie about what the file contains.
 
+The instrument cluster (`docs/development/cluster.md`):
+
+10. In Edit mode, right-click and choose **Add Cluster**. A cluster appears where you
+    clicked, caught in its start-up lamp test with every lamp lit. Select it: the
+    **Widget** tab shows a **Data profile** (*Example vehicle (11-bit)*) and none of
+    the binding, range or unit fields a Gauge has.
+11. Turn **Edit Dashboard** off. The cluster draws itself, and with nothing on the bus
+    **every instrument is there**: dashes where a value will go, lamps ready, nothing
+    hidden and nothing greyed out. The lamps flash once, as on a real panel.
+12. Open `examples/projects/virtual-vehicle.tbsproj` and press **Start**. The cluster is
+    already on the Dashboard, and its AI panel follows the TinyML virtual ECU - the
+    regime, the risk, the confidence, the thermal health. Speed, engine speed and
+    temperature stay as dashes: the example emits `0x101` and `0x102` but no block
+    decodes them into the plot store. That is the example, not the cluster. Press
+    **Stop**: within a few seconds the AI panel goes back to dashes - *AI waiting for
+    bus data* - instead of holding the last values, because a signal that stopped
+    arriving is no data. **Start** again and it returns.
+13. Switch to Edit and back. The cluster leaves a picture of itself under the
+    selection outline while it is being moved or resized (drag its corner: the
+    instruments stay in proportion, centred in whatever shape it is given), and is
+    live again in Run mode.
+14. Change the application's theme and the accent. The cluster follows both.
+15. **Save**, close, open: the cluster is where it was. Hand-edit the project and set
+    its `"profile"` to `"from-the-future"`: opening it **fails**, naming the profile.
+
+**Watch for:** a widget that overlaps a cluster. It is drawn *under* it, because a
+`QQuickWidget` stacks above the painting beneath it - a limit of the host, and the
+reason to give a cluster its own space.
+
 **Watch for:** a dashboard of eight gauges on a stopped measurement. It must not
 repaint twenty times a second to draw the same picture - the panel compares what
 every widget is reading against the last repaint and does nothing when nothing

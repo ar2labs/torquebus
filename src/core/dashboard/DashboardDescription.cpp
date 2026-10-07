@@ -5,6 +5,8 @@
 
 #include "core/dashboard/DashboardDescription.h"
 
+#include "core/dashboard/cluster/ClusterProfiles.h"
+
 #include <algorithm>
 #include <format>
 #include <set>
@@ -32,6 +34,8 @@ std::string_view nameOf(DashboardWidgetKind kind)
         return "knob";
     case DashboardWidgetKind::Label:
         return "label";
+    case DashboardWidgetKind::Cluster:
+        return "cluster";
     }
 
     return "numeric";
@@ -48,6 +52,7 @@ bool kindFromName(std::string_view name, DashboardWidgetKind& kind)
         DashboardWidgetKind::Slider,
         DashboardWidgetKind::Knob,
         DashboardWidgetKind::Label,
+        DashboardWidgetKind::Cluster,
     };
 
     for (const DashboardWidgetKind candidate : kAll) {
@@ -73,6 +78,7 @@ bool writesItsBinding(DashboardWidgetKind kind)
     case DashboardWidgetKind::Numeric:
     case DashboardWidgetKind::Lamp:
     case DashboardWidgetKind::Label:
+    case DashboardWidgetKind::Cluster:
         return false;
     }
 
@@ -141,8 +147,22 @@ Result DashboardDescription::validate() const
                                  std::format("Widget '{}' has no size", widget.id));
         }
 
-        // A Label is the one kind with nothing to show but itself.
-        const bool needsBinding = widget.kind != DashboardWidgetKind::Label;
+        // A Cluster is held to its profile instead of to a binding: it shows dozens of values and
+        // names none of them, so a profile this build does not have is the one way it can be bound
+        // to nothing.
+        if (widget.kind == DashboardWidgetKind::Cluster
+            && ClusterProfiles::instance().find(widget.profile) == nullptr) {
+            return Result::error(
+                ErrorCode::InvalidArgument,
+                std::format("Widget '{}' is a cluster fed by the profile '{}', which this build "
+                            "does not have",
+                            widget.id,
+                            widget.profile));
+        }
+
+        // A Label is the one kind with nothing to show but itself, and a Cluster has its profile.
+        const bool needsBinding = widget.kind != DashboardWidgetKind::Label
+                                  && widget.kind != DashboardWidgetKind::Cluster;
 
         if (needsBinding && widget.binding.source == DashboardBinding::Source::None) {
             return Result::error(
@@ -188,9 +208,11 @@ Result DashboardDescription::validate() const
         }
 
         // Ranges matter to the kinds that sweep one. A Label has no range and a
-        // Lamp only has a threshold, so neither is held to this.
-        const bool needsRange =
-            widget.kind != DashboardWidgetKind::Label && widget.kind != DashboardWidgetKind::Lamp;
+        // Lamp only has a threshold, so neither is held to this; a Cluster has a
+        // range per role, in its profile and in its own scales.
+        const bool needsRange = widget.kind != DashboardWidgetKind::Label
+                                && widget.kind != DashboardWidgetKind::Lamp
+                                && widget.kind != DashboardWidgetKind::Cluster;
 
         if (needsRange && !(widget.maximum > widget.minimum)) {
             return Result::error(
