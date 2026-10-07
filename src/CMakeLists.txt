@@ -435,6 +435,7 @@ target_link_libraries(torquebus_ui
             Qt6::Svg
             Qt6::SvgWidgets
             Qt6::Quick
+            Qt6::QuickWidgets
             KDAB::kddockwidgets
             QtNodes::QtNodes
     PRIVATE torquebus::warnings
@@ -456,9 +457,12 @@ qt_add_executable(TorqueBusStudio
     app/ApplicationContext.cpp
 )
 
+# torquebus_clusterplugin is the Dashboard cluster's QML module, a static plugin that nothing finds
+# by itself: it is linked here and named in app/Main.cpp.
 target_link_libraries(TorqueBusStudio
     PRIVATE torquebus::ui
             torquebus::plugin_host
+            torquebus_clusterplugin
             torquebus::warnings
 )
 
