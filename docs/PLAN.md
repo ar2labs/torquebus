@@ -1563,7 +1563,8 @@ O que já foi feito:
 
 # v0.14 — Dashboard Designer
 
-Widgets: Gauge, Numeric, Lamp, Button, Switch, Slider, Knob, Label.
+Widgets: Gauge, Numeric, Lamp, Button, Switch, Slider, Knob, Label e, depois de
+fechada a versão, **Cluster** (ver o fim desta seção).
 
 Fora da lista original, e de propósito: **Graph** é o painel Graph, que já
 existe e faz isso melhor; **Image** é uma referência a arquivo que o projeto
@@ -1609,6 +1610,19 @@ Feito:
   com a saída escrita por extenso.
 
 **v0.14 fechada.**
+
+Depois, dentro do mesmo painel:
+
+- **Cluster** — um painel de instrumentos (velocidade, rotação, temperaturas,
+  luzes e o painel do TinyML) como widget do Dashboard, em **QML**: a primeira
+  vista QML da aplicação, que a tabela de decisões já reservava ao Dashboard. Ele
+  trabalha com **papéis** (velocidade, rotação, luz do freio de mão...) e um
+  **perfil** diz de onde vem cada papel, com o `DashboardBinding` do próprio
+  Dashboard — o que o Gauge leria, do mesmo `SignalSeriesStore`. Papel sem fonte
+  mostra traços e acende quando a fonte chegar; nada some nem fica apagado. Um
+  perfil novo é uma entrada nova no registro, sem mexer no cluster (regra 10). O
+  perfil embutido é o do exemplo 11 bits; o J1939/FMS fica para quando houver um
+  `.dbc` J1939 no repositório. Detalhes em `docs/development/cluster.md`.
 
 ---
 

@@ -200,6 +200,21 @@ against what it does, which turned up more than expected.
 
 ### Added
 
+- **An instrument cluster for the Dashboard, in QML.** Speed, engine speed,
+  temperatures, tell-tales and the TinyML panel on one screen, added from the
+  context menu like a Gauge (**Add Cluster**) and present in
+  `virtual-vehicle.tbsproj`. It works on *roles* and a *profile* says where each
+  comes from, so one cluster serves a vehicle that reports a lot and one that
+  reports a little: a role with no source shows dashes, is never hidden, and lights
+  up when a source arrives. It reads what a Gauge would read, from the same plot
+  store, through the Dashboard's own bindings. The only profile today is the
+  example vehicle's; with the example running, the AI panel follows the TinyML ECU,
+  and speed, engine speed and temperature wait for the example's pipeline to decode
+  them. The first QML in the application - `ARCHITECTURE.md` had reserved it for the
+  Dashboard - as a static `qt_add_qml_module`, with `docs/development/cluster.md`,
+  a preview window that reloads on save, and `windeployqt --qmldir` in the
+  packaging so the QML modules reach the package. A saved project that contains a
+  cluster is refused by an older build, as for any widget kind it does not have.
 - **The J1939 function-name table ships.** Derived from AgIsoStack++ under the
   MIT licence, so it is ours to pass on with its notice attached. The network
   panel reads `Engine (0)` out of the box instead of `0`. Manufacturer names
