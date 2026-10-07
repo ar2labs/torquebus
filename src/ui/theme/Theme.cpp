@@ -91,6 +91,19 @@ Theme Theme::dark()
     theme.error = QColor(0xDC, 0x6F, 0x6F);
     theme.success = QColor(0x7C, 0xC2, 0x94);
 
+    // The telltales are the one place the palette is saturated on purpose: they
+    // have to be seen from the corner of the eye, and the colour is the message.
+    // So they are not softened like rx/tx above.
+    theme.lampRed = QColor(0xFF, 0x4D, 0x4F);
+    theme.lampAmber = QColor(0xFF, 0xB0, 0x20);
+    theme.lampGreen = QColor(0x34, 0xD2, 0x7B);
+    theme.lampBlue = QColor(0x3D, 0x8B, 0xFF);
+
+    // The same near-black as the canvas: a lit display is the darkest thing in
+    // the room, and the bezel steps up from it.
+    theme.instrumentScreen = QColor(0x0C, 0x0E, 0x0F);
+    theme.instrumentBezel = QColor(0x23, 0x27, 0x2A);
+
     return theme;
 }
 
@@ -156,6 +169,21 @@ Theme Theme::light()
     theme.warning = QColor(0x8A, 0x60, 0x00);
     theme.error = QColor(0xB3, 0x2B, 0x2B);
     theme.success = QColor(0x1F, 0x7A, 0x43);
+
+    // Same hues as the dark theme, darkened until each clears the 3:1 floor
+    // against the glass; the hue is what ISO 2575 specifies and the lightness
+    // is not. Amber moves the furthest - at its dark-theme brightness it is
+    // 2.6:1 on this glass - and ends up closer to ochre, for the reason given
+    // for `warning` above.
+    theme.lampRed = QColor(0xD9, 0x3A, 0x3C);
+    theme.lampAmber = QColor(0xB8, 0x74, 0x00);
+    theme.lampGreen = QColor(0x1E, 0x9E, 0x57);
+    theme.lampBlue = QColor(0x2A, 0x6F, 0xDB);
+
+    // Bright, where the dark theme's is black: the lit face of a light cluster
+    // is the brightest thing on it, with the housing a step darker around it.
+    theme.instrumentScreen = QColor(0xF7, 0xF8, 0xFA);
+    theme.instrumentBezel = QColor(0xD7, 0xDC, 0xE3);
 
     return theme;
 }

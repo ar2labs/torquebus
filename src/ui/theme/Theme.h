@@ -100,6 +100,28 @@ struct Theme final {
     QColor error;
     QColor success;
 
+    // --- Instruments ------------------------------------------------------
+    //
+    // The Dashboard's instrument cluster. Its telltale colours are not a style
+    // choice - ISO 2575 gives each one a meaning - and its face and housing are
+    // a physical part rather than a panel, so they are roles of their own
+    // instead of being borrowed from the surfaces above. Everything else the
+    // cluster paints (the lit part of a gauge, the unlit segments, its shadows)
+    // is derived from the roles above, so the user's accent choice reaches it.
+
+    QColor lampRed; ///< Stop, danger.
+    QColor lampAmber; ///< Attention.
+    QColor lampGreen; ///< A system is active: indicators, cruise control.
+    QColor lampBlue; ///< High beam.
+
+    /// The glass of the cluster. The deepest surface on the dark theme and the
+    /// brightest on the light one, the way a lit display is against its bezel.
+    QColor instrumentScreen;
+
+    /// The mid-tone of the cluster's housing. Its highlight and its shadow are
+    /// this colour lightened and darkened, not roles of their own.
+    QColor instrumentBezel;
+
     /// Colour of a frame row, by direction. Used by the trace and the console.
     [[nodiscard]] QColor directionColor(bool transmitted) const { return transmitted ? tx : rx; }
 
