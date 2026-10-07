@@ -5,13 +5,14 @@
 
 #include "ui/theme/ThemeManager.h"
 
+#include "ui/theme/IconRaster.h"
+
 #include <QApplication>
 #include <QByteArray>
 #include <QFile>
 #include <QFont>
 #include <QFontDatabase>
 #include <QGuiApplication>
-#include <QPainter>
 #include <QPalette>
 #include <QPixmap>
 #include <QRegularExpression>
@@ -66,34 +67,15 @@ constexpr auto kStyleSheetResource = ":/themes/torquebus.qss";
             }
 
             // Normal state
-            QImage image{QSize{physical, physical}, QImage::Format_ARGB32_Premultiplied};
-            image.fill(Qt::transparent);
-
-            QPainter painter{&image};
-            painter.setRenderHint(QPainter::Antialiasing, true);
-            painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-            renderer.render(&painter);
-            painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-            painter.fillRect(image.rect(), color);
-            painter.end();
-
+            QImage image = tintedSvgImage(renderer, color, QSize{physical, physical});
             image.setDevicePixelRatio(dpr);
             const QPixmap pixmap = QPixmap::fromImage(image);
             result.addPixmap(pixmap, QIcon::Normal, QIcon::Off);
             result.addPixmap(pixmap, QIcon::Normal, QIcon::On);
 
             // Disabled state
-            QImage disabledImage{QSize{physical, physical}, QImage::Format_ARGB32_Premultiplied};
-            disabledImage.fill(Qt::transparent);
-
-            QPainter disPainter{&disabledImage};
-            disPainter.setRenderHint(QPainter::Antialiasing, true);
-            disPainter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-            renderer.render(&disPainter);
-            disPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-            disPainter.fillRect(disabledImage.rect(), disabledColor);
-            disPainter.end();
-
+            QImage disabledImage =
+                tintedSvgImage(renderer, disabledColor, QSize{physical, physical});
             disabledImage.setDevicePixelRatio(dpr);
             const QPixmap disPixmap = QPixmap::fromImage(disabledImage);
             result.addPixmap(disPixmap, QIcon::Disabled, QIcon::Off);
