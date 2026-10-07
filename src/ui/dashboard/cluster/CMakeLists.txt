@@ -15,6 +15,10 @@
 # ---------------------------------------------------------------------------
 
 target_sources(torquebus_ui PRIVATE
+    ClusterDataSource.h
+    ClusterDataSource.cpp
+    ClusterHost.h
+    ClusterHost.cpp
     ClusterThemeSync.h
     ClusterThemeSync.cpp
 )

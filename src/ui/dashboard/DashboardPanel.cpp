@@ -6,7 +6,9 @@
 #include "ui/dashboard/DashboardPanel.h"
 
 #include "core/dashboard/SystemVariables.h"
+#include "core/dashboard/cluster/ClusterProfiles.h"
 #include "core/plot/SignalSeries.h"
+#include "ui/dashboard/cluster/ClusterHost.h"
 #include "ui/theme/Theme.h"
 #include "ui/theme/ThemeManager.h"
 
@@ -67,7 +69,10 @@ constexpr double kGaugeSweepDegrees = -240.0;
 DashboardPanel::DashboardPanel(DashboardDescription& dashboard, QWidget* parent)
     : QWidget{parent}
     , m_dashboard{dashboard}
+    , m_clusters{std::make_unique<ClusterHost>(*this)}
 {
+    connect(m_clusters.get(), &ClusterHost::reported, this, &DashboardPanel::reported);
+
     // Delete has to reach the panel in edit mode, and a panel that cannot take
     // focus never sees a key.
     setFocusPolicy(Qt::StrongFocus);
@@ -82,6 +87,8 @@ DashboardPanel::DashboardPanel(DashboardDescription& dashboard, QWidget* parent)
         connect(themes, &ThemeManager::themeChanged, this, [this] { update(); });
     }
 }
+
+DashboardPanel::~DashboardPanel() = default;
 
 void DashboardPanel::showEvent(QShowEvent* event)
 {
@@ -110,6 +117,7 @@ void DashboardPanel::reload()
 
     Q_EMIT selectionChanged(QString{});
 
+    syncClusters();
     update();
 }
 
@@ -130,6 +138,7 @@ void DashboardPanel::setEditing(bool editing)
         Q_EMIT selectionChanged(QString{});
     }
 
+    syncClusters();
     update();
 }
 
@@ -139,9 +148,14 @@ void DashboardPanel::setEditing(bool editing)
 
 DashboardPanel::Reading DashboardPanel::read(const DashboardWidget& widget) const
 {
+    return readBinding(widget.binding);
+}
+
+DashboardPanel::Reading DashboardPanel::readBinding(const DashboardBinding& binding) const
+{
     Reading reading;
 
-    switch (widget.binding.source) {
+    switch (binding.source) {
     case DashboardBinding::Source::Signal: {
         if (m_plots == nullptr) {
             break;
@@ -149,7 +163,7 @@ DashboardPanel::Reading DashboardPanel::read(const DashboardWidget& widget) cons
 
         // "Message.Signal" is the store's own key, and the binding carries both
         // halves for exactly this.
-        const std::string qualified = widget.binding.message + "." + widget.binding.signal;
+        const std::string qualified = binding.message + "." + binding.signal;
 
         const SeriesId id = m_plots->find(qualified);
 
@@ -165,7 +179,7 @@ DashboardPanel::Reading DashboardPanel::read(const DashboardWidget& widget) cons
 
         // Always known, unlike a signal: a variable nobody has written reads as
         // zero, and zero is its value rather than the absence of one.
-        reading.value = m_variables->value(widget.binding.variable);
+        reading.value = m_variables->value(binding.variable);
         reading.known = true;
         break;
 
@@ -185,11 +199,27 @@ void DashboardPanel::write(const DashboardWidget& widget, double value)
     m_variables->set(widget.binding.variable, value);
 }
 
+void DashboardPanel::syncClusters()
+{
+    m_clusters->sync(m_dashboard, m_editing);
+}
+
 void DashboardPanel::refresh()
 {
     if (!isVisible()) {
         return;
     }
+
+    // Every tick, because the description can change without the panel being told: the widget
+    // editor writes a cluster's profile straight into it. A tick with nothing changed does
+    // nothing but compare rectangles.
+    syncClusters();
+
+    m_clusters->feed([this](const DashboardBinding& binding) -> std::optional<double> {
+        const Reading reading = readBinding(binding);
+        return reading.known ? std::optional<double>{reading.value} : std::nullopt;
+    });
+
     // Repainted only when something a widget is bound to has moved. A dashboard
     // of eight gauges on a stopped measurement would otherwise repaint twenty
     // times a second to draw the same picture.
@@ -396,6 +426,7 @@ void DashboardPanel::mouseMoveEvent(QMouseEvent* event)
         widget->height = std::max(30.0, m_dragOrigin.height() + delta.y());
     }
 
+    syncClusters();
     update();
 }
 
@@ -453,6 +484,8 @@ void DashboardPanel::contextMenuEvent(QContextMenuEvent* event)
     addKind(DashboardWidgetKind::Button, tr("Add Button"));
     menu.addSeparator();
     addKind(DashboardWidgetKind::Label, tr("Add Label"));
+    menu.addSeparator();
+    addKind(DashboardWidgetKind::Cluster, tr("Add Cluster"));
 
     if (const DashboardWidget* widget = widgetAt(where); widget != nullptr) {
         menu.addSeparator();
@@ -518,6 +551,14 @@ void DashboardPanel::addWidget(DashboardWidgetKind kind, const QPoint& where)
         widget.title = "Label";
         break;
 
+    case DashboardWidgetKind::Cluster:
+        // The cluster's own stage is 1280 x 560; drawn at another shape it is centred in what it
+        // is given, so this is just the size at which it is first seen whole.
+        widget.width = 720.0;
+        widget.height = 315.0;
+        widget.profile = std::string{kDefaultClusterProfile};
+        break;
+
     default:
         break;
     }
@@ -528,6 +569,7 @@ void DashboardPanel::addWidget(DashboardWidgetKind kind, const QPoint& where)
     Q_EMIT selectionChanged(QString::fromStdString(m_selected));
     Q_EMIT dashboardEdited();
 
+    syncClusters();
     update();
 }
 
@@ -543,6 +585,7 @@ void DashboardPanel::removeSelected()
     Q_EMIT selectionChanged(QString{});
     Q_EMIT dashboardEdited();
 
+    syncClusters();
     update();
 }
 
@@ -643,6 +686,9 @@ void DashboardPanel::paintWidget(QPainter& painter, const DashboardWidget& widge
         break;
     case DashboardWidgetKind::Label:
         paintLabel(painter, widget, rect);
+        break;
+    case DashboardWidgetKind::Cluster:
+        paintCluster(painter, widget, rect);
         break;
     }
 
@@ -956,6 +1002,53 @@ void DashboardPanel::paintLabel(QPainter& painter,
 
     painter.setPen(theme.text);
     painter.drawText(rect, Qt::AlignCenter, QString::fromStdString(widget.title));
+}
+
+void DashboardPanel::paintCluster(QPainter& painter,
+                                  const DashboardWidget& widget,
+                                  const QRectF& rect)
+{
+    const QString problem = m_clusters->problem();
+
+    // In Run mode the QML is on top of this, and what is painted here is only what shows through
+    // while it loads. Unless it never will: then this is where it says so.
+    if (!m_editing && problem.isEmpty()) {
+        return;
+    }
+
+    const Theme theme = currentTheme();
+
+    // The picture the cluster left when Edit mode took it off the screen, so that a cluster being
+    // placed and sized looks like one. Fitted, not stretched: the cluster itself keeps its shape in
+    // whatever rectangle it is given.
+    if (const QImage* snapshot = m_editing ? m_clusters->snapshotOf(widget.id) : nullptr;
+        snapshot != nullptr) {
+        const QSizeF size = QSizeF{snapshot->size()}.scaled(rect.size(), Qt::KeepAspectRatio);
+        QRectF target{QPointF{}, size};
+        target.moveCenter(rect.center());
+
+        painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+        painter.drawImage(target, *snapshot);
+        return;
+    }
+
+    // Nothing to show yet - a cluster added in Edit mode, or one that cannot load.
+    painter.setPen(QPen{theme.border, 1.0});
+    painter.setBrush(theme.instrumentBezel);
+    painter.drawRoundedRect(rect.adjusted(1.0, 1.0, -1.0, -1.0), 10.0, 10.0);
+
+    QString text = problem;
+
+    if (text.isEmpty()) {
+        const ClusterProfile* profile = ClusterProfiles::instance().find(widget.profile);
+        text = tr("Instrument cluster\n%1")
+                   .arg(profile != nullptr ? QString::fromStdString(profile->name)
+                                           : QString::fromStdString(widget.profile));
+    }
+
+    painter.setPen(theme.textMuted);
+    painter.drawText(
+        rect.adjusted(12.0, 12.0, -12.0, -12.0), Qt::AlignCenter | Qt::TextWordWrap, text);
 }
 
 } // namespace torquebus::ui
