@@ -23,6 +23,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -333,6 +334,36 @@ TEST(ProjectFileTests, TheShippedExampleProjectOpensAndValidates)
     ASSERT_TRUE(ecu != nullptr);
     EXPECT_TRUE(ecu->typeName == "lua.ecu");
     EXPECT_FALSE(ecu->parameters.text("script").empty());
+}
+
+TEST(ProjectFileTests, TheShippedExampleNamesItsDatabasesRelativeToItself)
+{
+    // The example is opened on whatever machine somebody clones the repository to. A database
+    // named by the path it had on the machine that saved the project is a file that is not there on
+    // any other, and opening the project says so with a dialog before anything else is seen.
+    //
+    // The rule is the one MainWindow applies when it opens a project: a relative path is relative
+    // to the folder of the project file.
+    const QString path = QStringLiteral(TORQUEBUS_EXAMPLE_PROJECT_DIR "/virtual-vehicle.tbsproj");
+
+    QFile file{path};
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+
+    const QJsonArray databases = QJsonDocument::fromJson(file.readAll())
+                                     .object()
+                                     .value(QStringLiteral("databases"))
+                                     .toArray();
+    ASSERT_FALSE(databases.isEmpty());
+
+    const QDir folder = QFileInfo{path}.absoluteDir();
+
+    for (const QJsonValue& entry : databases) {
+        const QString name = entry.toString();
+        SCOPED_TRACE(name.toStdString());
+
+        EXPECT_FALSE(QFileInfo{name}.isAbsolute());
+        EXPECT_TRUE(QFileInfo{folder.filePath(name)}.isFile());
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -20,8 +20,8 @@
         ]
     },
     "databases": [
-        "D:/Code/qt/TorqueBus/examples/databases/ecu.dbc",
-        "D:/Code/qt/TorqueBus/examples/databases/vehicle.dbc"
+        "../databases/ecu.dbc",
+        "../databases/vehicle.dbc"
     ],
     "pipeline": {
         "edges": [
