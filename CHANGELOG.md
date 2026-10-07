@@ -23,6 +23,15 @@ against what it does, which turned up more than expected.
 
 ### Fixed
 
+- **The example project named its databases by a path on the machine that saved it.**
+  `virtual-vehicle.tbsproj` listed `D:/Code/qt/TorqueBus/examples/databases/...`, so
+  opening it anywhere else began with a "Missing DBC Database" dialog, an empty DBC
+  Explorer and a project already marked as modified, in the first project somebody
+  opens. The paths are now relative to the project's folder, which is how the loader
+  resolves them, and a test checks that each one is relative and exists. Saving the
+  example from the application still writes an absolute path for a database outside the
+  project's folder: the writer keeps a path relative only when it stays inside that
+  folder, which is a separate behaviour and is not changed here.
 - **The package did not contain the vendor plugins.** v0.17 moved the Kvaser
   and PEAK backends out of the executable and the install rules were never
   told, so for three milestones a release would have carried no hardware
