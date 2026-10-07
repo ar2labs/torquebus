@@ -134,6 +134,11 @@ add_library(torquebus_core STATIC
     core/dashboard/SystemVariables.cpp
     core/dashboard/DashboardDescription.h
     core/dashboard/DashboardDescription.cpp
+    core/dashboard/cluster/ClusterRole.h
+    core/dashboard/cluster/ClusterRole.cpp
+    core/dashboard/cluster/ClusterProfile.h
+    core/dashboard/cluster/ClusterProfiles.h
+    core/dashboard/cluster/ClusterProfiles.cpp
 
     # The driver interface belongs to the core, not to the drivers: the core
     # defines the abstraction, and each vendor implements it (dependency

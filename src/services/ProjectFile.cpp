@@ -68,6 +68,7 @@ constexpr auto kMaximum = "maximum";
 constexpr auto kThreshold = "threshold";
 constexpr auto kUnit = "unit";
 constexpr auto kDecimals = "decimals";
+constexpr auto kProfile = "profile";
 
 constexpr auto kSourceSignal = "signal";
 constexpr auto kSourceVariable = "variable";
@@ -308,6 +309,11 @@ void payloadFromJson(const QString& text, CanFrame& frame)
         json[kDecimals] = widget.decimals;
     }
 
+    // Only a cluster has one, and it is what stands where its binding would.
+    if (!widget.profile.empty()) {
+        json[kProfile] = QString::fromStdString(widget.profile);
+    }
+
     return json;
 }
 
@@ -352,6 +358,7 @@ void payloadFromJson(const QString& text, CanFrame& frame)
     widget.maximum = json.value(kMaximum).toDouble(100.0);
     widget.threshold = json.value(kThreshold).toDouble(0.5);
     widget.decimals = json.value(kDecimals).toInt(1);
+    widget.profile = json.value(kProfile).toString().toStdString();
 
     return true;
 }

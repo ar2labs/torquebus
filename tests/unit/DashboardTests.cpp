@@ -14,6 +14,7 @@
 
 #include "core/dashboard/DashboardDescription.h"
 #include "core/dashboard/SystemVariables.h"
+#include "core/dashboard/cluster/ClusterProfiles.h"
 #include "core/pipeline/PipelineGraph.h"
 #include "core/scripting/LuaEcuNode.h"
 
@@ -100,6 +101,30 @@ TEST(DashboardTests, ALabelNeedsNoBinding)
     dashboard.add(label);
 
     EXPECT_TRUE(dashboard.validate().succeeded());
+}
+
+TEST(DashboardTests, AClusterNeedsAProfileInsteadOfABinding)
+{
+    // A cluster shows dozens of values and names none of them, so a binding would be a lie about
+    // what it reads. What it has to name is its profile, and a profile this build does not have is
+    // the way it ends up bound to nothing.
+    DashboardWidget cluster;
+    cluster.id = "cluster";
+    cluster.kind = DashboardWidgetKind::Cluster;
+    cluster.profile = std::string{kDefaultClusterProfile};
+
+    DashboardDescription dashboard;
+    dashboard.add(cluster);
+    EXPECT_TRUE(dashboard.validate().succeeded());
+
+    dashboard.widgets().front().profile = "from-the-future";
+    const Result unknown = dashboard.validate();
+    ASSERT_TRUE(unknown.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{unknown.message()});
+    EXPECT_TRUE(std::string{unknown.message()}.find("from-the-future") != std::string::npos);
+
+    dashboard.widgets().front().profile.clear();
+    EXPECT_TRUE(dashboard.validate().failed());
 }
 
 TEST(DashboardTests, AControlBoundToACANSignalIsRefusedAndToldWhy)
@@ -217,6 +242,7 @@ TEST(DashboardTests, WidgetKindsSurviveTheRoundTripThroughTheirNames)
         DashboardWidgetKind::Slider,
         DashboardWidgetKind::Knob,
         DashboardWidgetKind::Label,
+        DashboardWidgetKind::Cluster,
     };
 
     for (const DashboardWidgetKind kind : kAll) {
@@ -242,6 +268,7 @@ TEST(DashboardTests, ControlsAreTheKindsThatWrite)
     EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Numeric));
     EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Lamp));
     EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Label));
+    EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Cluster));
 }
 
 // ---------------------------------------------------------------------------
