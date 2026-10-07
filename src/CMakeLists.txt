@@ -437,6 +437,10 @@ target_link_libraries(torquebus_ui
 
 set_target_properties(torquebus_ui PROPERTIES FOLDER "Libraries")
 
+# The Dashboard's instrument cluster: its C++, its QML module and its preview tool. Everything
+# that is the cluster's is in that directory; see its CMakeLists.txt for what cannot be.
+add_subdirectory(ui/dashboard/cluster)
+
 # ---------------------------------------------------------------------------
 # TorqueBusStudio - the executable
 # ---------------------------------------------------------------------------
