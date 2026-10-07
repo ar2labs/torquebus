@@ -20,7 +20,8 @@ cluster changing.
 
 A role with no source is not an error and is never hidden or greyed out: it shows
 dashes, its lamp stays ready, and it lights up the day a source arrives. A role
-whose source has no value yet — a signal that has not been seen — is the same.
+whose source has no value yet — a signal that has not been seen — is the same, and
+so is one that has **stopped arriving** (see *How long a signal may be silent*).
 
 ```
  DashboardWidget (kind Cluster, profile "example-11bit")
@@ -92,6 +93,26 @@ describe it:
 | `aiRegime`, `aiAnomaly`, `aiConfidence`, `aiHealth` | `TinyML_Telemetry.RegimeClass`, `.AnomalyScore`, `.Confidence`, `.ThermalHealth` |
 
 Everything else has no source in that profile, and shows dashes.
+
+**How long a signal may be silent.** The plot store keeps the last sample of a signal
+for ever, which is right for a plot and wrong for an instrument: a speedometer that
+holds 90 km/h after the bus went quiet is telling a lie. So each source has a
+`maxAgeMs`, and a CAN signal that has not delivered a new sample for that long is no
+data again - dashes - until the next one arrives. This is the one place the cluster
+differs from a Gauge bound to the same signal, which keeps showing the last value.
+
+- It defaults to two seconds. A profile sets it per role, to about three times the
+  message's cycle time and never less than the default: the example's `EngineTemp`
+  goes out once a second and has three.
+- **Zero means never**, which is what a message sent only when something changes
+  needs: a lamp that is lit stays lit through the silence.
+- A variable has no age. One written once is a steady value, not a missing one.
+- "New" is a change of the sample's timestamp, not a comparison with the clock: the
+  store's timestamps are the measurement's, and say nothing about the present when
+  everything has stopped. The cluster watches the stamp, and the time it last moved is
+  its own steady clock.
+- After **Stop**, the cluster therefore goes back to dashes a couple of seconds
+  later, and to values again when the measurement starts.
 
 **Adding a profile**
 
@@ -202,8 +223,8 @@ beneath it.
   Qt destroys a widget's members before its children, so a view left to the panel's
   destructor would outlive the engine it runs in (`ARCHITECTURE.md`, *Qt teardown
   order*).
-- A signal that stops arriving **keeps its last value**, as it does on every other
-  widget: the plot store does not age samples.
+- A signal that stops arriving turns to dashes once it is older than its source's
+  `maxAgeMs`; unlike every other widget, which holds the last value the store has.
 
 ## Tests
 
@@ -213,7 +234,7 @@ beneath it.
 | `DashboardTests`, `ProjectFileTests` (unit) | the widget kind, its `profile`, the refusals, the round trip |
 | `ClusterViewTests` (ui) | the module loads; no data, every role and every lamp draw without a single warning from Qt, on both themes |
 | `ClusterThemeSyncTests`, `IconImageProviderTests` (ui) | the theme mirror and the icon set |
-| `ClusterHostTests`, `ClusterDataSourceTests`, `DashboardPanelClusterTests` (ui) | a value followed from the store through the profile to the QML property; edit/run; removal; teardown |
+| `ClusterHostTests`, `ClusterDataSourceTests`, `DashboardPanelClusterTests` (ui) | a value followed from the store through the profile to the QML property; a signal that stopped, and its return; edit/run; removal; teardown |
 
 The UI tests run on the `offscreen` platform, where Qt Quick falls back to its
 **software renderer** — which is stricter about `NaN` than the one on a screen is.

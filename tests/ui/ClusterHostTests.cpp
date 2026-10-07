@@ -105,6 +105,19 @@ void pointQmlAtTheQtThatWasFound()
     return source;
 }
 
+/// A CAN signal with the age its source allows, where variableSource has none.
+[[nodiscard]] ClusterSource
+signalSource(ClusterRole role, std::string message, std::string signal, std::uint32_t maxAgeMs)
+{
+    ClusterSource source;
+    source.role = role;
+    source.binding.source = DashboardBinding::Source::Signal;
+    source.binding.message = std::move(message);
+    source.binding.signal = std::move(signal);
+    source.maxAgeMs = maxAgeMs;
+    return source;
+}
+
 /// A profile of the test's own, so that what is read is the test's to choose and the registry's
 /// built-in profile stays the one the application ships.
 const ClusterProfile& testProfile(const std::string& id, std::vector<ClusterSource> sources)
@@ -263,6 +276,105 @@ TEST(ClusterDataSourceTests, AnotherProfileDoesNotInheritTheLastOnesValues)
     EXPECT_FALSE(source.vehicle()->value(QStringLiteral("speed")).isValid());
 }
 
+TEST(ClusterDataSourceTests, ASignalThatStopsArrivingIsNoDataOnceItIsOlderThanItsAge)
+{
+    // The store keeps the last sample of a signal for ever, which is right for a plot and wrong for
+    // a speedometer: a cluster that holds 90 km/h after the bus went quiet is telling a lie.
+    using Clock = ClusterDataSource::Clock;
+    using std::chrono::milliseconds;
+
+    const ClusterProfile& profile =
+        testProfile("test-age", {signalSource(ClusterRole::Speed, "Message", "Speed", 2000)});
+
+    ClusterDataSource source;
+    source.setProfile(&profile);
+
+    std::uint64_t stamp = 1;
+    const auto reader = [&stamp](const DashboardBinding&) -> std::optional<ClusterReading> {
+        return ClusterReading{50.0, stamp};
+    };
+    const auto shown = [&source] {
+        return source.vehicle()->value(QStringLiteral("speed")).isValid();
+    };
+
+    const Clock::time_point start = Clock::now();
+
+    source.update(reader, start);
+    EXPECT_TRUE(shown());
+
+    // The same sample, as old as the source allows and not older: still there.
+    source.update(reader, start + milliseconds{2000});
+    EXPECT_TRUE(shown());
+
+    source.update(reader, start + milliseconds{2001});
+    EXPECT_FALSE(shown());
+
+    // A new sample brings it back, and it has the whole age again from there.
+    stamp = 2;
+    source.update(reader, start + milliseconds{2500});
+    EXPECT_TRUE(shown());
+
+    source.update(reader, start + milliseconds{4500});
+    EXPECT_TRUE(shown());
+    source.update(reader, start + milliseconds{4501});
+    EXPECT_FALSE(shown());
+}
+
+TEST(ClusterDataSourceTests, EveryRoleHasItsOwnAge)
+{
+    using Clock = ClusterDataSource::Clock;
+    using std::chrono::milliseconds;
+
+    const ClusterProfile& profile =
+        testProfile("test-ages",
+                    {signalSource(ClusterRole::Speed, "Message", "Speed", 1000),
+                     signalSource(ClusterRole::Rpm, "Message", "Rpm", 5000)});
+
+    ClusterDataSource source;
+    source.setProfile(&profile);
+
+    const auto reader = [](const DashboardBinding&) -> std::optional<ClusterReading> {
+        return ClusterReading{10.0, std::uint64_t{7}};
+    };
+
+    const Clock::time_point start = Clock::now();
+    source.update(reader, start);
+    source.update(reader, start + milliseconds{3000});
+
+    EXPECT_FALSE(source.vehicle()->value(QStringLiteral("speed")).isValid());
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("rpm")).isValid());
+}
+
+TEST(ClusterDataSourceTests, AnAgeOfZeroAndAValueWithNoStampAreNeverStale)
+{
+    // A message sent only when something changes: a lamp that is lit stays lit through the
+    // silence. And a variable has no sample to be old - one written once is a steady value.
+    using Clock = ClusterDataSource::Clock;
+    using std::chrono::hours;
+
+    const ClusterProfile& profile =
+        testProfile("test-never",
+                    {signalSource(ClusterRole::LampLeft, "Lamps", "Left", 0),
+                     variableSource(ClusterRole::Speed, "speed")});
+
+    ClusterDataSource source;
+    source.setProfile(&profile);
+
+    const auto reader = [](const DashboardBinding& binding) -> std::optional<ClusterReading> {
+        if (binding.source == DashboardBinding::Source::Variable) {
+            return ClusterReading{80.0};
+        }
+        return ClusterReading{1.0, std::uint64_t{3}};
+    };
+
+    const Clock::time_point start = Clock::now();
+    source.update(reader, start);
+    source.update(reader, start + hours{1});
+
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("lampLeft")).toBool());
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("speed")).isValid());
+}
+
 // ---------------------------------------------------------------------------
 // The host
 // ---------------------------------------------------------------------------
@@ -343,6 +455,52 @@ TEST(ClusterHostTests, TheClusterShowsWhatItsProfileReads)
     // And a value that goes away is dashes again.
     host.feed([](const DashboardBinding&) -> std::optional<double> { return std::nullopt; });
     ASSERT_TRUE(waitFor([view] { return std::isnan(number(*view, "speed")); }));
+
+    ASSERT_TRUE(QmlWarningCatcher::messages().isEmpty()) << QmlWarningCatcher::describe();
+}
+
+TEST(ClusterHostTests, ASignalThatStoppedIsDashesOnTheClusterAndReturnsWithTheBus)
+{
+    pointQmlAtTheQtThatWasFound();
+    const QmlWarningCatcher catcher;
+    using Clock = ClusterDataSource::Clock;
+    using std::chrono::seconds;
+
+    const ClusterProfile& profile =
+        testProfile("test-host-age", {signalSource(ClusterRole::Speed, "Message", "Speed", 2000)});
+
+    QWidget canvas;
+    canvas.show();
+
+    ClusterHost host{canvas};
+
+    DashboardDescription dashboard;
+    DashboardWidget widget = clusterWidget();
+    widget.profile = profile.id;
+    dashboard.add(widget);
+    host.sync(dashboard, false);
+
+    const QQuickWidget* view = host.viewOf("cluster");
+    ASSERT_TRUE(view != nullptr);
+
+    std::uint64_t stamp = 1;
+    const auto reader = [&stamp](const DashboardBinding&) -> std::optional<ClusterReading> {
+        return ClusterReading{72.5, stamp};
+    };
+
+    const Clock::time_point start = Clock::now();
+
+    host.feed(reader, start);
+    ASSERT_TRUE(waitFor([view] { return number(*view, "speed") == 72.5; }));
+
+    // Nothing new arrives for longer than the source allows.
+    host.feed(reader, start + seconds{3});
+    ASSERT_TRUE(waitFor([view] { return std::isnan(number(*view, "speed")); }));
+
+    // The bus comes back.
+    stamp = 2;
+    host.feed(reader, start + seconds{4});
+    ASSERT_TRUE(waitFor([view] { return number(*view, "speed") == 72.5; }));
 
     ASSERT_TRUE(QmlWarningCatcher::messages().isEmpty()) << QmlWarningCatcher::describe();
 }
@@ -481,6 +639,63 @@ TEST(ClusterHostTests, TheHostGoesBeforeTheViewsItMadeWithoutAWarning)
 // ---------------------------------------------------------------------------
 // The panel
 // ---------------------------------------------------------------------------
+
+TEST(DashboardPanelClusterTests, ASignalThatStopsOnTheStoreBecomesDashesOnTheCluster)
+{
+    // The whole way again, for the age: the panel reads the sample's stamp from the store and the
+    // real clock does the rest. A short age keeps the wait short.
+    pointQmlAtTheQtThatWasFound();
+    const QmlWarningCatcher catcher;
+
+    const ClusterProfile& profile = testProfile(
+        "test-panel-age", {signalSource(ClusterRole::Speed, "VehicleSpeed", "SpeedKmh", 150)});
+
+    SignalSeriesStore store{64};
+
+    CanMessage message;
+    message.name = "VehicleSpeed";
+    CanSignal speed;
+    speed.name = "SpeedKmh";
+
+    const auto sample = [&](std::uint64_t at, double value) {
+        DecodedSignal decoded;
+        decoded.message = &message;
+        decoded.signal = &speed;
+        decoded.timestampNs = at;
+        decoded.value = value;
+        store.append(std::span<const DecodedSignal>{&decoded, 1});
+    };
+    sample(1'000'000ULL, 83.5);
+
+    DashboardDescription dashboard;
+    DashboardWidget widget = clusterWidget();
+    widget.profile = profile.id;
+    dashboard.add(widget);
+
+    SystemVariables variables;
+
+    DashboardPanel panel{dashboard};
+    panel.setPlotStore(&store);
+    panel.setVariables(&variables);
+    panel.resize(900, 600);
+    panel.show();
+    panel.reload();
+
+    const auto views = panel.findChildren<QQuickWidget*>();
+    ASSERT_EQ(views.size(), 1);
+    const QQuickWidget* view = views.front();
+
+    ASSERT_TRUE(waitFor([view] { return number(*view, "speed") == 83.5; }));
+
+    // The store still holds 83.5. The cluster no longer shows it.
+    ASSERT_TRUE(waitFor([view] { return std::isnan(number(*view, "speed")); }));
+
+    // A later sample, and it is back.
+    sample(2'000'000ULL, 90.0);
+    ASSERT_TRUE(waitFor([view] { return number(*view, "speed") == 90.0; }));
+
+    ASSERT_TRUE(QmlWarningCatcher::messages().isEmpty()) << QmlWarningCatcher::describe();
+}
 
 TEST(DashboardPanelClusterTests, ASignalOnTheStoreReachesTheCluster)
 {

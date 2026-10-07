@@ -124,6 +124,11 @@ private:
     struct Reading final {
         double value{0.0};
         bool known{false};
+
+        /// For a CAN signal, the timestamp of the sample this is: which one it is, not when. The
+        /// cluster watches it for change, to tell a signal that stopped from one that is steady.
+        std::uint64_t stamp{0};
+        bool timed{false};
     };
 
     [[nodiscard]] Reading read(const DashboardWidget& widget) const;

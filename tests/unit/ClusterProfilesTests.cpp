@@ -194,6 +194,24 @@ TEST(ClusterProfilesTests, TheExampleProfileReadsSignalsTheExampleDatabasesHave)
     }
 }
 
+TEST(ClusterProfilesTests, EveryBusSignalOfTheExampleProfileHasAnAgeLongerThanItsCycle)
+{
+    // A signal that is not seen for this long is no data. Too short and a signal that is merely
+    // slow flickers to dashes between its samples; zero and it never goes at all. The example's
+    // ECU sends EngineTemp once a second (docs/development/cluster.md), and the rest faster.
+    const ClusterProfile* profile = ClusterProfiles::instance().find(kDefaultClusterProfile);
+    ASSERT_TRUE(profile != nullptr);
+
+    for (const ClusterSource& source : profile->sources) {
+        SCOPED_TRACE(std::string{nameOf(source.role)});
+        EXPECT_GT(source.maxAgeMs, 0U);
+    }
+
+    const ClusterSource* coolant = profile->sourceOf(ClusterRole::Coolant);
+    ASSERT_TRUE(coolant != nullptr);
+    EXPECT_GE(coolant->maxAgeMs, 2U * 1000U);
+}
+
 TEST(ClusterProfilesTests, TheExampleProfileCoversWhatTheExampleCanShowAndNothingItCannot)
 {
     // The roles with a source today. The others are dashes on purpose: what the example vehicle

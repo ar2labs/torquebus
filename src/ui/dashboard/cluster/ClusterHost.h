@@ -75,8 +75,9 @@ public:
     void sync(const DashboardDescription& dashboard, bool editing);
 
     /// Gives every cluster its values. Called on the panel's own refresh, with the panel's own
-    /// reader; clusters that are not on screen are not fed.
-    void feed(const ClusterDataSource::Reader& read);
+    /// reader; clusters that are not on screen are not fed. `now` is for the tests.
+    void feed(const ClusterDataSource::Reader& read,
+              ClusterDataSource::Clock::time_point now = ClusterDataSource::Clock::now());
 
     /// The cluster `id` as it last was on screen, for the panel to draw while the real one is
     /// hidden; null before it has ever been drawn.
