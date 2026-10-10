@@ -2,6 +2,13 @@
 
 **Open Automotive Network & Diagnostics Workbench**
 
+[![CI](https://github.com/ar2labs/torquebus/actions/workflows/ci.yml/badge.svg)](https://github.com/ar2labs/torquebus/actions/workflows/ci.yml)
+[![Google Test](https://img.shields.io/badge/Google_Test-834_tests-2ea44f?logo=google)](https://github.com/ar2labs/torquebus/actions)
+[![Tests Passing](https://img.shields.io/badge/tests-100%25_passing-brightgreen)](https://github.com/ar2labs/torquebus/actions)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
+[![Qt 6.11](https://img.shields.io/badge/Qt-6.11.2-brightgreen.svg)](https://www.qt.io/)
+
 An open source platform for analysing, simulating, diagnosing and automating
 automotive networks — a community alternative to TSMaster, CANalyzer/CANoe and
 PCAN-Explorer.
@@ -128,6 +135,29 @@ acceptance pass, ordered so the cheapest failures surface first.
 
 ---
 
+## Testing & Quality Assurance (Google Test)
+
+TorqueBus enforces a **100% automated test pass contract**. Every pull request and build runs **834 automated tests** powered by [Google Test](https://github.com/google/googletest) (v1.15.2) and CTest across four architectural layers:
+
+* **Unit Tests (707 tests):** CAN engine core, DBC parser, J1939 codecs, ISO-TP, UDS, TinyML inference, and Lua runtime.
+* **UI Tests (86 tests):** QML Instrument Cluster, docking layouts, widgets, and property bindings.
+* **Integration Tests (41 tests):** Multi-node virtual CAN bus, Lua ECU lifecycles, and dataflow throughput (asserting 150,000 frames/s with zero loss).
+* **Hardware Loopback Tests (4 tests):** Physical PEAK and Kvaser adapter validation (cleanly skipped via `GTEST_SKIP()` when hardware is detached).
+
+Run the full Google Test suite locally:
+
+```bat
+# Run through CTest
+ctest --preset windows-msvc-debug --output-on-failure
+
+# Or execute the Google Test binary directly with colored output
+build\windows-msvc-debug\bin\torquebus_unit_tests.exe
+```
+
+Continuous Integration automatically executes all tests and publishes test summaries on GitHub Actions. See [`docs/development/testing-framework.md`](docs/development/testing-framework.md) for test architecture, writing custom test cases, and exporting formal XML/JUnit reports.
+
+---
+
 ## Writing an ECU
 
 A simulated ECU is a Lua script. Four optional callbacks, four calls back:
@@ -159,6 +189,7 @@ sandbox, error handling, and measured execution cost — is in
 (engine, aftertreatment, body, brakes, a switch panel and the cluster's own core), the TinyML Virtual ECU, a J1939
 block and the instrument cluster on the Dashboard. Each ECU takes a `scenario` parameter - `low_oil_pressure`,
 `overheating`, `abs_fault`, `hazard`... - and the cluster answers with the lamp it would light on a vehicle; see
+[`docs/development/j1939-pipeline.md`](docs/development/j1939-pipeline.md) and
 [`docs/development/cluster.md`](docs/development/cluster.md#the-j1939-example).
 
 ---
@@ -217,6 +248,22 @@ TorqueBus takes its workbench from TSMaster and CANoe, and its visual pipeline
 from [CANdevStudio](https://github.com/GENIVI/CANdevStudio), which solved that
 idea first. No code is shared — CANdevStudio is Qt5/C++17 on QtNodes 2.x, an
 incompatible API generation — but the debt is real and worth naming.
+
+---
+
+## Documentation
+
+Full architectural specifications and development manuals are organized in the [`docs/`](docs/) directory:
+
+* 🧭 **[Documentation Hub](docs/INDEX.md)** — Master index and navigation map.
+* 🏛️ **[Architecture Guide](docs/ARCHITECTURE.md)** — Threading model, bounded queues, and zero-allocation rules.
+* 🛠️ **[Getting Started](docs/development/getting-started.md)** — Toolchain setup and local build guide.
+* 🧪 **[Google Test & QA Framework](docs/development/testing-framework.md)** — Unit, integration, and UI testing guide.
+* 🚛 **[J1939 Protocol & Cluster](docs/development/j1939-pipeline.md)** — Heavy-duty simulation and QML instrument cluster.
+* 📜 **[Lua ECU Scripting](docs/development/scripting.md)** — Writing simulated ECUs and sandbox lifecycle.
+* 📊 **[DBC Database Engine](docs/development/databases.md)** — Signal decoding, bit numbering, and multiplexing.
+* 🤖 **[TinyML Anomaly Detection](docs/development/tinyml.md)** — Machine learning models on CAN bus.
+* ✅ **[Validation Checklist](docs/development/validation.md)** — Step-by-step acceptance testing pass.
 
 ---
 

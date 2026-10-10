@@ -85,11 +85,24 @@ jobs:
 
       - name: Unit tests
         working-directory: build/${{ matrix.preset }}
-        run: ctest --output-on-failure --label-exclude integration --label-exclude hardware
+        run: ctest --output-on-failure --label-exclude integration --label-exclude hardware --output-junit junit-unit.xml
 
       - name: Integration tests
         working-directory: build/${{ matrix.preset }}
-        run: ctest --output-on-failure --label-regex integration
+        run: ctest --output-on-failure --label-regex integration --output-junit junit-integration.xml
+
+      - name: Test Summary
+        uses: test-summary/action@v2
+        if: always()
+        with:
+          paths: "build/${{ matrix.preset }}/junit-*.xml"
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.preset }}
+          path: build/${{ matrix.preset }}/junit-*.xml
 
       # --component torquebus, not a plain install: KDDockWidgets and QtNodes
       # come in through FetchContent, so their install rules are ours to run,
