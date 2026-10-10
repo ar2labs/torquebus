@@ -81,7 +81,7 @@ the registry's constructor rather than behind a call that has to be made first �
 they probe nothing, and a project opened before anybody called it would otherwise
 be refused for naming a profile this build has.
 
-The only built-in profile today is `example-11bit`, the vehicle of
+There are two built-in profiles. `example-11bit` is the vehicle of
 `virtual-vehicle.tbsproj` as `examples/databases/vehicle.dbc` and `ecu.dbc`
 describe it:
 
@@ -93,6 +93,46 @@ describe it:
 | `aiRegime`, `aiAnomaly`, `aiConfidence`, `aiHealth` | `TinyML_Telemetry.RegimeClass`, `.AnomalyScore`, `.Confidence`, `.ThermalHealth` |
 
 Everything else has no source in that profile, and shows dashes.
+
+### `j1939-commercial`
+
+A J1939 truck, as `examples/databases/j1939.dbc` describes it and `examples/projects/j1939-vehicle.tbsproj`
+runs it. Every number is a signal of the plot store, filled by a J1939 block behind a Signal Plot:
+
+| Role | Source | Ages |
+|---|---|---|
+| `speed`, `gear` | `CCVS1.WheelBasedVehicleSpeed`, `ETC2.TransmissionCurrentGear` | 300 ms |
+| `rpm` | `EEC1.EngineSpeed` | 100 ms |
+| `coolant`, `oil` | `ET1.EngineCoolantTemperature`, `EFL_P1.EngineOilPressure` | 3 s, 1.5 s |
+| `fuel`, `def`, `battery`, `airPressure`, `ambient`, `odometer`, `hours` | `DD1.FuelLevel1`, `AT1T1I1.DieselExhaustFluidTankLevel`, `VEP1.BatteryPotential`, `AIR1.ServiceBrakeCircuit1AirPress`, `AMB.AmbientAirTemperature`, `VDHR.TotalVehicleDistance`, `HOURS.TotalEngineHours` | 3 s |
+| `aiRegime`, `aiAnomaly`, `aiConfidence`, `aiHealth` | `TinyML_Proprietary.RegimeClass`, `.AnomalyScore`, `.Confidence`, `.ThermalHealth` | 300 ms |
+| `cruise`, `lampPark` | `CCVS1.CruiseControlActive`, `.ParkingBrakeSwitch` | 300 ms |
+| `lampHigh`, `lampLow`, `lampPosition`, `lampLeft`, `lampRight` | `LD.HighBeamHeadlight`, `.LowBeamHeadlight`, `.PositionLights`, `.LeftTurnSignal`, `.RightTurnSignal` | 3 s |
+| `lampHazard`, `lampBelt`, `lampAbs` | `OEL.HazardSwitch` (600 ms), `BAS.SeatBeltWarningLamp` (3 s), `EBC1.ABSAmberWarning` (300 ms) | |
+| `dmStop`, `dmWarn`, `dmMil`, `dmProtect` | the **variables** `j1939.lamp_stop`, `j1939.lamp_warning`, `j1939.lamp_mil`, `j1939.lamp_protect` | none |
+
+The ages are tighter than the two-second default because here they can be: a J1939 message has a cycle
+time and keeps it, and a speed that stopped arriving 300 ms ago should say so.
+
+Four of those are decisions, and each is the answer to something that did not work:
+
+- **The DM1 lamps are variables.** Every ECU of a vehicle sends its own DM1 and a database names a message
+  once, so the DM1 of the engine and the DM1 of the five ECUs with nothing to report all land in the one
+  series `DM1.RedStopLamp` - and a red lamp showed for the few milliseconds each second between the engine's
+  message and the next one. The J1939 block knows which ECU said what, and writes the OR of the lamps of
+  every ECU whose DM1 is still current (three seconds) to the four variables above. A DM2 is what *was*
+  wrong and lights nothing; Stop puts them out. The variables are the bus's, not a block's: a pipeline with
+  J1939 blocks on two channels has two writers for one lamp, and the last to run wins - one block per
+  cluster.
+- **The engine lamp has no source of its own.** It is the DM1's malfunction indicator, which is `dmMil`, and
+  the cluster lights the engine lamp for either.
+- **The AI regime is the model's `RegimeClass`, not its `RiskLevel`.** Both are small numbers. The cluster
+  names regime 0 "Idle" and 1 "Cruise", and fed the risk level it said "Engine idling" of a vehicle at
+  100 km/h whenever the model was calm - and could never show the Anomaly alarm.
+- **The belt and ABS lamps are lamps, not switches.** A seat belt lamp is lit while the belt is *not*
+  fastened, and a switch that reads 1 when it is fastened would have lit it for the belt being on. The ABS
+  lamp is the amber warning signal; "ABS active" is the ABS regulating the wheels under hard braking, which
+  no lamp is for.
 
 **How long a signal may be silent.** The plot store keeps the last sample of a signal
 for ever, which is right for a plot and wrong for an instrument: a speedometer that
@@ -140,6 +180,42 @@ at start-up. **Speed, engine speed and temperature show dashes.** The example em
 (only the TinyML telemetry goes through a *Signal Plot*), and no ECU in it emits
 `EngineSpeed`. Giving the cluster those is a change to the example's pipeline, not
 to the cluster; the profile is ready for them.
+
+## The J1939 example
+
+`examples/projects/j1939-vehicle.tbsproj` is the cluster on a vehicle that reports everything it has:
+
+```
+ CAN 1 ─┬─► J1939 (j1939.dbc) ─► Signal Plot ─────────────► the plot store ─► the cluster
+        ├─► TinyML Virtual ECU ─► CAN Transmit
+        ├─► Body ECU ◄─ the switch panel's OEL        (it hears the stalk, and lights the arrow)
+        └─► Cluster core ECU                          (it hears the speed, and integrates the odometer)
+ ECU ─► CAN Transmit      once for each of the six: an input takes one wire
+```
+
+Six simulated ECUs, each a Lua script with a `scenario` parameter documented at the top of the file, the TinyML
+Virtual ECU in its J1939 mode, and a J1939 block with the database. Open it, press Start, and the cluster
+runs the 90 s drive cycle of the engine ECU: standstill, 45, 80, 100 km/h and back, with the AI panel calm
+throughout. Set a `scenario` on a block to see a lamp light:
+
+| Block | Scenario | On the cluster |
+|---|---|---|
+| `ecu_engine` | `low_oil_pressure` | stop lamp, oil lamp |
+| `ecu_engine` | `overheating` | stop and engine lamps, the AI panel in alarm |
+| `ecu_engine` | `sensor_error` | coolant dashes, warning lamp |
+| `ecu_engine` | `highway`, `parked`, `cold_start` | cruise pill at 100 km/h, parking brake lamp, ambient 5 °C |
+| `ecu_brakes` | `abs_fault`, `air_leak` | ABS and warning lamps; stop lamp and air pressure falling |
+| `ecu_body` | `alternator_failure`, `belt_unbuckled` | battery lamp and warning lamp; belt lamp |
+| `ecu_aftertreatment` | `low_adblue` | AdBlue at 8 %, warning lamp |
+| `ecu_switches` | `turn_left`, `turn_right`, `hazard`, `flasher_cycle` | arrows, and the hazard lamp |
+
+`J1939ExampleProjectTests` runs each of those on the engine and asserts the roles; `J1939ExampleClusterTests` runs
+the project into a real `DashboardPanel` and the real QML and reads what the cluster shows, with no warning from Qt.
+
+Two of the project's choices are the engine's, not the cluster's. **An input takes one wire**, so every ECU has
+its own CAN Transmit block; the project used to wire six of them into one and was refused at Start with "Two wires
+arrive at 'tx_1'". And a Signal Plot behind a **decoder** is what puts the bus in the plot store at all: without
+one every role is dashes except what the TinyML block plots itself under another name.
 
 ## The QML
 
@@ -234,6 +310,8 @@ beneath it.
 | `DashboardTests`, `ProjectFileTests` (unit) | the widget kind, its `profile`, the refusals, the round trip |
 | `ClusterViewTests` (ui) | the module loads; no data, every role and every lamp draw without a single warning from Qt, on both themes |
 | `ClusterThemeSyncTests`, `IconImageProviderTests` (ui) | the theme mirror and the icon set |
+| `J1939ExampleProjectTests` (unit) | the J1939 example opens, validates, runs, and every role has a value; each scenario lights its lamp; nothing in a normal run is *not available* by mistake |
+| `J1939ExampleClusterTests` (ui) | the same project into a real panel and the real QML |
 | `ClusterHostTests`, `ClusterDataSourceTests`, `DashboardPanelClusterTests` (ui) | a value followed from the store through the profile to the QML property; a signal that stopped, and its return; edit/run; removal; teardown |
 
 The UI tests run on the `offscreen` platform, where Qt Quick falls back to its

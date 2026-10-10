@@ -105,7 +105,7 @@ Item {
         case "stop": return root.flag("dmStop")
         case "warn": return root.flag("dmWarn") || root.flag("dmProtect")
         case "oil": return root.flag("lampOil") || (Number.isFinite(root.oil) && root.oil < 100)
-        case "battery": return Number.isFinite(root.battery) && root.battery < 23
+        case "battery": return Number.isFinite(root.battery) && (root.battery < 11.8 || (root.battery > 16 && root.battery < 23))
         case "abs": return root.flag("lampAbs")
         }
         return false

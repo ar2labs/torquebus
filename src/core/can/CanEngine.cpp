@@ -149,6 +149,11 @@ Result CanEngine::start()
         return Result::ok();
     }
 
+    // A measurement that ended on its own is over but not wound up: its thread has returned and not
+    // been joined, its channels are still started and its nodes have not been told. stop() does all
+    // of it, and does nothing at all when there is nothing to do.
+    stop();
+
     {
         const std::lock_guard lock{m_channelsMutex};
 
@@ -185,6 +190,8 @@ Result CanEngine::start()
     }
 
     m_deliveredFrames.store(0, std::memory_order_relaxed);
+    m_dispatchFaulted.store(false, std::memory_order_release);
+    m_measurementLive = true;
     m_running.store(true, std::memory_order_release);
     // Guarded, because this thread runs the graph - and the graph runs Lua
     // scripts, database decoders and node types a plugin registered. An
@@ -197,6 +204,7 @@ Result CanEngine::start()
             [this](std::string_view reason) {
                 // Stopped first, reported second: whoever reads the message
                 // should not find a measurement that claims to still be running.
+                m_dispatchFaulted.store(true, std::memory_order_release);
                 m_running.store(false, std::memory_order_release);
                 reportToLogSinks(reason, true);
             });
@@ -395,13 +403,23 @@ NodeId CanEngine::sourceNode(std::uint8_t applicationChannel) const
 
 void CanEngine::stop()
 {
-    if (!m_running.exchange(false, std::memory_order_acq_rel)) {
-        return;
-    }
+    m_running.store(false, std::memory_order_release);
 
+    // Joined whether or not the loop was still going. One that ended on its own - a node threw, and
+    // the guard around the thread reported it and let it return - is a thread that returned, and a
+    // std::thread that has returned is still joinable: destroying one, or assigning a new thread
+    // over it as the next start() does, is std::terminate. A plugin's node throwing used to take
+    // the application down with a delay, at the next Start or when the window closed.
     if (m_thread.joinable()) {
         m_thread.join();
     }
+
+    // Once per measurement. Stopping a stopped engine, and the destructor after a stop, are not a
+    // second end of the same one.
+    if (!m_measurementLive) {
+        return;
+    }
+    m_measurementLive = false;
 
     {
         const std::lock_guard lock{m_channelsMutex};
@@ -410,10 +428,24 @@ void CanEngine::stop()
         }
     }
 
+    const auto report = [this](std::string_view reason) { reportToLogSinks(reason, true); };
+
     // The backends have stopped, but their queues may still hold frames that
     // were received microseconds before. Those frames are real measurement
     // data - drain them rather than dropping them on the floor.
-    dispatchPass();
+    //
+    // Not after a loop that ended on an exception, which would meet the same node again from this
+    // thread; and guarded in any case, because an exception out of stop() is an exception out of a
+    // destructor.
+    if (!m_dispatchFaulted.load(std::memory_order_acquire)) {
+        runWithoutEscaping("the final dispatch pass", [this] { dispatchPass(); }, report);
+    }
+
+    // The measurement is over: every node is told so, in reverse order, after its last pass. This
+    // is where a script runs its on_disable and a test sequence closes the case that was in flight
+    // - the unit tests called graph.finish() themselves, and the engine never did, so Stop ended
+    // the measurement and left every node believing it was still on.
+    runWithoutEscaping("a node's finish", [this] { m_graph.finish(); }, report);
 }
 
 Result CanEngine::transmit(std::uint8_t applicationChannel, const CanFrame& frame)

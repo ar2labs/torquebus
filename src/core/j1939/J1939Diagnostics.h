@@ -62,6 +62,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace torquebus {
@@ -168,6 +169,29 @@ struct J1939Diagnostic final {
 
     std::uint64_t timestampNs{0U};
 };
+
+// --- The lamps of the whole bus ----------------------------------------------
+//
+// Every ECU reports its own lamps in its own DM1, and the instrument cluster of a vehicle lights a
+// lamp when ANY of them says so. The decoded signals cannot say that: a database names a message
+// once, so the DM1 of the engine, the brakes and the body all land in the one series
+// "DM1.RedStopLamp", and whichever arrived last is what a reader of it sees - six ECUs sending a
+// DM1 a second, five of them with every lamp dark, hide the sixth's red lamp for all but a few
+// milliseconds of each second.
+//
+// So the J1939 block says it: when it has somewhere to put it, it writes the OR of the lamps of
+// every ECU whose DM1 is still current into these four system variables, which is where a cluster
+// profile (and a script, and a Dashboard widget) reads it.
+
+inline constexpr std::string_view kJ1939LampStopVariable = "j1939.lamp_stop";
+inline constexpr std::string_view kJ1939LampWarningVariable = "j1939.lamp_warning";
+inline constexpr std::string_view kJ1939LampMilVariable = "j1939.lamp_mil";
+inline constexpr std::string_view kJ1939LampProtectVariable = "j1939.lamp_protect";
+
+/// How long a DM1 stays current. J1939-73 has an ECU repeat it every second, so this is three
+/// missed ones: an ECU that has gone quiet - switched off, or unplugged - is not still lighting a
+/// lamp.
+inline constexpr std::uint64_t kJ1939DiagnosticCurrentNs = 3'000'000'000ULL;
 
 /// True when `pgn` is DM1 or DM2.
 [[nodiscard]] constexpr bool j1939IsDiagnosticPgn(std::uint32_t pgn) noexcept

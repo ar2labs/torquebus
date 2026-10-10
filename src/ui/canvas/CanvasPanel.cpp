@@ -52,6 +52,7 @@
 #include <QSplitter>
 #include <QString>
 #include <QStringList>
+#include <QToolBar>
 #include <QToolTip>
 #include <QTreeWidget>
 #include <QVBoxLayout>
@@ -146,6 +147,60 @@ constexpr int kTypeNameRole = Qt::UserRole + 1;
 
 /// Duration of one full cycle of packet motion along a wire on the Canvas.
 constexpr int kFlowCycleDurationMs = 1350;
+
+/// How far the view zooms. QtNodes allows 0.3 to 2, and a pipeline of a few dozen blocks does not
+/// fit in a window of ordinary height at 0.3 - the J1939 example needs 0.31 in 730 pixels - so Fit
+/// would have stopped short of "everything".
+constexpr double kMinZoom = 0.1;
+constexpr double kMaxZoom = 2.0;
+
+/// Fit does not enlarge past real size: one block alone in a wide window is not blown up to twice
+/// its size.
+constexpr double kFitMaxZoom = 1.0;
+
+/// What Fit leaves free around the blocks, in viewport pixels.
+constexpr int kFitMarginPx = 24;
+
+/// The card the foreground paints under a TinyML block: where it starts, and its size.
+constexpr qreal kTinyMlCardGap = 8.0;
+constexpr qreal kTinyMlCardHeight = 114.0;
+constexpr qreal kTinyMlCardMinWidth = 310.0;
+
+[[nodiscard]] QRectF tinyMlCardRect(const QRectF& nodeRect)
+{
+    const qreal width = std::max(nodeRect.width(), kTinyMlCardMinWidth);
+    return QRectF{nodeRect.center().x() - (width * 0.5),
+                  nodeRect.bottom() + kTinyMlCardGap,
+                  width,
+                  kTinyMlCardHeight};
+}
+
+/// The canvas view. QtNodes' own view fits the whole scene to the window every time it is shown:
+/// that is how it lays itself out the first time, and also how it throws away the zoom and the
+/// position the user chose each time they come back to the tab. Here the panel says when the canvas
+/// is fitted - once it has been filled, and whenever it is asked to - and the view otherwise stays
+/// where it was left.
+class CanvasView final : public QtNodes::GraphicsView {
+public:
+    using QtNodes::GraphicsView::GraphicsView;
+
+    /// Called each time the view is shown, once the layout above it has given it its size.
+    void onShown(std::function<void()> callback) { m_shown = std::move(callback); }
+
+protected:
+    void showEvent(QShowEvent* event) override
+    {
+        // Past QtNodes' own showEvent, which is the one that fits the scene.
+        QGraphicsView::showEvent(event);
+
+        if (m_shown) {
+            m_shown();
+        }
+    }
+
+private:
+    std::function<void()> m_shown;
+};
 
 /// Scene subclass that supplies the right-click context menu and delegates
 /// foreground painting (animated wire packets, live node frame/signal cards,
@@ -434,6 +489,34 @@ public:
     }
     if (node.typeName == "lua.ecu") {
         const std::int64_t ch = node.parameters.integer("channel", 0);
+        const std::int64_t sa = node.parameters.integer("sa", -1);
+        if (sa >= 0) {
+            QString ecuTag;
+            if (sa == 0x00 || node.id == "ecu_engine") {
+                ecuTag = QStringLiteral("EMS");
+            } else if (sa == 0x3D || node.id == "ecu_aftertreatment") {
+                ecuTag = QStringLiteral("ACM");
+            } else if (sa == 0x21 || node.id == "ecu_body") {
+                ecuTag = QStringLiteral("BCM");
+            } else if (sa == 0x0B || node.id == "ecu_brakes") {
+                ecuTag = QStringLiteral("EBS");
+            } else if (sa == 0x37 || node.id == "ecu_switches") {
+                ecuTag = QStringLiteral("CAB");
+            } else if (sa == 0x17 || node.id == "ecu_cluster_core") {
+                ecuTag = QStringLiteral("IC");
+            }
+            if (!ecuTag.isEmpty()) {
+                return QStringLiteral("CAN %1 • SA 0x%2 (%3)")
+                    .arg(ch + 1)
+                    .arg(sa, 2, 16, QLatin1Char{'0'})
+                    .toUpper()
+                    .arg(ecuTag);
+            }
+            return QStringLiteral("CAN %1 • SA 0x%2")
+                .arg(ch + 1)
+                .arg(sa, 2, 16, QLatin1Char{'0'})
+                .toUpper();
+        }
         const std::int64_t speedId = node.parameters.integer("speed_id", 0x101);
         return QStringLiteral("CAN %1 • 0x%2")
             .arg(ch + 1)
@@ -441,16 +524,49 @@ public:
             .toUpper();
     }
     if (node.typeName == "tinyml.ecu") {
+        const bool isJ1939 = node.parameters.boolean("j1939", false);
+        if (isJ1939) {
+            const std::int64_t outId = node.parameters.integer("outputCanId", 0x18FD0555);
+            return QStringLiteral("J1939 • TX 0x%1").arg(outId, 8, 16, QLatin1Char{'0'}).toUpper();
+        }
         const std::int64_t outId = node.parameters.integer("outputCanId", 0x105);
         return QStringLiteral("TX 0x%1").arg(outId, 3, 16, QLatin1Char{'0'}).toUpper();
     }
     if (node.typeName == "can.filter") {
+        const std::int64_t pgn = node.parameters.integer("pgn", -1);
+        if (pgn >= 0) {
+            QString pgnTag;
+            if (pgn == 65265) {
+                pgnTag = QStringLiteral("CCVS1");
+            } else if (pgn == 61444) {
+                pgnTag = QStringLiteral("EEC1");
+            } else if (pgn == 65226) {
+                pgnTag = QStringLiteral("DM1");
+            }
+            if (!pgnTag.isEmpty()) {
+                return QStringLiteral("PGN 0x%1 (%2)")
+                    .arg(pgn, 4, 16, QLatin1Char{'0'})
+                    .toUpper()
+                    .arg(pgnTag);
+            }
+            return QStringLiteral("PGN 0x%1").arg(pgn, 4, 16, QLatin1Char{'0'}).toUpper();
+        }
         const std::int64_t fromId = node.parameters.integer("from", 0x000);
         const std::int64_t toId = node.parameters.integer("to", 0x7FF);
         return QStringLiteral("0x%1..0x%2")
             .arg(fromId, 3, 16, QLatin1Char{'0'})
             .arg(toId, 3, 16, QLatin1Char{'0'})
             .toUpper();
+    }
+    if (node.typeName == "j1939.decoder") {
+        const std::string path = node.parameters.text("database");
+        if (!path.empty()) {
+            const QString qpath = QString::fromStdString(path);
+            const qsizetype slash =
+                std::max(qpath.lastIndexOf(QLatin1Char('/')), qpath.lastIndexOf(QLatin1Char('\\')));
+            return QStringLiteral("J1939 • %1").arg(slash >= 0 ? qpath.mid(slash + 1) : qpath);
+        }
+        return QStringLiteral("J1939 Decoder");
     }
     if (node.typeName == "dbc.decoder") {
         const std::string path = node.parameters.text("database");
@@ -468,7 +584,9 @@ public:
     return {};
 }
 
-[[nodiscard]] bool frameMatchesNode(const CanFrame& frame, const NodeDescription& node)
+[[nodiscard]] bool frameMatchesNode(const CanFrame& frame,
+                                    const NodeDescription& node,
+                                    const GraphDescription* graph = nullptr)
 {
     if (frame.rtr || frame.error) {
         return false;
@@ -480,6 +598,11 @@ public:
     }
 
     if (node.typeName == "can.filter") {
+        const std::int64_t pgn = node.parameters.integer("pgn", -1);
+        if (pgn >= 0) {
+            return frame.isExtended()
+                   && (((frame.identifier >> 8U) & 0x3FFFFU) == static_cast<std::uint32_t>(pgn));
+        }
         const auto fromId = static_cast<std::uint32_t>(
             std::max<std::int64_t>(0, node.parameters.integer("from", 0)));
         const auto toId = static_cast<std::uint32_t>(
@@ -488,17 +611,34 @@ public:
     }
 
     if (node.typeName == "tinyml.ecu") {
+        const bool isJ1939 = node.parameters.boolean("j1939", false);
+        const auto defaultId = isJ1939 ? 0x18FD0555 : 0x105;
         const auto outId = static_cast<std::uint32_t>(
-            std::max<std::int64_t>(0, node.parameters.integer("outputCanId", 0x105)));
+            std::max<std::int64_t>(0, node.parameters.integer("outputCanId", defaultId)));
         return frame.identifier == outId;
     }
 
     if (node.typeName == "lua.ecu") {
+        const std::int64_t sa = node.parameters.integer("sa", -1);
+        if (sa >= 0) {
+            return frame.isExtended()
+                   && ((frame.identifier & 0xFFU) == static_cast<std::uint32_t>(sa));
+        }
         const std::int64_t speedId = node.parameters.integer("speed_id", -1);
         const std::int64_t tempId = node.parameters.integer("temp_id", -1);
         if (speedId >= 0 || tempId >= 0) {
             return static_cast<std::int64_t>(frame.identifier) == speedId
                    || static_cast<std::int64_t>(frame.identifier) == tempId;
+        }
+    }
+
+    if (node.typeName == "can.transmit" && graph != nullptr) {
+        for (const EdgeDescription& edge : graph->edges()) {
+            if (edge.toNode == node.id) {
+                if (const NodeDescription* source = graph->find(edge.fromNode)) {
+                    return frameMatchesNode(frame, *source, nullptr);
+                }
+            }
         }
     }
 
@@ -536,6 +676,60 @@ void CanvasPanel::decodeFromDatabasesOrBuiltin(const NodeDescription& node,
         }
         if (node.typeName == "lua.ecu") {
             const std::int64_t ch = node.parameters.integer("channel", 0);
+            const std::int64_t sa = node.parameters.integer("sa", -1);
+            if (sa >= 0) {
+                if (sa == 0x00 || node.id == "ecu_engine") {
+                    out.messageName = QStringLiteral("J1939_EMS_Engine");
+                    out.decodedLine1 =
+                        QStringLiteral("SA: 0x00 (EMS)  •  TX: EEC1, EEC2, ETC2, ET1");
+                    out.decodedLine2 =
+                        QStringLiteral("Script: ecu_engine.lua  •  Cycle: 10 ms (100 Hz)");
+                    return;
+                }
+                if (sa == 0x3D || node.id == "ecu_aftertreatment") {
+                    out.messageName = QStringLiteral("J1939_ACM_Aftertreatment");
+                    out.decodedLine1 =
+                        QStringLiteral("SA: 0x3D (ACM)  •  TX: AT1T1I1, A1SCR, DPF1");
+                    out.decodedLine2 =
+                        QStringLiteral("Script: ecu_aftertreatment.lua  •  SCR/DEF State");
+                    return;
+                }
+                if (sa == 0x21 || node.id == "ecu_body") {
+                    out.messageName = QStringLiteral("J1939_BCM_BodyControl");
+                    out.decodedLine1 = QStringLiteral("SA: 0x21 (BCM)  •  TX: DD1, AIR1, VDC1");
+                    out.decodedLine2 =
+                        QStringLiteral("Script: ecu_body.lua  •  Pneumatic & Fuel Tank");
+                    return;
+                }
+                if (sa == 0x0B || node.id == "ecu_brakes") {
+                    out.messageName = QStringLiteral("J1939_EBS_BrakeControl");
+                    out.decodedLine1 = QStringLiteral("SA: 0x0B (EBS)  •  TX: EBC1, EBC2");
+                    out.decodedLine2 =
+                        QStringLiteral("Script: ecu_brakes.lua  •  ABS & Deceleration");
+                    return;
+                }
+                if (sa == 0x37 || node.id == "ecu_switches") {
+                    out.messageName = QStringLiteral("J1939_CAB_Switches");
+                    out.decodedLine1 = QStringLiteral("SA: 0x37 (CAB)  •  TX: OEL (Cab Switches)");
+                    out.decodedLine2 =
+                        QStringLiteral("Script: ecu_switches.lua  •  Indicators & Lamps");
+                    return;
+                }
+                if (sa == 0x17 || node.id == "ecu_cluster_core") {
+                    out.messageName = QStringLiteral("J1939_IC_ClusterCore");
+                    out.decodedLine1 = QStringLiteral("SA: 0x17 (IC)  •  TX: VDHR, CCVS1");
+                    out.decodedLine2 =
+                        QStringLiteral("Script: ecu_cluster_core.lua  •  High-Res Odometer");
+                    return;
+                }
+                out.messageName = QStringLiteral("J1939_Virtual_ECU");
+                out.decodedLine1 = QStringLiteral("CAN %1  •  SA: 0x%2")
+                                       .arg(ch + 1)
+                                       .arg(sa, 2, 16, QLatin1Char{'0'})
+                                       .toUpper();
+                out.decodedLine2 = QStringLiteral("Embedded LuaJIT  •  J1939 Transceiver");
+                return;
+            }
             const std::int64_t speedId = node.parameters.integer("speed_id", 0x101);
             const std::int64_t tempId = node.parameters.integer("temp_id", 0x102);
             out.messageName = QStringLiteral("VirtualVehicle_ECU");
@@ -549,8 +743,20 @@ void CanvasPanel::decodeFromDatabasesOrBuiltin(const NodeDescription& node,
             return;
         }
         if (node.typeName == "tinyml.ecu") {
-            const std::int64_t outId = node.parameters.integer("outputCanId", 0x105);
+            const bool isJ1939 = node.parameters.boolean("j1939", false);
             const double threshold = node.parameters.real("anomalyThreshold", 65.0);
+            if (isJ1939) {
+                const std::int64_t outId = node.parameters.integer("outputCanId", 0x18FD0555);
+                out.messageName = QStringLiteral("TinyML_J1939_ECU");
+                out.decodedLine1 = QStringLiteral("Model: 1D-CNN + TFLM Int8  •  TX: 0x%1")
+                                       .arg(outId, 8, 16, QLatin1Char{'0'})
+                                       .toUpper();
+                out.decodedLine2 =
+                    QStringLiteral("J1939 Powertrain Anomaly Detector  •  Threshold: %1%")
+                        .arg(threshold, 0, 'f', 0);
+                return;
+            }
+            const std::int64_t outId = node.parameters.integer("outputCanId", 0x105);
             out.messageName = QStringLiteral("TinyML_Virtual_ECU");
             out.decodedLine1 = QStringLiteral("Model: 1D-CNN + TFLM Int8  •  TX ID: 0x%1")
                                    .arg(outId, 3, 16, QLatin1Char{'0'})
@@ -560,6 +766,21 @@ void CanvasPanel::decodeFromDatabasesOrBuiltin(const NodeDescription& node,
             return;
         }
         if (node.typeName == "can.filter") {
+            const std::int64_t pgn = node.parameters.integer("pgn", -1);
+            if (pgn >= 0) {
+                QString pgnName = (pgn == 65265)   ? QStringLiteral("CCVS1 (Vehicle Speed)")
+                                  : (pgn == 61444) ? QStringLiteral("EEC1 (Engine Speed)")
+                                                   : QStringLiteral("J1939 PGN");
+                out.messageName = QStringLiteral("J1939_PGN_Filter");
+                out.decodedLine1 = QStringLiteral("Pass PGN: 0x%1 (%2)  •  %3")
+                                       .arg(pgn, 4, 16, QLatin1Char{'0'})
+                                       .toUpper()
+                                       .arg(pgn)
+                                       .arg(pgnName);
+                out.decodedLine2 =
+                    QStringLiteral("Policy: Accept matching PGN  •  Drop all outside");
+                return;
+            }
             const std::int64_t fromId = node.parameters.integer("from", 0x000);
             const std::int64_t toId = node.parameters.integer("to", 0x7FF);
             out.messageName = QStringLiteral("Range_Filter");
@@ -568,6 +789,20 @@ void CanvasPanel::decodeFromDatabasesOrBuiltin(const NodeDescription& node,
                                    .arg(toId, 3, 16, QLatin1Char{'0'})
                                    .toUpper();
             out.decodedLine2 = QStringLiteral("Policy: Accept within range  •  Drop all outside");
+            return;
+        }
+        if (node.typeName == "j1939.decoder") {
+            const std::string path = node.parameters.text("database");
+            QString dbName = QStringLiteral("j1939.dbc");
+            if (!path.empty()) {
+                const QString qp = QString::fromStdString(path);
+                const qsizetype sl = std::max(qp.lastIndexOf('/'), qp.lastIndexOf('\\'));
+                dbName = sl >= 0 ? qp.mid(sl + 1) : qp;
+            }
+            out.messageName = QStringLiteral("J1939_Decoder");
+            out.decodedLine1 = QStringLiteral("Database: %1  •  SAE J1939-71/73").arg(dbName);
+            out.decodedLine2 =
+                QStringLiteral("Decodes 29-bit CAN IDs into PGN, SA and physical signals");
             return;
         }
         if (node.typeName == "dbc.decoder") {
@@ -745,20 +980,77 @@ void CanvasPanel::decodeFromDatabasesOrBuiltin(const NodeDescription& node,
     if (out.frame.isExtended()) {
         const std::uint32_t pgn = (id >> 8U) & 0x3FFFFU;
         const std::uint32_t sa = id & 0xFFU;
-        out.messageName =
-            QStringLiteral("J1939 PGN %1 (SA 0x%2)").arg(pgn).arg(sa, 2, 16, QLatin1Char{'0'});
         if (pgn == 61444 && out.frame.length >= 5) {
+            out.messageName =
+                QStringLiteral("J1939 EEC1 (SA 0x%1)").arg(sa, 2, 16, QLatin1Char{'0'}).toUpper();
             const std::uint16_t rawRpm =
                 static_cast<std::uint16_t>(d[3]) | (static_cast<std::uint16_t>(d[4]) << 8U);
             out.decodedLine1 =
                 QStringLiteral("EEC1 EngineSpeed: %1 rpm").arg(rawRpm * 0.125, 0, 'f', 0);
             out.decodedLine2 =
                 QStringLiteral("DriverDemandTorque: %1%").arg(static_cast<int>(d[1]) - 125);
-        } else {
+        } else if (pgn == 65265 && out.frame.length >= 3) {
+            out.messageName =
+                QStringLiteral("J1939 CCVS1 (SA 0x%1)").arg(sa, 2, 16, QLatin1Char{'0'}).toUpper();
+            const std::uint16_t rawSpeed =
+                static_cast<std::uint16_t>(d[1]) | (static_cast<std::uint16_t>(d[2]) << 8U);
+            const double speedKmh = static_cast<double>(rawSpeed) * 0.00390625;
+            out.decodedLine1 = QStringLiteral("VehicleSpeed: %1 km/h").arg(speedKmh, 0, 'f', 1);
+            out.decodedLine2 =
+                QStringLiteral("Brake: %1  •  Cruise: %2")
+                    .arg(((d[3] >> 4U) & 0x3U) == 1 ? QStringLiteral("ON") : QStringLiteral("OFF"))
+                    .arg((d[3] & 0x1U) != 0 ? QStringLiteral("ON") : QStringLiteral("OFF"));
+        } else if (pgn == 65276 && out.frame.length >= 2) {
+            out.messageName =
+                QStringLiteral("J1939 DD1 (SA 0x%1)").arg(sa, 2, 16, QLatin1Char{'0'}).toUpper();
+            const double fuelPct = static_cast<double>(d[1]) * 0.4;
+            out.decodedLine1 = QStringLiteral("DashDisplay FuelLevel: %1%").arg(fuelPct, 0, 'f', 1);
+            out.decodedLine2 = QStringLiteral("Source: BCM (0x21)  •  Fuel Sensor");
+        } else if (pgn == 65262 && out.frame.length >= 1) {
+            out.messageName =
+                QStringLiteral("J1939 ET1 (SA 0x%1)").arg(sa, 2, 16, QLatin1Char{'0'}).toUpper();
+            const int coolantC = static_cast<int>(d[0]) - 40;
+            out.decodedLine1 = QStringLiteral("EngineCoolantTemp: %1 °C").arg(coolantC);
+            out.decodedLine2 = QStringLiteral("Engine Thermal Management");
+        } else if (pgn == 65270 && out.frame.length >= 4) {
+            out.messageName = QStringLiteral("J1939 AT1T1I1 (SA 0x%1)")
+                                  .arg(sa, 2, 16, QLatin1Char{'0'})
+                                  .toUpper();
+            out.decodedLine1 = QStringLiteral("Aftertreatment DPF/SCR Sensors");
+            out.decodedLine2 = QStringLiteral("Catalyst Temp: %1 °C  •  Status: Active")
+                                   .arg(static_cast<int>(d[0]) * 2 - 40);
+        } else if (pgn == 61441) {
+            out.messageName =
+                QStringLiteral("J1939 EBC1 (SA 0x%1)").arg(sa, 2, 16, QLatin1Char{'0'}).toUpper();
+            out.decodedLine1 = QStringLiteral("Electronic Brake Controller 1");
+            out.decodedLine2 = QStringLiteral("ASR/ABS Status: Active  •  Brake State");
+        } else if (pgn == 65269) {
+            out.messageName =
+                QStringLiteral("J1939 OEL (SA 0x%1)").arg(sa, 2, 16, QLatin1Char{'0'}).toUpper();
+            out.decodedLine1 = QStringLiteral("Cab / Dash Switch Status");
+            out.decodedLine2 = QStringLiteral("Lamps, Turn Signals, Hazards, Horn");
+        } else if (pgn == 65217 && out.frame.length >= 4) {
+            out.messageName =
+                QStringLiteral("J1939 VDHR (SA 0x%1)").arg(sa, 2, 16, QLatin1Char{'0'}).toUpper();
+            const std::uint32_t rawDist = static_cast<std::uint32_t>(d[0])
+                                          | (static_cast<std::uint32_t>(d[1]) << 8U)
+                                          | (static_cast<std::uint32_t>(d[2]) << 16U)
+                                          | (static_cast<std::uint32_t>(d[3]) << 24U);
             out.decodedLine1 =
-                QStringLiteral("PGN: 0x%1 (%2)").arg(pgn, 4, 16, QLatin1Char{'0'}).arg(pgn);
+                QStringLiteral("High-Res Total Distance: %1 km").arg(rawDist * 0.005, 0, 'f', 1);
+            out.decodedLine2 = QStringLiteral("Instrument Cluster (SA 0x17)");
+        } else {
+            out.messageName = QStringLiteral("J1939 PGN %1 (SA 0x%2)")
+                                  .arg(pgn)
+                                  .arg(sa, 2, 16, QLatin1Char{'0'})
+                                  .toUpper();
+            out.decodedLine1 = QStringLiteral("PGN: 0x%1 (%2)")
+                                   .arg(pgn, 4, 16, QLatin1Char{'0'})
+                                   .toUpper()
+                                   .arg(pgn);
             out.decodedLine2 = QStringLiteral("Source Addr: 0x%1  •  Pri: %2")
                                    .arg(sa, 2, 16, QLatin1Char{'0'})
+                                   .toUpper()
                                    .arg((id >> 26U) & 0x7U);
         }
         return;
@@ -815,7 +1107,7 @@ CanvasPanel::NodeFrameTelemetry CanvasPanel::computeNodeTelemetry(const NodeDesc
         std::uint64_t newestTimestampNs = 0;
 
         for (const TraceIdentifierStats& stats : idStats) {
-            if (stats.count == 0 || !frameMatchesNode(stats.lastFrame, node)) {
+            if (stats.count == 0 || !frameMatchesNode(stats.lastFrame, node, &m_description)) {
                 continue;
             }
             if (!result.hasLiveFrame || stats.lastFrame.timestampNs >= newestTimestampNs) {
@@ -845,12 +1137,15 @@ CanvasPanel::NodeFrameTelemetry CanvasPanel::computeNodeTelemetry(const NodeDesc
                 health = std::min<quint64>(health > 0 ? health : 28, 28);
             }
 
+            const bool isJ1939 = node.parameters.boolean("j1939", false);
+            const auto defaultId = isJ1939 ? 0x18FD0555 : 0x105;
+
             result.hasLiveFrame = true;
             result.frame.channel = static_cast<std::uint8_t>(
                 std::max<std::int64_t>(0, node.parameters.integer("channel", 0)));
             result.frame.identifier = static_cast<std::uint32_t>(
-                std::max<std::int64_t>(0, node.parameters.integer("outputCanId", 0x105)));
-            result.frame.format = CanFrameFormat::Standard;
+                std::max<std::int64_t>(0, node.parameters.integer("outputCanId", defaultId)));
+            result.frame.format = isJ1939 ? CanFrameFormat::Extended : CanFrameFormat::Standard;
             result.frame.dlc = 8;
             result.frame.length = 8;
             result.frame.data[0] = static_cast<std::uint8_t>(regime & 0xFFU);
@@ -876,17 +1171,77 @@ CanvasPanel::NodeFrameTelemetry CanvasPanel::computeNodeTelemetry(const NodeDesc
         result.frame.length = 8;
 
         if (node.typeName == "tinyml.ecu") {
-            result.frame.identifier = static_cast<std::uint32_t>(
-                std::max<std::int64_t>(0, node.parameters.integer("outputCanId", 0x105)));
-            result.frame.data = {1, 98, 4, 96, 0, 2, 0, 0};
+            const bool isJ1939 = node.parameters.boolean("j1939", false);
+            if (isJ1939) {
+                result.frame.identifier = static_cast<std::uint32_t>(
+                    std::max<std::int64_t>(0, node.parameters.integer("outputCanId", 0x18FD0555)));
+                result.frame.format = CanFrameFormat::Extended;
+                result.frame.data = {1, 98, 4, 96, 0, 2, 0, 0};
+            } else {
+                result.frame.identifier = static_cast<std::uint32_t>(
+                    std::max<std::int64_t>(0, node.parameters.integer("outputCanId", 0x105)));
+                result.frame.data = {1, 98, 4, 96, 0, 2, 0, 0};
+            }
         } else if (node.typeName == "lua.ecu") {
-            result.frame.identifier = static_cast<std::uint32_t>(
-                std::max<std::int64_t>(0, node.parameters.integer("speed_id", 0x101)));
-            result.frame.data = {0xE8, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // 74.4 km/h
+            const std::int64_t sa = node.parameters.integer("sa", -1);
+            if (sa >= 0) {
+                result.frame.format = CanFrameFormat::Extended;
+                if (sa == 0x00 || node.id == "ecu_engine") {
+                    result.frame.identifier = 0x0CF00400U; // EEC1
+                    result.frame.data = {0xF0, 0x7D, 0x82, 0x40, 0x38, 0xFF, 0xFF, 0xFF};
+                } else if (sa == 0x3D || node.id == "ecu_aftertreatment") {
+                    result.frame.identifier = 0x18FE1E3DU; // AT1T1I1
+                    result.frame.data = {0x32, 0x48, 0x50, 0x60, 0x20, 0x00, 0x00, 0x00};
+                } else if (sa == 0x21 || node.id == "ecu_body") {
+                    result.frame.identifier = 0x18FEFC21U; // DD1
+                    result.frame.data = {0x4E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+                } else if (sa == 0x0B || node.id == "ecu_brakes") {
+                    result.frame.identifier = 0x18F0010BU; // EBC1
+                    result.frame.data = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+                } else if (sa == 0x37 || node.id == "ecu_switches") {
+                    result.frame.identifier = 0x18FED537U; // OEL
+                    result.frame.data = {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+                } else if (sa == 0x17 || node.id == "ecu_cluster_core") {
+                    result.frame.identifier = 0x18FEC117U; // VDHR
+                    result.frame.data = {0x20, 0x4E, 0x00, 0x00, 0x10, 0x27, 0x00, 0x00};
+                } else {
+                    result.frame.identifier =
+                        0x18FEF100U | (static_cast<std::uint32_t>(sa) & 0xFFU);
+                    result.frame.data = {0x00, 0x44, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00};
+                }
+            } else {
+                result.frame.identifier = static_cast<std::uint32_t>(
+                    std::max<std::int64_t>(0, node.parameters.integer("speed_id", 0x101)));
+                result.frame.data = {0xE8, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // 74.4 km/h
+            }
         } else if (node.typeName == "can.filter") {
-            result.frame.identifier = static_cast<std::uint32_t>(
-                std::max<std::int64_t>(0, node.parameters.integer("from", 0x101)));
-            result.frame.data = {0x90, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // 40.0 km/h
+            const std::int64_t pgn = node.parameters.integer("pgn", -1);
+            if (pgn >= 0) {
+                result.frame.format = CanFrameFormat::Extended;
+                result.frame.identifier = 0x18000000U | (static_cast<std::uint32_t>(pgn) << 8U);
+                result.frame.data = {0x00, 0x44, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00};
+            } else {
+                result.frame.identifier = static_cast<std::uint32_t>(
+                    std::max<std::int64_t>(0, node.parameters.integer("from", 0x101)));
+                result.frame.data = {0x90, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // 40.0 km/h
+            }
+        } else if (node.typeName == "can.transmit") {
+            bool foundSource = false;
+            for (const EdgeDescription& edge : m_description.edges()) {
+                if (edge.toNode == node.id) {
+                    if (const NodeDescription* sourceNode = m_description.find(edge.fromNode)) {
+                        const NodeFrameTelemetry srcTelem =
+                            computeNodeTelemetry(*sourceNode, nullptr, false);
+                        result.frame = srcTelem.frame;
+                        foundSource = true;
+                        break;
+                    }
+                }
+            }
+            if (!foundSource) {
+                result.frame.identifier = 0x101U;
+                result.frame.data = {0x58, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            }
         } else if (node.typeName == "j1939.decoder") {
             result.frame.identifier = 0x0CF00400U;
             result.frame.format = CanFrameFormat::Extended;
@@ -1011,10 +1366,14 @@ CanvasPanel::CanvasPanel(GraphDescription& description, const NodeCatalog& catal
     m_scene = scene;
     m_scene->setNodePainter(std::make_unique<PipelineNodePainter>());
 
-    m_view = new QtNodes::GraphicsView{m_scene};
+    auto* canvasView = new CanvasView{m_scene};
+    canvasView->onShown([this] { fitIfPending(); });
+
+    m_view = canvasView;
     m_view->setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing
                            | QPainter::SmoothPixmapTransform);
     m_view->setViewportUpdateMode(QGraphicsView::FullViewportUpdate);
+    m_view->setScaleRange(kMinZoom, kMaxZoom);
     m_view->setAcceptDrops(true);
     m_view->viewport()->setAcceptDrops(true);
     m_view->installEventFilter(this);
@@ -1086,7 +1445,18 @@ CanvasPanel::CanvasPanel(GraphDescription& description, const NodeCatalog& catal
     rightLayout->setContentsMargins(0, 0, 0, 0);
     rightLayout->setSpacing(0);
     rightLayout->addWidget(m_hudBar);
-    rightLayout->addWidget(m_view, 1);
+
+    // The canvas, with the buttons that move it down its left edge. Not in the bar above: that one
+    // already needs most of the width a Pipeline panel has by default, and a toolbar that is
+    // squeezed folds its buttons away behind a menu.
+    buildNavigationToolBar();
+
+    auto* canvasRow = new QHBoxLayout;
+    canvasRow->setContentsMargins(0, 0, 0, 0);
+    canvasRow->setSpacing(0);
+    canvasRow->addWidget(m_navToolBar);
+    canvasRow->addWidget(m_view, 1);
+    rightLayout->addLayout(canvasRow, 1);
 
     m_splitter = new QSplitter{Qt::Horizontal, this};
     m_splitter->setObjectName(QStringLiteral("torquebus.splitter.canvas"));
@@ -1290,6 +1660,20 @@ bool CanvasPanel::eventFilter(QObject* watched, QEvent* event)
 {
     if (event == nullptr || m_view == nullptr) {
         return QWidget::eventFilter(watched, event);
+    }
+
+    // With the Pan tool on, a drag moves the canvas and nothing on it answers the pointer - the
+    // "edit script" pencil included: a click there is part of what the tool sets aside.
+    if (m_panToolActive && watched == m_view->viewport()) {
+        switch (event->type()) {
+        case QEvent::MouseMove:
+        case QEvent::MouseButtonPress:
+        case QEvent::MouseButtonDblClick:
+        case QEvent::ToolTip:
+            return QWidget::eventFilter(watched, event);
+        default:
+            break;
+        }
     }
 
     if (watched == m_view->viewport()) {
@@ -1651,10 +2035,138 @@ void CanvasPanel::applyPaletteIcons()
     }
 }
 
+void CanvasPanel::buildNavigationToolBar()
+{
+    m_navToolBar = new QToolBar{this};
+    m_navToolBar->setObjectName(QStringLiteral("torquebus.toolbar.canvas"));
+    m_navToolBar->setOrientation(Qt::Vertical);
+    m_navToolBar->setIconSize(QSize{18, 18});
+    m_navToolBar->setToolButtonStyle(Qt::ToolButtonIconOnly);
+
+    m_actionPan = m_navToolBar->addAction(tr("Pan"));
+    m_actionPan->setObjectName(QStringLiteral("torquebus.action.canvas.pan"));
+    m_actionPan->setCheckable(true);
+    m_actionPan->setToolTip(
+        tr("Pan Tool: drag anywhere on the canvas to move around, without moving any block"));
+    connect(m_actionPan, &QAction::toggled, this, &CanvasPanel::setPanToolActive);
+
+    // The wheel zooms by the same step and inside the same limits, so the buttons and the wheel
+    // can be mixed.
+    m_actionZoomIn = m_navToolBar->addAction(tr("Zoom In"));
+    m_actionZoomIn->setObjectName(QStringLiteral("torquebus.action.canvas.zoomIn"));
+    m_actionZoomIn->setToolTip(tr("Zoom In (mouse wheel)"));
+    connect(m_actionZoomIn, &QAction::triggered, m_view, &QtNodes::GraphicsView::scaleUp);
+
+    m_actionZoomOut = m_navToolBar->addAction(tr("Zoom Out"));
+    m_actionZoomOut->setObjectName(QStringLiteral("torquebus.action.canvas.zoomOut"));
+    m_actionZoomOut->setToolTip(tr("Zoom Out (mouse wheel)"));
+    connect(m_actionZoomOut, &QAction::triggered, m_view, &QtNodes::GraphicsView::scaleDown);
+
+    m_actionFit = m_navToolBar->addAction(tr("Fit to Window"));
+    m_actionFit->setObjectName(QStringLiteral("torquebus.action.canvas.fit"));
+    m_actionFit->setToolTip(
+        tr("Fit to Window: zoom and centre the canvas so every block is in view"));
+    connect(m_actionFit, &QAction::triggered, this, &CanvasPanel::fitToView);
+
+    applyNavigationIcons();
+}
+
+void CanvasPanel::applyNavigationIcons()
+{
+    ThemeManager* themes = ThemeManager::instance();
+    if (themes == nullptr || m_navToolBar == nullptr) {
+        return;
+    }
+
+    m_actionPan->setIcon(themes->icon(QStringLiteral("pan")));
+    m_actionZoomIn->setIcon(themes->icon(QStringLiteral("zoom-in")));
+    m_actionZoomOut->setIcon(themes->icon(QStringLiteral("zoom-out")));
+    m_actionFit->setIcon(themes->icon(QStringLiteral("fit")));
+}
+
+void CanvasPanel::setPanToolActive(bool active)
+{
+    m_panToolActive = active;
+
+    if (m_view != nullptr) {
+        // The view scrolls by hand-drag whether or not it is interactive; what interactive adds is
+        // handing the press to the scene, which is how a block gets picked up, selected or wired.
+        m_view->setInteractive(!active);
+    }
+}
+
+QRectF CanvasPanel::contentBounds() const
+{
+    QRectF bounds;
+
+    if (!m_model || m_scene == nullptr) {
+        return bounds;
+    }
+
+    for (const NodeDescription& node : m_description.nodes()) {
+        const QtNodes::NodeId nodeId = m_model->canvasId(node.id);
+        if (nodeId == QtNodes::InvalidNodeId) {
+            continue;
+        }
+
+        QtNodes::NodeGraphicsObject* ngo = m_scene->nodeGraphicsObject(nodeId);
+        if (ngo == nullptr) {
+            continue;
+        }
+
+        const QSize nodeSize = m_scene->nodeGeometry().size(nodeId);
+        const QRectF nodeRect = ngo->mapRectToScene(QRectF{QPointF{0.0, 0.0}, QSizeF{nodeSize}});
+
+        bounds = bounds.united(nodeRect);
+        if (node.typeName == "tinyml.ecu") {
+            bounds = bounds.united(tinyMlCardRect(nodeRect));
+        }
+    }
+
+    return bounds;
+}
+
+void CanvasPanel::fitIfPending()
+{
+    if (m_fitPending) {
+        fitToView();
+    }
+}
+
+void CanvasPanel::fitToView()
+{
+    // A view that is not shown has not been given its size, and a fit to the size it has instead is
+    // worse than none: it stays pending for the time it is shown.
+    if (m_view == nullptr || m_view->viewport() == nullptr || !m_view->isVisible()) {
+        return;
+    }
+
+    m_fitPending = false;
+
+    const QRectF bounds = contentBounds();
+
+    // Nothing to fit: go home, which is real size around the origin.
+    if (bounds.isEmpty()) {
+        m_view->setupScale(1.0);
+        m_view->centerOn(QPointF{});
+        return;
+    }
+
+    const double margins = 2.0 * kFitMarginPx;
+    const double roomWidth = std::max(1.0, m_view->viewport()->width() - margins);
+    const double roomHeight = std::max(1.0, m_view->viewport()->height() - margins);
+
+    const double scale = std::clamp(
+        std::min(roomWidth / bounds.width(), roomHeight / bounds.height()), kMinZoom, kFitMaxZoom);
+
+    m_view->setupScale(scale);
+    m_view->centerOn(bounds.center());
+}
+
 QPointF CanvasPanel::findNonOverlappingPosition(const QPointF& desired) const
 {
-    constexpr qreal kMinDx = 340.0;
-    constexpr qreal kMinDy = 220.0;
+    constexpr qreal kMinDx = 360.0;
+    constexpr qreal kMinDy = 260.0;
 
     QPointF candidate = desired;
     for (int attempt = 0; attempt < 36; ++attempt) {
@@ -1674,7 +2186,7 @@ QPointF CanvasPanel::findNonOverlappingPosition(const QPointF& desired) const
 
         const int col = (attempt + 1) % 3;
         const int row = (attempt + 1) / 3;
-        candidate = desired + QPointF{col * 350.0, row * 230.0};
+        candidate = desired + QPointF{col * 380.0, row * 260.0};
     }
 
     return candidate;
@@ -1963,7 +2475,7 @@ void CanvasPanel::attachTinyMlEcuTo(QtNodes::NodeId sourceNodeId)
     }
 
     constexpr qreal kStepX = 360.0;
-    constexpr qreal kStepY = 220.0;
+    constexpr qreal kStepY = 260.0;
 
     QtNodes::NodeId tinyml = findNodeOnChannel("tinyml.ecu", channel);
     if (tinyml == QtNodes::InvalidNodeId) {
@@ -1987,7 +2499,7 @@ void CanvasPanel::attachTinyMlEcuTo(QtNodes::NodeId sourceNodeId)
     if (transmit == QtNodes::InvalidNodeId) {
         transmit = addNodeAtReturning(
             QStringLiteral("can.transmit"),
-            findNonOverlappingPosition(sourcePosition + QPointF{2.0 * kStepX, kStepY - 60.0}));
+            findNonOverlappingPosition(sourcePosition + QPointF{2.0 * kStepX, kStepY}));
         if (transmit != QtNodes::InvalidNodeId) {
             const std::string transmitId = m_model->descriptionId(transmit);
             for (NodeDescription& node : m_description.nodes()) {
@@ -2103,6 +2615,7 @@ void CanvasPanel::buildTinyMlDemoPipeline()
     m_model->reload();
     refreshTelemetryCache();
     updateHudLabels();
+    fitToView();
 
     const QtNodes::NodeId tinymlCanvasId = m_model->canvasId("tinyml_ecu");
     if (tinymlCanvasId != QtNodes::InvalidNodeId) {
@@ -2160,6 +2673,13 @@ void CanvasPanel::reload()
         refreshTelemetryCache();
         updateHudLabels();
     }
+
+    // The graph is another one, and the view was left where the last one was. Fitted at once when
+    // there is a window to fit it to, and otherwise when there is.
+    m_fitPending = true;
+    if (m_view != nullptr && m_view->isVisible()) {
+        fitIfPending();
+    }
 }
 
 void CanvasPanel::applyStyles(const Theme& theme)
@@ -2186,6 +2706,17 @@ void CanvasPanel::applyTheme(const Theme& theme)
         palette.setColor(QPalette::Window, theme.panel);
         m_palette->setPalette(palette);
         applyPaletteIcons();
+    }
+
+    applyNavigationIcons();
+
+    // The application's toolbar rule puts the edge at the bottom, which is where a horizontal bar
+    // meets what it is above; this one stands beside the canvas.
+    if (m_navToolBar != nullptr) {
+        m_navToolBar->setStyleSheet(
+            QStringLiteral("QToolBar { background-color: %1; border: none; "
+                           "border-right: 1px solid %2; padding: 4px 3px; spacing: 2px; }")
+                .arg(theme.toolbar.name(QColor::HexRgb), theme.border.name(QColor::HexRgb)));
     }
 
     if (m_hudBar != nullptr) {
@@ -2412,6 +2943,15 @@ void CanvasPanel::paintNodeTelemetryCard(QPainter* painter,
     painter->setBrush(headerTint);
     painter->drawPath(headerPath);
 
+    // Crisp colored top accent stripe
+    const QRectF topStripeRect{
+        nodeRect.left() + 1.5, nodeRect.top() + 1.0, nodeRect.width() - 3.0, 2.5};
+    QPainterPath topStripePath;
+    topStripePath.addRoundedRect(topStripeRect, 1.2, 1.2);
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(nodeAlert ? m_theme.error : tagAccent);
+    painter->drawPath(topStripePath);
+
     painter->setPen(QPen{m_theme.border, 1.0});
     painter->drawLine(QPointF{nodeRect.left() + 1.0, nodeRect.top() + 24.0},
                       QPointF{nodeRect.right() - 1.0, nodeRect.top() + 24.0});
@@ -2421,6 +2961,15 @@ void CanvasPanel::paintNodeTelemetryCard(QPainter* painter,
         !node.enabled
             ? m_theme.textMuted
             : (m_simulationRunning ? (nodeAlert ? m_theme.error : m_theme.success) : tagAccent);
+
+    if (m_simulationRunning && node.enabled) {
+        QColor glowColor = ledColor;
+        glowColor.setAlpha(static_cast<int>(55 + 45 * pulse));
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(glowColor);
+        painter->drawEllipse(QPointF{nodeRect.left() + 11.0, nodeRect.top() + 12.5}, 5.5, 5.5);
+    }
+
     painter->setPen(Qt::NoPen);
     painter->setBrush(ledColor);
     painter->drawEllipse(QPointF{nodeRect.left() + 11.0, nodeRect.top() + 12.5}, 3.6, 3.6);
@@ -2752,7 +3301,7 @@ void CanvasPanel::paintNodeTelemetryCard(QPainter* painter,
                       Qt::AlignLeft | Qt::AlignVCenter,
                       sigMetrics.elidedText(telemetry.decodedLine1, Qt::ElideRight, textAvailW));
 
-    painter->setPen(m_theme.textMuted);
+    painter->setPen(telemetry.isPreview ? m_theme.textMuted : m_theme.textMuted.lighter(125));
     painter->drawText(QRectF{dbcRect.left() + 9.0, dbcRect.top() + 34.0, textAvailW, 15.0},
                       Qt::AlignLeft | Qt::AlignVCenter,
                       sigMetrics.elidedText(telemetry.decodedLine2, Qt::ElideRight, textAvailW));
@@ -2800,10 +3349,7 @@ void CanvasPanel::paintTinyMlVisualizerCard(QPainter* painter,
                                             const NodeDescription& node,
                                             const NodeStatus* status) const
 {
-    const qreal cardWidth = std::max(nodeRect.width(), 310.0);
-    const qreal cardHeight = 114.0;
-    const QRectF cardRect{
-        nodeRect.center().x() - cardWidth * 0.5, nodeRect.bottom() + 8.0, cardWidth, cardHeight};
+    const QRectF cardRect = tinyMlCardRect(nodeRect);
 
     const bool injectedFault =
         m_injectFaultButton != nullptr && m_injectFaultButton->isChecked() && m_simulationRunning;

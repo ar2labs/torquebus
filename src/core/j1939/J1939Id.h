@@ -195,4 +195,37 @@ j1939Identifier(std::uint32_t pgn,
     return id.identifier();
 }
 
+/// Whether `raw` represents an SAE J1939 "Error Indicator" or "Not Available" condition.
+///
+/// Under SAE J1939-71 (section 5.1.4):
+///   - 2 bits: 10b (2) error, 11b (3) not available
+///   - 4 bits: 0xE (14) error, 0xF (15) not available
+///   - 1 byte (8 bits): 0xFE (254) error, 0xFF (255) not available
+///   - 2 bytes (16 bits): 0xFE00..0xFEFF error, 0xFF00..0xFFFF not available
+///   - 3 bytes (24 bits): 0xFE0000..0xFEFFFF error, 0xFF0000..0xFFFFFF not available
+///   - 4 bytes (32 bits): 0xFE000000..0xFEFFFFFF error, 0xFF000000..0xFFFFFFFF not available
+[[nodiscard]] constexpr bool isJ1939SpecialValue(std::uint64_t raw,
+                                                 std::uint16_t bitLength) noexcept
+{
+    if (bitLength == 2U) {
+        return raw >= 2U;
+    }
+    if (bitLength == 4U) {
+        return raw >= 0x0EU;
+    }
+    if (bitLength == 8U) {
+        return raw >= 0xFEU;
+    }
+    if (bitLength == 16U) {
+        return raw >= 0xFE00U;
+    }
+    if (bitLength == 24U) {
+        return raw >= 0xFE0000U;
+    }
+    if (bitLength == 32U) {
+        return raw >= 0xFE000000U;
+    }
+    return false;
+}
+
 } // namespace torquebus

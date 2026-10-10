@@ -150,6 +150,10 @@ CAN Channel ──┬──> Test Sequence ──> CAN Transmit
 and the generators — are here too, because a test that has to build a *valid*
 request needs the same arithmetic an ECU needs to answer one.
 
+`j1939_send(prio, pgn, sa, payload)` builds the 29-bit identifier of a J1939 message and sends it padded to
+eight bytes; the other J1939 helpers of [scripting.md](scripting.md#j1939-helpers) are here too.
+`send` itself stays the one above whatever the helpers define.
+
 `parameters` holds whatever the block was given, so one sequence with
 `engine_id` and `tester_id` as parameters is a sequence for four ECUs rather
 than four copies of a file.

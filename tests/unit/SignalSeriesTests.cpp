@@ -18,6 +18,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <thread>
 #include <vector>
@@ -416,4 +417,37 @@ TEST(SignalSeriesTests, TimestampRollbackResetsEpochSoBinarySearchStaysValid)
     ASSERT_EQ(copied, 1U);
     EXPECT_EQ(buffer[0].timestampNs, 200'000'000ULL);
     EXPECT_DOUBLE_EQ(buffer[0].value, 900.0);
+}
+
+TEST(SignalSeriesTests, ASampleThatIsNotANumberNeverBecomesTheRange)
+{
+    // A J1939 signal reports "not available" as NaN. std::min and std::max return their left
+    // argument when the right one is NaN, and the other way round when the left one is - so a NaN
+    // let into the range stayed there for good, and a series whose first sample was a missing one
+    // had no axis for the rest of the measurement.
+    SignalSeries series{"EBC1.ABSAmberWarning", "", 8};
+
+    series.append(1, std::numeric_limits<double>::quiet_NaN());
+    EXPECT_EQ(series.size(), 1U); // it is a sample: the plot shows the gap, not a hole in time
+    EXPECT_EQ(series.minimum(), 0.0);
+    EXPECT_EQ(series.maximum(), 0.0);
+
+    series.append(2, 5.0);
+    series.append(3, std::numeric_limits<double>::quiet_NaN());
+    series.append(4, 9.0);
+    series.append(5, -1.0);
+
+    EXPECT_EQ(series.minimum(), -1.0);
+    EXPECT_EQ(series.maximum(), 9.0);
+}
+
+TEST(SignalSeriesTests, AClearedSeriesStartsItsRangeOverFromTheNextNumber)
+{
+    SignalSeries series{"X.Y", "", 8};
+    series.append(1, 100.0);
+    series.clear();
+
+    series.append(1, 3.0);
+    EXPECT_EQ(series.minimum(), 3.0);
+    EXPECT_EQ(series.maximum(), 3.0);
 }

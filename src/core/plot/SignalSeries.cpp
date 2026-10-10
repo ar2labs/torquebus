@@ -6,6 +6,7 @@
 #include "core/plot/SignalSeries.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <utility>
 
@@ -41,16 +42,25 @@ void SignalSeries::append(std::uint64_t timestampNs, double value)
         ++m_discarded;
     } else {
         m_samples[(m_first + m_size) % capacity] = SignalSample{timestampNs, value};
-
-        if (m_size == 0) {
-            // The first sample *is* the range. Starting from
-            // ±infinity and letting the comparisons below settle it would work
-            // and would leave an empty series claiming a range it never had.
-            m_minimum = value;
-            m_maximum = value;
-        }
-
         ++m_size;
+    }
+
+    // The range follows the values that are numbers. A J1939 signal reports "not available" as NaN,
+    // and a NaN let into the range stays there: std::min and std::max with a NaN on the left return
+    // it, so a series whose first sample was a missing one would have no axis for the rest of the
+    // measurement - every later number compared against it and lost.
+    if (!std::isfinite(value)) {
+        return;
+    }
+
+    if (!m_hasRange) {
+        // The first number *is* the range. Starting from ±infinity and letting
+        // the comparisons below settle it would work and would leave an empty
+        // series claiming a range it never had.
+        m_minimum = value;
+        m_maximum = value;
+        m_hasRange = true;
+        return;
     }
 
     m_minimum = std::min(m_minimum, value);
@@ -99,6 +109,7 @@ void SignalSeries::clear()
     m_discarded = 0;
     m_minimum = 0.0;
     m_maximum = 0.0;
+    m_hasRange = false;
 }
 
 // ---------------------------------------------------------------------------

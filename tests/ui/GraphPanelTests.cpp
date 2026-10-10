@@ -12,9 +12,13 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QColor>
 #include <QComboBox>
+#include <QImage>
 #include <QLineEdit>
 #include <QListWidget>
+
+#include <limits>
 
 using namespace torquebus;
 using namespace torquebus::ui;
@@ -269,4 +273,60 @@ TEST(GraphPanelTests, SettingsDialogRoundtrip)
     EXPECT_FALSE(retrieved.showGrid);
     EXPECT_EQ(retrieved.defaultFill, PlotTraceFill::Hatched);
     EXPECT_DOUBLE_EQ(retrieved.defaultLineWidth, 2.4);
+}
+
+TEST(GraphPanelTests, ASampleThatIsNotANumberIsAGapInTheLineAndNotASpike)
+{
+    // A J1939 signal reports "not available" as NaN. The line used to be drawn through it at the
+    // middle of the plot - a spike down from the signal's real height to a place it never was, and
+    // back - so a sensor that dropped out for a second looked like a reading of half scale.
+    PlotView plot;
+    plot.resize(600, 300);
+    plot.setShowGrid(false);
+    plot.setShowLegend(false);
+    plot.setWindow(0, 10'000'000'000ULL);
+
+    PlotTrace trace;
+    trace.name = "Level";
+    trace.colour = Qt::red;
+    trace.lineWidth = 2.0;
+    trace.minimum = 0.0;
+    trace.maximum = 10.0;
+
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    for (std::uint64_t second = 0; second < 10; ++second) {
+        const bool missing = second >= 3 && second <= 5;
+        trace.samples.push_back(SignalSample{second * 1'000'000'000ULL, missing ? nan : 8.0});
+    }
+
+    plot.setTraces({trace});
+
+    const QImage image = plot.grab().toImage();
+    ASSERT_FALSE(image.isNull());
+
+    const auto isRed = [&image](int x, int y) {
+        const QColor pixel = image.pixelColor(x, y);
+        return pixel.red() > 200 && pixel.green() < 80 && pixel.blue() < 80;
+    };
+
+    // Rows of the line, at 8 on a scale of 0 to 10, and the rows around the middle, where the NaN
+    // would have been drawn.
+    int lineRows = 0;
+    int middleRows = 0;
+    for (int y = 0; y < image.height(); ++y) {
+        int red = 0;
+        for (int x = 0; x < image.width(); ++x) {
+            red += isRed(x, y) ? 1 : 0;
+        }
+
+        if (red > 100) {
+            ++lineRows; // a row with a long horizontal run of the colour: the line itself
+        }
+        if (y > image.height() * 40 / 100 && y < image.height() * 60 / 100 && red > 0) {
+            ++middleRows;
+        }
+    }
+
+    EXPECT_GT(lineRows, 0) << "the line is not there at all";
+    EXPECT_EQ(middleRows, 0) << "something was drawn at the middle of the plot";
 }

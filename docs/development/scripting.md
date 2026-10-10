@@ -250,6 +250,45 @@ lines of stack juggling to express three lines of maths, and in Lua they can be
 read, copied and changed by the person using them.
 
 
+## J1939 helpers
+
+An ECU on a J1939 bus is mostly arithmetic of one kind: a physical value turned into the raw number
+the standard puts on the wire, an identifier built from a priority, a PGN and an address, a message
+padded the way J1939 pads one. They are in the prelude, and the example ECUs in
+`examples/scripts/ecu_*.lua` are written with them.
+
+| Function | What it gives |
+|---|---|
+| `j1939_id(prio, pgn, sa)` | The 29-bit identifier. `prio` defaults to 6. |
+| `j1939_raw(value, res, offset, nbytes)` | `round((value - offset) / res)`, held to the biggest **valid** value of an `nbytes` field (`0xFA`, `0xFAFF`, `0xFAFFFF`, `0xFAFFFFFF`) and not wrapped into the ones J1939 keeps for "error". `nil` - and a number that is not one - is **not available** (`0xFF`, `0xFFFF`...), which is how a script says a sensor has failed. |
+| `j1939_send(prio, pgn, sa, payload)` | `emit()` of that identifier, always as a 29-bit frame, with the payload padded with `0xFF` to eight bytes. |
+| `j1939_dm1(mil, red, amber, protect, spn, fmi, oc)` | The payload of a DM1 with one trouble code; lamps are 0 off, 1 on. `j1939_dm1(0, 0, 0, 0, 0, 0, 0)` is J1939's "no active fault". |
+
+`raw`, `send` and `dm1` are short names for the same functions, as the example ECUs write them.
+They are globals, so a script of your own that defines one of those names uses its own.
+
+**`send` means two things, and which depends on where it is.** In an ECU it is the J1939 message
+above - or, called the old way, `send(id, payload [, options])`, exactly `emit()`. In a
+[test sequence](testing.md#sending) it is the node's own `send(id, payload [, options])` and is left
+alone; `j1939_send` works there as well.
+
+```lua
+function on_timer()
+    -- 85.0 km/h as SPN 84 (1/256 km/h per bit), in bytes 2 and 3 of CCVS1
+    local speed = raw(85.0, 1 / 256, 0, 2)
+    send(6, 0xFEF1, 0x00, string.pack("<I1I2", 0xFF, speed))
+end
+```
+
+The cycle time of each message is the script's to keep. Count from the **clock** and not from the
+timer: `on_timer` runs at most once per dispatch pass, so its real period is the timer's plus
+however late the pass was, and a model that adds `tick_ms` each time runs slow by exactly that. The
+example ECUs measure the time since the last tick (`get_time_us()`) and cap it, so a stall of the
+executor is one long tick and not a leap.
+
+`on_message(id, data, channel, extended)` gets `extended` as `1` or `0`, and **`0` is true in Lua** -
+compare it, `extended == 1`.
+
 ## Asking about the bus
 
 `on_message` says what arrived on this node's input. These say what the
@@ -575,6 +614,13 @@ again is the same experiment, minus its configuration.
 
 ## Examples
 
+`examples/projects/j1939-vehicle.tbsproj` is a J1939 truck: an engine, a brake, a body and a
+switch-panel ECU, an aftertreatment module and the cluster's own core, all in Lua; the TinyML Virtual ECU
+reading the same bus; a J1939 block and a Signal Plot feeding the instrument cluster on the Dashboard.
+Each ECU takes a `scenario` parameter - `low_oil_pressure`, `overheating`, `abs_fault`, `hazard`... -
+documented at the top of its script; set it on the block and press Start. It is described in
+[cluster.md](cluster.md#the-j1939-example).
+
 `examples/projects/virtual-vehicle.tbsproj` is a whole pipeline, ready to open:
 a CAN channel, a simulated vehicle ECU with its script inline, a TinyML Virtual
 ECU, and transmit/plot blocks, plus a filtered second channel. Nothing to
@@ -584,6 +630,11 @@ install — open it and press Start.
 
 - **`ecu_vehicle.lua`** — cyclic: sends vehicle speed and engine coolant
   temperature on a timer, never reads the bus.
+- **`ecu_engine.lua`, `ecu_aftertreatment.lua`, `ecu_body.lua`, `ecu_brakes.lua`,
+  `ecu_switches.lua`, `ecu_cluster_core.lua`** — the J1939 vehicle of
+  `j1939-vehicle.tbsproj`, described by `examples/databases/j1939.dbc`. The body ECU listens to the
+  switch panel and lights the lamps; the cluster core listens to the vehicle speed and integrates
+  the odometer.
 - **`ecu_motor.lua`** — reactive powertrain actuator ECU: takes target RPM,
   throttle limit, and drive mode commands from a central gateway, reports status
   periodically, and answers a firmware-version request.

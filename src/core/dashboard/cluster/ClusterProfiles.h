@@ -23,6 +23,9 @@ namespace torquebus {
 /// The profile a new cluster starts with: the one that works on the project the application ships.
 inline constexpr std::string_view kDefaultClusterProfile = "example-11bit";
 
+/// The J1939 commercial vehicle profile, fed from J1939 standard PGNs.
+inline constexpr std::string_view kJ1939CommercialProfile = "j1939-commercial";
+
 class ClusterProfiles final {
 public:
     /// Process-wide registry, with the built-in profiles already in it.

@@ -40,6 +40,50 @@ Physical automotive ECUs running TinyML (such as ARM Cortex-M4/M7, NXP S32K, or 
   - **Bytes 6..7 (`InferenceTimeUs`)**: Neural network execution latency in microseconds (`uint16` LE)
 - **Port 1 (`signals`, `PortType::Signals`)**: Publishes five `DecodedSignal` streams (`RegimeClass`, `Confidence`, `AnomalyScore`, `ThermalHealth`, `InferenceTimeUs`) directly to any connected `Signal Plot` (`signal.plot`) block.
 
+### J1939 mode
+
+With the `j1939` parameter set - or an `outputCanId` that does not fit 11 bits - the block reads a J1939 bus
+instead: it matches by **PGN**, so the engine may answer from any address.
+
+| PGN | Message | Used for |
+|---|---|---|
+| `0xFEF1` | CCVS1 | wheel-based vehicle speed (SPN 84, bytes 2-3, 1/256 km/h) |
+| `0xFEEE` | ET1 | engine coolant temperature (SPN 110, byte 1, offset -40) |
+| `0xF003` | EEC2 | engine load (SPN 92); above 100 % the engine is asked for more than it has, which is stress |
+| `0xFEF5` | AMB | ambient temperature (SPN 171); a hot day lets the coolant run hotter before it means anything |
+
+A value that is *error* or *not available* in one of those is not a reading: it adds **bus stress**
+(0.4 each), and every valid speed frame takes 15 % of it off, so a sensor that comes back stops counting.
+
+**The coolant is calibrated.** The built-in model was set against a vehicle whose coolant idles at 70 °C and a
+heavy-duty diesel's thermostat holds 88. Fed that as it was, the model called every healthy truck a thermal
+emergency from the first frame - 100 % anomaly, 0 % health - and, with the predictive trouble code below,
+lit a red stop lamp for it. A J1939 coolant temperature is moved down by 18 °C on its way in, which puts a
+healthy engine where the model's healthy vehicle is and leaves every degree above that meaning what it meant.
+
+An `outputCanId` that is not a CAN identifier - more than 29 bits, which includes the `0x80000000` a
+.dbc adds to mark an identifier extended - is refused before Start, with the block named. It used to be
+used as it was, and every telemetry frame was a failed transmit that nothing reported.
+
+**Output** is a Proprietary B frame, PGN `0xFF00` (`0x18FF0080` from address `0x80` unless `outputCanId` says
+otherwise), described by `TinyML_Proprietary` in `examples/databases/j1939.dbc`:
+
+| Byte | Signal | |
+|---|---|---|
+| 1 | `ThermalHealth` | 0.4 %/bit |
+| 2 | `AnomalyScore` | 0.4 %/bit |
+| 3 | `Confidence` | 0.4 %/bit |
+| 4 | `RiskLevel` (bits 1-3), `ModelStatus` (4-5), `RegimeClass` (6-8) | the regime is what the vehicle is doing; the risk is how worried the model is about it |
+| 5 | `MessageCounter` | 0 to 250: above that a byte means error on a J1939 bus |
+| 6 | `InputAge` | 0.1 s/bit |
+| 7-8 | `InferenceTimeUs` | held to 64255 |
+
+**Predictive DM1.** When the anomaly has been 80 % or more for five seconds - or the thermal health falls
+under 30 %, at once - the block sends a DM1 from its own address: SPN 110, FMI 15 with the amber lamp, or
+FMI 16 with the red lamp as well when it is the health that is failing. It is sent when it starts and then
+**once a second**, not once per inference; it is taken back when the anomaly has been under 60 % for ten
+seconds, with one DM1 of every lamp dark to say so.
+
 ---
 
 ## 3. System Variables & Interactive Anomaly Injection
@@ -72,3 +116,4 @@ The Pipeline Canvas (`CanvasPanel`) renders real-time visual telemetry at 60 FPS
 - **Live Node Halos & Badges**: Every active block displays a pulsing border halo and a floating telemetry pill above the block.
 - **Live Neural Network & Tensor Arena Card**: Beneath every `tinyml.ecu` block, the Canvas draws the 4-column neural network topology with travelling synapse activation waves, regime badge, Anomaly Score meter, Thermal Health meter, and static tensor arena usage.
 - **Canvas HUD Controls**: Use **TinyML Demo Setup** to build a complete Virtual Vehicle + TinyML pipeline in one click, **Animate Flow** to toggle animations, and **Inject TinyML Anomaly** to trigger real-time anomaly detection on screen.
+- **Canvas View Controls**: A column of small icon buttons down the left edge of the canvas moves the view. **Pan** is a tool that stays on: while it is down, dragging anywhere (over a block as well) moves the canvas and touches no block. **Zoom In** and **Zoom Out** step like the mouse wheel, between 10 % and 200 %. **Fit to Window** zooms and centres so that every block - and the card under a TinyML block - is in view, without going past 100 %. The view keeps its zoom and position when you switch to another tab and back; it is fitted by itself only the first time the canvas is shown and when a project is opened or the demo is set up.

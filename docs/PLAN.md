@@ -1621,8 +1621,10 @@ Depois, dentro do mesmo painel:
   Dashboard — o que o Gauge leria, do mesmo `SignalSeriesStore`. Papel sem fonte
   mostra traços e acende quando a fonte chegar; nada some nem fica apagado. Um
   perfil novo é uma entrada nova no registro, sem mexer no cluster (regra 10). O
-  perfil embutido é o do exemplo 11 bits; o J1939/FMS fica para quando houver um
-  `.dbc` J1939 no repositório. Detalhes em `docs/development/cluster.md`.
+  perfil embutido é o do exemplo 11 bits; o J1939 chegou com
+  `examples/databases/j1939.dbc` (perfil `j1939-commercial` e o projeto
+  `examples/projects/j1939-vehicle.tbsproj`, com seis ECUs em Lua). Detalhes em
+  `docs/development/cluster.md`.
 
 ---
 

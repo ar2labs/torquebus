@@ -1931,6 +1931,37 @@ void ScriptEditorPanel::populateFunctionsTree()
          tr("Returns current diagnostic session ID (Default, Extended, Programming)."),
          QStringLiteral("local session = uds_session()\n")},
 
+        // --- J1939 (the prelude's helpers) ---
+        {tr("J1939"),
+         funcIcon,
+         QStringLiteral("j1939_id"),
+         QStringLiteral("j1939_id(prio, pgn, sa)"),
+         tr("Builds the 29-bit CAN identifier of a J1939 message from its priority, PGN and source "
+            "address."),
+         QStringLiteral("local id = j1939_id(6, 0xFEF1, 0x00)\n")},
+        {tr("J1939"),
+         funcIcon,
+         QStringLiteral("j1939_raw"),
+         QStringLiteral("j1939_raw(value, res, offset, nbytes) -- also raw()"),
+         tr("A physical value as the raw number J1939 sends, held to the biggest valid value of "
+            "the "
+            "field. nil is \"not available\"."),
+         QStringLiteral("local speed = raw(85.0, 1 / 256, 0, 2)\n")},
+        {tr("J1939"),
+         txIcon,
+         QStringLiteral("j1939_send"),
+         QStringLiteral("j1939_send(prio, pgn, sa, payload) -- also send() in an ECU"),
+         tr("Transmits a J1939 message as a 29-bit frame, the payload padded with 0xFF to eight "
+            "bytes."),
+         QStringLiteral("j1939_send(6, 0xFEF1, 0x00, string.pack(\"<I1I2\", 0xFF, speed))\n")},
+        {tr("J1939"),
+         txIcon,
+         QStringLiteral("j1939_dm1"),
+         QStringLiteral("j1939_dm1(mil, red, amber, protect, spn, fmi, oc) -- also dm1()"),
+         tr("The payload of a DM1 with one trouble code. All lamps 0 and SPN 0 is \"no active "
+            "fault\"."),
+         QStringLiteral("j1939_send(6, 0xFECA, 0x00, j1939_dm1(0, 1, 0, 0, 100, 1, 1))\n")},
+
         // --- Signal Generators (tb.*) ---
         {tr("Signal Generators"),
          funcIcon,

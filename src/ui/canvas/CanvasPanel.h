@@ -45,6 +45,7 @@
 #include <string>
 #include <vector>
 
+class QAction;
 class QEvent;
 class QHideEvent;
 class QMenu;
@@ -52,6 +53,7 @@ class QPainter;
 class QPushButton;
 class QShowEvent;
 class QSplitter;
+class QToolBar;
 class QTreeWidget;
 class QTreeWidgetItem;
 class QVariantAnimation;
@@ -171,6 +173,24 @@ private:
 
     void buildPalette();
     void applyPaletteIcons();
+
+    /// The small icon buttons that move the view: pan, zoom and fit.
+    void buildNavigationToolBar();
+    void applyNavigationIcons();
+
+    /// Pan on: a drag anywhere moves the canvas and no block is touched. Off: the canvas as it was.
+    void setPanToolActive(bool active);
+
+    /// Zooms and centres so that every block, and what is drawn around one, is in view.
+    void fitToView();
+
+    /// Fits the canvas if it has not been since it was filled: the first time it is shown, and
+    /// after the project was replaced. Otherwise the view stays as the user left it.
+    void fitIfPending();
+
+    /// Every block on the canvas, with the card a TinyML block draws below itself. Null when empty.
+    [[nodiscard]] QRectF contentBounds() const;
+
     void addNodeFromPalette(QTreeWidgetItem* item);
     void addSelectedPaletteNode();
 
@@ -236,6 +256,13 @@ private:
     QTreeWidget* m_palette{nullptr};
 
     QWidget* m_hudBar{nullptr};
+    QToolBar* m_navToolBar{nullptr};
+    QAction* m_actionPan{nullptr};
+    QAction* m_actionZoomIn{nullptr};
+    QAction* m_actionZoomOut{nullptr};
+    QAction* m_actionFit{nullptr};
+    bool m_panToolActive{false};
+    bool m_fitPending{true};
     QPushButton* m_addBlockButton{nullptr};
     QPushButton* m_deleteBlockButton{nullptr};
     QPushButton* m_animateButton{nullptr};

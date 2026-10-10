@@ -511,3 +511,51 @@ TEST(LuaTestSequenceTests, TestRefusesACaseWithNoBody)
     SCOPED_TRACE(::testing::Message() << std::string{result.message()});
     EXPECT_TRUE(std::string{result.message()}.find("function") != std::string::npos);
 }
+
+TEST(LuaTestSequenceTests, ASequenceKeepsTheOptionsOfItsSend)
+{
+    // send(id, data, { extended = ... }) is in the testing guide, and the J1939 helpers once took
+    // its third argument for a source address: the call raised an error about a bitwise operation
+    // on a string, from a line that had been correct all along.
+    Bench bench{R"(
+        test("sends with options", function()
+            send(0x123, "\x01", { extended = true })
+            send(0x7E0, "\x02")
+            wait(10)
+        end)
+    )"};
+
+    bench.run(300);
+
+    ASSERT_TRUE(bench.sequence->isComplete());
+    EXPECT_TRUE(bench.errors.empty());
+    ASSERT_EQ(bench.collector->frames.size(), 2U);
+
+    EXPECT_EQ(bench.collector->frames[0].identifier, 0x123U);
+    EXPECT_TRUE(bench.collector->frames[0].isExtended());
+    EXPECT_EQ(bench.collector->frames[1].identifier, 0x7E0U);
+    EXPECT_FALSE(bench.collector->frames[1].isExtended());
+}
+
+TEST(LuaTestSequenceTests, ASequenceCanSendAJ1939Message)
+{
+    Bench bench{R"(
+        test("requests a PGN", function()
+            j1939_send(6, 0xEA00, 0xF9, "\x00\xF0\x00")
+            wait(10)
+        end)
+    )"};
+
+    bench.run(300);
+
+    ASSERT_TRUE(bench.sequence->isComplete());
+    EXPECT_TRUE(bench.errors.empty());
+    ASSERT_EQ(bench.collector->frames.size(), 1U);
+
+    const CanFrame& frame = bench.collector->frames.front();
+    EXPECT_EQ(frame.identifier, 0x18EA00F9U);
+    EXPECT_TRUE(frame.isExtended());
+    EXPECT_EQ(frame.length, 8U); // padded, as J1939 pads
+    EXPECT_EQ(frame.data[1], 0xF0U);
+    EXPECT_EQ(frame.data[3], 0xFFU);
+}
