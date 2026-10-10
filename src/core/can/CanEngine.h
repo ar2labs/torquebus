@@ -136,7 +136,11 @@ public:
     [[nodiscard]] Result start();
 
     /// Stops the dispatch thread, then every channel. Performs one final drain
-    /// so that frames already in the queues still reach the sinks.
+    /// so that frames already in the queues still reach the sinks, and then tells every
+    /// node the measurement is over (IPipelineNode::finish).
+    ///
+    /// Safe to call at any time and as often as you like: it also winds up a measurement that ended
+    /// on its own, which isRunning() already reports as stopped.
     void stop();
 
     [[nodiscard]] bool isRunning() const noexcept
@@ -425,6 +429,15 @@ private:
     std::thread m_thread;
     std::atomic<bool> m_running{false};
     std::atomic<std::uint64_t> m_deliveredFrames{0};
+
+    /// From a start() that built the graph to the stop() that winds it up, which is what makes the
+    /// nodes' finish() run once per measurement and the thread get joined even when the loop ended
+    /// by itself. Touched by the thread that starts and stops, and by no other.
+    bool m_measurementLive{false};
+
+    /// The dispatch thread ended on an exception rather than on being told to stop. stop() does not
+    /// run another pass over a graph that just threw.
+    std::atomic<bool> m_dispatchFaulted{false};
 
     /// Reused across passes so a steady-state dispatch allocates nothing.
     /// Frame buffers now live in the nodes themselves; only the statistics

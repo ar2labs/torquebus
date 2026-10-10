@@ -149,6 +149,10 @@ private:
 
     double m_minimum{0.0};
     double m_maximum{0.0};
+
+    /// Whether the range above has seen a number. A series that has only held "not available" so
+    /// far has no range, and 0 to 0 is what it says.
+    bool m_hasRange{false};
 };
 
 /// What a legend needs, without copying a single sample.

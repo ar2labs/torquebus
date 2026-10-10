@@ -571,3 +571,114 @@ TEST(LuaEcuNodeTests, CheckSyntaxAcceptsValidScriptAndDetectsSyntaxErrors)
     EXPECT_TRUE(badResult.failed());
     EXPECT_NE(badResult.message().find("bad.lua:4"), std::string::npos);
 }
+
+TEST(LuaEcuNodeTests, J1939HelpersAreAvailableAndEmitExtendedFrames)
+{
+    PipelineGraph graph;
+    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
+        function on_enable()
+            local speed_val = 100.0
+            local speed_raw = raw(speed_val, 1 / 256, 0, 2)
+            send(6, 0xFEF1, 0x00, string.pack("<I1I2", 0xF3, speed_raw))
+
+            local diag_payload = dm1(1, 0, 0, 0, 110, 15, 1)
+            send(6, 0xFECA, 0x00, diag_payload)
+        end
+    )",
+                                                                "j1939_test.lua"));
+
+    const auto collector = graph.addNode(std::make_unique<Collector>());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{collector, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
+    graph.execute();
+
+    const auto& out = graph.nodeAs<Collector>(collector)->frames;
+    ASSERT_EQ(out.size(), 2U);
+
+    // First frame: CCVS1 on 0x18FEF100, extended, 8 bytes
+    EXPECT_EQ(out[0].identifier, 0x18FEF100U);
+    EXPECT_TRUE(out[0].isExtended());
+    EXPECT_EQ(out[0].length, 8U);
+    EXPECT_EQ(out[0].data[0], 0xF3U);
+    // 100 / (1/256) = 25600 = 0x6400 -> low byte 0x00, high byte 0x64
+    EXPECT_EQ(out[0].data[1], 0x00U);
+    EXPECT_EQ(out[0].data[2], 0x64U);
+    // Trailing bytes padded with 0xFF
+    EXPECT_EQ(out[0].data[3], 0xFFU);
+    EXPECT_EQ(out[0].data[7], 0xFFU);
+
+    // Second frame: DM1 on 0x18FECA00, extended, 8 bytes
+    EXPECT_EQ(out[1].identifier, 0x18FECA00U);
+    EXPECT_TRUE(out[1].isExtended());
+    EXPECT_EQ(out[1].length, 8U);
+}
+
+TEST(LuaEcuNodeTests, RawSaturatesAtTheBiggestValidValueAndSaysNotAvailableForNothing)
+{
+    PipelineGraph graph;
+    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
+        function on_enable()
+            -- A missing reading, a reading that is not a number, one too big for its byte and one
+            -- below what the byte can hold.
+            emit(0x100, string.pack("<I1I1I1I1", raw(nil, 1, 0, 1), raw(0 / 0, 1, 0, 1),
+                                    raw(1e9, 1, 0, 1), raw(-5, 1, 0, 1)))
+            -- Three bytes, which had no entry in the table and saturated at a single byte's limit.
+            emit(0x101, string.pack("<I3I2", raw(1e12, 1, 0, 3), raw(nil, 1, 0, 2)))
+        end
+    )",
+                                                                "raw_test.lua"));
+
+    const auto collector = graph.addNode(std::make_unique<Collector>());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{collector, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
+    graph.execute();
+
+    const auto& out = graph.nodeAs<Collector>(collector)->frames;
+    ASSERT_EQ(out.size(), 2U);
+
+    EXPECT_EQ(out[0].data[0], 0xFFU); // nil: not available
+    EXPECT_EQ(out[0].data[1], 0xFFU); // NaN: the same, and not an error from string.pack
+    EXPECT_EQ(out[0].data[2], 0xFAU); // too big: the biggest valid value, not a wrapped one
+    EXPECT_EQ(out[0].data[3], 0x00U); // below: zero
+
+    EXPECT_EQ(out[1].data[0], 0xFFU);
+    EXPECT_EQ(out[1].data[1], 0xFFU);
+    EXPECT_EQ(out[1].data[2], 0xFAU); // 0xFAFFFF
+    EXPECT_EQ(out[1].data[3], 0xFFU); // not available, two bytes
+    EXPECT_EQ(out[1].data[4], 0xFFU);
+}
+
+TEST(LuaEcuNodeTests, SendIsStillEmitInAnEcuAndTheJ1939FormIsAlwaysExtended)
+{
+    PipelineGraph graph;
+    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
+        function on_enable()
+            send(0x123, "\1\2")                       -- the old call
+            send(0x123, "\1", { extended = true })    -- and with options
+            j1939_send(0, 0, 5, "")                   -- an identifier of 5, which fits 11 bits
+        end
+    )",
+                                                                "send_test.lua"));
+
+    const auto collector = graph.addNode(std::make_unique<Collector>());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{collector, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
+    graph.execute();
+
+    const auto& out = graph.nodeAs<Collector>(collector)->frames;
+    ASSERT_EQ(out.size(), 3U);
+
+    EXPECT_EQ(out[0].identifier, 0x123U);
+    EXPECT_FALSE(out[0].isExtended());
+    EXPECT_EQ(out[0].length, 2U);
+
+    EXPECT_EQ(out[1].identifier, 0x123U);
+    EXPECT_TRUE(out[1].isExtended());
+
+    // A J1939 message is a 29-bit message whatever its number: priority 0 from address 5 with PGN 0
+    // is 0x00000005, and as a standard frame it would be a different message on a different bus.
+    EXPECT_EQ(out[2].identifier, 5U);
+    EXPECT_TRUE(out[2].isExtended());
+    EXPECT_EQ(out[2].length, 8U);
+    EXPECT_EQ(out[2].data[0], 0xFFU);
+}

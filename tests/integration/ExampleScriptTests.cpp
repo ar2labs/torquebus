@@ -24,6 +24,7 @@
 #include "core/can/CanEngine.h"
 #include "core/database/DbcParser.h"
 #include "core/isotp/IsoTpTypes.h"
+#include "core/j1939/J1939Id.h"
 #include "core/pipeline/nodes/FrameNodes.h"
 #include "core/scripting/LuaEcuNode.h"
 #include "core/scripting/LuaTestNode.h"
@@ -35,9 +36,11 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <span>
 #include <sstream>
 #include <string>
@@ -336,6 +339,29 @@ TEST(ExampleScriptTests, SequenceEngineLuaDeclaresItsTestCases)
     EXPECT_TRUE(sequence.declaredCases() > 0);
 }
 
+TEST(ExampleScriptTests, J1939EcuScriptsRunAndTransmitFrames)
+{
+    const std::vector<const char*> scripts{
+        "ecu_engine.lua",
+        "ecu_aftertreatment.lua",
+        "ecu_body.lua",
+        "ecu_brakes.lua",
+        "ecu_switches.lua",
+        "ecu_cluster_core.lua",
+    };
+
+    for (const char* script : scripts) {
+        Outcome outcome;
+        runEcu(script, 150ms, outcome);
+
+        EXPECT_FALSE(outcome.faulted) << "Faulted script: " << script;
+        EXPECT_GT(outcome.emitted, 0U) << "No frames emitted: " << script;
+        SCOPED_TRACE(::testing::Message()
+                     << "script errors in " << script << ": " << joined(outcome.errors));
+        EXPECT_TRUE(outcome.errors.empty());
+    }
+}
+
 TEST(ExampleScriptTests, TheExampleDatabasesDecodeWhatTheExampleScriptsSend)
 {
     // docs/development/databases.md says the shipped databases "match what
@@ -403,6 +429,76 @@ TEST(ExampleScriptTests, TheExampleDatabasesDecodeWhatTheExampleScriptsSend)
                      << "identifiers with no message in ecu.dbc: " << undescribed.size());
         EXPECT_TRUE(undescribed.empty());
     }
+    {
+        const std::vector<std::uint32_t> undescribed =
+            decodesEverything("ecu_engine.lua", "none", "j1939.dbc");
+
+        SCOPED_TRACE(::testing::Message()
+                     << "identifiers with no message in j1939.dbc: " << undescribed.size());
+        EXPECT_TRUE(undescribed.empty());
+    }
+}
+
+TEST(ExampleScriptTests, EveryJ1939ScriptSendsOnlyMessagesTheJ1939DatabaseDescribes)
+{
+    // The check above asks the database about an identifier, which is how a DBC Decoder reads it
+    // and is right for an 11-bit bus. A J1939 identifier carries the address of whoever sent it,
+    // and the J1939 block - the one the project uses - finds a message by PGN, so that is the
+    // question here: not "is 0x18FECA3D in the file" but "is a message with PGN 0xFECA in it".
+    //
+    // It is the question that found the body controller sending Lighting Data under a PGN the
+    // database had never heard of, so that no lamp it drove ever reached the cluster.
+    CanDatabase database;
+    const std::filesystem::path path =
+        std::filesystem::path{TORQUEBUS_EXAMPLE_DATABASE_DIR} / "j1939.dbc";
+    ASSERT_TRUE(DbcParser::parseFile(path.string(), database).succeeded());
+
+    std::set<std::uint32_t> described;
+    for (const CanMessage& message : database.messages()) {
+        if (message.format == CanFrameFormat::Extended) {
+            described.insert(j1939Decompose(message.identifier).pgn());
+        }
+    }
+    ASSERT_FALSE(described.empty());
+
+    for (const char* script : {"ecu_engine.lua",
+                               "ecu_aftertreatment.lua",
+                               "ecu_body.lua",
+                               "ecu_brakes.lua",
+                               "ecu_switches.lua",
+                               "ecu_cluster_core.lua"}) {
+        SCOPED_TRACE(script);
+
+        Outcome outcome;
+        runEcu(script, 250ms, outcome);
+
+        std::set<std::uint32_t> missing;
+        std::size_t sent = 0;
+
+        for (const CanFrame& frame : outcome.recorder.frames()) {
+            if (frame.direction != CanDirection::Tx) {
+                continue;
+            }
+
+            ++sent;
+            EXPECT_TRUE(frame.isExtended()) << "0x" << std::hex << frame.identifier;
+            EXPECT_EQ(frame.length, 8U);
+
+            const std::uint32_t pgn = j1939Decompose(frame.identifier).pgn();
+            if (described.count(pgn) == 0) {
+                missing.insert(pgn);
+            }
+        }
+
+        EXPECT_GT(sent, 0U);
+
+        std::string names;
+        for (const std::uint32_t pgn : missing) {
+            names += std::format(" 0x{:X}", pgn);
+        }
+        SCOPED_TRACE("PGNs with no message in j1939.dbc:" + names);
+        EXPECT_TRUE(missing.empty());
+    }
 }
 
 TEST(ExampleScriptTests, EveryShippedExampleScriptIsCoveredHere)
@@ -414,7 +510,13 @@ TEST(ExampleScriptTests, EveryShippedExampleScriptIsCoveredHere)
     EXPECT_TRUE(std::filesystem::is_directory(directory));
 
     const std::vector<std::string> covered{
+        "ecu_aftertreatment.lua",
+        "ecu_body.lua",
+        "ecu_brakes.lua",
+        "ecu_cluster_core.lua",
+        "ecu_engine.lua",
         "ecu_motor.lua",
+        "ecu_switches.lua",
         "ecu_uds.lua",
         "ecu_vehicle.lua",
         "ecu_vehicle_dbc.lua",

@@ -13,16 +13,21 @@
 
 #include "core/can/CanEngine.h"
 #include "core/pipeline/nodes/FrameNodes.h"
+#include "core/scripting/LuaEcuNode.h"
 #include "drivers/virtual/VirtualCanBackend.h"
 
 #include <gtest/gtest.h>
 
 #include <iostream>
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -634,4 +639,275 @@ TEST(CanEngineTests, StartingRebuildsTheGraphFromTheRegisteredSinks)
     EXPECT_TRUE(engine.graph().nodeCount() == nodesFromSinks);
 
     engine.stop();
+}
+
+// ---------------------------------------------------------------------------
+// The life of a measurement, as the nodes in it see it
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// What the probe saw, shared so that it outlives the graph that owns the probe: the engine
+/// rebuilds its graph on every Start, and a test that kept a pointer to the node would be keeping
+/// one into the previous measurement.
+struct ProbeState final {
+    std::atomic<int> prepares{0};
+    std::atomic<int> passes{0};
+    std::atomic<int> finishes{0};
+    std::atomic<bool> throwOnPass{false};
+};
+
+/// A node that counts the calls the engine makes to it, and can be told to throw.
+class LifecycleProbe final : public IPipelineNode {
+public:
+    explicit LifecycleProbe(std::shared_ptr<ProbeState> state)
+        : m_state{std::move(state)}
+    { }
+
+    [[nodiscard]] std::string_view typeName() const noexcept override { return "test.probe"; }
+    [[nodiscard]] std::string displayName() const override { return "probe"; }
+
+    [[nodiscard]] std::span<const PortDescriptor> inputs() const noexcept override
+    {
+        return kInputs;
+    }
+
+    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override { return {}; }
+
+    [[nodiscard]] Result prepare(std::size_t) override
+    {
+        ++m_state->prepares;
+        return Result::ok();
+    }
+
+    void process(NodeContext&) override
+    {
+        ++m_state->passes;
+
+        if (m_state->throwOnPass.load()) {
+            throw std::runtime_error{"a node gave up"};
+        }
+    }
+
+    void finish() override { ++m_state->finishes; }
+
+private:
+    static constexpr std::array<PortDescriptor, 1> kInputs{
+        PortDescriptor{"frames", PortType::Frames},
+    };
+
+    std::shared_ptr<ProbeState> m_state;
+};
+
+/// An engine with one virtual channel and the probe wired to it.
+struct ProbedEngine final {
+    ProbedEngine()
+        : state{std::make_shared<ProbeState>()}
+    {
+        EXPECT_TRUE(engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:0"))
+                        .succeeded());
+
+        engine.setGraphBuilder(
+            [state = state](PipelineGraph& graph, std::span<const NodeId> sources) -> Result {
+                const NodeId probe = graph.addNode(std::make_unique<LifecycleProbe>(state));
+                return graph.connect(PortRef{sources[0], 0}, PortRef{probe, 0});
+            });
+    }
+
+    std::shared_ptr<ProbeState> state;
+    CanEngine engine;
+};
+
+} // namespace
+
+TEST(CanEngineTests, StoppingTheMeasurementCallsFinishOnEveryNodeOncePerMeasurement)
+{
+    // finish() is where a script node runs its on_disable and a test sequence closes the case that
+    // was in flight. The unit tests called graph.finish() themselves, which is how nothing noticed
+    // the engine never did: Stop ended the measurement and left every node believing it was still
+    // on.
+    ProbedEngine probed;
+
+    ASSERT_TRUE(probed.engine.start().succeeded());
+    std::this_thread::sleep_for(30ms);
+    EXPECT_GT(probed.state->passes.load(), 0);
+    EXPECT_EQ(probed.state->finishes.load(), 0);
+
+    probed.engine.stop();
+    EXPECT_EQ(probed.state->finishes.load(), 1);
+
+    // Stopping a stopped engine is not a second end of the same measurement.
+    probed.engine.stop();
+    EXPECT_EQ(probed.state->finishes.load(), 1);
+
+    // And the next one has its own.
+    ASSERT_TRUE(probed.engine.start().succeeded());
+    probed.engine.stop();
+    EXPECT_EQ(probed.state->prepares.load(), 2);
+    EXPECT_EQ(probed.state->finishes.load(), 2);
+}
+
+namespace {
+
+/// What a node saw of the world at the moment it was told the measurement was over.
+struct OrderState final {
+    std::atomic<int> passes{0};
+    std::atomic<int> passesAtFinish{-1};
+};
+
+class OrderRecorder final : public IPipelineNode {
+public:
+    explicit OrderRecorder(std::shared_ptr<OrderState> state)
+        : m_state{std::move(state)}
+    { }
+
+    [[nodiscard]] std::string_view typeName() const noexcept override { return "test.order"; }
+    [[nodiscard]] std::string displayName() const override { return "order"; }
+    [[nodiscard]] std::span<const PortDescriptor> inputs() const noexcept override
+    {
+        return kInputs;
+    }
+    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override { return {}; }
+
+    void process(NodeContext&) override { ++m_state->passes; }
+    void finish() override { m_state->passesAtFinish = m_state->passes.load(); }
+
+private:
+    static constexpr std::array<PortDescriptor, 1> kInputs{
+        PortDescriptor{"frames", PortType::Frames},
+    };
+
+    std::shared_ptr<OrderState> m_state;
+};
+
+} // namespace
+
+TEST(CanEngineTests, FinishComesAfterTheLastPassAndNotBefore)
+{
+    // "After the final pass": a node that is told it is over and then runs again has nothing to run
+    // on. The count of passes at finish() must be the count at the end.
+    auto state = std::make_shared<OrderState>();
+
+    CanEngine engine;
+    ASSERT_TRUE(engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:0"))
+                    .succeeded());
+    engine.setGraphBuilder([state](PipelineGraph& graph, std::span<const NodeId> sources) {
+        const NodeId node = graph.addNode(std::make_unique<OrderRecorder>(state));
+        return graph.connect(PortRef{sources[0], 0}, PortRef{node, 0});
+    });
+
+    ASSERT_TRUE(engine.start().succeeded());
+    std::this_thread::sleep_for(30ms);
+    engine.stop();
+
+    EXPECT_GT(state->passesAtFinish.load(), 0);
+    EXPECT_EQ(state->passesAtFinish.load(), state->passes.load());
+}
+
+TEST(CanEngineTests, ADispatchLoopThatEndedOnItsOwnCanBeStoppedAndStartedAgain)
+{
+    // A node that throws ends the measurement, and the guard around the dispatch thread reports it
+    // and lets the thread return. A thread that returned is still a thread somebody has to join,
+    // and stop() used to leave without doing it because the loop was no longer "running": the next
+    // Start assigned a new thread over it, and destroying the engine did the same, and both are
+    // std::terminate - a plugin's node throwing took the application down with a delay.
+    ProbedEngine probed;
+    probed.state->throwOnPass = true;
+
+    std::mutex mutex;
+    std::vector<std::string> errors;
+    probed.engine.addLogSink([&](const std::string& text, bool isError) {
+        if (isError) {
+            const std::lock_guard lock{mutex};
+            errors.push_back(text);
+        }
+    });
+
+    ASSERT_TRUE(probed.engine.start().succeeded());
+
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (probed.engine.isRunning() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(1ms);
+    }
+    ASSERT_FALSE(probed.engine.isRunning()) << "the loop did not end";
+
+    {
+        const std::lock_guard lock{mutex};
+        ASSERT_FALSE(errors.empty()) << "the end of the loop was not reported";
+    }
+
+    // The stop the user presses, after the measurement ended on its own.
+    probed.engine.stop();
+    EXPECT_EQ(probed.state->finishes.load(), 1);
+
+    // And a second measurement, with the fault gone.
+    probed.state->throwOnPass = false;
+    ASSERT_TRUE(probed.engine.start().succeeded());
+    std::this_thread::sleep_for(20ms);
+    EXPECT_TRUE(probed.engine.isRunning());
+    probed.engine.stop();
+    EXPECT_EQ(probed.state->finishes.load(), 2);
+}
+
+TEST(CanEngineTests, ADispatchLoopThatEndedOnItsOwnIsJoinedWhenTheEngineGoesAway)
+{
+    {
+        ProbedEngine probed;
+        probed.state->throwOnPass = true;
+        ASSERT_TRUE(probed.engine.start().succeeded());
+
+        const auto deadline = std::chrono::steady_clock::now() + 2s;
+        while (probed.engine.isRunning() && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(1ms);
+        }
+        ASSERT_FALSE(probed.engine.isRunning());
+    } // ~CanEngine: a joinable std::thread destroyed here is std::terminate
+
+    SUCCEED();
+}
+
+TEST(CanEngineTests, AScriptsOnDisableRunsWhenTheEngineStops)
+{
+    // The documented lifecycle, through the engine and not around it.
+    CanEngine engine;
+    ASSERT_TRUE(engine.addChannel(std::make_unique<VirtualCanBackend>(), configFor("virtual:0"))
+                    .succeeded());
+
+    std::mutex mutex;
+    std::vector<std::string> lines;
+    const auto collect = [&](const std::string& text, bool) {
+        const std::lock_guard lock{mutex};
+        lines.push_back(text);
+    };
+    engine.addLogSink(collect);
+
+    engine.setGraphBuilder([&](PipelineGraph& graph, std::span<const NodeId> sources) -> Result {
+        auto ecu = std::make_unique<LuaEcuNode>(
+            R"(function on_disable() log_message("stopped cleanly") end)", "bye.lua");
+        ecu->setLogHandler(collect);
+
+        const NodeId id = graph.addNode(std::move(ecu));
+        return graph.connect(PortRef{sources[0], 0}, PortRef{id, 0});
+    });
+
+    ASSERT_TRUE(engine.start().succeeded());
+    {
+        const std::lock_guard lock{mutex};
+        EXPECT_EQ(std::count_if(lines.begin(),
+                                lines.end(),
+                                [](const std::string& line) {
+                                    return line.find("stopped cleanly") != std::string::npos;
+                                }),
+                  0);
+    }
+
+    engine.stop();
+
+    const std::lock_guard lock{mutex};
+    EXPECT_EQ(std::count_if(lines.begin(),
+                            lines.end(),
+                            [](const std::string& line) {
+                                return line.find("stopped cleanly") != std::string::npos;
+                            }),
+              1);
 }

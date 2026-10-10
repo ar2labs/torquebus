@@ -71,6 +71,12 @@ const QStringList& torqueBusNames()
         QStringLiteral("uds_dtc"),
         QStringLiteral("uds_clear_dtc"),
         QStringLiteral("uds_session"),
+        // The prelude's J1939 helpers. `raw`, `send` and `dm1` are the same functions under shorter
+        // names, and are left out: as words they are too common to colour wherever they appear.
+        QStringLiteral("j1939_id"),
+        QStringLiteral("j1939_raw"),
+        QStringLiteral("j1939_send"),
+        QStringLiteral("j1939_dm1"),
         // Globals the node sets.
         QStringLiteral("parameters"),
         QStringLiteral("node_name"),

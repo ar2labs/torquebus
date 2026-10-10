@@ -32,6 +32,7 @@
 
 #pragma once
 
+#include "core/dashboard/SystemVariables.h"
 #include "core/database/CanMessage.h"
 #include "core/database/DecodedSignal.h"
 #include "core/j1939/J1939AddressTable.h"
@@ -84,6 +85,11 @@ public:
     /// nothing is copied. Borrowed; it outlives this node.
     void setNetwork(J1939Network* network) noexcept { m_network = network; }
 
+    /// Where to publish the lamps of the whole bus (kJ1939LampStopVariable and its three
+    /// siblings, see J1939Diagnostics.h), or nullptr in a headless build, where the block simply
+    /// does not. Borrowed; it outlives this node.
+    void setSystemVariables(SystemVariables* variables) noexcept { m_variables = variables; }
+
     /// How the SPN field of a trouble code should be read. See
     /// J1939Diagnostics.h - the wrong convention produces a number that looks
     /// like an SPN, which is why this is declared rather than detected.
@@ -134,6 +140,11 @@ private:
     /// Files a DM1 or DM2, replacing the previous one from that ECU.
     void recordDiagnostic(J1939Diagnostic message);
 
+    /// Writes the OR of the lamps of every ECU whose DM1 is current at `nowNs` to the system
+    /// variables, when that is a change. Cheap enough to call every pass: a handful of ECUs, and
+    /// four lock-free stores only when something moved.
+    void publishLamps(std::uint64_t nowNs) noexcept;
+
     std::shared_ptr<const CanDatabase> m_database;
     std::string m_label;
 
@@ -154,6 +165,21 @@ private:
 
     /// Latest per ECU, in address order. DM1 and DM2 are kept apart.
     std::vector<J1939Diagnostic> m_diagnostics;
+
+    /// Where the lamps of the whole bus go, and the handles resolved for them in prepare().
+    SystemVariables* m_variables{nullptr};
+    std::array<SystemVariables::Handle, 4> m_lampVariables{SystemVariables::kUnknown,
+                                                           SystemVariables::kUnknown,
+                                                           SystemVariables::kUnknown,
+                                                           SystemVariables::kUnknown};
+
+    /// What was last written, stop / warning / malfunction / protect, so an unchanged bus costs
+    /// nothing. Starts as a value no lamp can have, so the first pass always writes.
+    std::array<std::int8_t, 4> m_publishedLamps{-1, -1, -1, -1};
+
+    /// The newest bus time seen, which is what "current" is measured against: the clock of a
+    /// measurement is the bus's, and says nothing about the present when a log is being replayed.
+    std::uint64_t m_newestNs{0};
 
     /// Reused every pass; the published span points into here, so process()
     /// never resizes it.

@@ -997,6 +997,25 @@ The instrument cluster (`docs/development/cluster.md`):
 14. Change the application's theme and the accent. The cluster follows both.
 15. **Save**, close, open: the cluster is where it was. Hand-edit the project and set
     its `"profile"` to `"from-the-future"`: opening it **fails**, naming the profile.
+16. Open `examples/projects/j1939-vehicle.tbsproj` and press **Start**. It starts - a
+    refusal naming a transmit block means a block has two wires into one input. The
+    cluster runs the engine ECU's 90 s drive cycle: speed from 0 to 100 km/h and back,
+    engine speed, the gear in the middle of the tachometer (N at a standstill), the
+    coolant near 88 degC, the odometer counting, and the AI panel calm - *Idle*, then
+    *Cruise*, never *Anomaly*. Only the low beam and position lights are lit.
+17. Stop, select `ecu_engine` and set `scenario` to `low_oil_pressure`, then **Start**:
+    within a couple of seconds the **stop** and **oil** lamps light and stay lit - a
+    red lamp that flickers means the DM1 lamps are being read as signals again, not
+    from the J1939 block's variables. Try `overheating` (stop and engine lamps, the AI
+    panel in alarm) and `sensor_error` (coolant dashes and the warning lamp).
+18. Set `ecu_switches` to `flasher_cycle`: the left arrow flashes for five seconds, then
+    the right, then both with the hazard lamp - one steady rhythm, never dropping out.
+    It reaches the cluster through two ECUs: the panel sends the stalk, the body
+    controller lights the lamp.
+19. Press **Stop**: every lamp goes out and the values go back to dashes within a few
+    seconds. With `ecu_engine` on `sensor_error`, plot `ET1.EngineCoolantTemperature` in
+    the Graph panel: a signal the bus reports as *not available* is a gap in the line,
+    and `n/a` in the legend, and not a spike to the middle of the plot.
 
 **Watch for:** a widget that overlaps a cluster. It is drawn *under* it, because a
 `QQuickWidget` stacks above the painting beneath it - a limit of the host, and the
@@ -1152,6 +1171,43 @@ failure that would otherwise show up as a backend simply missing.
 on TorqueBusStudio.exe must not name canlib32 or Qt6SerialBus; the same command
 on each plugin must name its own. That separation is the whole reason these two
 moved out, and it is the one thing here that a person cannot see by looking.
+
+---
+
+## 5v. Moving around the Pipeline canvas
+
+The automated tests drive the buttons and check where the view ends up. What they cannot say is
+whether the buttons look right in the window and whether the hand moves the way a hand expects.
+
+1. Open `examples\projects\j1939-vehicle.tbsproj` and look at the **Pipeline** tab. A column of
+   four small icons stands down the canvas's left edge: a four-way arrow, a magnifier with a plus,
+   one with a minus, and four corner brackets. They are the same drawings as the Graph panel's
+   toolbar, tinted by the theme: switch to Light in **Tools > Preferences** and they follow. The
+   four-way arrow has all four arrowheads the same.
+2. Hover each one. A tooltip says what it does.
+3. Roll the mouse wheel over the canvas, then press **Zoom In** and **Zoom Out**. The buttons
+   step the way the wheel does, and neither goes past the same limits: out to a tenth of real size,
+   where the whole project is a small map, and in to twice real size.
+4. Press **Fit to Window** from anywhere. Every block is on screen with a margin, centred, the
+   TinyML block's neural network card included. With the J1939 project the blocks stay small, because
+   that layout is eight rows tall and a window is not: that is what fits, not a fault. Delete
+   everything but one block and press it again: the block shows at real size, not enlarged to fill the
+   window.
+5. Press **Pan**. The button stays down. Drag from the middle of a block: the whole canvas moves with
+   the pointer and the block neither moves nor is selected, and the cursor is a hand. Click a block's
+   **Edit** pencil: nothing opens. Press **Pan** again, and the same drag picks the block up, and the
+   pencil opens the script.
+6. Zoom in on one block and pan away from the rest. Switch to the **Graph** tab and back. The canvas
+   is where you left it, at the zoom you left it at. (It used to fit the whole project again every time
+   the tab was shown.)
+7. **File > Open Project** on another project, with the canvas showing. It is fitted when it opens, not
+   left looking at the place the last one was. Press **TinyML Demo Setup**: the same.
+8. Make the window narrow, down to what the bar above the canvas needs. The four buttons are still
+   there, all of them; they have no menu to fold into.
+
+**Watch for:** the four-way arrow turned into something lopsided, which was the icon's bug and not the
+buttons'; and the strip showing a second edge or a different grey from the toolbars elsewhere in
+either theme.
 
 ---
 

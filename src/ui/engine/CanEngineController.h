@@ -142,7 +142,8 @@ public Q_SLOTS:
     /// Starts the measurement. Emits started() or failed().
     void start();
 
-    /// Stops the measurement. Emits stopped().
+    /// Stops the measurement. Emits stopped(). Also winds up one that ended on its own - a node
+    /// threw and the engine stopped the loop - which isRunning() already reports as stopped.
     void stop();
 
 Q_SIGNALS:
@@ -169,6 +170,9 @@ Q_SIGNALS:
 
 private Q_SLOTS:
     void publishToUi();
+
+    /// The refresh timer's tick: publishes, and notices a measurement that ended on its own.
+    void refresh();
 
 private:
     /// Converts the engine's node reports and emits nodeStatisticsUpdated().

@@ -19,9 +19,12 @@
 #include "core/trace/TraceStore.h"
 #include "drivers/virtual/VirtualCanBackend.h"
 
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <span>
 #include <string>
 #include <thread>
@@ -78,6 +81,34 @@ private:
     frame.length = 1;
     frame.timestampNs = timestampNs;
     frame.data[0] = static_cast<std::uint8_t>(std::clamp(tempDegC + 40, 0, 255));
+    return frame;
+}
+
+[[nodiscard]] CanFrame makeJ1939SpeedFrame(double speedKmh, std::uint64_t timestampNs)
+{
+    CanFrame frame{};
+    frame.identifier = 0x18FEF100; // CCVS1
+    frame.format = CanFrameFormat::Extended;
+    frame.dlc = 8;
+    frame.length = 8;
+    frame.timestampNs = timestampNs;
+    std::fill(frame.data.begin(), frame.data.end(), std::uint8_t{0xFF});
+    const auto raw = static_cast<std::uint16_t>(speedKmh * 256.0 + 0.5);
+    frame.data[1] = static_cast<std::uint8_t>(raw & 0xFFU);
+    frame.data[2] = static_cast<std::uint8_t>((raw >> 8U) & 0xFFU);
+    return frame;
+}
+
+[[nodiscard]] CanFrame makeJ1939TempFrame(int tempDegC, std::uint64_t timestampNs)
+{
+    CanFrame frame{};
+    frame.identifier = 0x18FEEE00; // ET1
+    frame.format = CanFrameFormat::Extended;
+    frame.dlc = 8;
+    frame.length = 8;
+    frame.timestampNs = timestampNs;
+    std::fill(frame.data.begin(), frame.data.end(), std::uint8_t{0xFF});
+    frame.data[0] = static_cast<std::uint8_t>(std::clamp(tempDegC + 40, 0, 250));
     return frame;
 }
 
@@ -369,4 +400,524 @@ TEST(TinyMlEcuTests, CatalogRegistersTinyMlEcuAndRunsEndToEndOnVirtualBus)
 
     EXPECT_GT(engine.plotStore().seriesCount(), 0U);
     EXPECT_GT(engine.variables().value("tinyml.inferences"), 0.0);
+}
+
+TEST(TinyMlEcuTests, J1939ModeProcessesCcvs1AndEt1AndEmitsProprietaryBFrame)
+{
+    SystemVariables variables;
+
+    std::vector<CanFrame> busFrames{
+        makeJ1939SpeedFrame(0.0, 100'000'000ULL),
+        makeJ1939TempFrame(74, 150'000'000ULL),
+        makeJ1939SpeedFrame(45.0, 200'000'000ULL),
+    };
+
+    std::vector<CanFrame> emittedFrames;
+    std::vector<DecodedSignal> emittedSignals;
+
+    PipelineGraph graph;
+    const NodeId source = graph.addNode(std::make_unique<VectorFrameSource>(std::move(busFrames)));
+
+    TinyMlEcuConfig config;
+    config.j1939Mode = true;
+    config.outputCanId = 0x18FF0080;
+
+    auto ecu = std::make_unique<TinyMlEcuNode>(TinyMlModel::builtinPowertrainModel(), config);
+    ecu->setSystemVariables(&variables);
+    const NodeId tinyml = graph.addNode(std::move(ecu));
+
+    const NodeId frameSink = graph.addNode(std::make_unique<FrameSinkNode>(
+        [&](std::span<const CanFrame> batch) {
+            emittedFrames.insert(emittedFrames.end(), batch.begin(), batch.end());
+        },
+        "frame_sink"));
+
+    const NodeId signalSink = graph.addNode(std::make_unique<SignalSinkNode>(
+        [&](std::span<const DecodedSignal> batch) {
+            emittedSignals.insert(emittedSignals.end(), batch.begin(), batch.end());
+        },
+        "signal_sink"));
+
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{tinyml, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{tinyml, 0}, PortRef{frameSink, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{tinyml, 1}, PortRef{signalSink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
+
+    graph.execute();
+
+    ASSERT_EQ(emittedFrames.size(), 3U);
+    EXPECT_EQ(emittedFrames.back().identifier, 0x18FF0080U);
+    EXPECT_EQ(emittedFrames.back().format, CanFrameFormat::Extended);
+    EXPECT_EQ(emittedFrames.back().length, 8U);
+
+    // Byte 1: ThermalHealth (0.4 %/bit)
+    EXPECT_GT(emittedFrames.back().data[0], 0);
+    // Byte 4: bits 4-5 is ModelStatus = 1 (running)
+    const std::uint8_t status = (emittedFrames.back().data[3] >> 3U) & 0x03U;
+    EXPECT_EQ(status, 1U);
+}
+
+TEST(TinyMlEcuTests, J1939ModeEmitsPredictiveDm1OnOverheating)
+{
+    SystemVariables variables;
+    const SystemVariables::Handle injectFault = variables.resolve("tinyml.inject_fault");
+    variables.set(injectFault, 1.5);
+
+    std::vector<CanFrame> busFrames{
+        makeJ1939SpeedFrame(60.0, 100'000'000ULL),
+        makeJ1939TempFrame(118, 200'000'000ULL),
+    };
+
+    std::vector<CanFrame> emittedFrames;
+    PipelineGraph graph;
+    const NodeId source = graph.addNode(std::make_unique<VectorFrameSource>(std::move(busFrames)));
+
+    TinyMlEcuConfig config;
+    config.j1939Mode = true;
+    config.outputCanId = 0x18FF0080;
+
+    auto ecu = std::make_unique<TinyMlEcuNode>(TinyMlModel::builtinPowertrainModel(), config);
+    ecu->setSystemVariables(&variables);
+    const NodeId tinyml = graph.addNode(std::move(ecu));
+
+    const NodeId frameSink = graph.addNode(std::make_unique<FrameSinkNode>(
+        [&](std::span<const CanFrame> batch) {
+            emittedFrames.insert(emittedFrames.end(), batch.begin(), batch.end());
+        },
+        "frame_sink"));
+
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{tinyml, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{tinyml, 0}, PortRef{frameSink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
+
+    graph.execute();
+
+    const auto dm1It = std::find_if(emittedFrames.begin(),
+                                    emittedFrames.end(),
+                                    [](const CanFrame& f) { return f.identifier == 0x18FECA80U; });
+    ASSERT_NE(dm1It, emittedFrames.end());
+    EXPECT_EQ(dm1It->length, 8U);
+    EXPECT_EQ(dm1It->data[2], 110);
+}
+
+// ---------------------------------------------------------------------------
+// A J1939 bus
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// The TinyML block on its own, driven a batch at a time, which is what lets a test change the
+/// world between two of them - a fault injected, then taken away - and read what came out of each.
+class TinyDriver final {
+public:
+    explicit TinyDriver(TinyMlEcuConfig config, SystemVariables* variables = nullptr)
+        : m_node{TinyMlModel::builtinPowertrainModel(), config}
+    {
+        m_node.setSystemVariables(variables);
+        const Result prepared = m_node.prepare(256U);
+        EXPECT_TRUE(prepared.succeeded()) << std::string{prepared.message()};
+    }
+
+    /// What the block put on the bus for this batch.
+    std::vector<CanFrame> run(std::span<const CanFrame> frames)
+    {
+        m_inputs[0] = PortBatch{frames};
+        m_outputs[0] = PortBatch{};
+        m_outputs[1] = PortBatch{};
+
+        NodeContext context{m_inputs, m_outputs};
+        m_node.process(context);
+
+        const std::span<const CanFrame> out = m_outputs[0].as<CanFrame>();
+        return std::vector<CanFrame>{out.begin(), out.end()};
+    }
+
+    [[nodiscard]] const TinyMlEcuNode& node() const { return m_node; }
+
+private:
+    TinyMlEcuNode m_node;
+    std::array<PortBatch, 1> m_inputs{};
+    std::array<PortBatch, 2> m_outputs{};
+};
+
+[[nodiscard]] TinyMlEcuConfig j1939Config(std::uint32_t outputId = 0x18FF0080U)
+{
+    TinyMlEcuConfig config;
+    config.j1939Mode = true;
+    config.outputCanId = outputId;
+    return config;
+}
+
+constexpr std::uint64_t kMs = 1'000'000ULL;
+
+/// Percent from a J1939 byte at 0.4 %/bit.
+[[nodiscard]] double percent(std::uint8_t byte)
+{
+    return static_cast<double>(byte) * 0.4;
+}
+
+[[nodiscard]] std::vector<CanFrame> withIdentifier(const std::vector<CanFrame>& frames,
+                                                   std::uint32_t identifier)
+{
+    std::vector<CanFrame> found;
+    for (const CanFrame& frame : frames) {
+        if (frame.identifier == identifier) {
+            found.push_back(frame);
+        }
+    }
+    return found;
+}
+
+} // namespace
+
+TEST(TinyMlEcuTests, AHealthyJ1939EngineAtItsThermostatIsNotAnAlarm)
+{
+    // The model was set against a vehicle whose coolant idles at 70 degC. A heavy-duty diesel holds
+    // 88, and fed that as it was the model called every healthy truck a thermal emergency from the
+    // first frame - "ThermalStress", 100 % anomaly, 0 % health - and the cluster lit its stop lamp.
+    TinyDriver driver{j1939Config()};
+
+    std::vector<CanFrame> sent;
+    for (std::uint64_t step = 0; step < 20; ++step) {
+        const std::vector<CanFrame> speed{
+            makeJ1939SpeedFrame(0.0, (100 + step * 100) * kMs),
+            makeJ1939TempFrame(88, (150 + step * 100) * kMs),
+        };
+        const std::vector<CanFrame> out = driver.run(speed);
+        sent.insert(sent.end(), out.begin(), out.end());
+    }
+
+    const std::vector<CanFrame> telemetry = withIdentifier(sent, 0x18FF0080U);
+    ASSERT_FALSE(telemetry.empty());
+
+    const CanFrame& last = telemetry.back();
+    EXPECT_GT(percent(last.data[0]), 70.0) << "thermal health";
+    EXPECT_LT(percent(last.data[1]), 40.0) << "anomaly score";
+    EXPECT_LT(last.data[3] >> 5U, 3) << "regime";
+
+    // And it did not accuse the engine on the bus either.
+    EXPECT_TRUE(withIdentifier(sent, 0x18FECA80U).empty());
+}
+
+TEST(TinyMlEcuTests, AJ1939EngineThatOverheatsIsStillAnAlarm)
+{
+    // The other half of the calibration above, which a model made deaf would pass: 118 degC at 80
+    // km/h is not a healthy engine, and has to look like one that is not.
+    TinyDriver driver{j1939Config()};
+
+    std::vector<CanFrame> sent;
+    for (std::uint64_t step = 0; step < 10; ++step) {
+        const std::vector<CanFrame> frames{
+            makeJ1939SpeedFrame(80.0, (100 + step * 100) * kMs),
+            makeJ1939TempFrame(118, (150 + step * 100) * kMs),
+        };
+        const std::vector<CanFrame> out = driver.run(frames);
+        sent.insert(sent.end(), out.begin(), out.end());
+    }
+
+    const std::vector<CanFrame> telemetry = withIdentifier(sent, 0x18FF0080U);
+    ASSERT_FALSE(telemetry.empty());
+
+    const CanFrame& last = telemetry.back();
+    EXPECT_GE(last.data[3] >> 5U, 3) << "regime";
+    EXPECT_GT(percent(last.data[1]), 50.0) << "anomaly score";
+}
+
+TEST(TinyMlEcuTests, TheJ1939TelemetryCarriesTheRegimeNextToTheRiskLevel)
+{
+    // They are different questions: what the vehicle is doing, and how worried the model is about
+    // it. Both travel in byte 4, the risk level in bits 1-3 and the regime in bits 6-8.
+    TinyDriver driver{j1939Config()};
+
+    const std::vector<CanFrame> frames{makeJ1939SpeedFrame(60.0, 100 * kMs),
+                                       makeJ1939TempFrame(88, 150 * kMs)};
+    const std::vector<CanFrame> out = driver.run(frames);
+
+    const std::vector<CanFrame> telemetry = withIdentifier(out, 0x18FF0080U);
+    ASSERT_FALSE(telemetry.empty());
+
+    const auto regime = static_cast<std::uint8_t>(driver.node().lastResult().regime);
+    EXPECT_EQ(telemetry.back().data[3] >> 5U, regime);
+    EXPECT_EQ((telemetry.back().data[3] >> 3U) & 0x03U, 1U) << "model status: running";
+}
+
+TEST(TinyMlEcuTests, TheJ1939MessageCounterNeverEntersTheRangeOfErrorAndNotAvailable)
+{
+    // A byte counts 0 to 250 on a J1939 bus; above that is where the standard keeps "error" and
+    // "not available", and a counter that walked through 254 and 255 was read as a sensor failing
+    // twice every lap.
+    TinyDriver driver{j1939Config()};
+
+    std::uint8_t highest = 0;
+    bool wrapped = false;
+    std::uint8_t previous = 0;
+
+    for (std::uint64_t step = 0; step < 600; ++step) {
+        const std::vector<CanFrame> frames{makeJ1939SpeedFrame(30.0, (100 + step * 100) * kMs)};
+        for (const CanFrame& frame : withIdentifier(driver.run(frames), 0x18FF0080U)) {
+            highest = std::max(highest, frame.data[4]);
+            wrapped = wrapped || frame.data[4] < previous;
+            previous = frame.data[4];
+        }
+    }
+
+    EXPECT_EQ(highest, 250U);
+    EXPECT_TRUE(wrapped);
+}
+
+TEST(TinyMlEcuTests, ThePredictiveDm1IsSentOnceASecondAndNotOnceAnInference)
+{
+    // J1939-73 has a DM1 every second. Thirty a second - one per inference - would be a load on the
+    // bus of the model's own making, and a trace nobody could read.
+    SystemVariables variables;
+    variables.set("tinyml.inject_fault", 1.5); // health under 30 %: at once, no five-second wait
+
+    TinyDriver driver{j1939Config(), &variables};
+
+    std::vector<CanFrame> sent;
+    for (std::uint64_t step = 0; step < 50; ++step) { // five seconds of bus time at 10 Hz
+        const std::vector<CanFrame> frames{makeJ1939SpeedFrame(60.0, (100 + step * 100) * kMs),
+                                           makeJ1939TempFrame(95, (150 + step * 100) * kMs)};
+        const std::vector<CanFrame> out = driver.run(frames);
+        sent.insert(sent.end(), out.begin(), out.end());
+    }
+
+    const std::vector<CanFrame> dm1 = withIdentifier(sent, 0x18FECA80U);
+    ASSERT_FALSE(dm1.empty());
+    EXPECT_GE(dm1.size(), 4U);
+    EXPECT_LE(dm1.size(), 6U);
+
+    // SPN 110, FMI 16 with the red lamp as well as the amber: the health is what is failing.
+    EXPECT_EQ(dm1.front().data[0], 0x14U);
+    EXPECT_EQ(dm1.front().data[2], 110U);
+    EXPECT_EQ(dm1.front().data[4] & 0x1FU, 16U);
+}
+
+TEST(TinyMlEcuTests, WhenTheFaultGoesAwayOneCleanDm1SaysSo)
+{
+    // Without it a receiver learns that the fault is over from silence, and has to wait for the
+    // silence to be long enough to mean something.
+    SystemVariables variables;
+    TinyDriver driver{j1939Config(), &variables};
+
+    std::vector<CanFrame> sent;
+    std::uint64_t at = 100;
+
+    const auto drive = [&](int seconds) {
+        for (int step = 0; step < seconds * 10; ++step) {
+            const std::vector<CanFrame> frames{makeJ1939SpeedFrame(60.0, at * kMs),
+                                               makeJ1939TempFrame(95, (at + 50) * kMs)};
+            const std::vector<CanFrame> out = driver.run(frames);
+            sent.insert(sent.end(), out.begin(), out.end());
+            at += 100;
+        }
+    };
+
+    variables.set("tinyml.inject_fault", 1.5);
+    drive(3);
+    ASSERT_FALSE(withIdentifier(sent, 0x18FECA80U).empty());
+
+    variables.set("tinyml.inject_fault", 0.0);
+    sent.clear();
+    drive(15); // under 60 % for ten seconds of bus time takes the code back
+
+    const std::vector<CanFrame> dm1 = withIdentifier(sent, 0x18FECA80U);
+    ASSERT_FALSE(dm1.empty());
+
+    // The last of them is the clean one: every lamp dark, SPN, FMI and count all zero.
+    EXPECT_EQ(dm1.back().data[0], 0x00U);
+    EXPECT_EQ(dm1.back().data[2], 0U);
+    EXPECT_EQ(dm1.back().data[3], 0U);
+    EXPECT_EQ(dm1.back().data[4], 0U);
+    EXPECT_EQ(dm1.back().data[5], 0U);
+
+    // And nothing follows it: the DM1 stops being sent.
+    sent.clear();
+    drive(5);
+    EXPECT_TRUE(withIdentifier(sent, 0x18FECA80U).empty());
+}
+
+TEST(TinyMlEcuTests, TheTroubleCodeIsSentFromTheAddressOfTheTelemetry)
+{
+    // The ECU is one ECU. A telemetry address of 0x81 gives a DM1 from 0x81 - and the block ignores
+    // that one when it comes back off the bus, rather than the one a constant happened to name.
+    SystemVariables variables;
+    variables.set("tinyml.inject_fault", 1.5);
+
+    TinyDriver driver{j1939Config(0x18FF0081U), &variables};
+
+    const std::vector<CanFrame> frames{makeJ1939SpeedFrame(60.0, 100 * kMs),
+                                       makeJ1939TempFrame(95, 150 * kMs)};
+    const std::vector<CanFrame> out = driver.run(frames);
+
+    EXPECT_FALSE(withIdentifier(out, 0x18FF0081U).empty());
+    EXPECT_FALSE(withIdentifier(out, 0x18FECA81U).empty());
+    EXPECT_TRUE(withIdentifier(out, 0x18FECA80U).empty());
+
+    // Its own DM1 coming back is not a frame to analyse.
+    const std::uint64_t analysed = driver.node().framesAnalysed();
+    CanFrame own = withIdentifier(out, 0x18FECA81U).front();
+    driver.run(std::vector<CanFrame>{own});
+    EXPECT_EQ(driver.node().framesAnalysed(), analysed);
+}
+
+TEST(TinyMlEcuTests, ASensorThatReportsErrorOrNotAvailableIsBusStressAndRecovers)
+{
+    // A coolant temperature of 0xFF is not 215 degC and is not nothing: the ECU is saying it cannot
+    // be believed, which is what the stress feature is for. It does not stick - every valid speed
+    // frame takes some off - so a sensor that comes back stops counting.
+    TinyDriver driver{j1939Config()};
+
+    const std::vector<CanFrame> fault{makeJ1939SpeedFrame(60.0, 100 * kMs), [] {
+                                          CanFrame frame = makeJ1939TempFrame(60, 150 * kMs);
+                                          frame.data[0] = 0xFFU;
+                                          return frame;
+                                      }()};
+    driver.run(fault);
+    const float stressed = driver.node().lastFeatures().busStressFactor;
+    EXPECT_GT(stressed, 0.3F);
+
+    for (std::uint64_t step = 1; step <= 30; ++step) {
+        const std::vector<CanFrame> frames{makeJ1939SpeedFrame(60.0, (100 + step * 100) * kMs)};
+        driver.run(frames);
+    }
+
+    EXPECT_LT(driver.node().lastFeatures().busStressFactor, 0.05F);
+}
+
+TEST(TinyMlEcuTests, ATelemetryIdentifierThatIsNotAnIdentifierIsRefusedBeforeStart)
+{
+    // 0x90FF0080 is how a .dbc writes the extended identifier 0x10FF0080: the database adds
+    // 0x80000000 to say so. Used as it was it built a block that classified the bus perfectly and
+    // put every telemetry frame on it with an identifier no driver accepts - each one a failed
+    // transmit that nothing reported.
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    GraphDescription description;
+    description.addNode(NodeDescription{
+        .id = "tinyml_ecu",
+        .typeName = "tinyml.ecu",
+        .parameters = {{"outputCanId", ParameterValue::fromInteger(0x90FF0080LL)}},
+    });
+
+    const Result checked = description.validate(catalog);
+    ASSERT_TRUE(checked.failed());
+    EXPECT_NE(std::string{checked.message()}.find("not a CAN identifier"), std::string::npos)
+        << std::string{checked.message()};
+    EXPECT_NE(std::string{checked.message()}.find("tinyml_ecu"), std::string::npos);
+
+    // And the right one is accepted.
+    description.nodes().front().parameters.set("outputCanId",
+                                               ParameterValue::fromInteger(0x18FF0080LL));
+    EXPECT_TRUE(description.validate(catalog).succeeded());
+}
+
+TEST(TinyMlEcuTests, TheJ1939SwitchGivesTheJ1939IdentifierWhenNoneIsNamed)
+{
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    CanEngine engine;
+    CanChannelConfig config;
+    config.deviceHandle = "virtual:0";
+    config.timing.bitrate = 500'000;
+    ASSERT_TRUE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
+
+    GraphDescription description;
+    description.addNode(NodeDescription{
+        .id = "can_1",
+        .typeName = "can.source",
+        .parameters = {{"channel", ParameterValue::fromInteger(0)}},
+    });
+    description.addNode(NodeDescription{
+        .id = "tinyml_ecu",
+        .typeName = "tinyml.ecu",
+        .parameters = {{"j1939", ParameterValue::fromBoolean(true)}},
+    });
+    description.addNode(NodeDescription{
+        .id = "tx_1",
+        .typeName = "can.transmit",
+        .parameters = {{"channel", ParameterValue::fromInteger(0)}},
+    });
+    description.addEdge(EdgeDescription{"can_1", 0, "tinyml_ecu", 0});
+    description.addEdge(EdgeDescription{"tinyml_ecu", 0, "tx_1", 0});
+    ASSERT_TRUE(description.validate(catalog).succeeded());
+
+    engine.setGraphDescription(description, catalog);
+
+    std::mutex mutex;
+    std::vector<CanFrame> seen;
+    engine.addFrameSink([&](std::span<const CanFrame> batch) {
+        const std::lock_guard lock{mutex};
+        seen.insert(seen.end(), batch.begin(), batch.end());
+    });
+
+    ASSERT_TRUE(engine.start().succeeded());
+    ASSERT_TRUE(engine.transmit(0, makeJ1939SpeedFrame(50.0, 100 * kMs)).succeeded());
+    std::this_thread::sleep_for(std::chrono::milliseconds{150});
+    engine.stop();
+
+    const std::lock_guard lock{mutex};
+    EXPECT_FALSE(withIdentifier(seen, 0x18FF0080U).empty());
+}
+
+namespace {
+
+/// EEC2 from the engine: byte 3 is the load at the current speed, 1 % a bit and up to 250 %.
+[[nodiscard]] CanFrame makeJ1939LoadFrame(int percent, std::uint64_t timestampNs)
+{
+    CanFrame frame{};
+    frame.identifier = 0x0CF00300; // EEC2, priority 3, from address 0
+    frame.format = CanFrameFormat::Extended;
+    frame.dlc = 8;
+    frame.length = 8;
+    frame.timestampNs = timestampNs;
+    std::fill(frame.data.begin(), frame.data.end(), std::uint8_t{0xFF});
+    frame.data[2] = static_cast<std::uint8_t>(std::clamp(percent, 0, 250));
+    return frame;
+}
+
+} // namespace
+
+TEST(TinyMlEcuTests, ADieselAtFullThrottleIsWorkingAndNotFailing)
+{
+    // Pedal to the floor from a standstill is 92 % load and 15 km/h/s, and it used to count as bus
+    // stress: the model called every hard acceleration an anomaly with no thermal health at all,
+    // and the cluster lit its red stop lamp for it.
+    TinyDriver driver{j1939Config()};
+
+    std::vector<CanFrame> sent;
+    double speed = 0.0;
+    for (std::uint64_t tick = 0; tick < 60; ++tick) {
+        speed = std::min(60.0, speed + 1.5);
+
+        std::vector<CanFrame> frames{makeJ1939SpeedFrame(speed, (100 + tick * 100) * kMs),
+                                     makeJ1939LoadFrame(92, (120 + tick * 100) * kMs),
+                                     makeJ1939LoadFrame(92, (170 + tick * 100) * kMs)};
+        if (tick % 10 == 0) {
+            frames.push_back(makeJ1939TempFrame(88, (150 + tick * 100) * kMs));
+        }
+
+        const std::vector<CanFrame> out = driver.run(frames);
+        sent.insert(sent.end(), out.begin(), out.end());
+    }
+
+    const std::vector<CanFrame> telemetry = withIdentifier(sent, 0x18FF0080U);
+    ASSERT_FALSE(telemetry.empty());
+
+    EXPECT_LT(percent(telemetry.back().data[1]), 40.0) << "anomaly score";
+    EXPECT_GT(percent(telemetry.back().data[0]), 70.0) << "thermal health";
+    EXPECT_TRUE(withIdentifier(sent, 0x18FECA80U).empty());
+}
+
+TEST(TinyMlEcuTests, AnEngineAskedForMoreThanItHasAtThatSpeedIsOutOfProfile)
+{
+    // SPN 92 goes to 250 %, and above 100 the engine is being asked for more than it can give.
+    TinyDriver driver{j1939Config()};
+
+    const std::vector<CanFrame> frames{makeJ1939SpeedFrame(60.0, 100 * kMs),
+                                       makeJ1939LoadFrame(140, 120 * kMs),
+                                       makeJ1939LoadFrame(140, 170 * kMs)};
+    driver.run(frames);
+
+    EXPECT_GT(driver.node().lastFeatures().busStressFactor, 0.5F);
 }

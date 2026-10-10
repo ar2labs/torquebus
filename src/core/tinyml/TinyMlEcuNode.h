@@ -34,6 +34,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -50,6 +51,7 @@ struct TinyMlEcuConfig final {
     float anomalyThresholdPercent{65.0F};
     std::uint32_t inferenceStride{1};
     std::size_t arenaCapacityBytes{TinyMlArena::kDefaultCapacityBytes};
+    bool j1939Mode{false};
 };
 
 class TinyMlEcuNode final : public IPipelineNode {
@@ -100,6 +102,57 @@ public:
 
 private:
     void setupTelemetryDefinitions();
+
+    /// Reads one frame of a J1939 bus into the feature vector. True when it is one the model runs
+    /// on: a speed, a coolant temperature or an engine load, valid or reporting that it is not.
+    [[nodiscard]] bool observeJ1939(const CanFrame& frame) noexcept;
+
+    /// One inference on the features as they are, and everything that comes of it: the telemetry
+    /// frame, the decoded signals and the system variables. `cause` is the frame that made it due.
+    void infer(const CanFrame& cause);
+
+    /// The features the model is shown: the ones read off the bus, and a fault somebody injected.
+    [[nodiscard]] TinyMlFeatureVector activeFeatures() const;
+
+    /// Reads one frame of the 11-bit example vehicle (speedCanId, tempCanId) the same way.
+    [[nodiscard]] bool observeLegacy(const CanFrame& frame) noexcept;
+
+    /// A new speed, from either kind of bus: the acceleration, the timing of the frames it came
+    /// in and what is normal for the coolant at that speed all follow from it.
+    void observeSpeed(float speedKmh, std::uint64_t timestampNs) noexcept;
+
+    /// Adds to the bus stress feature, which is bounded at both ends: it is a measure of how far
+    /// out of profile the bus is, and a negative amount of that is not a thing.
+    void addStress(float amount) noexcept;
+
+    /// Recomputes how far the coolant is above what the vehicle's speed and the weather make
+    /// normal. Called whenever any of the three moves.
+    void updateThermalDelta() noexcept;
+
+    /// The telemetry frame of a J1939 bus (Proprietary B), and the predictive DM1 that follows it
+    /// while the model thinks the engine is in trouble, appended to the output.
+    void appendJ1939Telemetry(const CanFrame& cause,
+                              const TinyMlInferenceResult& result,
+                              std::uint16_t inferenceUs);
+
+    /// The same, for the 11-bit example vehicle: RegimeClass, Confidence, AnomalyScore,
+    /// ThermalHealth.
+    void appendLegacyTelemetry(const CanFrame& cause,
+                               const TinyMlInferenceResult& result,
+                               std::uint16_t inferenceUs);
+
+    /// Moves the predictive trouble code on - started, confirmed, taken back - and says so on the
+    /// bus when there is something to say.
+    void updatePredictiveDtc(const CanFrame& cause, const TinyMlInferenceResult& result);
+
+    /// The state machine of it: whether the model has been sure for long enough to say so, and
+    /// unsure for long enough to take it back.
+    void advancePredictiveDtc(std::uint64_t now, const TinyMlInferenceResult& result);
+
+    /// And what, if anything, goes on the bus because of it.
+    void announcePredictiveDtc(const CanFrame& cause, bool wasActive, bool red);
+    void appendDm1(const CanFrame& cause, bool active, bool red, std::uint8_t fmi);
+
     void appendDecodedSignals(std::uint64_t timestampNs,
                               const TinyMlInferenceResult& result,
                               std::uint16_t inferenceUs) noexcept;
@@ -151,6 +204,23 @@ private:
     std::uint64_t m_inferencesRun{0};
     std::uint64_t m_anomaliesDetected{0};
     std::uint64_t m_lastInferenceUs{0};
+
+    /// How much hotter than the vehicle's own curve the weather lets the coolant be. Zero until the
+    /// bus reports an ambient temperature above 25 degC.
+    float m_ambientAllowanceDegC{0.0F};
+
+    /// J1939 telemetry and predictive DTC tracking.
+    std::uint8_t m_j1939MessageCounter{0};
+    std::uint32_t m_dm1Identifier{0};
+
+    /// Bus time the engine has been (or has stopped being) in trouble since, and what was last said
+    /// about it on the bus. Optionals because bus time zero is a time, and a sentinel that equals
+    /// it would read a frame stamped zero as "not started".
+    std::optional<std::uint64_t> m_anomalySinceNs;
+    std::optional<std::uint64_t> m_recoverySinceNs;
+    bool m_predictiveDtcActive{false};
+    bool m_predictiveDtcRed{false};
+    std::optional<std::uint64_t> m_lastDm1Ns;
 };
 
 } // namespace torquebus

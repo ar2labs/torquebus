@@ -27,6 +27,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <utility>
@@ -181,6 +182,25 @@ struct CanFilter final {
         CanFilter filter;
         filter.channelConstrained = true;
         filter.channel = applicationChannel;
+        return filter;
+    }
+
+    /// Filters J1939 29-bit frames by Parameter Group Number (PGN), optionally matching source
+    /// address (SA). Handles both PDU1 (PF < 240, destination-specific) and PDU2 (PF >= 240,
+    /// broadcast).
+    [[nodiscard]] static CanFilter acceptPgn(std::uint32_t pgn,
+                                             std::optional<std::uint8_t> sa = std::nullopt)
+    {
+        CanFilter filter;
+        filter.format = CanFormatMatch::ExtendedOnly;
+        const bool isPdu1 = ((pgn >> 8U) & 0xFFU) < 240U;
+        if (sa.has_value()) {
+            filter.mask = isPdu1 ? 0x03FF00FFU : 0x03FFFFFFU;
+            filter.value = ((pgn & (isPdu1 ? 0x03FF00U : 0x03FFFFU)) << 8U) | *sa;
+        } else {
+            filter.mask = isPdu1 ? 0x03FF0000U : 0x03FFFF00U;
+            filter.value = (pgn & (isPdu1 ? 0x03FF00U : 0x03FFFFU)) << 8U;
+        }
         return filter;
     }
 };

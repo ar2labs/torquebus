@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cmath>
 #include <utility>
+#include <vector>
 
 namespace torquebus::ui {
 namespace {
@@ -639,11 +640,28 @@ void PlotView::paintTrace(QPainter& painter,
 
     const QRectF& area = subplot.area;
     const int maxColumns = std::max(1, static_cast<int>(area.width()));
+
+    // A sample that is not a number - a J1939 signal reporting "not available" - is a gap in the
+    // line, and not a point: drawn anywhere it would be a spike to a height the signal never had.
+    // So the trace is a list of runs of numbers, and each is drawn on its own.
+    std::vector<QPolygonF> runs;
     QPolygonF line;
+
+    const auto endRun = [&runs, &line]() {
+        if (!line.isEmpty()) {
+            runs.push_back(std::move(line));
+            line = QPolygonF{};
+        }
+    };
 
     if (trace.samples.size() <= static_cast<std::size_t>(maxColumns)) {
         line.reserve(static_cast<qsizetype>(trace.samples.size()));
         for (const SignalSample& point : trace.samples) {
+            if (!std::isfinite(point.value)) {
+                endRun();
+                continue;
+            }
+
             line.append(QPointF{xFor(point.timestampNs, area),
                                 yFor(point.value, subplot.minimum, subplot.maximum, area)});
         }
@@ -669,6 +687,13 @@ void PlotView::paintTrace(QPainter& painter,
         };
 
         for (const SignalSample& point : trace.samples) {
+            if (!std::isfinite(point.value)) {
+                flushColumn();
+                currentCol = -1;
+                endRun();
+                continue;
+            }
+
             const double x = xFor(point.timestampNs, area);
             const double y = yFor(point.value, subplot.minimum, subplot.maximum, area);
             const int col = static_cast<int>(x - area.left());
@@ -690,47 +715,55 @@ void PlotView::paintTrace(QPainter& painter,
         flushColumn();
     }
 
-    if (line.isEmpty()) {
+    endRun();
+
+    if (runs.empty()) {
         return;
     }
 
     // Hatched or Solid area fill under the curve (e.g. Tank Level in PCAN-Explorer)
     if (trace.fillStyle == PlotTraceFill::Hatched || trace.fillStyle == PlotTraceFill::Solid) {
-        QPolygonF fillPoly = line;
-        fillPoly.append(QPointF{line.back().x(), area.bottom()});
-        fillPoly.append(QPointF{line.front().x(), area.bottom()});
+        for (const QPolygonF& run : runs) {
+            QPolygonF fillPoly = run;
+            fillPoly.append(QPointF{run.back().x(), area.bottom()});
+            fillPoly.append(QPointF{run.front().x(), area.bottom()});
 
-        if (trace.fillStyle == PlotTraceFill::Hatched) {
-            // Subtle translucent background tint
-            QColor wash = trace.colour;
-            wash.setAlpha(25);
-            painter.setPen(Qt::NoPen);
-            painter.setBrush(wash);
-            painter.drawPolygon(fillPoly);
+            if (trace.fillStyle == PlotTraceFill::Hatched) {
+                // Subtle translucent background tint
+                QColor wash = trace.colour;
+                wash.setAlpha(25);
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(wash);
+                painter.drawPolygon(fillPoly);
 
-            // Diagonal hatching brush
-            QColor hatchCol = trace.colour;
-            hatchCol.setAlpha(120);
-            painter.setBrush(QBrush{hatchCol, Qt::BDiagPattern});
-            painter.drawPolygon(fillPoly);
-        } else {
-            QColor solidCol = trace.colour;
-            solidCol.setAlpha(45);
-            painter.setPen(Qt::NoPen);
-            painter.setBrush(solidCol);
-            painter.drawPolygon(fillPoly);
+                // Diagonal hatching brush
+                QColor hatchCol = trace.colour;
+                hatchCol.setAlpha(120);
+                painter.setBrush(QBrush{hatchCol, Qt::BDiagPattern});
+                painter.drawPolygon(fillPoly);
+            } else {
+                QColor solidCol = trace.colour;
+                solidCol.setAlpha(45);
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(solidCol);
+                painter.drawPolygon(fillPoly);
+            }
         }
     }
 
     // Draw main stroke
     painter.setBrush(Qt::NoBrush);
     painter.setPen(QPen{trace.colour, trace.lineWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin});
-    painter.drawPolyline(line);
+    for (const QPolygonF& run : runs) {
+        painter.drawPolyline(run);
+    }
 
-    // Current newest point marker
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(trace.colour);
-    painter.drawEllipse(line.back(), 2.8, 2.8);
+    // Current newest point marker: where the line ends, and not where it last had a number.
+    if (std::isfinite(trace.samples.back().value)) {
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(trace.colour);
+        painter.drawEllipse(runs.back().back(), 2.8, 2.8);
+    }
 }
 
 void PlotView::paintSingleCursor(QPainter& painter, const QRectF& area) const
@@ -918,7 +951,8 @@ void PlotView::paintLegend(QPainter& painter, const QRectF& totalArea) const
 
         // Value
         const double val = valueAtTimestamp(trace, readoutTs);
-        const QString valStr = QString::number(val, 'f', 2);
+        const QString valStr =
+            std::isfinite(val) ? QString::number(val, 'f', 2) : QStringLiteral("n/a");
         painter.drawText(QPointF{rect.left() + 120.0, rowY}, valStr);
 
         // Unit

@@ -13,6 +13,7 @@
 #include "core/dashboard/cluster/ClusterProfiles.h"
 #include "core/database/CanMessage.h"
 #include "core/database/DbcParser.h"
+#include "core/j1939/J1939Diagnostics.h"
 
 #include <gtest/gtest.h>
 
@@ -203,6 +204,10 @@ TEST(ClusterProfilesTests, EveryBusSignalOfTheExampleProfileHasAnAgeLongerThanIt
     ASSERT_TRUE(profile != nullptr);
 
     for (const ClusterSource& source : profile->sources) {
+        if (source.binding.source != DashboardBinding::Source::Signal) {
+            continue; // a variable has no age at all
+        }
+
         SCOPED_TRACE(std::string{nameOf(source.role)});
         EXPECT_GT(source.maxAgeMs, 0U);
     }
@@ -256,4 +261,108 @@ TEST(ClusterProfilesTests, RegisteringAnIdTwiceReplacesTheFirst)
     const ClusterProfile* found = registry.find("test-only-replaced");
     ASSERT_TRUE(found != nullptr);
     EXPECT_EQ(found->name, "Second");
+}
+
+TEST(ClusterProfilesTests, TheJ1939CommercialProfileReadsSignalsTheJ1939DatabaseHas)
+{
+    const CanDatabase j1939 = databaseNamed("j1939.dbc");
+
+    const ClusterProfile* profile = ClusterProfiles::instance().find(kJ1939CommercialProfile);
+    ASSERT_TRUE(profile != nullptr);
+    ASSERT_FALSE(profile->sources.empty());
+
+    for (const ClusterSource& source : profile->sources) {
+        SCOPED_TRACE(std::string{nameOf(source.role)});
+
+        if (source.binding.source == DashboardBinding::Source::Variable) {
+            continue; // checked by TheDm1LampsOfTheJ1939ProfileAreTheVariablesTheJ1939BlockWrites
+        }
+
+        ASSERT_TRUE(source.binding.source == DashboardBinding::Source::Signal);
+
+        const CanMessage* message = j1939.findByName(source.binding.message);
+        ASSERT_TRUE(message != nullptr) << "no message '" << source.binding.message << "'";
+        EXPECT_TRUE(message->findSignal(source.binding.signal) != nullptr)
+            << "'" << source.binding.message << "' has no signal '" << source.binding.signal << "'";
+    }
+}
+
+TEST(ClusterProfilesTests, TheDm1LampsOfTheJ1939ProfileAreTheVariablesTheJ1939BlockWrites)
+{
+    // Every ECU sends its own DM1 and a database names a message once, so the lamps cannot be read
+    // as signals: five ECUs with nothing to report would hide the sixth's red lamp for all but a
+    // few milliseconds of every second. The J1939 block writes the OR of them to four variables,
+    // and the profile has to read exactly those - a typo here is a lamp that never lights, and
+    // nothing says so, because a variable nobody writes simply reads as zero.
+    const ClusterProfile* profile = ClusterProfiles::instance().find(kJ1939CommercialProfile);
+    ASSERT_TRUE(profile != nullptr);
+
+    const std::pair<ClusterRole, std::string_view> expected[] = {
+        {ClusterRole::DmStop, kJ1939LampStopVariable},
+        {ClusterRole::DmWarn, kJ1939LampWarningVariable},
+        {ClusterRole::DmMil, kJ1939LampMilVariable},
+        {ClusterRole::DmProtect, kJ1939LampProtectVariable},
+    };
+
+    for (const auto& [role, variable] : expected) {
+        SCOPED_TRACE(std::string{nameOf(role)});
+
+        const ClusterSource* source = profile->sourceOf(role);
+        ASSERT_TRUE(source != nullptr);
+        EXPECT_TRUE(source->binding.source == DashboardBinding::Source::Variable);
+        EXPECT_EQ(source->binding.variable, std::string{variable});
+    }
+
+    // The engine lamp is the malfunction indicator, which is dmMil. A second source for the same
+    // lamp from the per-frame DM1 signal would bring the flapping back through the side door.
+    EXPECT_TRUE(profile->sourceOf(ClusterRole::LampEngine) == nullptr);
+}
+
+TEST(ClusterProfilesTests, TheJ1939ProfileFeedsTheAiPanelItsRegimeAndNotItsRiskLevel)
+{
+    // They are both small numbers and they are not the same thing: the cluster names regime 0 Idle
+    // and regime 1 Cruise. Fed the risk level it said "engine idling" of a vehicle at 100 km/h
+    // whenever the model was calm, and could never show the Anomaly alarm.
+    const ClusterProfile* profile = ClusterProfiles::instance().find(kJ1939CommercialProfile);
+    ASSERT_TRUE(profile != nullptr);
+
+    const ClusterSource* regime = profile->sourceOf(ClusterRole::AiRegime);
+    ASSERT_TRUE(regime != nullptr);
+    EXPECT_EQ(regime->binding.message, "TinyML_Proprietary");
+    EXPECT_EQ(regime->binding.signal, "RegimeClass");
+}
+
+TEST(ClusterProfilesTests, AProfileNeverHasTwoSourcesForOneRole)
+{
+    // sourceOf() answers with the first, so a second would be a source that is read by nobody and
+    // looks as though it is read.
+    for (const std::string_view id : {kDefaultClusterProfile, kJ1939CommercialProfile}) {
+        const ClusterProfile* profile = ClusterProfiles::instance().find(id);
+        ASSERT_TRUE(profile != nullptr);
+
+        std::set<ClusterRole> seen;
+        for (const ClusterSource& source : profile->sources) {
+            SCOPED_TRACE(std::string{id} + ": " + std::string{nameOf(source.role)});
+            EXPECT_TRUE(seen.insert(source.role).second);
+        }
+    }
+}
+
+TEST(ClusterProfilesTests, EveryBusSignalOfTheJ1939CommercialProfileHasValidAge)
+{
+    const ClusterProfile* profile = ClusterProfiles::instance().find(kJ1939CommercialProfile);
+    ASSERT_TRUE(profile != nullptr);
+
+    for (const ClusterSource& source : profile->sources) {
+        SCOPED_TRACE(std::string{nameOf(source.role)});
+        EXPECT_GT(source.maxAgeMs, 0U);
+    }
+
+    const ClusterSource* speed = profile->sourceOf(ClusterRole::Speed);
+    ASSERT_TRUE(speed != nullptr);
+    EXPECT_EQ(speed->maxAgeMs, 300U);
+
+    const ClusterSource* rpm = profile->sourceOf(ClusterRole::Rpm);
+    ASSERT_TRUE(rpm != nullptr);
+    EXPECT_EQ(rpm->maxAgeMs, 100U);
 }

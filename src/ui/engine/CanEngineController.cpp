@@ -72,7 +72,7 @@ CanEngineController::CanEngineController(QObject* parent)
     m_refreshTimer = new QTimer(this);
     m_refreshTimer->setInterval(kRefreshIntervalMs);
     m_refreshTimer->setTimerType(Qt::CoarseTimer);
-    connect(m_refreshTimer, &QTimer::timeout, this, &CanEngineController::publishToUi);
+    connect(m_refreshTimer, &QTimer::timeout, this, &CanEngineController::refresh);
 
     // The statistics sink runs on the engine thread. It does the least possible
     // work: copy the snapshot under a short lock and return. The GUI thread
@@ -233,10 +233,15 @@ void CanEngineController::start()
 
 void CanEngineController::stop()
 {
-    if (!isRunning()) {
+    // Nothing to stop only when the engine is stopped AND the window already knows it. A
+    // measurement that ended on its own is the first without the second: the timer is still
+    // running, started() was emitted and stopped() never was.
+    if (!isRunning() && !m_refreshTimer->isActive()) {
         return;
     }
 
+    // Idempotent, and also what joins the thread of a measurement that ended by itself and stops
+    // its channels.
     m_engine->stop();
     m_refreshTimer->stop();
 
@@ -250,6 +255,20 @@ void CanEngineController::stop()
 // ---------------------------------------------------------------------------
 // Publishing to the UI
 // ---------------------------------------------------------------------------
+
+void CanEngineController::refresh()
+{
+    // A measurement can end without anybody pressing Stop: a node threw, and the engine reported it
+    // and let the loop return. The window would go on showing a measurement that is not there - the
+    // Stop button live, the counters frozen - and a second Start would find the engine half wound
+    // up.
+    if (!isRunning()) {
+        stop();
+        return;
+    }
+
+    publishToUi();
+}
 
 void CanEngineController::publishToUi()
 {

@@ -911,3 +911,76 @@ TEST(GraphDescriptionTests, APlotBlockWithoutAStoreFailsRatherThanDroppingSample
     SCOPED_TRACE(::testing::Message() << std::string{result.message()});
     EXPECT_TRUE(std::string{result.message()}.find("plot") != std::string::npos);
 }
+
+TEST(GraphDescriptionTests, AFilterByPgnBuildsAndFiltersByPgn)
+{
+    TraceStore store{1024};
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    GraphDescription description;
+    description.addNode(node("filter",
+                             "can.filter",
+                             NodeParameters{
+                                 {"pgn", ParameterValue::fromInteger(65265)}, // CCVS1
+                                 {"sa", ParameterValue::fromInteger(0)},
+                             }));
+    description.addNode(node("trace_1", "trace.sink"));
+    description.addEdge(EdgeDescription{"filter", 0, "trace_1", 0});
+
+    PipelineGraph graph;
+    ASSERT_TRUE(description.build(catalog, contextWith(store), graph).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
+
+    auto* filter = graph.nodeAs<FrameFilterNode>(graph.executionOrder().front());
+    ASSERT_TRUE(filter != nullptr);
+    ASSERT_EQ(filter->filters().size(), 1U);
+
+    CanFrame ccvs1;
+    ccvs1.identifier = 0x18FEF100U;
+    ccvs1.format = CanFrameFormat::Extended;
+    EXPECT_TRUE(filter->filters().filters().front().matches(ccvs1));
+
+    ccvs1.identifier = 0x18FEF10BU; // the same PGN from another address
+    EXPECT_FALSE(filter->filters().filters().front().matches(ccvs1));
+}
+
+TEST(GraphDescriptionTests, AFilterThatNamesAnAddressButNoPgnIsRefusedNotBuiltToPassEverything)
+{
+    // A source address narrows a PGN. On its own it used to be a setting that did nothing - the
+    // block built, passed every frame on the bus and said nothing, which is the one thing somebody
+    // who had just asked for one ECU's traffic would not think to look for.
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    GraphDescription description;
+    description.addNode(
+        node("filter", "can.filter", NodeParameters{{"sa", ParameterValue::fromInteger(0x21)}}));
+
+    const Result result = description.validate(catalog);
+    ASSERT_TRUE(result.failed());
+    EXPECT_NE(std::string{result.message()}.find("filter"), std::string::npos);
+    EXPECT_NE(std::string{result.message()}.find("PGN"), std::string::npos);
+}
+
+TEST(GraphDescriptionTests, AFilterWithAPgnOrAddressThatCannotExistIsRefused)
+{
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    const auto checked = [&catalog](std::int64_t pgn, std::int64_t sa) {
+        NodeParameters parameters{{"pgn", ParameterValue::fromInteger(pgn)}};
+        if (sa >= 0 || sa < -1) {
+            parameters.set("sa", ParameterValue::fromInteger(sa));
+        }
+
+        GraphDescription description;
+        description.addNode(node("filter", "can.filter", parameters));
+        return description.validate(catalog);
+    };
+
+    EXPECT_TRUE(checked(0x3FFFF, 0xFF).succeeded()); // the biggest of both
+    EXPECT_TRUE(checked(0, -1).succeeded()); // and no address at all
+
+    EXPECT_TRUE(checked(0x40000, -1).failed()); // 19 bits
+    EXPECT_TRUE(checked(-1, -1).failed());
+    EXPECT_TRUE(checked(65265, 256).failed()); // would have been truncated to address 0
+    EXPECT_TRUE(checked(65265, -2).failed());
+}

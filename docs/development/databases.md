@@ -217,6 +217,7 @@ happens to be open in a panel.
 |---|---|---|
 | `vehicle.dbc` | 257, 258 | `examples/scripts/ecu_vehicle.lua` |
 | `ecu.dbc` | 1, 255 | `examples/scripts/ecu_motor.lua` |
+| `j1939.dbc` | 21 J1939 messages | the six J1939 ECUs of `examples/projects/j1939-vehicle.tbsproj` |
 
 So importing `vehicle.dbc` while the example project runs turns the trace from
 hex into km/h and °C.
@@ -226,6 +227,42 @@ true of one and not the other — `ecu.dbc` carries identifiers 1 and 255, and
 that script sends 257 and 258. A test now runs each script and asks its
 database about every identifier it actually emitted, so the pairing above is
 checked rather than described.
+
+`j1939.dbc` is read by the **J1939 block**, which finds a message by PGN rather than by identifier -
+so the DM1 of the engine and the DM1 of the brakes, from different addresses, are both "DM1". The
+test asks the PGN question for it (`EveryJ1939ScriptSendsOnlyMessagesTheJ1939DatabaseDescribes`):
+not "is `0x18FECA3D` in the file" but "is a message with PGN `0xFECA`".
+
+### "Error" and "not available" in a J1939 database
+
+J1939 keeps the top of every field for two things: in a byte `0xFE` is *error* and `0xFF` is *not
+available*, in two bytes `0xFE00..` and `0xFF00..`, in two bits `2` and `3`, in four `14` and `15`. The J1939
+block turns those into **NaN**, which a plot shows as a gap, the Graph panel's legend as `n/a`, and the
+cluster as dashes - and never as 255 or 215 °C. A valid raw value goes no further than `0xFA`, `0xFAFF`,
+`0xFAFFFF` or `0xFAFFFFFF`.
+
+Two kinds of signal are not about that, and the database says so:
+
+- **A signed signal** has no such values: `0xFF` in a signed byte is -1.
+- **A value with a name.** A turn stalk with three positions in two bits uses `2` for "Right"; a `VAL_`
+  line gives the value its name, and a value with a name is a state and not an error. `3`, unnamed, is
+  still *not available*.
+
+A declared range is **not** read for this - a .dbc says `[0|3]` for a two-bit field and `[0|255]` for a
+byte as a matter of course, which is the whole field and no statement about its values. A counter that
+means to use every value of its byte has the wrong byte: J1939 counts 0 to 250.
+
+### Fields that are not one signal
+
+SPN and FMI of a DM1 (`DM1.SPNLow`, `FMI`, `SPNHigh`) are three signals because J1939-73 packs them that
+way: the low 16 bits of the SPN in bytes 3 and 4, and its high three bits above the FMI in byte 5. The whole
+SPN is `SPNHigh * 65536 + SPNLow`. The J1939 block's own DM1/DM2 decoder assembles it for you, and is the
+one to trust for a trouble code; the signals are what the trace shows.
+
+Several ECUs send a DM1, and a database names a message once, so the series `DM1.RedStopLamp` is whichever
+arrived last. The **lamps of the whole bus** - the OR of every ECU's - are written by the J1939 block to the
+system variables `j1939.lamp_stop`, `j1939.lamp_warning`, `j1939.lamp_mil` and `j1939.lamp_protect`, which is
+what a cluster reads.
 
 ---
 

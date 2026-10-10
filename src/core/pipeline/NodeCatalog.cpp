@@ -132,6 +132,93 @@ namespace {
     return Result::ok();
 }
 
+/// The J1939 half of a Frame Filter: a PGN is 18 bits, a source address is 8, and a source address
+/// narrows a PGN, so on its own it is a setting that does nothing.
+///
+/// The last of those is the one that matters. A block with `sa` and no `pgn` used to build, pass
+/// every frame on the bus and say nothing, which is exactly what somebody who had just asked for
+/// one ECU's traffic would not look for.
+///
+/// Called twice, like checkLuaScriptChoice, and for the same reason.
+[[nodiscard]] Result checkFilterParameters(const NodeParameters& parameters,
+                                           std::string_view nodeId)
+{
+    if (parameters.contains("sa") && !parameters.contains("pgn")) {
+        return Result::error(
+            ErrorCode::InvalidArgument,
+            std::format("Block '{}' has a J1939 source address but no PGN. The address narrows a "
+                        "PGN - set J1939 PGN as well, or clear the address.",
+                        nodeId));
+    }
+
+    if (parameters.contains("pgn")) {
+        const std::int64_t pgn = parameters.integer("pgn", 0);
+        if (pgn < 0 || pgn > 0x3FFFF) {
+            return Result::error(
+                ErrorCode::InvalidArgument,
+                std::format("Block '{}': PGN {} is not a J1939 parameter group number. A PGN has "
+                            "18 bits: 0 to 262143 (0x3FFFF).",
+                            nodeId,
+                            pgn));
+        }
+    }
+
+    if (parameters.contains("sa")) {
+        const std::int64_t sa = parameters.integer("sa", 0);
+        if (sa < 0 || sa > 0xFF) {
+            return Result::error(
+                ErrorCode::InvalidArgument,
+                std::format("Block '{}': source address {} does not fit a J1939 address, which is "
+                            "one byte: 0 to 255.",
+                            nodeId,
+                            sa));
+        }
+    }
+
+    return Result::ok();
+}
+
+/// The identifiers of a TinyML Virtual ECU have to be identifiers.
+///
+/// They used to be cast to 32 bits and used as they were, and a value that was not a CAN identifier
+/// built a block that classified the bus perfectly and put every telemetry frame on it with an
+/// identifier no driver accepts - each one counted as a failed transmit and none of them said so.
+/// A project that named the identifier the way a database does, with 0x80000000 added to mark it
+/// extended, did exactly that.
+[[nodiscard]] Result checkTinyMlParameters(const NodeParameters& parameters,
+                                           std::string_view nodeId)
+{
+    struct Identifier final {
+        const char* name;
+        const char* label;
+        std::int64_t fallback;
+        std::int64_t minimum;
+    };
+
+    static constexpr Identifier kIdentifiers[] = {
+        {"speedCanId", "Speed CAN ID", 0x101, 0},
+        {"tempCanId", "Temp CAN ID", 0x102, 0},
+        {"outputCanId", "Telemetry CAN ID", 0x105, 1},
+    };
+
+    for (const Identifier& identifier : kIdentifiers) {
+        const std::int64_t value = parameters.integer(identifier.name, identifier.fallback);
+        if (value < identifier.minimum
+            || value > static_cast<std::int64_t>(kMaxExtendedIdentifier)) {
+            return Result::error(
+                ErrorCode::InvalidArgument,
+                std::format("Block '{}': {} {} is not a CAN identifier. An identifier is at most "
+                            "29 bits, 0x1FFFFFFF - the 0x80000000 a database adds marks an "
+                            "extended identifier and is not part of it.",
+                            nodeId,
+                            identifier.label,
+                            value));
+        }
+    }
+
+    return Result::ok();
+}
+
 /// Splits "a, b ,c" into three names, dropping the empty ones.
 ///
 /// Comma-separated rather than a repeated parameter, because a project file is
@@ -376,7 +463,8 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             .typeName = "can.filter",
             .displayName = "Frame Filter",
             .category = "Transforms",
-            .description = "Passes only the frames that match an identifier range.",
+            .description =
+                "Passes only the frames that match an identifier range, a mask, or a J1939 PGN.",
             .inputs = {PortDescriptor{"frames", PortType::Frames}},
             .outputs = {PortDescriptor{"frames", PortType::Frames}},
             .parameters =
@@ -402,26 +490,54 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
                                         .description = "The value the mask is compared against."},
+                    ParameterDescriptor{.name = "pgn",
+                                        .displayName = "J1939 PGN",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description =
+                                            "Optional J1939 Parameter Group Number to pass."},
+                    ParameterDescriptor{.name = "sa",
+                                        .displayName = "J1939 Source Address",
+                                        .type = ParameterValue::Type::Integer,
+                                        .required = false,
+                                        .description =
+                                            "Optional J1939 Source Address to match with PGN."},
                 },
         },
         [](const NodeParameters& parameters,
            const NodeBuildContext&,
-           std::string_view,
+           std::string_view nodeId,
            std::unique_ptr<IPipelineNode>& out) -> Result {
+            if (Result result = checkFilterParameters(parameters, nodeId); result.failed()) {
+                return result;
+            }
+
             CanFilter filter;
             filter.name = "graph";
-            filter.identifierFrom = static_cast<std::uint32_t>(parameters.integer("from", 0));
-            filter.identifierTo =
-                static_cast<std::uint32_t>(parameters.integer("to", kMaxExtendedIdentifier));
-            filter.mask = static_cast<std::uint32_t>(parameters.integer("mask", 0));
-            filter.value = static_cast<std::uint32_t>(parameters.integer("value", 0));
+            if (parameters.contains("pgn")) {
+                const auto pgn = static_cast<std::uint32_t>(parameters.integer("pgn", 0));
+                const std::optional<std::uint8_t> sa =
+                    parameters.contains("sa")
+                        ? std::optional<std::uint8_t>{static_cast<std::uint8_t>(
+                              parameters.integer("sa", 0))}
+                        : std::nullopt;
+                filter = CanFilter::acceptPgn(pgn, sa);
+                filter.name = "graph";
+            } else {
+                filter.identifierFrom = static_cast<std::uint32_t>(parameters.integer("from", 0));
+                filter.identifierTo =
+                    static_cast<std::uint32_t>(parameters.integer("to", kMaxExtendedIdentifier));
+                filter.mask = static_cast<std::uint32_t>(parameters.integer("mask", 0));
+                filter.value = static_cast<std::uint32_t>(parameters.integer("value", 0));
+            }
 
             CanFilterSet filters;
             filters.add(std::move(filter));
 
             out = std::make_unique<FrameFilterNode>(std::move(filters));
             return Result::ok();
-        });
+        },
+        checkFilterParameters);
 
     // --- Simulation -------------------------------------------------------
 
@@ -964,6 +1080,10 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             // Null in a headless build, and the block then keeps its view of
             // the bus to itself rather than copying it for nobody.
             node->setNetwork(context.j1939Network);
+
+            // Where the lamps of the whole bus go, for a cluster or a dashboard to read. Null in
+            // a headless build, and the block then simply does not publish them.
+            node->setSystemVariables(context.variables);
 
             out = std::move(node);
             return Result::ok();
@@ -1523,12 +1643,23 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .description =
                                             "Optional path to a custom quantized .tbusml model. "
                                             "Leave empty to use the built-in automotive model."},
+                    ParameterDescriptor{
+                        .name = "j1939",
+                        .displayName = "J1939 Mode",
+                        .type = ParameterValue::Type::Boolean,
+                        .required = false,
+                        .description =
+                            "Enable SAE J1939 decoding and Proprietary B (0x18FF0080) output."},
                 },
         },
         [](const NodeParameters& parameters,
            const NodeBuildContext& context,
            std::string_view nodeId,
            std::unique_ptr<IPipelineNode>& out) -> Result {
+            if (Result result = checkTinyMlParameters(parameters, nodeId); result.failed()) {
+                return result;
+            }
+
             TinyMlModel model = TinyMlModel::builtinPowertrainModel();
             if (parameters.contains("modelPath") && !parameters.text("modelPath").empty()) {
                 const std::string resolved = resolvePath(context, parameters.text("modelPath"));
@@ -1553,13 +1684,19 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                 std::clamp(parameters.real("anomalyThreshold", 65.0), 1.0, 99.9));
             config.inferenceStride = static_cast<std::uint32_t>(
                 std::max<std::int64_t>(1, parameters.integer("inferenceStride", 1)));
+            config.j1939Mode =
+                parameters.boolean("j1939", false) || (config.outputCanId > kMaxStandardIdentifier);
+            if (config.j1939Mode && config.outputCanId == 0x105) {
+                config.outputCanId = 0x18FF0080;
+            }
 
             auto node =
                 std::make_unique<TinyMlEcuNode>(std::move(model), config, std::string{nodeId});
             node->setSystemVariables(context.variables);
             out = std::move(node);
             return Result::ok();
-        });
+        },
+        checkTinyMlParameters);
 
     return catalog;
 }

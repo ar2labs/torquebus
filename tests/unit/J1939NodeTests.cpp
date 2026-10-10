@@ -10,6 +10,8 @@
 // arriving from an address the database did not anticipate, and a transport
 // packet decoded as though it were a message.
 
+#include "core/can/CanFilter.h"
+#include "core/dashboard/SystemVariables.h"
 #include "core/database/DbcParser.h"
 #include "core/j1939/J1939Node.h"
 #include "core/pipeline/GraphDescription.h"
@@ -18,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -496,4 +499,348 @@ TEST(J1939NodeTests, ClearingForANewMeasurementIsAChangeAPanelNotices)
 
     EXPECT_TRUE(network.revision() > before);
     EXPECT_TRUE(network.snapshot().nodes.empty());
+}
+
+TEST(J1939NodeTests, SpecialValuesForNotAvailableAndErrorDecodeToNan)
+{
+    EXPECT_TRUE(isJ1939SpecialValue(2U, 2U));
+    EXPECT_TRUE(isJ1939SpecialValue(3U, 2U));
+    EXPECT_FALSE(isJ1939SpecialValue(1U, 2U));
+
+    EXPECT_TRUE(isJ1939SpecialValue(0xFEU, 8U));
+    EXPECT_TRUE(isJ1939SpecialValue(0xFFU, 8U));
+    EXPECT_FALSE(isJ1939SpecialValue(0xFAU, 8U));
+
+    EXPECT_TRUE(isJ1939SpecialValue(0xFE00U, 16U));
+    EXPECT_TRUE(isJ1939SpecialValue(0xFFFFU, 16U));
+    EXPECT_FALSE(isJ1939SpecialValue(0xFAFFU, 16U));
+
+    J1939Node node{databaseWithTemperature(), "J1939"};
+    ASSERT_TRUE(node.prepare(64U).succeeded());
+
+    Driver driver{node};
+
+    // Valid reading: 100 - 40 = 60 °C
+    const auto validBatch = driver.run(std::array<CanFrame, 1>{
+        frameOf(j1939Identifier(kTemperature, kEngine), {100U, 0U, 0U, 0U, 0U, 0U, 0U, 0U})});
+    ASSERT_EQ(validBatch.size(), 1U);
+    EXPECT_DOUBLE_EQ(validBatch[0].value, 60.0);
+
+    // NA reading (0xFF): decoded value must be NaN
+    const auto naBatch = driver.run(std::array<CanFrame, 1>{
+        frameOf(j1939Identifier(kTemperature, kEngine), {0xFFU, 0U, 0U, 0U, 0U, 0U, 0U, 0U})});
+    ASSERT_EQ(naBatch.size(), 1U);
+    EXPECT_TRUE(std::isnan(naBatch[0].value));
+
+    // Error reading (0xFE): decoded value must be NaN
+    const auto errBatch = driver.run(std::array<CanFrame, 1>{
+        frameOf(j1939Identifier(kTemperature, kEngine), {0xFEU, 0U, 0U, 0U, 0U, 0U, 0U, 0U})});
+    ASSERT_EQ(errBatch.size(), 1U);
+    EXPECT_TRUE(std::isnan(errBatch[0].value));
+}
+
+TEST(J1939NodeTests, CanFilterAcceptsByPgnAndOptionalSourceAddress)
+{
+    // CCVS1 PGN 0xFEF1 (PDU2 broadcast)
+    const CanFilter filterAnySa = CanFilter::acceptPgn(0x0'FEF1U);
+    EXPECT_TRUE(filterAnySa.matches(frameOf(0x18FEF100U, {0U}))); // SA 0x00, prio 6
+    EXPECT_TRUE(filterAnySa.matches(frameOf(0x0CFEF10BU, {0U}))); // SA 0x0B, prio 3
+    EXPECT_FALSE(filterAnySa.matches(frameOf(0x18FEEE00U, {0U}))); // Different PGN (ET1)
+    EXPECT_FALSE(filterAnySa.matches(frameOf(0x101U, {0U}))); // 11-bit standard frame
+
+    const CanFilter filterEngineSa = CanFilter::acceptPgn(0x0'FEF1U, std::uint8_t{0x00U});
+    EXPECT_TRUE(filterEngineSa.matches(frameOf(0x18FEF100U, {0U})));
+    EXPECT_FALSE(filterEngineSa.matches(frameOf(0x18FEF10BU, {0U}))); // Different SA
+
+    // Request PGN 0xEA00 (PDU1 destination-specific)
+    const CanFilter filterRequest = CanFilter::acceptPgn(0x0'EA00U, std::uint8_t{0x00U});
+    EXPECT_TRUE(filterRequest.matches(frameOf(0x18EA0300U, {0U}))); // DA 0x03, SA 0x00
+    EXPECT_FALSE(filterRequest.matches(frameOf(0x18EA0301U, {0U}))); // SA 0x01
+}
+
+// ---------------------------------------------------------------------------
+// The lamps of the whole bus
+// ---------------------------------------------------------------------------
+
+namespace {
+
+constexpr std::uint8_t kBrakes = 0x0BU;
+constexpr std::uint8_t kBody = 0x21U;
+
+// Byte 1 of a DM1: protect 1-2, amber warning 3-4, red stop 5-6, malfunction 7-8, and 01 is on.
+constexpr std::uint8_t kRedStop = 0x10U;
+constexpr std::uint8_t kAmberWarning = 0x04U;
+constexpr std::uint8_t kMalfunction = 0x40U;
+
+[[nodiscard]] CanFrame
+diagnosticFrom(std::uint32_t pgn, std::uint8_t source, std::uint8_t lamps, std::uint64_t atNs)
+{
+    CanFrame frame =
+        frameOf(j1939Identifier(pgn, source), {lamps, 0xFFU, 0U, 0U, 0U, 0U, 0xFFU, 0xFFU});
+    frame.timestampNs = atNs;
+    return frame;
+}
+
+constexpr std::uint64_t kSecond = 1'000'000'000ULL;
+
+/// A block with nowhere to look up a message, wired to a set of system variables.
+struct LampBench final {
+    LampBench()
+        : node{nullptr, "J1939"}
+    {
+        node.setSystemVariables(&variables);
+        EXPECT_TRUE(node.prepare(64U).succeeded());
+    }
+
+    [[nodiscard]] bool stop() const
+    {
+        return variables.value(std::string{kJ1939LampStopVariable}) > 0.5;
+    }
+
+    [[nodiscard]] bool warning() const
+    {
+        return variables.value(std::string{kJ1939LampWarningVariable}) > 0.5;
+    }
+
+    [[nodiscard]] bool malfunction() const
+    {
+        return variables.value(std::string{kJ1939LampMilVariable}) > 0.5;
+    }
+
+    [[nodiscard]] bool protect() const
+    {
+        return variables.value(std::string{kJ1939LampProtectVariable}) > 0.5;
+    }
+
+    SystemVariables variables;
+    J1939Node node;
+};
+
+} // namespace
+
+TEST(J1939NodeTests, TheLampsOfTheWholeBusAreTheOrOfEveryEcusLamps)
+{
+    // A vehicle has an engine, brakes and a body controller, each sending a DM1 with its own lamps
+    // - and a database names a message once, so "DM1.RedStopLamp" is whichever of them came last. A
+    // red lamp that shows for the milliseconds between the engine's message and the brakes' is not
+    // a red lamp. This is what the cluster reads instead.
+    LampBench bench;
+    Driver driver{bench.node};
+
+    EXPECT_FALSE(bench.stop());
+
+    const std::array<CanFrame, 3> first{diagnosticFrom(kPgnDm1, kEngine, kRedStop, kSecond),
+                                        diagnosticFrom(kPgnDm1, kBody, kAmberWarning, kSecond),
+                                        diagnosticFrom(kPgnDm1, kBrakes, 0x00U, kSecond)};
+    driver.run(first);
+
+    // The brakes, with every lamp dark, came last. The engine's red lamp is lit all the same.
+    EXPECT_TRUE(bench.stop());
+    EXPECT_TRUE(bench.warning());
+    EXPECT_FALSE(bench.malfunction());
+    EXPECT_FALSE(bench.protect());
+
+    // The engine's fault clears - a DM1 with every lamp dark - and the body's amber is still there.
+    const std::array<CanFrame, 1> cleared{diagnosticFrom(kPgnDm1, kEngine, 0x00U, 2U * kSecond)};
+    driver.run(cleared);
+
+    EXPECT_FALSE(bench.stop());
+    EXPECT_TRUE(bench.warning());
+}
+
+TEST(J1939NodeTests, AllFourLampsReachTheirOwnVariable)
+{
+    LampBench bench;
+    Driver driver{bench.node};
+
+    // Protect is bits 1-2, so 0x01; the malfunction indicator 0x40.
+    const std::array<CanFrame, 1> frames{
+        diagnosticFrom(kPgnDm1, kEngine, kMalfunction | 0x01U, kSecond)};
+    driver.run(frames);
+
+    EXPECT_FALSE(bench.stop());
+    EXPECT_FALSE(bench.warning());
+    EXPECT_TRUE(bench.malfunction());
+    EXPECT_TRUE(bench.protect());
+}
+
+TEST(J1939NodeTests, AnEcuThatFallsSilentStopsLightingItsLamp)
+{
+    // J1939-73 has a DM1 repeated every second. One that has not come for three has an ECU behind
+    // it that is switched off or unplugged, and a lamp for a fault nobody can still be reporting is
+    // a lamp that lies. Time is the bus's: it moves when any frame arrives.
+    LampBench bench;
+    Driver driver{bench.node};
+
+    const std::array<CanFrame, 1> lit{diagnosticFrom(kPgnDm1, kEngine, kRedStop, kSecond)};
+    driver.run(lit);
+    EXPECT_TRUE(bench.stop());
+
+    // Two seconds on, the body controller is still talking and the engine has not repeated itself.
+    const std::array<CanFrame, 1> soon{diagnosticFrom(kPgnDm1, kBody, 0x00U, 3U * kSecond)};
+    driver.run(soon);
+    EXPECT_TRUE(bench.stop());
+
+    const std::array<CanFrame, 1> late{diagnosticFrom(kPgnDm1, kBody, 0x00U, 5U * kSecond)};
+    driver.run(late);
+    EXPECT_FALSE(bench.stop());
+}
+
+TEST(J1939NodeTests, WhatWasWrongIsNotALamp)
+{
+    // A DM2 is the faults that were active, and the same bytes in the same place. A lamp lit by one
+    // would be a repaired fault on the dash.
+    LampBench bench;
+    Driver driver{bench.node};
+
+    const std::array<CanFrame, 1> history{diagnosticFrom(kPgnDm2, kEngine, kRedStop, kSecond)};
+    driver.run(history);
+
+    EXPECT_FALSE(bench.stop());
+}
+
+TEST(J1939NodeTests, StoppingTheMeasurementPutsTheLampsOut)
+{
+    // The cluster's signals go to dashes after Stop. A variable would hold its last value for ever,
+    // and a stopped measurement would show a red lamp for a fault nobody can still be reporting.
+    LampBench bench;
+    Driver driver{bench.node};
+
+    const std::array<CanFrame, 1> lit{diagnosticFrom(kPgnDm1, kEngine, kRedStop, kSecond)};
+    driver.run(lit);
+    ASSERT_TRUE(bench.stop());
+
+    bench.node.finish();
+    EXPECT_FALSE(bench.stop());
+
+    // And what a panel reads afterwards is still there.
+    EXPECT_FALSE(bench.node.diagnostics().empty());
+}
+
+TEST(J1939NodeTests, AMeasurementStartsWithTheLampsOutWhateverTheLastOneLeft)
+{
+    SystemVariables variables;
+    variables.set(std::string{kJ1939LampStopVariable}, 1.0);
+
+    J1939Node node{nullptr, "J1939"};
+    node.setSystemVariables(&variables);
+    ASSERT_TRUE(node.prepare(64U).succeeded());
+
+    EXPECT_EQ(variables.value(std::string{kJ1939LampStopVariable}), 0.0);
+}
+
+TEST(J1939NodeTests, TheLampsAreWrittenWhenTheyChangeAndNotEveryPass)
+{
+    LampBench bench;
+    Driver driver{bench.node};
+
+    const SystemVariables::Handle stop = bench.variables.find(std::string{kJ1939LampStopVariable});
+    ASSERT_TRUE(stop != SystemVariables::kUnknown);
+
+    const std::array<CanFrame, 1> lit{diagnosticFrom(kPgnDm1, kEngine, kRedStop, kSecond)};
+    driver.run(lit);
+    const std::uint64_t written = bench.variables.revision(stop);
+
+    // A DM1 a second, saying the same thing: nothing changed, so nothing was written.
+    for (std::uint64_t second = 2U; second < 4U; ++second) {
+        const std::array<CanFrame, 1> again{
+            diagnosticFrom(kPgnDm1, kEngine, kRedStop, second * kSecond)};
+        driver.run(again);
+    }
+
+    EXPECT_EQ(bench.variables.revision(stop), written);
+}
+
+TEST(J1939NodeTests, ABlockWithNoVariablesStillDecodesTroubleCodes)
+{
+    J1939Node node{nullptr, "J1939"};
+    ASSERT_TRUE(node.prepare(64U).succeeded());
+
+    Driver driver{node};
+    const std::array<CanFrame, 1> frames{diagnosticFrom(kPgnDm1, kEngine, kRedStop, kSecond)};
+    driver.run(frames);
+
+    ASSERT_EQ(node.diagnostics().size(), 1U);
+}
+
+// ---------------------------------------------------------------------------
+// "Error" and "not available", and the signals that are not about either
+// ---------------------------------------------------------------------------
+
+namespace {
+
+[[nodiscard]] std::shared_ptr<CanDatabase> databaseWithSignal(CanSignal signal)
+{
+    CanMessage message;
+    message.identifier = j1939Identifier(kTemperature, kEngine);
+    message.format = CanFrameFormat::Extended;
+    message.name = "EngineTemperature1";
+    message.length = 8;
+    message.signalList.push_back(std::move(signal));
+
+    auto database = std::make_shared<CanDatabase>();
+    database->addMessage(std::move(message));
+    return database;
+}
+
+[[nodiscard]] double decodeFirstByte(J1939Node& node, std::uint8_t byte)
+{
+    Driver driver{node};
+    const std::array<CanFrame, 1> frames{
+        frameOf(j1939Identifier(kTemperature, kEngine), {byte, 0U, 0U, 0U, 0U, 0U, 0U, 0U})};
+
+    const std::span<const DecodedSignal> signals = driver.run(frames);
+    return signals.empty() ? std::nan("") : signals[0].value;
+}
+
+} // namespace
+
+TEST(J1939NodeTests, ASignedSignalIsNeverNotAvailable)
+{
+    // Raw 0xFF is -1 in two's complement, a perfectly good reading, and read as the unsigned number
+    // it also is it is "not available". J1939's table says nothing about signed values.
+    CanSignal torque;
+    torque.name = "Torque";
+    torque.bitLength = 8U;
+    torque.isSigned = true;
+
+    J1939Node node{databaseWithSignal(torque), "J1939"};
+    ASSERT_TRUE(node.prepare(64U).succeeded());
+
+    EXPECT_DOUBLE_EQ(decodeFirstByte(node, 0xFFU), -1.0);
+    EXPECT_DOUBLE_EQ(decodeFirstByte(node, 0xFEU), -2.0);
+}
+
+TEST(J1939NodeTests, AValueTheDatabaseNamesIsAStateAndNotAnError)
+{
+    // A turn stalk with three positions in two bits: 2 is "Right". A .dbc says so in the one place
+    // it can, a value table, and a value with a name is a value with a meaning.
+    CanSignal stalk;
+    stalk.name = "TurnSignalSwitch";
+    stalk.bitLength = 2U;
+    stalk.valueNames = {{0, "None"}, {1, "Left"}, {2, "Right"}};
+
+    J1939Node node{databaseWithSignal(stalk), "J1939"};
+    ASSERT_TRUE(node.prepare(64U).succeeded());
+
+    EXPECT_DOUBLE_EQ(decodeFirstByte(node, 0x01U), 1.0);
+    EXPECT_DOUBLE_EQ(decodeFirstByte(node, 0x02U), 2.0);
+
+    // 3 has no name, and is what J1939 means by it: not available.
+    EXPECT_TRUE(std::isnan(decodeFirstByte(node, 0x03U)));
+}
+
+TEST(J1939NodeTests, AnUnnamedErrorValueIsNotANumber)
+{
+    CanSignal level;
+    level.name = "Level";
+    level.bitLength = 8U;
+    level.factor = 0.4;
+
+    J1939Node node{databaseWithSignal(level), "J1939"};
+    ASSERT_TRUE(node.prepare(64U).succeeded());
+
+    EXPECT_DOUBLE_EQ(decodeFirstByte(node, 250U), 100.0);
+    EXPECT_TRUE(std::isnan(decodeFirstByte(node, 0xFEU))); // error
+    EXPECT_TRUE(std::isnan(decodeFirstByte(node, 0xFFU))); // not available
 }

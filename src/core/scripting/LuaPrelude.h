@@ -150,6 +150,95 @@ function tb.value(source)
     end
     return source
 end
+
+--------------------------------------------------------------------------------
+-- J1939 helpers
+--
+-- The vocabulary of a J1939 ECU script: an identifier from a PGN and an address, a physical value
+-- as the raw number the standard puts on the wire, a DM1 payload, and a message padded the way
+-- J1939 pads one. Pure arithmetic over what emit() already does, which is why they live here.
+--------------------------------------------------------------------------------
+
+-- The biggest raw value that is a measurement for a field of that many bytes, and the one that says
+-- there is none ("not available"). 0xFB.. to 0xFE.. are the standard's, for error and reserved.
+local _J1939_MAXV = { [1] = 0xFA, [2] = 0xFAFF, [3] = 0xFAFFFF, [4] = 0xFAFFFFFF }
+local _J1939_NA   = { [1] = 0xFF, [2] = 0xFFFF, [3] = 0xFFFFFF, [4] = 0xFFFFFFFF }
+
+--- The 29-bit identifier of a J1939 message from its priority, PGN and source address.
+function j1939_id(prio, pgn, sa)
+    return (((prio or 6) & 0x7) << 26) | (((pgn or 0) & 0x3FFFF) << 8) | ((sa or 0) & 0xFF)
+end
+tb.j1939_id = j1939_id
+
+--- A physical value as the raw number J1939 sends: round((value - offset) / res), held to the
+--- biggest valid value of an `nbytes` field rather than wrapped into the ones that mean an error.
+--- nil - and a number that is not one - is "not available", which is how a script says a sensor
+--- has failed: j1939_raw(nil, 1, -40, 1) is 0xFF.
+function j1939_raw(value, res, offset, nbytes)
+    nbytes = nbytes or 1
+    if value == nil or value ~= value then
+        return _J1939_NA[nbytes] or 0xFF
+    end
+    local r = math.floor((value - (offset or 0)) / (res or 1) + 0.5)
+    local maxv = _J1939_MAXV[nbytes] or 0xFA
+    if r < 0 then r = 0 elseif r > maxv then r = maxv end
+    return r
+end
+tb.j1939_raw = j1939_raw
+raw = j1939_raw -- the short name the example ECUs use
+
+-- What `send` is before this file touches it: nothing in an ECU, the node's own binding in a test
+-- sequence. Captured here, before `send` is defined below, and used by j1939_send.
+local _native_send = send
+
+--- Sends a J1939 message from an ECU, or from a test sequence: the payload padded with 0xFF up to
+--- eight bytes, which is what J1939 calls "not available" and what an unused byte has to say.
+function j1939_send(prio, pgn, sa, payload)
+    local id = j1939_id(prio, pgn, sa)
+    payload = payload or ""
+    if #payload < 8 then
+        payload = payload .. string.rep("\xFF", 8 - #payload)
+    end
+
+    -- Always told it is extended: a high-priority message from a low address can have an identifier
+    -- that fits in eleven bits, and would otherwise leave as a standard frame.
+    if emit then
+        return emit(id, payload, { extended = true })
+    end
+    return _native_send(id, payload, { extended = true })
+end
+tb.j1939_send = j1939_send
+
+-- `send` means the node's own binding wherever there is one: in a test sequence it is
+-- send(id, payload [, options]) and has been since before any of this, so it is left alone there.
+-- An ECU has emit() and no send(), so the name is free in it, and there it is the J1939 message
+-- above - or, with the arguments of the old call, emit(): send(id, payload [, options]).
+if not _native_send then
+    function send(a, b, c, d)
+        if d == nil and (c == nil or type(c) == "table") then
+            return emit(a, b, c)
+        end
+        return j1939_send(a, b, c, d)
+    end
+end
+tb.send = send
+
+--- The payload of a DM1 with one trouble code: the four lamps (0 off, 1 on), the flash bytes not
+--- used, SPN and FMI, and an occurrence count. dm1(0, 0, 0, 0, 0, 0, 0) is J1939's "no active fault".
+function j1939_dm1(mil, red, amber, protect, spn, fmi, oc)
+    local lamps = (((mil or 0) & 3) << 6) | (((red or 0) & 3) << 4) | (((amber or 0) & 3) << 2) | ((protect or 0) & 3)
+    spn = spn or 0
+    fmi = fmi or 0
+    oc = oc or 0
+    return string.pack("<I1I1I1I1I1I1I1I1",
+        lamps, 0xFF,
+        spn & 0xFF, (spn >> 8) & 0xFF,
+        ((spn >> 11) & 0xE0) | (fmi & 0x1F),
+        oc & 0x7F, 0xFF, 0xFF)
+end
+tb.j1939_dm1 = j1939_dm1
+dm1 = j1939_dm1 -- the short name the example ECUs use
+tb.dm1 = j1939_dm1
 )LUA";
 
 } // namespace torquebus

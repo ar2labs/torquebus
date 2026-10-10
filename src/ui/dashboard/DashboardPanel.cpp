@@ -169,6 +169,15 @@ DashboardPanel::Reading DashboardPanel::readBinding(const DashboardBinding& bind
 
         std::uint64_t when = 0;
         reading.known = m_plots->latest(id, reading.value, when);
+
+        // A J1939 signal that reports "error" or "not available" is a sample whose value is NaN,
+        // and a signal that has nothing to report has no value: dashes on a Numeric, an empty
+        // Gauge, a Lamp that is off. Drawn as a number it is an arc swept by an undefined amount -
+        // NaN cast to an integer - and "nan" where the reading goes.
+        if (reading.known && !std::isfinite(reading.value)) {
+            reading.known = false;
+        }
+
         reading.stamp = when;
         reading.timed = reading.known;
         break;
@@ -179,10 +188,11 @@ DashboardPanel::Reading DashboardPanel::readBinding(const DashboardBinding& bind
             break;
         }
 
-        // Always known, unlike a signal: a variable nobody has written reads as
-        // zero, and zero is its value rather than the absence of one.
+        // Known whenever it is a number, unlike a signal: a variable nobody has
+        // written reads as zero, and zero is its value rather than the absence
+        // of one.
         reading.value = m_variables->value(binding.variable);
-        reading.known = true;
+        reading.known = std::isfinite(reading.value);
         break;
 
     case DashboardBinding::Source::None:

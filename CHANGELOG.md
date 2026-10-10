@@ -23,6 +23,91 @@ against what it does, which turned up more than expected.
 
 ### Fixed
 
+- **Stop never told the nodes the measurement was over.** `IPipelineNode::finish()` is documented as the
+  place a script runs its `on_disable` and a test sequence closes the case that was in flight, and the
+  engine never called it: the unit tests called `graph.finish()` themselves, so everything passed, and in
+  the application `on_disable` did not run, a sequence stopped halfway was not marked as such, and the
+  J1939 block could not put its lamps out. `CanEngine::stop()` now calls it once per measurement, after
+  the final drain and in reverse order.
+- **A measurement that ended on its own crashed the application later.** When a node throws, the guard
+  around the dispatch thread reports it and lets the thread return, and `stop()` then left without joining
+  it because the loop was no longer "running": the next Start assigned a thread over a joinable one, and
+  closing the window destroyed one, and both are `std::terminate` - a plugin's node throwing took the
+  application down with a delay, with the channels still started in between. `stop()` joins whatever there
+  is to join, `start()` winds up a measurement that was left, and the window notices the loop ended
+  (it used to show a measurement that was not there: the Stop button live, the counters frozen).
+- **The J1939 example project could not be started.** `j1939-vehicle.tbsproj` wired the outputs of six ECUs
+  into one input of one CAN Transmit block, and an input takes one wire: Start answered "Two wires arrive at
+  'tx_1' port 0". Nothing tested it, because the one test that opens an example project opens the other
+  one. Each ECU now has its own transmit block, and `J1939ExampleProjectTests` opens the project, validates it,
+  *runs* it on the engine and asserts what the cluster would read for every role of its profile - and for
+  eleven scenarios, one lamp each.
+- **...and had it started, the cluster would have been dashes.** Nothing in the pipeline decoded the bus into the
+  plot store, which is the only place a cluster reads; the TinyML block plotted its own signals under another
+  message name than the profile asked for. A J1939 block with the database and a Signal Plot now feed it.
+- **The TinyML telemetry never reached the bus.** The project named its identifier `2432630912`, which is
+  `0x90FF0080`: the extended identifier a `.dbc` writes with `0x80000000` added to mark it, and not an
+  identifier. The virtual bus refused every frame with "does not fit the extended format" and the transmit
+  block counted it as a failed transmit, silently. The catalog now refuses a TinyML identifier that is not
+  one, before Start, naming the block; the same for a Frame Filter whose PGN or address cannot exist, or which
+  has an address and no PGN (it built and passed every frame).
+- **The body controller sent Lighting Data under a PGN the database did not have.** The script sent `0xFE40`
+  and the database said `0xFD40`, so neither described the other (both say `0xFE41` now): no high beam, low
+  beam, position light or turn signal the BCM drove ever reached the cluster, and the test that compares scripts to databases only ran
+  the engine script. It now runs all six, by **PGN** - the question the J1939 block asks - and the project
+  test fails if any signal of a normal run is *not available* that is not on a short list of things the
+  scripts deliberately do not report. Which also found cruise control reading "not available" for the whole
+  run (`0xCF` written into a byte whose low bits are the cruise state, so they could never be 0), an engine
+  torque mode of "not available", and the DM1's SPN and FMI at the wrong bits.
+- **The DM1 lamps of a vehicle with more than one ECU could not be seen.** Every ECU sends its own DM1 and a
+  database names a message once, so the DM1 of the engine and of the five ECUs with nothing to report all
+  landed in the one series `DM1.RedStopLamp`: the red lamp showed for the few milliseconds each second
+  between the engine's message and the next one. The J1939 block now writes the lamps *of the bus* - the OR
+  over every ECU whose DM1 is current - to `j1939.lamp_stop`, `_warning`, `_mil` and `_protect`, and the
+  profile reads those. A DM2 lights nothing; an ECU that falls silent stops counting after three seconds;
+  Stop puts them out.
+- **The TinyML block called every healthy truck a thermal emergency.** The built-in model was set against
+  a vehicle whose coolant idles at 70 °C, and a heavy-duty diesel's thermostat holds 88: fed as it was, the
+  model reported "Thermal stress", 100 % anomaly and 0 % health from the first frame, and with the
+  predictive trouble code it sent a DM1 with the red stop lamp for it. A J1939 coolant temperature is now
+  moved to the model's scale on the way in (and a test checks the model still raises the alarm for 118 °C).
+  Two more things made it worse on a real bus: the bus stress feature only ever went up in J1939 mode, so
+  one hard acceleration - 92 % load - left the block in "anomaly" for good, and the ambient temperature
+  overwrote the thermal delta with `coolant - (ambient + 50)`, 16 °C for a healthy engine on a mild day.
+  Stress now decays, counts a sensor that reports *error* or *not available*, and engine load counts only
+  above 100 % (SPN 92 runs to 250 %); the weather can only raise what is normal.
+- **The AI panel said "Engine idling" of a vehicle at 100 km/h.** The J1939 profile fed the cluster's regime
+  (0 Idle, 1 Cruise...) from `RiskLevel` (0 Low, 1 Moderate...), which are different questions, and could
+  never show the Anomaly alarm. The Proprietary B frame now carries the regime in the three bits that were
+  spare, and the profile reads it.
+- **The seat belt lamp was lit while the belt was fastened, and the ABS lamp could not light.** The first
+  read a switch that is 1 when buckled; the second read "ABS active", which the brake ECU never set. Both are
+  lamps the ECU drives now (`BAS.SeatBeltWarningLamp`, `EBC1.ABSAmberWarning`).
+- **The turn arrows beat against themselves.** The body controller flashed the lamp at 1.5 Hz and the cluster
+  flashes any lamp it is told is on at its own 1.4 Hz, so the arrow could drop out for seconds as the two
+  drifted apart. The
+  BCM now sends the turn signals steady and follows the switch panel's OEL on the bus, so moving the stalk on
+  the panel lights the arrow on the cluster; it used to hear nothing.
+- **The new `send` broke the documented one.** The J1939 helpers redefined `send(id, payload [, options])` in
+  every script, and in a test sequence `send(0x123, "\x01", { extended = true })` - in the testing guide - raised
+  "attempt to perform bitwise operation on a string value", from a line that had always been correct. In
+  a sequence `send` is left alone now; in an ECU it is still `emit()` called the old way, and `j1939_send`
+  works in both. `raw()` also saturated three-byte fields at one byte's limit and raised on NaN.
+- **A signed J1939 signal, a rolling counter and a turn stalk were "not available".** The reserved-value
+  rule (`0xFE`/`0xFF`, `0xFE00`.., `2`/`3` in two bits) applied to everything: `-1` in a signed byte,
+  `254` and `255` of a message counter, and `Right` in a two-bit field. It now skips signed signals and
+  values the database gives a name to, and the example counter counts 0 to 250 as a J1939 byte does.
+- **A sample that was not a number spoiled a plot.** NaN let into a series' range stayed there (`std::min`
+  returns its left argument), so a signal that opened with "not available" had no axis for the rest of the
+  measurement; and the line was drawn through it at the middle of the plot, a spike to a height the
+  signal never had. The range follows the numbers, the line has a gap, and the legend says `n/a`.
+- **The example ECUs' time ran slow.** `on_timer` runs at most once per dispatch pass, so its real period is
+  the timer's plus however late the pass was - and the scripts added `tick_ms` each time, so the odometer,
+  the DEF level and the fuel level ran slow by that. They measure the clock now (and cap a stall).
+- **The predictive DM1 went out thirty times a second**, once per inference, and was never taken back with a
+  "no fault" message; its source address was a constant that happened to match the default.
+  It is sent when it starts and then once a second, a DM1 of every lamp dark says it is over, and five
+  seconds of anomaly means five seconds in a row.
 - **The example project named its databases by a path on the machine that saved it.**
   `virtual-vehicle.tbsproj` listed `D:/Code/qt/TorqueBus/examples/databases/...`, so
   opening it anywhere else began with a "Missing DBC Database" dialog, an empty DBC
@@ -206,9 +291,29 @@ against what it does, which turned up more than expected.
   line in the configure summary; the pre-push script's header said no workflow
   had ever run, and so did a truncated sentence at the end of a section of
   `CONTRIBUTING.md`. (#2)
+- **The Pan icon had one arrowhead turned inside out.** The right-hand arrow ran to the edge of the
+  icon's canvas instead of folding back (`l3 3` where its twin has `l-3 3`), so the symbol was lopsided
+  in the Graph panel's toolbar too.
 
 ### Added
 
+- **Pan, zoom and fit buttons for the Pipeline canvas.** A column of four small icon buttons down the
+  canvas's left edge, from the same SVG set as the Graph panel's toolbar: **Pan**, **Zoom In**,
+  **Zoom Out** and **Fit to Window**. Pan is a tool that stays on - with it, a drag anywhere on the
+  canvas, over a block too, moves the canvas, and no block is picked up, selected or wired; a canvas
+  zoomed in until it is all block has nowhere else to grab. Zoom steps like the wheel, inside the same
+  limits. Fit zooms and centres on every block, and on the neural network card a TinyML block draws
+  under itself, without going past real size, and goes back to the origin on an empty canvas. They are a
+  column rather than a row in the bar above the canvas because that bar already needs most of the
+  width a Pipeline panel has by default, and a toolbar that is squeezed folds its buttons into a menu.
+- **A J1939 commercial-vehicle profile and a project that runs it**
+  (`j1939-commercial`, `examples/projects/j1939-vehicle.tbsproj`). Six Lua ECUs - engine, aftertreatment,
+  body, brakes, a switch panel and the cluster's core - the TinyML Virtual ECU in J1939 mode, a J1939 block
+  and the instrument cluster, with a `scenario` parameter on each ECU that lights the lamp it describes
+  (`low_oil_pressure`, `overheating`, `abs_fault`, `hazard`...). `examples/databases/j1939.dbc` describes
+  what they send, and the engine now sends the gear (ETC2) so the tachometer has one. The J1939 helpers
+  (`j1939_id`, `j1939_raw`, `j1939_send`, `j1939_dm1`) are in the Lua prelude, and a Frame Filter takes a
+  PGN. See `docs/development/cluster.md#the-j1939-example`.
 - **An instrument cluster for the Dashboard, in QML.** Speed, engine speed,
   temperatures, tell-tales and the TinyML panel on one screen, added from the
   context menu like a Gauge (**Add Cluster**) and present in
@@ -298,6 +403,13 @@ against what it does, which turned up more than expected.
 
 ### Changed
 
+- **The canvas keeps its zoom and position when its tab is left and shown again.** QtNodes' view fits
+  the whole scene to the window every time it is shown, so whatever the new buttons set was gone at the
+  next visit. The panel now fits the canvas when it has been filled - the first time it is shown, when
+  a project is opened or created, and when **TinyML Demo Setup** replaces the graph - and otherwise
+  leaves the view where it was left. The zoom range went from 0.3-2 to 0.1-2: the J1939 example needs
+  0.31 to be seen whole in a window 730 pixels tall, which left Fit nothing to work with in any window
+  smaller than that.
 - **The README's throughput figure now has a source, and the right one.** It
   claimed 190k frames/s — a number that appears nowhere else in the repository,
   with no measurement cited. The first correction replaced it with ~600,000,

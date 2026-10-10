@@ -155,6 +155,12 @@ vehicle ECU and TinyML Virtual ECU transmitting on CAN 1. The full contract — 
 sandbox, error handling, and measured execution cost — is in
 [`docs/development/scripting.md`](docs/development/scripting.md).
 
+[`examples/projects/j1939-vehicle.tbsproj`](examples/projects) is the same idea on a J1939 truck: six Lua ECUs
+(engine, aftertreatment, body, brakes, a switch panel and the cluster's own core), the TinyML Virtual ECU, a J1939
+block and the instrument cluster on the Dashboard. Each ECU takes a `scenario` parameter - `low_oil_pressure`,
+`overheating`, `abs_fault`, `hazard`... - and the cluster answers with the lamp it would light on a vehicle; see
+[`docs/development/cluster.md`](docs/development/cluster.md#the-j1939-example).
+
 ---
 
 ## Databases

@@ -1,0 +1,180 @@
+VERSION "1.0"
+
+NS_ :
+    NS_DESC_
+    CM_
+    BA_DEF_
+    BA_
+    VAL_
+    CAT_DEF_
+    CAT_
+    FILTER
+    BA_DEF_DEF_
+    EV_DATA_
+    ENVVAR_DATA_
+    SGTYPE_
+    SGTYPE_VAL_
+    BA_DEF_SGTYPE_
+    BA_SGTYPE_
+    SIGTYPE_VAL_
+    BA_DEF_REL_
+    BA_REL_
+    BA_DEF_DEF_REL_
+    BU_SG_REL_
+    BU_EV_REL_
+    BU_BO_REL_
+    SG_MUL_VAL_
+
+BS_:
+
+BU_: EMS ACM EBS BCM IC COMMANDS TINYML_ECU
+
+BO_ 2364539904 EEC1: 8 EMS
+ SG_ EngineTorqueMode : 0|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ DriverDemandTorque : 8|8@1+ (1,-125) [-125|125] "%" Vector__XXX
+ SG_ ActualEngineTorque : 16|8@1+ (1,-125) [-125|125] "%" Vector__XXX
+ SG_ EngineSpeed : 24|16@1+ (0.125,0) [0|8031.875] "rpm" Vector__XXX
+ SG_ SourceAddressEngCtrl : 40|8@1+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 2364539648 EEC2: 8 EMS
+ SG_ AccelPedalPos1 : 8|8@1+ (0.4,0) [0|100] "%" Vector__XXX
+ SG_ PercentLoadAtCurrentSpeed : 16|8@1+ (1,0) [0|125] "%" Vector__XXX
+
+BO_ 2364540160 ETC2: 8 EMS
+ SG_ TransmissionSelectedGear : 0|8@1+ (1,-125) [-125|125] "" Vector__XXX
+ SG_ TransmissionCurrentGear : 24|8@1+ (1,-125) [-125|125] "" Vector__XXX
+
+BO_ 2566844672 CCVS1: 8 EMS
+ SG_ ParkingBrakeSwitch : 2|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ WheelBasedVehicleSpeed : 8|16@1+ (0.00390625,0) [0|250.996] "km/h" Vector__XXX
+ SG_ CruiseControlActive : 24|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ BrakeSwitch : 28|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ CruiseControlSetSpeed : 40|8@1+ (1,0) [0|250] "km/h" Vector__XXX
+
+BO_ 2566843904 ET1: 8 EMS
+ SG_ EngineCoolantTemperature : 0|8@1+ (1,-40) [-40|210] "degC" Vector__XXX
+ SG_ FuelTemperature : 8|8@1+ (1,-40) [-40|210] "degC" Vector__XXX
+ SG_ EngineOilTemperature1 : 16|16@1+ (0.03125,-273) [-273|1735] "degC" Vector__XXX
+
+BO_ 2566844160 EFL_P1: 8 EMS
+ SG_ EngineOilLevel : 16|8@1+ (0.4,0) [0|100] "%" Vector__XXX
+ SG_ EngineOilPressure : 24|8@1+ (4,0) [0|1000] "kPa" Vector__XXX
+ SG_ EngineCoolantLevel : 56|8@1+ (0.4,0) [0|100] "%" Vector__XXX
+
+BO_ 2566844928 LFE1: 8 EMS
+ SG_ EngineFuelRate : 0|16@1+ (0.05,0) [0|3212.75] "L/h" Vector__XXX
+ SG_ InstantaneousFuelEconomy : 16|16@1+ (0.001953125,0) [0|125.5] "km/L" Vector__XXX
+ SG_ AverageFuelEconomy : 32|16@1+ (0.001953125,0) [0|125.5] "km/L" Vector__XXX
+
+BO_ 2566845696 AMB: 8 EMS
+ SG_ BarometricPressure : 0|8@1+ (0.5,0) [0|125] "kPa" Vector__XXX
+ SG_ AmbientAirTemperature : 24|16@1+ (0.03125,-273) [-273|1735] "degC" Vector__XXX
+ SG_ EngineIntake1AirTemperature : 40|8@1+ (1,-40) [-40|210] "degC" Vector__XXX
+
+BO_ 2566841600 HOURS: 8 EMS
+ SG_ TotalEngineHours : 0|32@1+ (0.05,0) [0|210554060] "hr" Vector__XXX
+ SG_ TotalEngineRevolutions : 32|32@1+ (1000,0) [0|4294967295000] "rev" Vector__XXX
+
+BO_ 2566834688 DM1: 8 EMS
+ SG_ ProtectLamp : 0|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ AmberWarningLamp : 2|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ RedStopLamp : 4|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ MalfunctionIndicatorLamp : 6|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ FlashProtectLamp : 8|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ FlashAmberWarningLamp : 10|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ FlashRedStopLamp : 12|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ FlashMalfunctionIndicatorLamp : 14|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ SPNLow : 16|16@1+ (1,0) [0|65535] "" Vector__XXX
+ SG_ FMI : 32|5@1+ (1,0) [0|31] "" Vector__XXX
+ SG_ SPNHigh : 37|3@1+ (1,0) [0|7] "" Vector__XXX
+ SG_ OccurrenceCount : 40|7@1+ (1,0) [0|127] "" Vector__XXX
+ SG_ ConversionMethod : 47|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 2566805053 AT1T1I1: 8 ACM
+ SG_ DieselExhaustFluidTankLevel : 0|8@1+ (0.4,0) [0|100] "%" Vector__XXX
+ SG_ DieselExhaustFluidTankTemp : 8|8@1+ (1,-40) [-40|210] "degC" Vector__XXX
+ SG_ DEFLevelLowIndicator : 32|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ SCRInducementSeverity : 40|3@1+ (1,0) [0|7] "" Vector__XXX
+
+BO_ 2565865739 EBC1: 8 EBS
+ SG_ ASR_EngineControlActive : 0|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ ASR_BrakeControlActive : 2|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ AntiLockBrakingActive : 4|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ ABSAmberWarning : 40|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ EBSRedWarning : 42|2@1+ (1,0) [0|3] "" Vector__XXX
+
+BO_ 2566827531 AIR1: 8 EBS
+ SG_ PneumaticSupplyPressure : 0|8@1+ (0.08,0) [0|20] "bar" Vector__XXX
+ SG_ ServiceBrakeCircuit1AirPress : 16|8@1+ (0.08,0) [0|20] "bar" Vector__XXX
+ SG_ ServiceBrakeCircuit2AirPress : 24|8@1+ (0.08,0) [0|20] "bar" Vector__XXX
+
+BO_ 2566769719 OEL: 8 COMMANDS
+ SG_ LightingCommand : 0|4@1+ (1,0) [0|2] "" Vector__XXX
+ SG_ HighBeamCommand : 4|2@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ HazardSwitch : 8|2@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ TurnSignalSwitch : 10|4@1+ (1,0) [0|2] "" Vector__XXX
+
+BO_ 2566799649 LD: 8 BCM
+ SG_ HighBeamHeadlight : 0|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ LowBeamHeadlight : 2|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ PositionLights : 4|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ LeftTurnSignal : 8|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ RightTurnSignal : 10|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ StopLight : 12|2@1+ (1,0) [0|3] "" Vector__XXX
+
+BO_ 2566847521 DD1: 8 BCM
+ SG_ WasherFluidLevel : 0|8@1+ (0.4,0) [0|100] "%" Vector__XXX
+ SG_ FuelLevel1 : 8|8@1+ (0.4,0) [0|100] "%" Vector__XXX
+ SG_ FuelLevel2 : 48|8@1+ (0.4,0) [0|100] "%" Vector__XXX
+
+BO_ 2566846241 VEP1: 8 BCM
+ SG_ NetBatteryCurrent : 0|8@1+ (1,-125) [-125|125] "A" Vector__XXX
+ SG_ AlternatorCurrent : 8|8@1+ (1,0) [0|250] "A" Vector__XXX
+ SG_ ChargingSystemPotential : 16|16@1+ (0.05,0) [0|3212.75] "V" Vector__XXX
+ SG_ BatteryPotential : 32|16@1+ (0.05,0) [0|3212.75] "V" Vector__XXX
+ SG_ KeySwitchPotential : 48|16@1+ (0.05,0) [0|3212.75] "V" Vector__XXX
+
+BO_ 2566723361 BAS: 8 BCM
+ SG_ DriverSeatBeltSwitch : 0|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ PassengerSeatBeltSwitch : 2|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ SeatBeltWarningLamp : 4|2@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 2566832407 VDHR: 8 IC
+ SG_ TotalVehicleDistance : 0|32@1+ (0.005,0) [0|21055406] "km" Vector__XXX
+ SG_ TripDistance : 32|32@1+ (0.005,0) [0|21055406] "km" Vector__XXX
+
+BO_ 2566841879 TD: 8 IC
+ SG_ Seconds : 0|8@1+ (0.25,0) [0|59.75] "s" Vector__XXX
+ SG_ Minutes : 8|8@1+ (1,0) [0|59] "min" Vector__XXX
+ SG_ Hours : 16|8@1+ (1,0) [0|23] "hr" Vector__XXX
+ SG_ Month : 24|8@1+ (1,0) [1|12] "month" Vector__XXX
+ SG_ Day : 32|8@1+ (0.25,0) [0.25|31.75] "day" Vector__XXX
+ SG_ Year : 40|8@1+ (1,1985) [1985|2235] "year" Vector__XXX
+ SG_ LocalMinuteOffset : 48|8@1+ (1,-125) [-125|125] "min" Vector__XXX
+ SG_ LocalHourOffset : 56|8@1+ (1,-125) [-125|125] "hr" Vector__XXX
+
+BO_ 2566848640 TinyML_Proprietary: 8 TINYML_ECU
+ SG_ ThermalHealth : 0|8@1+ (0.4,0) [0|100] "%" Vector__XXX
+ SG_ AnomalyScore : 8|8@1+ (0.4,0) [0|100] "%" Vector__XXX
+ SG_ Confidence : 16|8@1+ (0.4,0) [0|100] "%" Vector__XXX
+ SG_ RiskLevel : 24|3@1+ (1,0) [0|7] "" Vector__XXX
+ SG_ ModelStatus : 27|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ RegimeClass : 29|3@1+ (1,0) [0|4] "class" Vector__XXX
+ SG_ MessageCounter : 32|8@1+ (1,0) [0|250] "" Vector__XXX
+ SG_ InputAge : 40|8@1+ (0.1,0) [0|25] "s" Vector__XXX
+ SG_ InferenceTimeUs : 48|16@1+ (1,0) [0|64255] "us" Vector__XXX
+
+CM_ SG_ 2566834688 SPNLow "SPN bits 15..0. J1939-73 packs the three most significant bits (SPNHigh) above the FMI, so the whole SPN is SPNHigh * 65536 + SPNLow. Several ECUs send DM1, and the J1939 block reads each one's trouble codes; these signals show whichever arrived last.";
+CM_ SG_ 2566834688 SPNHigh "SPN bits 18..16.";
+CM_ SG_ 2566834688 ProtectLamp "Whichever ECU's DM1 arrived last. The lamps of the whole bus - the OR of every ECU's - are the system variables j1939.lamp_stop, j1939.lamp_warning, j1939.lamp_mil and j1939.lamp_protect.";
+CM_ SG_ 2566799649 LeftTurnSignal "Steady while the stalk is in: the cluster does the flashing.";
+CM_ SG_ 2566723361 SeatBeltWarningLamp "1 while the driver's belt is not fastened.";
+CM_ SG_ 2566848640 RegimeClass "What the vehicle is doing as the model sees it. RiskLevel is how worried the model is about it, which is a different question.";
+CM_ SG_ 2566848640 MessageCounter "Counts 0 to 250: above that a byte means error or not available on a J1939 bus.";
+
+VAL_ 2566848640 RegimeClass 0 "Idle" 1 "Cruise" 2 "HighLoad" 3 "ThermalStress" 4 "Anomaly" ;
+VAL_ 2566848640 RiskLevel 0 "Low" 1 "Moderate" 2 "High" 3 "Critical" ;
+VAL_ 2566848640 ModelStatus 0 "Waiting" 1 "Running" 2 "Error" 3 "NotAvailable" ;
+VAL_ 2566769719 LightingCommand 0 "Off" 1 "Park" 2 "Headlamps" ;
+VAL_ 2566769719 TurnSignalSwitch 0 "None" 1 "Left" 2 "Right" ;
+CM_ SG_ 2364540160 TransmissionCurrentGear "-1 is reverse, 0 neutral, 1 and up the forward gears. J1939 sends it with an offset of -125, so reverse is 124 on the wire.";

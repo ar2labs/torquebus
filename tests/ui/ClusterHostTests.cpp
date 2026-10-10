@@ -13,18 +13,27 @@
 
 #include "QmlWarningCatcher.h"
 
+#include "core/can/CanEngine.h"
 #include "core/dashboard/DashboardDescription.h"
 #include "core/dashboard/SystemVariables.h"
 #include "core/dashboard/cluster/ClusterProfiles.h"
 #include "core/database/CanMessage.h"
 #include "core/database/DecodedSignal.h"
+#include "core/j1939/J1939Diagnostics.h"
+#include "core/pipeline/GraphDescription.h"
+#include "core/pipeline/NodeCatalog.h"
 #include "core/plot/SignalSeries.h"
+#include "core/transmit/TransmitList.h"
+#include "drivers/virtual/VirtualCanBackend.h"
+#include "services/ProjectFile.h"
 #include "ui/dashboard/DashboardPanel.h"
 #include "ui/dashboard/cluster/ClusterDataSource.h"
 #include "ui/dashboard/cluster/ClusterHost.h"
 
 #include <QApplication>
 #include <QElapsedTimer>
+#include <QFileInfo>
+#include <QImage>
 #include <QJSValue>
 #include <QQmlComponent>
 #include <QQmlEngine>
@@ -32,12 +41,16 @@
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QSet>
+#include <QString>
 #include <QWidget>
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cmath>
 #include <functional>
+#include <limits>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -318,6 +331,112 @@ TEST(ClusterDataSourceTests, ASignalThatStopsArrivingIsNoDataOnceItIsOlderThanIt
     EXPECT_TRUE(shown());
     source.update(reader, start + milliseconds{4501});
     EXPECT_FALSE(shown());
+}
+
+TEST(ClusterDataSourceTests, J1939CommercialSpeedShowsInKmhAndBecomesNoDataAfter300Ms)
+{
+    using Clock = ClusterDataSource::Clock;
+    using std::chrono::milliseconds;
+
+    const ClusterProfile* profile = ClusterProfiles::instance().find(kJ1939CommercialProfile);
+    ASSERT_TRUE(profile != nullptr);
+
+    ClusterDataSource source;
+    source.setProfile(profile);
+
+    std::uint64_t stamp = 100;
+    double speedVal = 100.0;
+    const auto reader = [&](const DashboardBinding& binding) -> std::optional<ClusterReading> {
+        if (binding.message == "CCVS1" && binding.signal == "WheelBasedVehicleSpeed") {
+            return ClusterReading{speedVal, stamp};
+        }
+        return std::nullopt;
+    };
+
+    const Clock::time_point t0 = Clock::now();
+
+    // 1. Frame arrives with 100 km/h: cluster vehicle speed is 100.0
+    source.update(reader, t0);
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("speed")).isValid());
+    EXPECT_DOUBLE_EQ(source.vehicle()->value(QStringLiteral("speed")).toDouble(), 100.0);
+
+    // 2. Before 300 ms (e.g. at 200 ms without new sample), still valid:
+    source.update(reader, t0 + milliseconds{200});
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("speed")).isValid());
+
+    // 3. Exactly after 300 ms (at 301 ms without new sample), timeout expires and reverts to no
+    // data (invalid / dashes):
+    source.update(reader, t0 + milliseconds{301});
+    EXPECT_FALSE(source.vehicle()->value(QStringLiteral("speed")).isValid());
+
+    // 4. A frame with NaN (J1939 NA or Error) is also no data:
+    speedVal = std::numeric_limits<double>::quiet_NaN();
+    stamp = 101;
+    source.update(reader, t0 + milliseconds{400});
+    EXPECT_FALSE(source.vehicle()->value(QStringLiteral("speed")).isValid());
+}
+
+TEST(ClusterDataSourceTests, J1939CommercialProfileReadsAllRolesWhenSignalsArePresent)
+{
+    const ClusterProfile* profile = ClusterProfiles::instance().find(kJ1939CommercialProfile);
+    ASSERT_TRUE(profile != nullptr);
+
+    ClusterDataSource source;
+    source.setProfile(profile);
+
+    const auto reader = [&](const DashboardBinding&) -> std::optional<ClusterReading> {
+        return ClusterReading{50.0, 100};
+    };
+
+    source.update(reader, ClusterDataSource::Clock::now());
+
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("speed")).isValid());
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("rpm")).isValid());
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("coolant")).isValid());
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("oil")).isValid());
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("fuel")).isValid());
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("def")).isValid());
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("battery")).isValid());
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("airPressure")).isValid());
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("ambient")).isValid());
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("odometer")).isValid());
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("hours")).isValid());
+}
+
+TEST(ClusterDataSourceTests, TheJ1939BlocksLampVariablesLightTheDmLampsAndNeverGoStale)
+{
+    const ClusterProfile* profile = ClusterProfiles::instance().find(kJ1939CommercialProfile);
+    ASSERT_TRUE(profile != nullptr);
+
+    ClusterDataSource source;
+    source.setProfile(profile);
+
+    // The lamps are the J1939 block's variables, not per-frame DM1 signals: every ECU sends a DM1
+    // and a signal named "DM1.RedStopLamp" is whichever of them came last.
+    double stop = 1.0;
+    const auto reader = [&](const DashboardBinding& binding) -> std::optional<ClusterReading> {
+        if (binding.source == DashboardBinding::Source::Variable
+            && binding.variable == kJ1939LampStopVariable) {
+            return ClusterReading{stop};
+        }
+        return std::nullopt;
+    };
+
+    using Clock = ClusterDataSource::Clock;
+    const Clock::time_point t0 = Clock::now();
+
+    source.update(reader, t0);
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("dmStop")).isValid());
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("dmStop")).toBool());
+
+    // A variable has no age: a lamp that is lit stays lit however long it has been since anybody
+    // wrote it, which is what makes it the block's statement about the bus and not a sample.
+    source.update(reader, t0 + std::chrono::seconds{60});
+    EXPECT_TRUE(source.vehicle()->value(QStringLiteral("dmStop")).toBool());
+
+    stop = 0.0;
+    source.update(reader, t0 + std::chrono::seconds{61});
+    EXPECT_FALSE(source.vehicle()->value(QStringLiteral("dmStop")).toBool());
 }
 
 TEST(ClusterDataSourceTests, EveryRoleHasItsOwnAge)
@@ -697,6 +816,75 @@ TEST(DashboardPanelClusterTests, ASignalThatStopsOnTheStoreBecomesDashesOnTheClu
     ASSERT_TRUE(QmlWarningCatcher::messages().isEmpty()) << QmlWarningCatcher::describe();
 }
 
+TEST(DashboardPanelClusterTests, ASignalThatIsNotAvailableIsDrawnLikeOneThatWasNeverSeen)
+{
+    // A J1939 signal reporting "error" or "not available" is a sample whose value is NaN. Drawn as
+    // a number it was "nan" where the reading goes and a Gauge arc swept by NaN cast to an integer,
+    // which is undefined. A signal with nothing to report has no value: the same picture as one the
+    // bus never sent.
+    DashboardDescription dashboard;
+
+    const auto widget = [](const std::string& id, DashboardWidgetKind kind, double x) {
+        DashboardWidget item;
+        item.id = id;
+        item.kind = kind;
+        item.binding.source = DashboardBinding::Source::Signal;
+        item.binding.message = "EngineData";
+        item.binding.signal = "Level";
+        item.x = x;
+        item.y = 10.0;
+        item.width = 180.0;
+        item.height = 150.0;
+        item.minimum = 0.0;
+        item.maximum = 100.0;
+        return item;
+    };
+
+    dashboard.add(widget("gauge", DashboardWidgetKind::Gauge, 10.0));
+    dashboard.add(widget("numeric", DashboardWidgetKind::Numeric, 200.0));
+    dashboard.add(widget("lamp", DashboardWidgetKind::Lamp, 390.0));
+
+    CanMessage message;
+    message.name = "EngineData";
+    CanSignal level;
+    level.name = "Level";
+
+    const auto storeWith = [&](double value) {
+        auto store = std::make_unique<SignalSeriesStore>(64);
+
+        DecodedSignal sample;
+        sample.message = &message;
+        sample.signal = &level;
+        sample.timestampNs = 1'000'000ULL;
+        sample.value = value;
+        store->append(std::span<const DecodedSignal>{&sample, 1});
+
+        return store;
+    };
+
+    const auto render = [&dashboard](const SignalSeriesStore* store) {
+        DashboardPanel panel{dashboard};
+        panel.setPlotStore(store);
+        panel.resize(600, 200);
+        panel.show();
+        settle();
+        return panel.grab().toImage();
+    };
+
+    const SignalSeriesStore never{64};
+    const auto missing = storeWith(std::numeric_limits<double>::quiet_NaN());
+    const auto reading = storeWith(60.0);
+
+    const QImage withoutSignal = render(&never);
+    ASSERT_FALSE(withoutSignal.isNull());
+
+    EXPECT_TRUE(render(missing.get()) == withoutSignal)
+        << "a signal that is not available was drawn as a value";
+
+    // And a number is a different picture, which is what makes the comparison above mean something.
+    EXPECT_FALSE(render(reading.get()) == withoutSignal);
+}
+
 TEST(DashboardPanelClusterTests, ASignalOnTheStoreReachesTheCluster)
 {
     // The whole way, with nothing in between replaced: a decoded signal in the store the Graph
@@ -747,6 +935,249 @@ TEST(DashboardPanelClusterTests, ASignalOnTheStoreReachesTheCluster)
     // Teardown with a cluster on the panel: the host must go before the views it made.
     panel.reset();
     settle();
+
+    ASSERT_TRUE(QmlWarningCatcher::messages().isEmpty()) << QmlWarningCatcher::describe();
+}
+
+// ---------------------------------------------------------------------------
+// The J1939 example, all the way to the screen
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// The cluster the J1939 example shows after `duration` of a real run, read from the QML.
+struct ClusterShown final {
+    Result started{Result::ok()};
+    bool loaded{false};
+
+    double speed{std::nan("")};
+    double rpm{std::nan("")};
+    double gear{std::nan("")};
+    double coolant{std::nan("")};
+    double oil{std::nan("")};
+    double battery{std::nan("")};
+    double odometer{std::nan("")};
+    double aiRegime{std::nan("")};
+
+    std::map<std::string, bool> lamps;
+};
+
+/// Runs examples/projects/j1939-vehicle.tbsproj on the engine, with the Dashboard of the project
+/// bound to what the engine produces, and lets the event loop run so that the panel's own timer
+/// feeds the QML. Nothing in between is replaced.
+template<typename Edit>
+[[nodiscard]] ClusterShown runTheJ1939Example(std::chrono::milliseconds duration, Edit&& edit)
+{
+    ClusterShown shown;
+
+    const QString path = QStringLiteral(TORQUEBUS_EXAMPLE_PROJECT_DIR "/j1939-vehicle.tbsproj");
+
+    GraphDescription pipeline;
+    TransmitList transmit;
+    DashboardDescription dashboard;
+    shown.started = services::ProjectFile::load(path, pipeline, transmit, dashboard);
+    if (shown.started.failed()) {
+        return shown;
+    }
+
+    edit(pipeline);
+
+    CanEngine engine;
+    CanChannelConfig config;
+    config.deviceHandle = "virtual:0";
+    config.timing.bitrate = 500'000;
+    shown.started = engine.addChannel(std::make_unique<VirtualCanBackend>(), config);
+    if (shown.started.failed()) {
+        return shown;
+    }
+
+    engine.setGraphDescription(
+        pipeline, NodeCatalog::withBuiltinTypes(), QFileInfo{path}.absolutePath().toStdString());
+
+    shown.started = engine.start();
+    if (shown.started.failed()) {
+        return shown;
+    }
+
+    DashboardPanel panel{dashboard};
+    panel.setPlotStore(&engine.plotStore());
+    panel.setVariables(&engine.variables());
+    panel.resize(900, 600);
+    panel.show();
+    panel.reload();
+
+    QElapsedTimer clock;
+    clock.start();
+    while (clock.elapsed() < duration.count()) {
+        QApplication::processEvents(QEventLoop::AllEvents, 20);
+    }
+
+    const auto views = panel.findChildren<QQuickWidget*>();
+    if (views.size() == 1 && views.front()->rootObject() != nullptr) {
+        const QQuickWidget& view = *views.front();
+        shown.loaded = true;
+
+        shown.speed = number(view, "speed");
+        shown.rpm = number(view, "rpm");
+        shown.gear = number(view, "gear");
+        shown.coolant = number(view, "coolant");
+        shown.oil = number(view, "oil");
+        shown.battery = number(view, "battery");
+        shown.odometer = number(view, "odometer");
+        shown.aiRegime = number(view, "aiRegime");
+
+        for (const char* lamp : {"high",
+                                 "low",
+                                 "position",
+                                 "park",
+                                 "belt",
+                                 "engine",
+                                 "stop",
+                                 "warn",
+                                 "oil",
+                                 "battery",
+                                 "abs"}) {
+            QVariant lit;
+            QMetaObject::invokeMethod(view.rootObject(),
+                                      "lampOn",
+                                      Q_RETURN_ARG(QVariant, lit),
+                                      Q_ARG(QVariant, QString::fromLatin1(lamp)));
+            shown.lamps[lamp] = lit.toBool();
+        }
+    }
+
+    engine.stop();
+    return shown;
+}
+
+} // namespace
+
+TEST(J1939ExampleClusterTests, TheExampleProjectDrivesTheRealClusterWithRealValuesAndNoWarning)
+{
+    pointQmlAtTheQtThatWasFound();
+    const QmlWarningCatcher catcher;
+
+    const ClusterShown shown =
+        runTheJ1939Example(std::chrono::milliseconds{2500}, [](GraphDescription&) { });
+
+    ASSERT_TRUE(shown.started.succeeded()) << std::string{shown.started.message()};
+    ASSERT_TRUE(shown.loaded);
+
+    // Every number the cluster draws is a number: not a dash, which is what it shows for anything
+    // the bus did not deliver. The drive cycle opens at standstill with the engine idling.
+    EXPECT_NEAR(shown.speed, 0.0, 1.0);
+    EXPECT_NEAR(shown.rpm, 750.0, 50.0);
+    EXPECT_NEAR(shown.gear, 0.0, 0.1);
+    EXPECT_GT(shown.coolant, 80.0);
+    EXPECT_GT(shown.oil, 150.0);
+    EXPECT_NEAR(shown.battery, 12.6, 0.2);
+    EXPECT_NEAR(shown.odometer, 14852.0, 1.0);
+
+    // The AI panel is calm about a healthy vehicle.
+    EXPECT_LT(shown.aiRegime, 3.0);
+
+    // No lamp but the lights: the headlamps are on, and nothing is wrong.
+    EXPECT_TRUE(shown.lamps.at("low"));
+    EXPECT_TRUE(shown.lamps.at("position"));
+    for (const char* lamp :
+         {"high", "park", "belt", "engine", "stop", "warn", "oil", "battery", "abs"}) {
+        SCOPED_TRACE(lamp);
+        EXPECT_FALSE(shown.lamps.at(lamp));
+    }
+
+    ASSERT_TRUE(QmlWarningCatcher::messages().isEmpty()) << QmlWarningCatcher::describe();
+}
+
+TEST(J1939ExampleClusterTests, ALowOilPressureLightsTheStopAndOilLampsOnTheRealCluster)
+{
+    pointQmlAtTheQtThatWasFound();
+    const QmlWarningCatcher catcher;
+
+    const ClusterShown shown =
+        runTheJ1939Example(std::chrono::milliseconds{2500}, [](GraphDescription& pipeline) {
+            for (NodeDescription& node : pipeline.nodes()) {
+                if (node.id == "ecu_engine") {
+                    node.parameters.set("scenario", ParameterValue::fromText("low_oil_pressure"));
+                }
+            }
+        });
+
+    ASSERT_TRUE(shown.started.succeeded()) << std::string{shown.started.message()};
+    ASSERT_TRUE(shown.loaded);
+
+    // The stop lamp from the DM1 of the engine, with five other ECUs sending theirs dark; the oil
+    // lamp from the pressure itself.
+    EXPECT_TRUE(shown.lamps.at("stop"));
+    EXPECT_TRUE(shown.lamps.at("oil"));
+    EXPECT_FALSE(shown.lamps.at("warn"));
+
+    ASSERT_TRUE(QmlWarningCatcher::messages().isEmpty()) << QmlWarningCatcher::describe();
+}
+
+namespace {
+
+/// One block's scenario, set the way the Block panel would.
+[[nodiscard]] auto withScenario(const char* block, const char* scenario)
+{
+    return [block, scenario](GraphDescription& pipeline) {
+        for (NodeDescription& node : pipeline.nodes()) {
+            if (node.id == block) {
+                node.parameters.set("scenario", ParameterValue::fromText(scenario));
+            }
+        }
+    };
+}
+
+} // namespace
+
+TEST(J1939ExampleClusterTests, AnAlternatorThatStopsChargingLightsTheBatteryAndWarningLamps)
+{
+    pointQmlAtTheQtThatWasFound();
+    const QmlWarningCatcher catcher;
+
+    const ClusterShown shown = runTheJ1939Example(std::chrono::milliseconds{2500},
+                                                  withScenario("ecu_body", "alternator_failure"));
+    ASSERT_TRUE(shown.started.succeeded()) << std::string{shown.started.message()};
+    ASSERT_TRUE(shown.loaded);
+
+    EXPECT_LT(shown.battery, 11.8);
+    EXPECT_TRUE(shown.lamps.at("battery"));
+    EXPECT_TRUE(shown.lamps.at("warn"));
+    EXPECT_FALSE(shown.lamps.at("stop"));
+
+    ASSERT_TRUE(QmlWarningCatcher::messages().isEmpty()) << QmlWarningCatcher::describe();
+}
+
+TEST(J1939ExampleClusterTests, AnAbsFaultLightsTheAbsLampAndAFastenedBeltDoesNotLightTheBeltLamp)
+{
+    pointQmlAtTheQtThatWasFound();
+    const QmlWarningCatcher catcher;
+
+    const ClusterShown shown = runTheJ1939Example(std::chrono::milliseconds{2500},
+                                                  withScenario("ecu_brakes", "abs_fault"));
+    ASSERT_TRUE(shown.started.succeeded()) << std::string{shown.started.message()};
+    ASSERT_TRUE(shown.loaded);
+
+    EXPECT_TRUE(shown.lamps.at("abs"));
+    EXPECT_TRUE(shown.lamps.at("warn"));
+
+    // The belt is fastened by default. The lamp used to read the switch, which is 1 for fastened.
+    EXPECT_FALSE(shown.lamps.at("belt"));
+
+    ASSERT_TRUE(QmlWarningCatcher::messages().isEmpty()) << QmlWarningCatcher::describe();
+}
+
+TEST(J1939ExampleClusterTests, AnUnfastenedBeltLightsTheBeltLamp)
+{
+    pointQmlAtTheQtThatWasFound();
+    const QmlWarningCatcher catcher;
+
+    const ClusterShown shown = runTheJ1939Example(std::chrono::milliseconds{2500},
+                                                  withScenario("ecu_body", "belt_unbuckled"));
+    ASSERT_TRUE(shown.started.succeeded()) << std::string{shown.started.message()};
+    ASSERT_TRUE(shown.loaded);
+
+    EXPECT_TRUE(shown.lamps.at("belt"));
 
     ASSERT_TRUE(QmlWarningCatcher::messages().isEmpty()) << QmlWarningCatcher::describe();
 }
