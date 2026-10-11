@@ -178,6 +178,20 @@ private:
     void buildNavigationToolBar();
     void applyNavigationIcons();
 
+    /// The icons of the bar above the canvas, asked for again whenever the theme changes.
+    void applyHudIcons();
+
+    /// Delete is offered only while something is selected to delete.
+    void updateEditButtons();
+
+    /// The bar above the canvas shows its labels when there is room for them and its icons alone
+    /// when there is not, so the Pipeline panel is never made wider by it. applyHudSizing()
+    /// measures both (after a theme or font change), updateHudCompactness() picks one for the
+    /// width the bar has, and the tooltip carries the name while the label is away.
+    void applyHudSizing();
+    void updateHudCompactness();
+    void setHudLabelsShown(bool shown);
+
     /// Pan on: a drag anywhere moves the canvas and no block is touched. Off: the canvas as it was.
     void setPanToolActive(bool active);
 
@@ -268,6 +282,8 @@ private:
     QPushButton* m_animateButton{nullptr};
     QPushButton* m_injectFaultButton{nullptr};
     QPushButton* m_demoPipelineButton{nullptr};
+    bool m_hudCompact{false};
+    int m_hudLabelledWidth{0};
 
     QVariantAnimation* m_flowAnimation{nullptr};
     qreal m_phase{0.0};

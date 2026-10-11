@@ -403,6 +403,18 @@ against what it does, which turned up more than expected.
 
 ### Changed
 
+- **The bar above the canvas starts at the left, is grouped, and says what is on.** It was pushed to
+  the right edge, away from the strip of view tools below it, in the order Add, Delete, Animate, Inject,
+  Demo - the anomaly could be injected before the demo that has something to inject it into - and the
+  two toggles looked the same on and off (Animate Flow starts on and was indistinguishable from Inject
+  TinyML Anomaly, which starts off). Now: left-aligned, with a thin rule between what is in the Pipeline
+  (**Add Block**, **Delete Selected**), how it is shown (**Animate Flow**) and the TinyML demo
+  (**TinyML Demo Setup**, then **Inject TinyML Anomaly**); each button has an icon; a switched-on toggle
+  is filled in the accent; **Delete Selected** is greyed out while nothing is selected; and the bar is
+  the same surface as the strip beside the canvas, so the two read as one frame. **+ Add Block** is
+  **Add Block**, since the icon is the plus. When the bar is narrower than its labels it shows the icons
+  alone, with the name in the tooltip: the Pipeline panel could not be narrower than 746 px because of
+  this bar, and now can be 402.
 - **The canvas keeps its zoom and position when its tab is left and shown again.** QtNodes' view fits
   the whole scene to the window every time it is shown, so whatever the new buttons set was gone at the
   next visit. The panel now fits the canvas when it has been filled - the first time it is shown, when
