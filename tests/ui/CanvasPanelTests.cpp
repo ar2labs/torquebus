@@ -19,6 +19,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QImage>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPushButton>
@@ -31,6 +32,7 @@
 #include <QtNodes/internal/NodeGraphicsObject.hpp>
 
 #include <algorithm>
+#include <array>
 #include <string>
 
 using namespace torquebus;
@@ -387,6 +389,105 @@ TEST_F(CanvasPanelThemedTest, NavigationToolBarIsAColumnOfSmallIconButtonsBeside
     EXPECT_LT(toolBar->width(), 60);
 }
 
+/// The buttons of the bar above the canvas, in the order they stand in it. Found by the label they
+/// carry when there is room for it, which they keep while a narrow bar shows the icon alone.
+[[nodiscard]] QPushButton* hudButton(QWidget& panel, const char* label)
+{
+    for (auto* button : panel.findChildren<QPushButton*>()) {
+        if (button->property("hudLabel").toString() == QLatin1String(label)) {
+            return button;
+        }
+    }
+    return nullptr;
+}
+
+constexpr std::array kHudLabels{
+    "Add Block", "Delete Selected", "Animate Flow", "TinyML Demo Setup", "Inject TinyML Anomaly"};
+
+TEST_F(CanvasPanelThemedTest, HudBarStartsAtTheLeftInTheOrderTheButtonsAreUsed)
+{
+    auto* hud = panel.findChild<QWidget*>(QStringLiteral("torquebus.canvas.hud"));
+    ASSERT_NE(hud, nullptr);
+
+    // Left to right: what is in the Pipeline, how it is shown, then the demo - set up before it is
+    // broken.
+    int lastLeft = -1;
+    for (const char* label : kHudLabels) {
+        QPushButton* button = hudButton(panel, label);
+        ASSERT_NE(button, nullptr) << label;
+        EXPECT_TRUE(button->isVisible()) << label;
+        EXPECT_FALSE(button->icon().isNull()) << label;
+        EXPECT_GT(button->x(), lastLeft) << label;
+        lastLeft = button->x();
+    }
+
+    // Against the left edge, like the strip below it, with the free width after the last button.
+    QPushButton* first = hudButton(panel, kHudLabels.front());
+    QPushButton* last = hudButton(panel, kHudLabels.back());
+    const int leftGap = first->x();
+    const int rightGap = hud->width() - (last->x() + last->width());
+    EXPECT_LE(leftGap, 16);
+    EXPECT_GT(rightGap, leftGap);
+}
+
+TEST_F(CanvasPanelThemedTest, HudBarShowsIconsAloneWhenThereIsNoRoomForTheLabels)
+{
+    // Room enough: the labels.
+    EXPECT_EQ(hudButton(panel, "Add Block")->text(), QStringLiteral("Add Block"));
+
+    // Not enough: the icons alone, with the name in the tooltip, and the panel is not held wide by
+    // a bar that would not fit.
+    panel.resize(600, 700);
+    settleCanvas();
+    for (const char* label : kHudLabels) {
+        QPushButton* button = hudButton(panel, label);
+        ASSERT_NE(button, nullptr) << label;
+        EXPECT_TRUE(button->text().isEmpty()) << label;
+        EXPECT_FALSE(button->icon().isNull()) << label;
+        EXPECT_TRUE(button->toolTip().contains(QLatin1String(label))) << label;
+        EXPECT_LT(button->width(), 60) << label;
+    }
+    EXPECT_LT(panel.minimumSizeHint().width(), 600);
+
+    // Wide again: the labels are back, and the tooltips are the plain description.
+    panel.resize(1200, 700);
+    settleCanvas();
+    QPushButton* add = hudButton(panel, "Add Block");
+    EXPECT_EQ(add->text(), QStringLiteral("Add Block"));
+    EXPECT_FALSE(add->toolTip().startsWith(QLatin1String("Add Block - ")));
+}
+
+TEST_F(CanvasPanelThemedTest, HudBarToggleButtonsShowWhetherTheyAreOn)
+{
+    // Animate Flow starts on and Inject TinyML Anomaly off; both are toggles, and the bar has to
+    // show the difference rather than leave it to the click.
+    for (const char* label : {"Animate Flow", "Inject TinyML Anomaly"}) {
+        QPushButton* button = hudButton(panel, label);
+        ASSERT_NE(button, nullptr) << label;
+        ASSERT_TRUE(button->isCheckable()) << label;
+
+        button->setChecked(false);
+        settleCanvas();
+        const QImage off = button->grab().toImage();
+        button->setChecked(true);
+        settleCanvas();
+        const QImage on = button->grab().toImage();
+        EXPECT_NE(on, off) << label << " looks the same on and off";
+    }
+}
+
+TEST_F(CanvasPanelThemedTest, HudIconsAreAskedForAgainWhenTheThemeChanges)
+{
+    for (const char* label : kHudLabels) {
+        QPushButton* button = hudButton(panel, label);
+        ASSERT_NE(button, nullptr) << label;
+
+        button->setIcon(QIcon{});
+        panel.applyTheme(themes.theme());
+        EXPECT_FALSE(button->icon().isNull()) << label << " after the theme changed";
+    }
+}
+
 TEST_F(CanvasPanelThemedTest, NavigationIconsAreAskedForAgainWhenTheThemeChanges)
 {
     for (const char* name : {"pan", "zoomIn", "zoomOut", "fit"}) {
@@ -715,6 +816,38 @@ TEST_F(CanvasPanelTest, TinyMlDemoSetupShowsWhatItBuilds)
     for (const auto& node : description.nodes()) {
         EXPECT_TRUE(visibleScene().contains(blockRect(node.id))) << node.id << " is out of view";
     }
+}
+
+TEST_F(CanvasPanelTest, DeleteSelectedIsOfferedOnlyWhileSomethingIsSelected)
+{
+    QPushButton* remove = nullptr;
+    for (auto* button : panel.findChildren<QPushButton*>()) {
+        if (button->text() == QLatin1String("Delete Selected")) {
+            remove = button;
+        }
+    }
+    ASSERT_NE(remove, nullptr);
+
+    // Nothing to delete yet.
+    EXPECT_FALSE(remove->isEnabled());
+
+    // A block added from the palette is the selection, as it is for the user.
+    addFromPalette("can.source");
+    ASSERT_EQ(description.nodes().size(), 1U);
+    EXPECT_TRUE(remove->isEnabled());
+
+    scene()->clearSelection();
+    settleCanvas();
+    EXPECT_FALSE(remove->isEnabled());
+
+    scene()->nodeGraphicsObject(canvasIdOf(description.nodes().front().id))->setSelected(true);
+    settleCanvas();
+    ASSERT_TRUE(remove->isEnabled());
+
+    remove->click();
+    settleCanvas();
+    EXPECT_TRUE(description.nodes().empty());
+    EXPECT_FALSE(remove->isEnabled());
 }
 
 } // namespace

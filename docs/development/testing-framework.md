@@ -1,6 +1,6 @@
 # Testing Framework & Quality Assurance (Google Test & CTest)
 
-TorqueBus relies on automated testing as a design constraint, not an afterthought: **every commit runs 834 automated tests** across unit, UI, integration, and hardware layers. The project uses [Google Test](https://github.com/google/googletest) (v1.15.2) as its primary C++ testing framework, integrated with CMake and CTest.
+TorqueBus relies on automated testing as a design constraint, not an afterthought: **every commit runs 841 automated tests** across unit, UI, integration, and hardware layers. The project uses [Google Test](https://github.com/google/googletest) (v1.15.2) as its primary C++ testing framework, integrated with CMake and CTest.
 
 ---
 
@@ -11,7 +11,7 @@ The test suite is structured into four distinct layers in `tests/`:
 ```
 tests/
 ├── unit/          # Fast, isolated tests for core data structures and protocols (707 tests)
-├── ui/            # Headless and GUI tests for QML components, widgets, and docking (86 tests)
+├── ui/            # Headless and GUI tests for QML components, widgets, and docking (104 tests)
 ├── integration/   # Multi-node bus scenarios, Lua scripts, dataflow throughput (41 tests)
 └── hardware/      # Adapter loopbacks against physical Kvaser / PEAK hardware (4 tests)
 ```
@@ -19,7 +19,7 @@ tests/
 | Suite | Target | Focus | Execution Speed |
 |---|---|---|---|
 | **Unit** (`tests/unit`) | `torquebus_unit_tests` | CAN engine core, DBC parser, J1939 codecs, ISO-TP, UDS, TinyML inference, Lua runtime | ~35 seconds |
-| **UI** (`tests/ui`) | `torquebus_ui_tests` | Dashboard Instrument Cluster, QML bindings, docking layouts, settings dialogs | ~42 seconds |
+| **UI** (`tests/ui`) | `torquebus_ui_tests` | Dashboard Instrument Cluster, Canvas Pipeline, QML bindings, docking layouts, settings dialogs | ~42 seconds |
 | **Integration** (`tests/integration`) | `torquebus_integration_tests` | Virtual CAN multi-channel bus, Lua ECU lifecycles, pipeline dataflow, 150k frames/s throughput benchmarks | ~14 seconds |
 | **Hardware** (`tests/hardware`) | `torquebus_hardware_tests` | Physical PEAK PCAN and Kvaser adapter loopbacks | ~1 second (auto-skipped if detached) |
 

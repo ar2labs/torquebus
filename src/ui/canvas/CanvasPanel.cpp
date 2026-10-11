@@ -29,6 +29,7 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QFontMetricsF>
+#include <QFrame>
 #include <QGraphicsItem>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -1395,26 +1396,32 @@ CanvasPanel::CanvasPanel(GraphDescription& description, const NodeCatalog& catal
     m_palette->setIconSize(QSize(16, 16));
     m_palette->setToolTip(
         tr("Double-click or drag a block onto the Pipeline canvas, or select one and click "
-           "'+ Add Block'."));
+           "'Add Block'."));
 
     buildPalette();
 
-    // --- Block Editing & TinyML Control Bar above Canvas (right-aligned) ---
+    // --- Pipeline control bar above the Canvas (left-aligned) ---
+    // Left-aligned, so it starts where the strip of view tools below it does, and grouped by what
+    // a button acts on with a thin rule between the groups: what is in the Pipeline (add, delete),
+    // how it is shown (animate) and the TinyML demo - set up first, then break it, the order it is
+    // used in.
     m_hudBar = new QWidget{this};
     m_hudBar->setObjectName(QStringLiteral("torquebus.canvas.hud"));
+    m_hudBar->setProperty("hudBar", true);
     auto* hudLayout = new QHBoxLayout{m_hudBar};
     hudLayout->setContentsMargins(10, 5, 10, 5);
-    hudLayout->setSpacing(8);
+    hudLayout->setSpacing(6);
 
-    m_addBlockButton = new QPushButton{tr("+ Add Block"), m_hudBar};
+    m_addBlockButton = new QPushButton{tr("Add Block"), m_hudBar};
     m_addBlockButton->setToolTip(
         tr("Add the block selected in the left palette (or choose from a menu) at a free "
            "position on the Canvas."));
 
     m_deleteBlockButton = new QPushButton{tr("Delete Selected"), m_hudBar};
+    m_deleteBlockButton->setEnabled(false);
     m_deleteBlockButton->setToolTip(
         tr("Delete the selected block(s) or connection wire(s) from the Pipeline (Del / "
-           "Backspace)."));
+           "Backspace). Select something on the Canvas first."));
 
     m_animateButton = new QPushButton{tr("Animate Flow"), m_hudBar};
     m_animateButton->setCheckable(true);
@@ -1433,12 +1440,31 @@ CanvasPanel::CanvasPanel(GraphDescription& description, const NodeCatalog& catal
         tr("Populate the Canvas with a complete Virtual Vehicle ECU + TinyML Virtual ECU + "
            "Signal Plot + CAN Trace simulation pipeline."));
 
-    hudLayout->addStretch(1);
+    const auto addGroupRule = [this, hudLayout] {
+        auto* rule = new QFrame{m_hudBar};
+        rule->setFrameShape(QFrame::NoFrame);
+        rule->setProperty("hudRule", true);
+        rule->setFixedSize(1, 18);
+        hudLayout->addWidget(rule);
+    };
+
     hudLayout->addWidget(m_addBlockButton);
     hudLayout->addWidget(m_deleteBlockButton);
+    addGroupRule();
     hudLayout->addWidget(m_animateButton);
-    hudLayout->addWidget(m_injectFaultButton);
+    addGroupRule();
     hudLayout->addWidget(m_demoPipelineButton);
+    hudLayout->addWidget(m_injectFaultButton);
+    hudLayout->addStretch(1);
+
+    // What each button says, kept for when the bar has to show icons alone.
+    for (QPushButton* button : m_hudBar->findChildren<QPushButton*>()) {
+        button->setProperty("hudLabel", button->text());
+        button->setProperty("hudTip", button->toolTip());
+    }
+    m_hudBar->installEventFilter(this);
+
+    applyHudIcons();
 
     auto* rightPane = new QWidget{this};
     auto* rightLayout = new QVBoxLayout{rightPane};
@@ -1492,6 +1518,7 @@ CanvasPanel::CanvasPanel(GraphDescription& description, const NodeCatalog& catal
 
     connect(m_addBlockButton, &QPushButton::clicked, this, &CanvasPanel::addSelectedPaletteNode);
     connect(m_deleteBlockButton, &QPushButton::clicked, this, &CanvasPanel::deleteSelectedItems);
+    connect(m_scene, &QGraphicsScene::selectionChanged, this, &CanvasPanel::updateEditButtons);
 
     connect(m_animateButton, &QPushButton::toggled, this, [this](bool checked) {
         m_animationsEnabled = checked;
@@ -1563,6 +1590,7 @@ CanvasPanel::~CanvasPanel()
 void CanvasPanel::showEvent(QShowEvent* event)
 {
     QWidget::showEvent(event);
+    updateHudCompactness();
     refreshTelemetryCache();
     updateAnimationState();
     if (m_view != nullptr && m_view->viewport() != nullptr) {
@@ -1658,6 +1686,10 @@ QString CanvasPanel::findScriptNodeAt(const QPointF& scenePosition, bool onlyEdi
 
 bool CanvasPanel::eventFilter(QObject* watched, QEvent* event)
 {
+    if (event != nullptr && watched == m_hudBar && event->type() == QEvent::Resize) {
+        updateHudCompactness();
+    }
+
     if (event == nullptr || m_view == nullptr) {
         return QWidget::eventFilter(watched, event);
     }
@@ -1983,8 +2015,13 @@ void CanvasPanel::releaseGraph()
     delete m_view;
     m_view = nullptr;
 
+    // The scene clears its selection as it goes, and nothing here should look at it by then.
+    if (m_scene != nullptr) {
+        QObject::disconnect(m_scene, nullptr, this, nullptr);
+    }
     delete m_scene;
     m_scene = nullptr;
+    updateEditButtons();
 
     m_model.reset();
 }
@@ -2082,6 +2119,90 @@ void CanvasPanel::applyNavigationIcons()
     m_actionZoomIn->setIcon(themes->icon(QStringLiteral("zoom-in")));
     m_actionZoomOut->setIcon(themes->icon(QStringLiteral("zoom-out")));
     m_actionFit->setIcon(themes->icon(QStringLiteral("fit")));
+}
+
+void CanvasPanel::applyHudIcons()
+{
+    ThemeManager* themes = ThemeManager::instance();
+    if (themes == nullptr || m_hudBar == nullptr) {
+        return;
+    }
+
+    m_addBlockButton->setIcon(themes->icon(QStringLiteral("add")));
+    m_deleteBlockButton->setIcon(themes->icon(QStringLiteral("clear")));
+    m_animateButton->setIcon(themes->icon(QStringLiteral("simulation")));
+    m_demoPipelineButton->setIcon(themes->icon(QStringLiteral("neural")));
+    m_injectFaultButton->setIcon(themes->icon(QStringLiteral("diagnostics")));
+}
+
+void CanvasPanel::setHudLabelsShown(bool shown)
+{
+    m_hudCompact = !shown;
+    for (QPushButton* button : m_hudBar->findChildren<QPushButton*>()) {
+        const QString label = button->property("hudLabel").toString();
+        const QString tip = button->property("hudTip").toString();
+        button->setText(shown ? label : QString{});
+        button->setToolTip(shown ? tip : QStringLiteral("%1 - %2").arg(label, tip));
+    }
+}
+
+void CanvasPanel::applyHudSizing()
+{
+    if (m_hudBar == nullptr) {
+        return;
+    }
+
+    const auto buttons = m_hudBar->findChildren<QPushButton*>();
+    m_hudLabelledWidth = 0;
+
+    // Icons alone are only an option when every button has one.
+    const bool allHaveIcons = std::ranges::none_of(
+        buttons, [](const QPushButton* button) { return button->icon().isNull(); });
+    if (!allHaveIcons) {
+        setHudLabelsShown(true);
+        return;
+    }
+
+    // What the labels need, measured with them on and no minimum in the way ...
+    setHudLabelsShown(true);
+    for (QPushButton* button : buttons) {
+        button->setMinimumWidth(0);
+        button->ensurePolished();
+    }
+    m_hudBar->layout()->invalidate();
+    const int labelled = m_hudBar->layout()->sizeHint().width();
+
+    // ... and the least the bar can be: the icons alone. A style sheet's min-width becomes the
+    // widget's own minimum and 0 would let a button be squeezed until it is cut off, so the minimum
+    // is put back, to what the button needs in whichever form it is shown.
+    setHudLabelsShown(false);
+    for (QPushButton* button : buttons) {
+        button->ensurePolished();
+        button->setMinimumWidth(button->sizeHint().width());
+    }
+
+    setHudLabelsShown(true);
+    m_hudLabelledWidth = labelled;
+    updateHudCompactness();
+}
+
+void CanvasPanel::updateHudCompactness()
+{
+    if (m_hudBar == nullptr || m_hudLabelledWidth <= 0 || !m_hudBar->isVisible()) {
+        return;
+    }
+
+    const bool compact = m_hudBar->width() < m_hudLabelledWidth;
+    if (compact != m_hudCompact) {
+        setHudLabelsShown(!compact);
+    }
+}
+
+void CanvasPanel::updateEditButtons()
+{
+    if (m_deleteBlockButton != nullptr) {
+        m_deleteBlockButton->setEnabled(m_scene != nullptr && !m_scene->selectedItems().isEmpty());
+    }
 }
 
 void CanvasPanel::setPanToolActive(bool active)
@@ -2709,6 +2830,7 @@ void CanvasPanel::applyTheme(const Theme& theme)
     }
 
     applyNavigationIcons();
+    applyHudIcons();
 
     // The application's toolbar rule puts the edge at the bottom, which is where a horizontal bar
     // meets what it is above; this one stands beside the canvas.
@@ -2719,11 +2841,26 @@ void CanvasPanel::applyTheme(const Theme& theme)
                 .arg(theme.toolbar.name(QColor::HexRgb), theme.border.name(QColor::HexRgb)));
     }
 
+    // The bar above the canvas is the same surface as the strip beside it, so the two read as one
+    // frame round the canvas rather than as two bars. Its buttons are tighter than a dialog's (the
+    // application rule gives every button 68 px and 14 px of padding), and one that is switched on
+    // says so: Animate Flow starts on and looked the same as Inject TinyML Anomaly, which starts
+    // off.
     if (m_hudBar != nullptr) {
         m_hudBar->setStyleSheet(
-            QStringLiteral("QWidget#torquebus.canvas.hud { background-color: %1; "
-                           "border-bottom: 1px solid %2; }")
-                .arg(theme.panelAlternate.name(QColor::HexRgb), theme.border.name(QColor::HexRgb)));
+            QStringLiteral("QWidget[hudBar=\"true\"] { background-color: %1; "
+                           "border-bottom: 1px solid %2; }"
+                           "QWidget[hudBar=\"true\"] QPushButton { padding: 3px 8px 3px 6px; "
+                           "min-width: 0px; }"
+                           "QWidget[hudBar=\"true\"] QPushButton:checked { background-color: %3; "
+                           "border-color: %4; }"
+                           "QFrame[hudRule=\"true\"] { background-color: %2; border: none; }")
+                .arg(theme.toolbar.name(QColor::HexRgb),
+                     theme.border.name(QColor::HexRgb),
+                     theme.selection.name(QColor::HexRgb),
+                     theme.accent.name(QColor::HexRgb)));
+
+        applyHudSizing();
     }
 
     updateHudLabels();

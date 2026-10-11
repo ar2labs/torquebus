@@ -173,6 +173,11 @@ int main(int argc, char** argv)
         return RUN_ALL_TESTS();
     }
     qputenv("QT_QPA_PLATFORM", "offscreen");
+#ifdef _WIN32
+    if (qEnvironmentVariableIsEmpty("QT_QPA_FONTDIR")) {
+        qputenv("QT_QPA_FONTDIR", "C:\\Windows\\Fonts");
+    }
+#endif
 
 #ifdef _MSC_VER
     // A failed assertion in a debug build (the CRT's, and Qt's, which Qt reports through it) opens
