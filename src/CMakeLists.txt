@@ -50,6 +50,8 @@ add_library(torquebus_core STATIC
     core/pipeline/NodeCatalog.cpp
     core/pipeline/GraphDescription.h
     core/pipeline/GraphDescription.cpp
+    core/pipeline/BusGrouping.h
+    core/pipeline/BusGrouping.cpp
 
     core/diagnostics/DiagnosticEvent.h
     core/diagnostics/DiagnosticSession.h
@@ -324,6 +326,8 @@ qt_add_library(torquebus_ui STATIC
     ui/mainwindow/DockChrome.h
     ui/mainwindow/DockChrome.cpp
     ui/common/Motion.h
+    ui/common/NodeAppearance.h
+    ui/common/NodeAppearance.cpp
     ui/common/AnimatedToolButton.h
     ui/common/AnimatedToolButton.cpp
     ui/mainwindow/MainWindow.h
@@ -338,6 +342,11 @@ qt_add_library(torquebus_ui STATIC
     ui/output/OutputPanel.cpp
     ui/canvas/PipelineGraphModel.h
     ui/canvas/PipelineGraphModel.cpp
+    ui/canvas/CanvasLayout.h
+    ui/canvas/CanvasArrange.h
+    ui/canvas/CanvasArrange.cpp
+    ui/canvas/CanvasPainters.h
+    ui/canvas/CanvasPainters.cpp
     ui/canvas/CanvasPanel.h
     ui/canvas/CanvasPanel.cpp
     ui/database/DatabasePanel.h

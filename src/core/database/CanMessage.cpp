@@ -73,9 +73,22 @@ CanFrame CanMessage::makeFrame() const noexcept
     CanFrame frame;
     frame.identifier = identifier;
     frame.format = format;
-    frame.length = length;
-    frame.dlc = dlcFromPayloadLength(length, false);
     frame.direction = CanDirection::Tx;
+
+    // More than eight bytes is a CAN FD message, and the frame has to say so. It used
+    // to say a payload of twelve bytes in a data length code of eight - a classic
+    // frame that does not exist, which a driver refuses and a receiver cannot read.
+    // FD payloads come in steps (12, 16, 20, 24, 32, 48, 64), so a length between two
+    // is carried by the next one up, the spare bytes zero.
+    //
+    // Clamped first: a database built in code rather than parsed has not been
+    // through the parser's check, and a length past the array is a frame that reads
+    // past it.
+    const auto payload = static_cast<std::uint8_t>(std::min<std::size_t>(length, kMaxCanPayload));
+
+    frame.fd = payload > kMaxClassicCanPayload;
+    frame.dlc = dlcFromPayloadLength(payload, frame.fd);
+    frame.length = payloadLengthFromDlc(frame.dlc, frame.fd);
     return frame;
 }
 

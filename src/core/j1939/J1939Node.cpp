@@ -205,7 +205,7 @@ void J1939Node::process(NodeContext& context)
             if (std::optional<J1939Diagnostic> message = j1939DecodeDiagnostic(
                     id->pgn(),
                     id->sourceAddress,
-                    std::span<const std::uint8_t>{frame.data.data(), frame.length},
+                    std::span<const std::uint8_t>{frame.data.data(), frame.payloadSize()},
                     m_spnReading,
                     frame.timestampNs);
                 message.has_value()) {
@@ -228,7 +228,7 @@ void J1939Node::process(NodeContext& context)
                             frame.channel,
                             frame.timestampNs,
                             frame.data.data(),
-                            frame.length,
+                            frame.payloadSize(),
                             count);
     }
 

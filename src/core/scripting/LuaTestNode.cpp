@@ -9,6 +9,7 @@
 #include "core/scripting/LuaTestPrelude.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <format>
 #include <utility>
 
@@ -401,9 +402,16 @@ int LuaTestNode::luaSend(lua_State* state)
     frame.dlc = dlcFromPayloadLength(frame.length, isFd);
 
     if (!isValidIdentifier(frame.identifier, frame.format)) {
+        // Formatted here and not by luaL_error. Lua's formatter knows %s %d %I %f %p %c %U and
+        // nothing else: it keeps an unknown conversion as text and does *not* consume its
+        // argument, so the %s after a %X took the identifier for a string and read it from
+        // address 0x800. A script that wrote emit(0x20000000, ...) ended the application.
+        char hex[16];
+        std::snprintf(hex, sizeof hex, "0x%X", static_cast<unsigned>(frame.identifier));
+
         return luaL_error(state,
-                          "send: identifier 0x%X does not fit a %s frame",
-                          static_cast<unsigned>(frame.identifier),
+                          "send: identifier %s does not fit a %s frame",
+                          hex,
                           extended ? "29-bit" : "11-bit");
     }
 
@@ -568,7 +576,7 @@ int LuaTestNode::luaTaken(lua_State* state)
     lua_pushinteger(state, static_cast<lua_Integer>(frame.identifier));
     lua_setfield(state, -2, "id");
 
-    lua_pushlstring(state, reinterpret_cast<const char*>(frame.data.data()), frame.length);
+    lua_pushlstring(state, reinterpret_cast<const char*>(frame.data.data()), frame.payloadSize());
     lua_setfield(state, -2, "data");
 
     lua_pushinteger(state, static_cast<lua_Integer>(frame.channel));

@@ -57,6 +57,17 @@ TraceStore::TraceStore(std::size_t capacity)
 void TraceStore::append(std::span<const CanFrame> frames)
 {
     for (const CanFrame& frame : frames) {
+        // What is kept is read later by the trace, the signal tree, the exporters and the
+        // canvas cards, every one of which indexes the payload with this length. A frame that
+        // claims more than the array holds - a plugin's block that built one - is kept as the
+        // array it is.
+        if (frame.length > kMaxCanPayload) {
+            CanFrame held = frame;
+            held.length = static_cast<std::uint8_t>(kMaxCanPayload);
+            appendOne(held);
+            continue;
+        }
+
         appendOne(frame);
     }
 }

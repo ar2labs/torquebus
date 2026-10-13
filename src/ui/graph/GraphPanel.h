@@ -3,7 +3,8 @@
 // TorqueBus Studio
 // Copyright (C) TorqueBus contributors
 //
-// The Graph panel: which signals to draw, and the drawing of them.
+// The Plot Viewer: which signals to draw, and the drawing of them. The class and its files keep
+// the name the tab had before it was called that.
 //
 // Supports PCAN-Explorer / automotive-grade features:
 // - Interactive toolbar with Play/Pause/Stop, Navigation tools (Pan, Pointer, Zoom box)

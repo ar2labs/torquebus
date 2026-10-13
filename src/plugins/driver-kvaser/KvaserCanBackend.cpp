@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <charconv>
 #include <chrono>
 #include <cstdio>
 #include <format>
@@ -165,7 +166,15 @@ constexpr unsigned int kTimerScaleMicroseconds = 1;
         return false;
     }
 
-    channelIndex = std::stoi(suffix);
+    // See the virtual backend: a handle is text from a file, and stoi throws on a number that is
+    // too large.
+    int value = 0;
+    const auto parsed = std::from_chars(suffix.data(), suffix.data() + suffix.size(), value);
+    if (parsed.ec != std::errc{} || parsed.ptr != suffix.data() + suffix.size()) {
+        return false;
+    }
+
+    channelIndex = value;
     return channelIndex >= 0;
 }
 

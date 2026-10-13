@@ -5,6 +5,7 @@ add_executable(torquebus_integration_tests
     DecodeThroughputTests.cpp
     ExampleScriptTests.cpp
     LuaEcuBusTests.cpp
+    PipelineBlocksTests.cpp
     VirtualBusTests.cpp
 )
 

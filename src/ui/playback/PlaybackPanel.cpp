@@ -28,7 +28,7 @@
 namespace torquebus::ui {
 namespace {
 
-/// 20 Hz, the same as the Graph panel. A position readout that ticks slower
+/// 20 Hz, the same as the Plot Viewer. A position readout that ticks slower
 /// than this looks stuck; one that ticks faster is repainting digits nobody can
 /// read.
 constexpr int kRefreshMs = 50;

@@ -207,7 +207,7 @@ void TraceTreeModel::populateSignalsForMessage(TraceTreeNode* msgNode, const Can
         sigNode->dbSignal = &sig;
 
         if (sig.fitsIn(frame.length)) {
-            sigNode->lastRawValue = sig.rawValue(frame.data.data(), frame.length);
+            sigNode->lastRawValue = sig.rawValue(frame.data.data(), frame.payloadSize());
             sigNode->hasLastValue = true;
         }
         sigNode->valueChanged = false;

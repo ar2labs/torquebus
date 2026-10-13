@@ -117,7 +117,7 @@ struct CanSignal final {
 
     [[nodiscard]] double decode(const CanFrame& frame) const noexcept
     {
-        return decode(frame.data.data(), frame.length);
+        return decode(frame.data.data(), frame.payloadSize());
     }
 
     /// Whether every bit this signal needs is inside a payload of that length.

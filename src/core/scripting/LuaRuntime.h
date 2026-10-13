@@ -27,6 +27,8 @@
 
 #include "core/Result.h"
 
+#include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -35,8 +37,34 @@
 #include <vector>
 
 struct lua_State;
+struct lua_Debug;
 
 namespace torquebus {
+
+/// What one script is allowed to cost.
+///
+/// Rule 1 above says a script error is a Result and never a crash, and an error
+/// is only something a script can produce by returning. `while true do end` does
+/// not return, and neither does a table that grows until the machine swaps: the
+/// first froze the thread that runs the pipeline - and with it Stop, which waits
+/// for that thread - and the second took the whole application's memory with it.
+/// Both are the commonest mistakes a person makes while writing a loop.
+///
+/// The limits turn those into the errors rule 1 promises. They are generous on
+/// purpose: a handler runs once per frame inside a pass of a few milliseconds, so
+/// nothing a simulated ECU legitimately does comes near them.
+struct LuaLimits final {
+    /// The top-level chunk of a script and of the prelude: set-up work, which
+    /// builds tables and may take a little longer than a handler.
+    std::chrono::milliseconds loadBudget{2000};
+
+    /// One call into a script - a handler for one frame, one timer tick.
+    std::chrono::milliseconds callBudget{250};
+
+    /// Heap the interpreter may hold. A request past it fails the way an
+    /// exhausted machine would, inside the script, as "not enough memory".
+    std::size_t memoryBytes{64U * 1024U * 1024U};
+};
 
 /// A value passed to or from a script. Deliberately small: the scripting
 /// boundary carries numbers, strings and byte arrays, and anything richer goes
@@ -181,7 +209,30 @@ public:
     /// not, and this is the number that catches it early.
     [[nodiscard]] std::size_t memoryBytes() const;
 
+    /// Replaces the limits. Takes effect on the next call, and the memory limit
+    /// from the next allocation; a limit below what is already held is not an
+    /// error, it just means everything that grows fails from here on.
+    void setLimits(const LuaLimits& limits) noexcept;
+    [[nodiscard]] const LuaLimits& limits() const noexcept { return m_limits; }
+
+    /// True when the last failure was the interpreter running out of its budget
+    /// of time or memory rather than the script's own error. A node can then say
+    /// so - "stopped after 5 errors" is the wrong thing to tell somebody whose
+    /// loop never ended.
+    [[nodiscard]] bool lastFailureWasALimit() const noexcept { return m_limitHit; }
+
 private:
+    /// Wraps the allocator: counts what Lua holds and refuses what would pass the
+    /// limit. Defined in the .cpp, where lua.h is.
+    struct Allocator;
+
+    /// Holds a deadline for the length of one call.
+    class Budget;
+
+    /// The count hook. Fires every few thousand VM instructions - the only place
+    /// a loop that never calls anything can be interrupted.
+    static void onCount(lua_State* state, lua_Debug* debug);
+
     /// The one implementation behind both callStored() overloads.
     [[nodiscard]] Result callStored(CallableRef ref, LuaValue& result, int results);
 
@@ -191,7 +242,23 @@ private:
                               LuaValue& result,
                               int results);
 
+    /// Turns a failed pcall into a Result and records whether a limit was why.
+    [[nodiscard]] Result failure(ErrorCode code);
+
+    // What the interpreter allocates through. lua_close, in the destructor, frees
+    // through it, so it must outlive the state - which it does, being a member
+    // that is only released once the destructor body has closed the state.
+    std::unique_ptr<Allocator> m_allocator;
+
     lua_State* m_state{nullptr};
+
+    LuaLimits m_limits;
+    bool m_limitHit{false};
+
+    bool m_deadlineActive{false};
+    bool m_timedOut{false};
+    std::chrono::steady_clock::time_point m_deadline{};
+    std::chrono::milliseconds m_allowance{0};
 };
 
 } // namespace torquebus

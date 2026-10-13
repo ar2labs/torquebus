@@ -88,7 +88,9 @@ void DbcDecoderNode::process(NodeContext& context)
 
         ++m_decoded;
 
-        message->signalsIn(frame.data.data(), frame.length, m_present);
+        const std::size_t length = frame.payloadSize();
+
+        message->signalsIn(frame.data.data(), length, m_present);
 
         for (const CanSignal* signal : m_present) {
             if (count >= m_buffer.size()) {
@@ -98,13 +100,13 @@ void DbcDecoderNode::process(NodeContext& context)
                 break;
             }
 
-            const bool fits = signal->fitsIn(frame.length);
+            const bool fits = signal->fitsIn(length);
 
             DecodedSignal& decoded = m_buffer[count++];
             decoded.timestampNs = frame.timestampNs;
             decoded.message = message;
             decoded.signal = signal;
-            decoded.raw = signal->rawValue(frame.data.data(), frame.length);
+            decoded.raw = signal->rawValue(frame.data.data(), length);
             decoded.value = static_cast<double>(decoded.raw) * signal->factor + signal->offset;
             decoded.identifier = frame.identifier;
             decoded.channel = frame.channel;

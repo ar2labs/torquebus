@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-add_executable(torquebus_ui_tests DockingTests.cpp TransmitPanelTests.cpp CanvasPanelTests.cpp TracePanelTests.cpp GraphPanelTests.cpp ScriptEditorPanelTests.cpp IconImageProviderTests.cpp ClusterThemeSyncTests.cpp ClusterViewTests.cpp ClusterHostTests.cpp EngineControllerTests.cpp)
+add_executable(torquebus_ui_tests DockingTests.cpp TransmitPanelTests.cpp CanvasPanelTests.cpp CanvasBusTests.cpp
+    CanvasRobustnessTests.cpp NodePropertiesRangeTests.cpp CanvasArrangeTests.cpp TracePanelTests.cpp GraphPanelTests.cpp ScriptEditorPanelTests.cpp IconImageProviderTests.cpp ClusterThemeSyncTests.cpp ClusterViewTests.cpp ClusterHostTests.cpp EngineControllerTests.cpp)
 target_link_libraries(torquebus_ui_tests
     PRIVATE torquebus::ui torquebus_clusterplugin torquebus::warnings GTest::gtest
 )
@@ -11,6 +12,10 @@ set_target_properties(torquebus_ui_tests PROPERTIES FOLDER "Tests")
 # for its QML modules relative to the libraries it was loaded from.
 target_compile_definitions(torquebus_ui_tests PRIVATE
     TORQUEBUS_CLUSTER_QML_DIR="${CMAKE_SOURCE_DIR}/src/ui/dashboard/cluster/qml"
+
+    # Where QtNodes was fetched, so that a test can check the one correction made to it
+    # (cmake/PatchQtNodes.cmake) is there.
+    TORQUEBUS_QTNODES_SOURCE_DIR="${qtnodes_SOURCE_DIR}"
 
     # The J1939 example is run from the source tree, like the scripts the integration tests run: the
     # file people are pointed at is the file that has to work.

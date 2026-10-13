@@ -7,6 +7,10 @@
 
 #include "core/scripting/LuaRuntime.h"
 
+#include "core/FilePath.h"
+
+#include <algorithm>
+#include <cstring>
 #include <format>
 #include <fstream>
 #include <sstream>
@@ -83,11 +87,168 @@ constexpr luaL_Reg kLibraries[] = {
     return LuaValue{}; // Nil, and anything this build cannot carry.
 }
 
+/// How many VM instructions pass between two looks at the clock.
+///
+/// A look is a function call and a clock read, so it is not free; a loop that
+/// never returns is noticed within microseconds at this rate, which is a good deal
+/// faster than anybody will be waiting.
+constexpr int kInstructionsPerCheck = 2048;
+
 } // namespace
 
+/// Counts the heap Lua holds and refuses what would pass the limit.
+///
+/// Lua is built to be given an allocator: a request that returns null becomes
+/// "not enough memory" inside the interpreter, a catchable error with the
+/// script's own line number, and the collector gets a chance to free something
+/// and try again before it does. That is exactly the failure a script that
+/// builds a table forever should get, and it needs no cooperation from the script.
+struct LuaRuntime::Allocator final {
+    lua_Alloc inner{nullptr};
+    void* innerData{nullptr};
+
+    std::size_t used{0};
+    std::size_t limit{0};
+
+    /// Set when a request was refused; read and cleared when a call fails, to
+    /// tell "out of memory" from an ordinary error.
+    bool refused{false};
+
+    static void* allocate(void* data, void* block, std::size_t oldSize, std::size_t newSize)
+    {
+        auto* self = static_cast<Allocator*>(data);
+
+        // When `block` is null, `oldSize` is not a size but a tag saying what kind
+        // of object Lua is making. The convention every allocator for Lua follows.
+        const std::size_t before = block != nullptr ? oldSize : 0;
+
+        if (newSize > before && self->limit != 0 && self->used + (newSize - before) > self->limit) {
+            self->refused = true;
+            return nullptr;
+        }
+
+        void* result = self->inner(self->innerData, block, oldSize, newSize);
+
+        if (newSize == 0) {
+            self->used -= std::min(before, self->used);
+        } else if (result != nullptr) {
+            self->used = self->used - std::min(before, self->used) + newSize;
+        }
+
+        return result;
+    }
+};
+
+/// Gives one call a deadline.
+///
+/// Scoped, because the deadline must not outlive the call: the interpreter is
+/// also entered to define globals and register functions, and none of that should
+/// be racing a clock that was meant for a handler.
+class LuaRuntime::Budget final {
+public:
+    Budget(LuaRuntime& runtime, std::chrono::milliseconds allowance) noexcept
+        : m_runtime{runtime}
+        , m_wasActive{runtime.m_deadlineActive}
+        , m_previousDeadline{runtime.m_deadline}
+        , m_previousAllowance{runtime.m_allowance}
+    {
+        const auto deadline = std::chrono::steady_clock::now() + allowance;
+
+        // Inside another call - which nothing does today, and a binding added
+        // tomorrow might - the earlier deadline still stands. A nested call must
+        // not be a way to ask for more time.
+        if (!m_wasActive || deadline < m_previousDeadline) {
+            runtime.m_deadline = deadline;
+            runtime.m_allowance = allowance;
+        }
+
+        runtime.m_deadlineActive = true;
+        runtime.m_timedOut = false;
+
+        // A refusal the script caught itself - pcall around an allocation that did not fit - is
+        // over with the call it happened in. Left set, the next failure of any kind would be
+        // reported as running out of memory, and stop the ECU for it.
+        if (runtime.m_allocator != nullptr) {
+            runtime.m_allocator->refused = false;
+        }
+    }
+
+    ~Budget()
+    {
+        m_runtime.m_deadlineActive = m_wasActive;
+        m_runtime.m_deadline = m_previousDeadline;
+        m_runtime.m_allowance = m_previousAllowance;
+    }
+
+    Budget(const Budget&) = delete;
+    Budget& operator=(const Budget&) = delete;
+    Budget(Budget&&) = delete;
+    Budget& operator=(Budget&&) = delete;
+
+private:
+    LuaRuntime& m_runtime;
+    bool m_wasActive;
+    std::chrono::steady_clock::time_point m_previousDeadline;
+    std::chrono::milliseconds m_previousAllowance;
+};
+
+void LuaRuntime::onCount(lua_State* state, lua_Debug* debug)
+{
+    (void)debug;
+
+    // The runtime rides in the state's extra space, which every coroutine the
+    // script creates inherits a copy of - so a loop inside a coroutine is caught
+    // by the same hook, with the same deadline.
+    LuaRuntime* runtime = nullptr;
+    std::memcpy(&runtime, lua_getextraspace(state), sizeof runtime);
+
+    if (runtime == nullptr || !runtime->m_deadlineActive) {
+        return;
+    }
+
+    if (std::chrono::steady_clock::now() < runtime->m_deadline) {
+        return;
+    }
+
+    runtime->m_timedOut = true;
+
+    // Raised as an ordinary error, so the pcall around the call hands it back as a
+    // Result. Level 0 is the running function, which is the line of the script
+    // that was looping - the one thing the message has to say.
+    luaL_where(state, 0);
+    lua_pushfstring(
+        state,
+        "the script ran for more than %d ms in a single call without returning. Is there "
+        "a loop that never ends? (The limit is per call, not for the whole run.)",
+        static_cast<int>(runtime->m_allowance.count()));
+    lua_concat(state, 2);
+    lua_error(state);
+}
+
 LuaRuntime::LuaRuntime()
-    : m_state{luaL_newstate()}
-{ }
+    : m_allocator{std::make_unique<Allocator>()}
+    , m_state{luaL_newstate()}
+{
+    if (m_state == nullptr) {
+        return;
+    }
+
+    // Swapped in after creation rather than creating the state with it: the
+    // default constructor path also installs the panic and warning handlers, and
+    // there is nothing to gain from redoing that here. What the state already
+    // holds was allocated by the previous allocator, which is the same heap, so
+    // freeing it through ours is correct - it only has to know the size, and Lua
+    // always says.
+    m_allocator->inner = lua_getallocf(m_state, &m_allocator->innerData);
+    m_allocator->used = static_cast<std::size_t>(lua_gc(m_state, LUA_GCCOUNT)) * 1024U
+                        + static_cast<std::size_t>(lua_gc(m_state, LUA_GCCOUNTB));
+    m_allocator->limit = m_limits.memoryBytes;
+    lua_setallocf(m_state, &Allocator::allocate, m_allocator.get());
+
+    LuaRuntime* self = this;
+    std::memcpy(lua_getextraspace(m_state), &self, sizeof self);
+    lua_sethook(m_state, &LuaRuntime::onCount, LUA_MASKCOUNT, kInstructionsPerCheck);
+}
 
 LuaRuntime::~LuaRuntime()
 {
@@ -95,6 +256,38 @@ LuaRuntime::~LuaRuntime()
         lua_close(m_state);
         m_state = nullptr;
     }
+}
+
+void LuaRuntime::setLimits(const LuaLimits& limits) noexcept
+{
+    m_limits = limits;
+
+    if (m_allocator != nullptr) {
+        m_allocator->limit = limits.memoryBytes;
+    }
+}
+
+Result LuaRuntime::failure(ErrorCode code)
+{
+    // Read before the message is taken: takeError pops the error object, and a
+    // limit that was hit is a fact about the interpreter, not about that object.
+    const bool memory = m_allocator != nullptr && m_allocator->refused;
+    m_limitHit = m_timedOut || memory;
+
+    if (m_allocator != nullptr) {
+        m_allocator->refused = false;
+    }
+
+    m_timedOut = false;
+
+    std::string text = takeError(m_state);
+
+    if (memory) {
+        text +=
+            std::format(" (the script was held to {} MiB)", m_limits.memoryBytes / (1024U * 1024U));
+    }
+
+    return Result::error(code, std::move(text));
 }
 
 Result LuaRuntime::openLibraries()
@@ -122,15 +315,23 @@ Result LuaRuntime::load(std::string_view source, std::string_view chunkName)
     // `[string "engine.lua"]:42:` and `engine.lua:42:`.
     const std::string name = std::format("={}", chunkName);
 
+    m_limitHit = false;
+
     if (luaL_loadbuffer(m_state, source.data(), source.size(), name.c_str()) != LUA_OK) {
-        return Result::error(ErrorCode::ParseError, takeError(m_state));
+        return failure(ErrorCode::ParseError);
     }
 
     // Running the chunk is what defines its functions and its state. A script
     // that fails here has a problem at the top level - a syntax error is caught
     // above, so this is something like indexing a nil global while setting up.
+    //
+    // Timed like a call, with the longer allowance set-up work gets: this runs at
+    // Start, on the thread that pressed it, and a top level that never ends would
+    // freeze the window itself rather than only the pipeline.
+    const Budget budget{*this, m_limits.loadBudget};
+
     if (lua_pcall(m_state, 0, 0, 0) != LUA_OK) {
-        return Result::error(ErrorCode::InvalidState, takeError(m_state));
+        return failure(ErrorCode::InvalidState);
     }
 
     return Result::ok();
@@ -154,7 +355,7 @@ Result LuaRuntime::checkSyntax(std::string_view source, std::string_view chunkNa
 
 Result LuaRuntime::loadFile(const std::string& path)
 {
-    std::ifstream file{path, std::ios::binary};
+    std::ifstream file{pathFromUtf8(path), std::ios::binary};
     if (!file) {
         return Result::error(ErrorCode::FileNotFound, std::format("Cannot open script '{}'", path));
     }
@@ -220,6 +421,8 @@ Result LuaRuntime::call(std::string_view name,
                              std::format("Script has no function '{}'", name));
     }
 
+    m_limitHit = false;
+
     for (const LuaValue& argument : arguments) {
         switch (argument.type) {
         case LuaValue::Type::Nil:
@@ -243,8 +446,10 @@ Result LuaRuntime::call(std::string_view name,
     // pcall, never lua_call: an uncaught error in lua_call longjmps out of the
     // interpreter and, from C++, past every destructor between here and the
     // handler. pcall keeps the failure inside Lua and hands it back as a value.
+    const Budget budget{*this, m_limits.callBudget};
+
     if (lua_pcall(m_state, static_cast<int>(arguments.size()), results, 0) != LUA_OK) {
-        return Result::error(ErrorCode::InvalidState, takeError(m_state));
+        return failure(ErrorCode::InvalidState);
     }
 
     if (results == 0) {
@@ -300,8 +505,12 @@ Result LuaRuntime::callStored(CallableRef ref, LuaValue& result, int results)
         return Result::error(ErrorCode::InvalidState, "The stored value is no longer a function");
     }
 
+    m_limitHit = false;
+
+    const Budget budget{*this, m_limits.callBudget};
+
     if (lua_pcall(m_state, 0, results, 0) != LUA_OK) {
-        return Result::error(ErrorCode::InvalidState, takeError(m_state));
+        return failure(ErrorCode::InvalidState);
     }
 
     if (results == 0) {

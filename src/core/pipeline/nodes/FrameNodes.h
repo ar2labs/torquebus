@@ -105,6 +105,16 @@ public:
 
     [[nodiscard]] std::string_view typeName() const noexcept override { return "can.filter"; }
 
+    /// What the Statistics panel calls this filter. A filter the build added on
+    /// a wire has no block on the canvas to be named after, and a row called
+    /// "can.filter" next to a user's own says nothing about which wire it is.
+    [[nodiscard]] std::string displayName() const override
+    {
+        return m_label.empty() ? std::string{typeName()} : m_label;
+    }
+
+    void setLabel(std::string label) { m_label = std::move(label); }
+
     [[nodiscard]] std::span<const PortDescriptor> inputs() const noexcept override
     {
         return kInputs;
@@ -169,6 +179,7 @@ private:
     };
 
     CanFilterSet m_filters;
+    std::string m_label;
     std::vector<CanFrame> m_buffer;
     std::uint64_t m_rejected{0};
 };

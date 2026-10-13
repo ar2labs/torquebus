@@ -898,7 +898,7 @@ TEST(GraphDescriptionTests, APlotBlockWithoutAStoreFailsRatherThanDroppingSample
 {
     // The same shape as the trace node's own case, and for the same reason: a
     // node that silently accepted nowhere to write would produce an empty
-    // Graph panel with no explanation anywhere.
+    // Plot Viewer with no explanation anywhere.
     const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
 
     GraphDescription description;

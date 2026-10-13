@@ -157,6 +157,35 @@ Result CanChannel::transmit(CanFrame frame)
                              std::format("{} is not running", displayName()));
     }
 
+    // What a frame has to be to be on any bus at all, checked here once and not by each
+    // backend. The backends are thin layers over vendor SDKs, and an SDK takes a length and a
+    // buffer and trusts both; a frame that claims 200 bytes, or an 11-bit identifier with a
+    // 29-bit number in it, is a mistake somebody upstream made and the driver should never be
+    // the one to find out.
+    if (!isValidIdentifier(frame.identifier, frame.format)) {
+        return Result::error(ErrorCode::InvalidArgument,
+                             std::format("Identifier 0x{:X} does not fit a {} frame",
+                                         frame.identifier,
+                                         frame.isExtended() ? "29-bit" : "11-bit"));
+    }
+
+    if (frame.length > kMaxCanPayload || frame.dlc > 15U) {
+        return Result::error(ErrorCode::InvalidArgument,
+                             std::format("A frame of {} bytes (code {}) cannot be sent: CAN FD "
+                                         "carries at most {}",
+                                         frame.length,
+                                         frame.dlc,
+                                         kMaxCanPayload));
+    }
+
+    if (!frame.fd && frame.length > kMaxClassicCanPayload) {
+        return Result::error(ErrorCode::InvalidArgument,
+                             std::format("A classic CAN frame carries at most {} bytes, and this "
+                                         "one has {}. Send it as CAN FD, or shorten it.",
+                                         kMaxClassicCanPayload,
+                                         frame.length));
+    }
+
     // Callers say "send this on CAN 1"; they should not have to remember to
     // stamp the channel themselves.
     frame.channel = m_applicationChannel;
@@ -186,6 +215,15 @@ std::size_t CanChannel::drain(std::vector<CanFrame>& out, std::size_t maximum)
     }
 
     for (std::size_t index = 0; index < kept; ++index) {
+        // Every node downstream trusts a received frame's length. The driver that filled
+        // it is a vendor's SDK behind a thin layer of ours, and a length past the size of
+        // the payload array - a status word read into the wrong field, a malformed
+        // frame an adapter did not reject - would have each of them reading past it.
+        // One comparison per frame, here, where they all come from.
+        if (out[index].length > kMaxCanPayload) {
+            out[index].length = static_cast<std::uint8_t>(kMaxCanPayload);
+        }
+
         m_statistics.recordFrame(out[index]);
     }
 

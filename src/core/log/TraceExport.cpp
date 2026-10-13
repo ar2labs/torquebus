@@ -5,6 +5,8 @@
 
 #include "core/log/TraceExport.h"
 
+#include "core/FilePath.h"
+
 #include <array>
 #include <cstdio>
 #include <ctime>
@@ -98,7 +100,7 @@ Result TraceExporter::open(const std::string& path, Format format, std::uint64_t
 {
     static_cast<void>(close());
 
-    m_file.open(path, std::ios::trunc);
+    m_file.open(pathFromUtf8(path), std::ios::trunc);
     if (!m_file.is_open()) {
         return Result::error(ErrorCode::FileAccessDenied,
                              std::format("Could not create '{}'", path));

@@ -42,7 +42,7 @@ so is one that has **stopped arriving** (see *How long a signal may be silent*).
 
 A profile reuses the Dashboard's own `DashboardBinding` — a decoded CAN signal by
 message and signal name, or a system variable — so the cluster reads exactly what a
-Gauge bound to the same signal would, from the same place the Graph panel reads.
+Gauge bound to the same signal would, from the same place the Plot Viewer reads.
 There is no second way of naming a value, and so no second way for the two to
 disagree. Which also means: **a signal reaches the cluster only if something puts
 it in the plot store** — a *Signal Plot* block, as for any Dashboard widget.

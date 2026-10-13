@@ -17,6 +17,8 @@
 #include <QObject>
 #include <QSaveFile>
 #include <algorithm>
+#include <limits>
+#include <set>
 
 #include <format>
 
@@ -78,6 +80,12 @@ constexpr auto kFromPort = "fromPort";
 constexpr auto kTo = "to";
 constexpr auto kToPort = "toPort";
 
+/// Written only when a wire is limited to one identifier format, so a project
+/// that never uses it is byte-for-byte what it was before the field existed.
+constexpr auto kFrames = "frames";
+constexpr auto kFramesStandard = "11-bit";
+constexpr auto kFramesExtended = "29-bit";
+
 /// A parameter's value, as JSON.
 ///
 /// The type is carried by the JSON value itself - a number stays a number, a
@@ -115,9 +123,20 @@ constexpr auto kToPort = "toPort";
         // that shows a real, and written out next time with a ".0" that was
         // never there. The catalog's descriptor decides how the value is
         // *used*; this only decides how it is carried.
-        const double truncated = static_cast<double>(static_cast<std::int64_t>(number));
-        if (number == truncated) {
-            return ParameterValue::fromInteger(static_cast<std::int64_t>(number));
+        //
+        // Only when it fits. Converting a double that is outside the range of an int64
+        // is undefined, and a project file is exactly where one turns up: 1e300 is
+        // valid JSON, and a hand edit that slipped an exponent in is how it got there.
+        // The cast used to run first and the comparison second, so the value that
+        // proved the number did not fit was the one the cast was applied to.
+        constexpr double kBound = 9223372036854775808.0; // 2^63
+
+        if (number >= -kBound && number < kBound) {
+            const auto whole = static_cast<std::int64_t>(number);
+
+            if (static_cast<double>(whole) == number) {
+                return ParameterValue::fromInteger(whole);
+            }
         }
 
         return ParameterValue::fromReal(number);
@@ -159,6 +178,18 @@ constexpr auto kToPort = "toPort";
     json[kFromPort] = static_cast<int>(edge.fromPort);
     json[kTo] = QString::fromStdString(edge.toNode);
     json[kToPort] = static_cast<int>(edge.toPort);
+
+    switch (edge.frameFormat) {
+    case CanFormatMatch::StandardOnly:
+        json[kFrames] = QLatin1String{kFramesStandard};
+        break;
+    case CanFormatMatch::ExtendedOnly:
+        json[kFrames] = QLatin1String{kFramesExtended};
+        break;
+    case CanFormatMatch::Any:
+        break;
+    }
+
     return json;
 }
 
@@ -230,8 +261,12 @@ void payloadFromJson(const QString& text, CanFrame& frame)
 {
     TransmitEntry entry;
     entry.name = json.value(kName).toString().toStdString();
-    entry.channel = static_cast<std::uint8_t>(json.value(kChannel).toInt(0));
-    entry.frame.identifier = static_cast<std::uint32_t>(json.value(kId).toInteger(0));
+    // Clamped, not wrapped: a channel of 256 is not channel 0, and an identifier past
+    // 32 bits is not some small one. Out of range, the identifier is kept out of range
+    // - the check that follows the read refuses it, with the number in the message.
+    entry.channel = static_cast<std::uint8_t>(std::clamp(json.value(kChannel).toInt(0), 0, 255));
+    entry.frame.identifier = static_cast<std::uint32_t>(std::clamp<qint64>(
+        json.value(kId).toInteger(0), 0, std::numeric_limits<std::uint32_t>::max()));
     entry.frame.format =
         json.value(kExtended).toBool(false) ? CanFrameFormat::Extended : CanFrameFormat::Standard;
     payloadFromJson(json.value(kData).toString(), entry.frame);
@@ -243,7 +278,8 @@ void payloadFromJson(const QString& text, CanFrame& frame)
                         ? TransmitTrigger::Periodic
                         : TransmitTrigger::Manual;
 
-    entry.cycleMs = static_cast<std::uint32_t>(json.value(kCycleMs).toInteger(100));
+    entry.cycleMs = static_cast<std::uint32_t>(
+        std::clamp<qint64>(json.value(kCycleMs).toInteger(100), 0, 86'400'000));
     entry.enabled = json.value(kEnabled).toBool(true);
     entry.messageName = json.value(kMessage).toString().toStdString();
 
@@ -511,6 +547,7 @@ Result ProjectFile::load(const QString& path,
     // fails halfway through must not leave the canvas showing half a pipeline
     // that was never saved.
     GraphDescription loaded;
+    std::set<std::string> seenIds;
 
     const QJsonObject graph = root.value(kPipeline).toObject();
 
@@ -526,6 +563,18 @@ Result ProjectFile::load(const QString& path,
             return Result::error(
                 ErrorCode::ParseError,
                 std::format("'{}' has a node with no id or no type", path.toStdString()));
+        }
+
+        // An id is how a wire names its ends, so two nodes with one is a wire that
+        // goes to either. Refused here, naming the id, rather than opening a canvas
+        // where one of the two blocks is the one every wire reaches.
+        if (!seenIds.insert(node.id).second) {
+            return Result::error(
+                ErrorCode::ParseError,
+                std::format("'{}' has two nodes with the id '{}'. Ids address the wires, so each "
+                            "must be used once.",
+                            path.toStdString(),
+                            node.id));
         }
 
         const QJsonObject position = object.value(kPosition).toObject();
@@ -545,9 +594,44 @@ Result ProjectFile::load(const QString& path,
 
         EdgeDescription edge;
         edge.fromNode = object.value(kFrom).toString().toStdString();
-        edge.fromPort = static_cast<std::size_t>(object.value(kFromPort).toInt(0));
         edge.toNode = object.value(kTo).toString().toStdString();
-        edge.toPort = static_cast<std::size_t>(object.value(kToPort).toInt(0));
+
+        // Read as signed and checked, then widened: a negative number cast to size_t is
+        // a port with a number no block has, and every consumer of an edge indexes with it.
+        const int fromPort = object.value(kFromPort).toInt(0);
+        const int toPort = object.value(kToPort).toInt(0);
+
+        if (fromPort < 0 || toPort < 0) {
+            return Result::error(
+                ErrorCode::ParseError,
+                std::format("'{}' has a wire between '{}' and '{}' with a negative port number",
+                            path.toStdString(),
+                            edge.fromNode,
+                            edge.toNode));
+        }
+
+        edge.fromPort = static_cast<std::size_t>(fromPort);
+        edge.toPort = static_cast<std::size_t>(toPort);
+
+        // Absent is every frame. A word this build does not know is refused,
+        // not read as "every frame": a wire a newer version limited would
+        // otherwise open carrying more than it was drawn to.
+        if (const QString frames = object.value(kFrames).toString(); !frames.isEmpty()) {
+            if (frames == QLatin1String{kFramesStandard}) {
+                edge.frameFormat = CanFormatMatch::StandardOnly;
+            } else if (frames == QLatin1String{kFramesExtended}) {
+                edge.frameFormat = CanFormatMatch::ExtendedOnly;
+            } else {
+                return Result::error(
+                    ErrorCode::ParseError,
+                    std::format("'{}' has a wire from '{}' to '{}' limited to '{}' frames, which "
+                                "this version does not know. A newer version added it.",
+                                path.toStdString(),
+                                edge.fromNode,
+                                edge.toNode,
+                                frames.toStdString()));
+            }
+        }
 
         // An edge naming a node that is not in the file would build a graph
         // that fails at Start with a message about a node the user cannot see.

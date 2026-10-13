@@ -291,7 +291,7 @@ public:
     /// The open log, for the frame and byte counts a status bar shows.
     [[nodiscard]] const TraceLogWriter& logWriter() const noexcept { return m_logWriter; }
 
-    /// Where a `signal.plot` block's samples land, for the Graph panel.
+    /// Where a `signal.plot` block's samples land, for the Plot Viewer.
     ///
     /// Owned here for the same reason the trace store is: it belongs to the
     /// measurement, it outlives any one compiled graph, and the panel reads it

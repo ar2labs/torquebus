@@ -277,8 +277,13 @@ bool IsoTpConnection::onFrame(const CanFrame& frame, std::uint64_t nowNs)
 
     std::size_t offset = 0;
 
+    // The payload as far as the array goes, not as far as the frame says. A frame that claims
+    // more than it holds - from a driver, a plugin's block, a database read wrongly - made the
+    // message below a view of memory past the end of it, and a first frame copies it.
+    const std::size_t length = frame.payloadSize();
+
     if (m_address.addressing == IsoTpAddressing::Extended) {
-        if (frame.length < 1 || frame.data[0] != m_address.receiveExtension) {
+        if (length < 1 || frame.data[0] != m_address.receiveExtension) {
             // Somebody else's, on an identifier we share. Not an error - that
             // sharing is the entire reason extended addressing exists.
             return false;
@@ -286,12 +291,11 @@ bool IsoTpConnection::onFrame(const CanFrame& frame, std::uint64_t nowNs)
         offset = 1;
     }
 
-    if (frame.length <= offset) {
+    if (length <= offset) {
         return false;
     }
 
-    const std::span<const std::uint8_t> data{frame.data.data() + offset,
-                                             static_cast<std::size_t>(frame.length) - offset};
+    const std::span<const std::uint8_t> data{frame.data.data() + offset, length - offset};
 
     switch (static_cast<std::uint8_t>(data[0] >> 4U)) {
     case kSingleFrame:

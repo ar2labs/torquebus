@@ -10,13 +10,24 @@
 // directly - there is no "apply" step, because there is nothing to apply: the
 // description *is* the project, and the engine builds from it on the next Start.
 //
-// During a measurement, the canvas renders live visual telemetry directly in
-// the scene foreground:
-//   - Animated data packets flowing along cubic Bezier wires, colour-coded by
-//     port type (Frames, Signals, Events);
-//   - Pulsing node activity halos and live counter badges above each block;
+// It is drawn the way a network is drawn. The CAN Bus is a line - the two wires
+// of the bus - and every module is a chip hanging off it by one drop, the way a
+// simulation setup in CANoe draws one; a wire that is not a drop to a bus (a
+// decoder to a plot) is a curve between two chips. A chip is small on purpose:
+// its name, what it is and one line of what it is doing, so that a pipeline of
+// twenty blocks is one screen. Open one into a card and it shows the frame it
+// last carried, byte by byte.
+//
+// During a measurement the canvas draws live telemetry over what the blocks and
+// wires are:
+//   - Data packets running along the drops and the curves, colour-coded by port
+//     type (Frames, Signals, Events);
+//   - A halo on each running block, and on a chip the frame it last carried;
 //   - A real-time Neural Network & Static Tensor Arena visualizer beneath every
-//     `tinyml.ecu` Virtual ECU block, plus interactive fault injection.
+//     opened `tinyml.ecu` Virtual ECU block, plus interactive fault injection.
+//
+// What is static is drawn by the blocks themselves, which QtNodes caches; what
+// moves is drawn in the scene foreground, where it costs only what moves.
 
 #pragma once
 
@@ -43,10 +54,12 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 class QAction;
 class QEvent;
+class QGraphicsItem;
 class QHideEvent;
 class QMenu;
 class QPainter;
@@ -60,13 +73,16 @@ class QVariantAnimation;
 
 namespace QtNodes {
 class BasicGraphicsScene;
+class ConnectionGraphicsObject;
 class GraphicsView;
 class NodeGraphicsObject;
 } // namespace QtNodes
 
 namespace torquebus::ui {
 
+class PipelineConnectionPainter;
 class PipelineGraphModel;
+class PipelineNodePainter;
 
 class CanvasPanel final : public QWidget {
     Q_OBJECT
@@ -153,7 +169,41 @@ public Q_SLOTS:
     /// Deletes a specific block and all its connections by description ID.
     void deleteBlock(const QString& descriptionId);
 
+    /// Puts every block where a tidy diagram has it: each bus a line across the
+    /// top of what is wired to it, the modules that speak on it above, the ones
+    /// that only listen below, and whatever hangs off those below them.
+    void arrangeBlocks();
+
+    /// Rewrites a pipeline that reaches a channel through a CAN Channel and a CAN
+    /// Transmit per ECU as one CAN Bus per channel. Nothing that runs changes.
+    void groupOnBus();
+
+    /// Opens every block into a card, or closes them all to chips.
+    void setDetailsShown(bool shown);
+
+    /// Opens one block into a card, or closes it, and makes room: what is beside it in its row
+    /// moves aside, and a block that hangs over its bus grows upwards, away from the bus.
+    void setBlockExpanded(QtNodes::NodeId nodeId, bool expanded);
+
+    /// Wires a block to a bus, as dropping it on the rail does. Returns whether
+    /// anything was wired.
+    bool attachToBus(const QString& blockId, const QString& busId);
+
+    /// Takes a block off a bus.
+    void detachFromBus(const QString& blockId, const QString& busId);
+
 private:
+    friend class PipelineNodePainter;
+    friend class PipelineConnectionPainter;
+
+    /// What a chip says about a block right now: the line under its name, whether
+    /// that line is live, and whether the block is in trouble.
+    struct ChipInfo final {
+        QString line;
+        bool live{false};
+        bool alert{false};
+    };
+
     struct NodeFrameTelemetry final {
         bool hasLiveFrame{false};
         bool isPreview{false};
@@ -209,6 +259,10 @@ private:
     void addSelectedPaletteNode();
 
     void addNodeAt(const QString& typeName, const QPointF& scenePosition);
+
+    /// A block dropped from the palette: where the pointer is, and on the bus if that is where
+    /// it was let go.
+    void addNodeAtDrop(const QString& typeName, const QPointF& scenePosition);
     [[nodiscard]] QPointF findNonOverlappingPosition(const QPointF& desired) const;
 
     [[nodiscard]] QMenu* buildSceneMenu(const QPointF& scenePosition);
@@ -241,20 +295,71 @@ private:
     void decodeFromDatabasesOrBuiltin(const NodeDescription& node,
                                       NodeFrameTelemetry& telemetry) const;
     void paintSceneForeground(QPainter* painter, const QRectF& viewportRect);
-    void paintNodeTelemetryCard(QPainter* painter,
-                                QtNodes::NodeId nodeId,
-                                QtNodes::NodeGraphicsObject* ngo,
-                                const QRectF& nodeRect,
-                                const NodeDescription& node,
-                                const NodeStatus* status,
-                                double pulse) const;
+
+    /// The body of a block that has been opened into a card, in the block's own
+    /// coordinates: its header, the frame it last carried and what the database
+    /// says that frame means.
+    void paintCardBody(QPainter* painter,
+                       QtNodes::NodeGraphicsObject& ngo,
+                       const QRectF& nodeRect,
+                       const NodeDescription& node) const;
     void paintTinyMlVisualizerCard(QPainter* painter,
                                    const QRectF& nodeRect,
                                    const NodeDescription& node,
                                    const NodeStatus* status) const;
 
+    [[nodiscard]] ChipInfo chipInfo(const NodeDescription& node) const;
+
+    /// Where every block is, and where a tidy diagram would put it. Moving the blocks to a list of
+    /// positions is placeBlocks(), which is what arranging and undoing it both do.
+    [[nodiscard]] std::vector<std::pair<std::string, QPointF>> blockPositions() const;
+    [[nodiscard]] std::vector<std::pair<std::string, QPointF>> arrangedPositions() const;
+    void placeBlocks(const std::vector<std::pair<std::string, QPointF>>& positions);
+
+    /// Puts the whole pipeline back to a description - what undoing, and redoing, a grouping do.
+    void restoreGraph(const GraphDescription& graph);
+
+    /// Asks every block, bus and wire to be drawn again. QtNodes keeps each as a
+    /// picture, so what changes them from outside - the theme, a measurement
+    /// starting - has to say so.
+    void invalidateItems();
+
+    /// Asks the blocks whose chip says something different from last time to be
+    /// drawn again, and no others.
+    void refreshChips();
+
     [[nodiscard]] QString findScriptNodeAt(const QPointF& scenePosition,
                                            bool onlyEditButtons) const;
+
+    /// The block whose chevron is at the point, or empty.
+    [[nodiscard]] QString findExpandButtonAt(const QPointF& scenePosition) const;
+
+    /// The bus-drop wire whose pill is at the point, if it shows one.
+    [[nodiscard]] QtNodes::ConnectionId findFrameFormatPillAt(const QPointF& scenePosition,
+                                                              bool& found) const;
+
+    /// The wire to a bus under the point, if there is one.
+    [[nodiscard]] QtNodes::ConnectionId findBusWireAt(const QPointF& scenePosition,
+                                                      bool& found) const;
+
+    void showBusMenu(QtNodes::NodeId busId, const QPointF& scenePosition);
+    void showWireMenu(QtNodes::ConnectionId wire, const QPoint& globalPosition);
+    void cycleFrameFormat(QtNodes::ConnectionId wire);
+
+    /// Adds a block of a type to a bus, below it where there is room and wired
+    /// the way dropping it there would.
+    void addModuleToBus(const QString& typeName, QtNodes::NodeId busId, const QPointF& near);
+
+    /// Wires a block just added to the bus the pointer is over, or the one that is
+    /// selected, and puts it where a module on that bus goes. False when there is
+    /// no bus to put it on.
+    bool placeOnBusNear(QtNodes::NodeId block, const QPointF& scenePosition);
+
+    /// The description's own entry for a canvas block, to be edited. Null when there is none.
+    [[nodiscard]] NodeDescription* editableNode(QtNodes::NodeId nodeId);
+
+    [[nodiscard]] QtNodes::NodeId selectedBus() const;
+    [[nodiscard]] QtNodes::NodeId busAt(const QPointF& scenePosition, qreal slack) const;
 
     GraphDescription& m_description;
     const NodeCatalog& m_catalog;
@@ -282,6 +387,8 @@ private:
     QPushButton* m_animateButton{nullptr};
     QPushButton* m_injectFaultButton{nullptr};
     QPushButton* m_demoPipelineButton{nullptr};
+    QPushButton* m_arrangeButton{nullptr};
+    QPushButton* m_detailsButton{nullptr};
     bool m_hudCompact{false};
     int m_hudLabelledWidth{0};
 
@@ -292,10 +399,17 @@ private:
 
     QHash<QString, NodeStatus> m_nodeStatuses;
     QHash<QString, NodeFrameTelemetry> m_telemetryCache;
+
+    /// The line each chip last drew, to tell which ones have to be drawn again.
+    QHash<QString, QString> m_chipLines;
     QList<ChannelStatus> m_channelStatuses;
     QString m_statusSummaryText;
     QString m_statusSummaryState{QStringLiteral("ready")};
     Theme m_theme;
+
+    /// The panel handled the press of a click itself, and the release that ends it is not the
+    /// scene's to be shown.
+    bool m_swallowRelease{false};
 
     bool m_hoveringScriptEdit{false};
     QString m_hoveredScriptNodeId;

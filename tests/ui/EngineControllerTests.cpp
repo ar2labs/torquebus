@@ -5,8 +5,9 @@
 //
 // What the window believes about the measurement, against what the engine is doing.
 //
-// The two can part. A node that throws ends the measurement from inside the engine - the guard
-// around the dispatch thread reports it and lets the thread return - and nobody pressed Stop. The
+// The two can part. Something that throws on the dispatch thread - and is not a node, which the
+// graph now takes out of the run by itself - ends the measurement from inside the engine: the
+// guard around the thread reports it and lets the thread return, and nobody pressed Stop. The
 // window used to go on showing a measurement that was not there: the timer running, started()
 // emitted and stopped() never, and a second Start on an engine that had not been wound up.
 
@@ -35,34 +36,23 @@ using namespace torquebus::ui;
 
 namespace {
 
-/// A node that throws on its first pass, or does nothing at all.
-class ThrowingNode final : public IPipelineNode {
+/// A node that does nothing, so that the graph has something wired to the channel.
+class IdleNode final : public IPipelineNode {
 public:
-    explicit ThrowingNode(bool throws)
-        : m_throws{throws}
-    { }
-
-    [[nodiscard]] std::string_view typeName() const noexcept override { return "test.throws"; }
-    [[nodiscard]] std::string displayName() const override { return "throws"; }
+    [[nodiscard]] std::string_view typeName() const noexcept override { return "test.idle"; }
+    [[nodiscard]] std::string displayName() const override { return "idle"; }
     [[nodiscard]] std::span<const PortDescriptor> inputs() const noexcept override
     {
         return kInputs;
     }
     [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override { return {}; }
 
-    void process(NodeContext&) override
-    {
-        if (m_throws) {
-            throw std::runtime_error{"a node gave up"};
-        }
-    }
+    void process(NodeContext&) override { }
 
 private:
     static constexpr std::array<PortDescriptor, 1> kInputs{
         PortDescriptor{"frames", PortType::Frames},
     };
-
-    bool m_throws;
 };
 
 bool waitFor(const std::function<bool()>& done)
@@ -93,12 +83,19 @@ TEST(EngineControllerTests, AMeasurementThatEndsOnItsOwnIsStoppedOnTheScreenToo)
     ASSERT_TRUE(
         controller.engine().addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
 
-    std::atomic<bool> throws{true};
     controller.engine().setGraphBuilder(
-        [&throws](PipelineGraph& graph, std::span<const NodeId> sources) -> Result {
-            const NodeId node = graph.addNode(std::make_unique<ThrowingNode>(throws.load()));
+        [](PipelineGraph& graph, std::span<const NodeId> sources) -> Result {
+            const NodeId node = graph.addNode(std::make_unique<IdleNode>());
             return graph.connect(PortRef{sources[0], 0}, PortRef{node, 0});
         });
+
+    // What ends the loop: a statistics consumer that throws, on the dispatch thread.
+    std::atomic<bool> throws{true};
+    controller.engine().addStatisticsSink([&throws](std::span<const CanStatisticsSnapshot>) {
+        if (throws.load()) {
+            throw std::runtime_error{"a sink gave up"};
+        }
+    });
 
     int started = 0;
     int stopped = 0;
@@ -108,7 +105,7 @@ TEST(EngineControllerTests, AMeasurementThatEndsOnItsOwnIsStoppedOnTheScreenToo)
     controller.start();
     ASSERT_EQ(started, 1);
 
-    // Nobody presses Stop. The node throws, the engine reports it and stops the loop, and the
+    // Nobody presses Stop. The sink throws, the engine reports it and stops the loop, and the
     // window finds out on its next tick.
     ASSERT_TRUE(waitFor([&stopped] { return stopped > 0; })) << "the window never noticed";
     EXPECT_EQ(stopped, 1);

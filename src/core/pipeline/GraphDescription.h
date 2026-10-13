@@ -23,6 +23,7 @@
 #pragma once
 
 #include "core/Result.h"
+#include "core/can/CanFilter.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "core/pipeline/NodeParameters.h"
 #include "core/pipeline/PipelineGraph.h"
@@ -71,6 +72,18 @@ struct EdgeDescription final {
     std::string toNode;
     std::size_t toPort{0};
 
+    /// Which of the frames on the wire get to the other end: all of them, only
+    /// those with an 11-bit identifier, or only those with a 29-bit one.
+    ///
+    /// A property of the *wire* rather than of either block, because it is the
+    /// receiving end's question and the same block can be wired twice with two
+    /// answers - and because with it a J1939 decoder can be wired to the bus
+    /// and hear only the 29-bit frames without a Frame Filter block drawn in
+    /// between to say so. Built, though, as exactly that: the wire passes
+    /// through a filter the build adds, so the running graph has one idea of
+    /// filtering and not two. Only a wire that carries frames can have one.
+    CanFormatMatch frameFormat{CanFormatMatch::Any};
+
     [[nodiscard]] friend bool operator==(const EdgeDescription&, const EdgeDescription&) = default;
 };
 
@@ -104,7 +117,8 @@ public:
 
     /// Checks what can be checked without building anything: duplicate ids,
     /// unknown types, edges naming a node that is not there, ports that do not
-    /// exist on the type, and inputs taking more than one edge.
+    /// exist on the type, inputs taking more than one edge (a fan-in port
+    /// excepted), and a frame format asked of a wire that carries no frames.
     ///
     /// Separate from build() because the canvas wants to say "that wire will
     /// not work" while the user is drawing it, with no engine running and no
@@ -112,6 +126,12 @@ public:
     [[nodiscard]] Result validate(const NodeCatalog& catalog) const;
 
     /// Instantiates every node and wires them into `graph`.
+    ///
+    /// Not quite one running node per described one. A wire into a fan-in port
+    /// ends in a node of its own (NodeCatalog::createTap), and a wire with a
+    /// frame format passes through a filter: both are added here, between the
+    /// two ends the description names, so the graph the executor walks keeps
+    /// its rules - one wire per input, and a filter is a filter.
     ///
     /// Does not compile: the caller adds whatever else it needs - the engine
     /// adds its own default trace path - and compiles once, at the end.

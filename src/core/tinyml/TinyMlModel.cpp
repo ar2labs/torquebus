@@ -5,8 +5,11 @@
 
 #include "core/tinyml/TinyMlModel.h"
 
+#include "core/FilePath.h"
+
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -463,6 +466,32 @@ Result TinyMlModel::parse(std::string_view text, TinyMlModel& out)
                                      "Line " + std::to_string(lineNumber)
                                          + ": layer dimensions must be positive");
             }
+
+            // The weights are inputSize * outputSize, and both come out of a text file.
+            // Two numbers whose product wraps past 64 bits passed the check below that
+            // the file has "enough" weights, and the forward pass then read the rest of
+            // the matrix from memory that was never allocated. Bounded here, where the
+            // numbers are read, to what a network small enough to run inside a CAN
+            // pass could be.
+            constexpr std::size_t kLargestDimension = 4096;
+            constexpr std::size_t kMostWeightsPerLayer = 1U << 20;
+
+            if (layer.inputSize > kLargestDimension || layer.outputSize > kLargestDimension
+                || layer.inputSize * layer.outputSize > kMostWeightsPerLayer) {
+                return Result::error(ErrorCode::InvalidArgument,
+                                     "Line " + std::to_string(lineNumber) + ": layer '" + layer.name
+                                         + "' is " + std::to_string(layer.inputSize) + " by "
+                                         + std::to_string(layer.outputSize)
+                                         + ", which is larger than this block runs (at most "
+                                         + std::to_string(kLargestDimension) + " per side and "
+                                         + std::to_string(kMostWeightsPerLayer) + " weights)");
+            }
+
+            if (!std::isfinite(layer.weightScale)) {
+                return Result::error(ErrorCode::InvalidArgument,
+                                     "Line " + std::to_string(lineNumber)
+                                         + ": the weight scale is not a finite number");
+            }
             if (!parseActivation(actName, layer.activation)) {
                 return Result::error(ErrorCode::InvalidArgument,
                                      "Line " + std::to_string(lineNumber) + ": unknown activation '"
@@ -558,7 +587,26 @@ Result TinyMlModel::parse(std::string_view text, TinyMlModel& out)
 
 Result TinyMlModel::loadFromFile(const std::string& path, TinyMlModel& out)
 {
-    std::ifstream file{path};
+    std::error_code problem;
+    const std::filesystem::path location = pathFromUtf8(path);
+
+    if (std::filesystem::is_directory(location, problem)) {
+        return Result::error(ErrorCode::InvalidArgument,
+                             "TinyML model file '" + path + "' is a folder");
+    }
+
+    // A model for the microcontroller-sized network this runs is a few kilobytes of
+    // text. A file past this is something else, and reading it whole to find out is
+    // how a wrong path in a field becomes a stalled Start.
+    constexpr std::uintmax_t kMaximumModelBytes = 16U * 1024U * 1024U;
+
+    const std::uintmax_t size = std::filesystem::file_size(location, problem);
+    if (!problem && size > kMaximumModelBytes) {
+        return Result::error(ErrorCode::InvalidArgument,
+                             "TinyML model file '" + path + "' is too large to be a model");
+    }
+
+    std::ifstream file{location};
     if (!file.is_open()) {
         return Result::error(ErrorCode::FileNotFound,
                              "Could not open TinyML model file '" + path + "'");

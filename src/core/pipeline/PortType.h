@@ -127,6 +127,17 @@ private:
 struct PortDescriptor final {
     std::string_view name;
     PortType type{PortType::Frames};
+
+    /// An input that takes any number of wires instead of exactly one.
+    ///
+    /// Only the *description* of a node can say this. A running node still
+    /// reads one batch per input - merging several streams needs a policy, and
+    /// the graph refuses to pick one silently - so the wires of a fan-in port
+    /// are never handed to the node itself: the build gives every wire a node of
+    /// its own to end in (NodeCatalog::createTap), and what the node does with
+    /// them is the node's business. The CAN Bus is the one such block: each
+    /// module that transmits on it ends in its own CAN Transmit.
+    bool fanIn{false};
 };
 
 } // namespace torquebus

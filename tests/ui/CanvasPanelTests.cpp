@@ -8,6 +8,7 @@
 
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
+#include "ui/canvas/CanvasLayout.h"
 #include "ui/canvas/CanvasPanel.h"
 #include "ui/canvas/PipelineGraphModel.h"
 #include "ui/theme/ThemeManager.h"
@@ -294,8 +295,9 @@ TEST_F(CanvasPanelTest, ScriptEditRequestedEmittedOnLuaNodeDoubleClickAndEditCli
     requestedScriptId.clear();
 
     // 2. Clicking the pencil edit button emits editScriptRequested
-    const QRectF nodeRect = ngo->mapRectToScene(QRectF{0.0, 0.0, 310.0, 196.0});
-    const QPointF btnScenePos{nodeRect.right() - 103.0, nodeRect.top() + 10.0};
+    const QRectF nodeRect =
+        ngo->mapRectToScene(QRectF{0.0, 0.0, layout::kChipWidth, layout::kChipHeight});
+    const QPointF btnScenePos = layout::chipScriptButton(nodeRect).center();
     const QPoint btnViewPos = view()->mapFromScene(btnScenePos);
 
     QMouseEvent click{QEvent::MouseButtonPress,
@@ -347,7 +349,7 @@ TEST_F(CanvasPanelThemedTest, NavigationToolBarIsAColumnOfSmallIconButtonsBeside
     ASSERT_NE(toolBar, nullptr);
     EXPECT_TRUE(toolBar->isVisible());
 
-    // Icons only, at the size the Graph panel's toolbar uses.
+    // Icons only, at the size the Plot Viewer's toolbar uses.
     EXPECT_EQ(toolBar->toolButtonStyle(), Qt::ToolButtonIconOnly);
     EXPECT_EQ(toolBar->iconSize(), QSize(18, 18));
     EXPECT_EQ(toolBar->orientation(), Qt::Vertical);
@@ -608,16 +610,21 @@ TEST_F(CanvasPanelTest, FitToWindowDoesNotBlowUpAShortPipeline)
     EXPECT_NEAR(visibleScene().center().y(), block.center().y(), 2.0);
 }
 
-TEST_F(CanvasPanelTest, FitToWindowCountsTheCardUnderATinyMlBlock)
+TEST_F(CanvasPanelTest, FitToWindowCountsTheCardUnderATinyMlBlockThatIsOpen)
 {
     addFromPalette("tinyml.ecu");
     ASSERT_EQ(description.nodes().size(), 1U);
 
+    // The neural network card is what a block shows when it is opened, and not before.
+    qobject_cast<PipelineGraphModel*>(&scene()->graphModel())
+        ->setExpanded(canvasIdOf(description.nodes()[0].id), true);
+    settleCanvas();
+
     navAction("fit")->trigger();
     settleCanvas();
 
-    // The neural network card the foreground paints beneath the block is part of what the block
-    // looks like: 8 units below it, and 114 high.
+    // The card the foreground paints beneath the block is part of what the block looks like:
+    // 8 units below it, and 114 high.
     const QRectF block = blockRect(description.nodes()[0].id);
     const QRectF card{block.left(), block.bottom() + 8.0, block.width(), 114.0};
 
@@ -697,7 +704,7 @@ TEST_F(CanvasPanelTest, PanToolSetsTheEditScriptButtonAside)
         &panel, &CanvasPanel::editScriptRequested, [&requests](const QString&) { ++requests; });
 
     const QRectF block = blockRect(description.nodes()[0].id);
-    const QPoint pencil = view()->mapFromScene(QPointF{block.right() - 103.0, block.top() + 10.0});
+    const QPoint pencil = view()->mapFromScene(layout::chipScriptButton(block).center());
 
     // A click there while panning is the start of a drag, not a request to open the editor.
     navAction("pan")->setChecked(true);

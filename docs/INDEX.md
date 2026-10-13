@@ -20,13 +20,15 @@ Welcome to the **TorqueBus Studio** documentation hub. This index organizes all 
 
 ## 🧪 Testing & Quality Assurance
 
-* **[Google Test & QA Framework](development/testing-framework.md)**: Comprehensive guide to the **834 automated tests**, test hierarchy (`unit`, `ui`, `integration`, `hardware`), CTest automation, XML/JUnit reports, and GitHub Actions CI.
+* **[Google Test & QA Framework](development/testing-framework.md)**: Comprehensive guide to the **1092 automated tests**, test hierarchy (`unit`, `ui`, `integration`, `hardware`), CTest automation, XML/JUnit reports, and GitHub Actions CI.
 * **[Pipeline Test Sequences](development/testing.md)**: Creating automated test sequence blocks in the pipeline canvas using Lua coroutines to assert bus timings and silence.
 
 ---
 
 ## 🚛 Protocols & Vehicle Simulation
 
+* **[The Pipeline Canvas & the CAN Bus](development/pipeline-canvas.md)**: The canvas drawn as a network - a bus as two wires, every module one drop off it, chips instead of cards - how a drop is wired, how 11-bit and 29-bit frames are routed, and how it is built and drawn.
+* **[Robustness](development/robustness.md)**: What happens when something is wrong - a script that loops, a block that throws, a damaged database or project, a frame that cannot exist - how far each failure travels, what is not covered, and how it is tested and fuzzed.
 * **[SAE J1939 & Pipeline Simulation](development/j1939-pipeline.md)**: Heavy-duty vehicle networking, 29-bit CAN identifiers, PGNs (EEC1, EEC2, ET1, CCVS, DM1), simulated truck ECUs, and real-time dashboard dataflow.
 * **[Instrument Cluster Dashboard](development/cluster.md)**: Hardware-accelerated Qt Quick / QML gauge cluster, SVG dials, telltale lamps (ISO 2575), and scenario fault injection.
 * **[DBC Database Engine](development/databases.md)**: CAN database parsing, bit numbering, signal multiplexing, Intel/Motorola endianness, and signal conversion.

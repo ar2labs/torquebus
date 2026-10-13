@@ -26,6 +26,17 @@
 //            ^
 //            |
 //     BasicGraphicsScene / GraphicsView       QtNodes' own widgets
+//
+// What the model adds to "a graph" is what the canvas draws that a graph does
+// not say: how big a block is, and the bus.
+//
+// A CAN Bus is a block in the graph and a line on the canvas. Every module wired
+// to it is one drop off that line, and to the person drawing, one drop is one
+// thing even though the graph holds it as two wires - what the module hears and
+// what it says. The model keeps the two together: wiring one half of a drop
+// wires the other when the module is the kind that speaks on a bus, and deleting
+// one half deletes both. Nothing here changes what the graph means; it changes
+// how many things a person has to do to say it.
 
 #pragma once
 
@@ -35,10 +46,13 @@
 #include <QtNodes/AbstractGraphModel>
 #include <QtNodes/Definitions>
 
+#include <QSize>
 #include <QString>
 
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace torquebus::ui {
 
@@ -73,9 +87,10 @@ public:
     /// Refuses a wire the pipeline could not build, while it is being dragged.
     ///
     /// Same rules as GraphDescription::validate - matching port types, and one
-    /// edge per input - so the canvas cannot draw a graph that then fails at
-    /// Start. Saying no during the drag is the only moment the user has any
-    /// context for why.
+    /// edge per input except at a fan-in port - so the canvas cannot draw a
+    /// graph that then fails at Start. Saying no during the drag is the only
+    /// moment the user has any context for why. A bus to a bus is refused too:
+    /// the graph could build it, but nothing on the canvas could draw it.
     [[nodiscard]] bool connectionPossible(QtNodes::ConnectionId connectionId) const override;
 
     void addConnection(QtNodes::ConnectionId connectionId) override;
@@ -113,12 +128,115 @@ public:
     /// The canvas id for a description node, or InvalidNodeId.
     [[nodiscard]] QtNodes::NodeId canvasId(const std::string& descriptionId) const;
 
+    /// What a canvas node is, for a painter that has only the id QtNodes gave
+    /// it. Nullptr when the node is not there.
+    [[nodiscard]] const NodeDescription* node(QtNodes::NodeId nodeId) const;
+    [[nodiscard]] const NodeTypeInfo* info(QtNodes::NodeId nodeId) const;
+
     /// Rebuilds the id mapping from the description and tells the scene.
     ///
     /// For when the description changed underneath us - a project was opened,
     /// or a graph was replaced wholesale. Incremental edits do not need it;
     /// they go through the methods above and emit their own signals.
     void reload();
+
+    // --- Size -------------------------------------------------------------
+
+    /// A block is a chip unless it has been opened into a card, and a bus is as
+    /// long as the modules on it are spread out.
+    [[nodiscard]] QSize blockSize(QtNodes::NodeId nodeId) const;
+
+    [[nodiscard]] bool isExpanded(QtNodes::NodeId nodeId) const;
+
+    /// Opens a block into a card, or closes it. Not part of the project: what a
+    /// block shows is a way of looking, and reopening a project with every card
+    /// open would be a way of looking nobody chose.
+    void setExpanded(QtNodes::NodeId nodeId, bool expanded);
+    void setAllExpanded(bool expanded);
+
+    [[nodiscard]] bool anyExpanded() const noexcept { return !m_expanded.empty(); }
+
+    // --- The bus ----------------------------------------------------------
+
+    [[nodiscard]] bool isBus(QtNodes::NodeId nodeId) const;
+
+    /// A wire between a bus and a module, in either direction.
+    [[nodiscard]] bool isBusTap(QtNodes::ConnectionId connectionId) const;
+
+    /// The bus ends of the wires that leave and arrive at a module.
+    [[nodiscard]] std::vector<QtNodes::NodeId> busesOf(QtNodes::NodeId module) const;
+
+    /// Every module wired to the bus, once each, whichever way the wire runs.
+    [[nodiscard]] std::vector<QtNodes::NodeId> modulesOn(QtNodes::NodeId bus) const;
+
+    /// The wires between a module and one bus.
+    [[nodiscard]] std::vector<QtNodes::ConnectionId> tapsBetween(QtNodes::NodeId module,
+                                                                 QtNodes::NodeId bus) const;
+
+    /// Whether the module has ports a bus could be wired to at all.
+    [[nodiscard]] bool canAttachToBus(QtNodes::NodeId module) const;
+
+    /// Wires a module onto a bus the way dropping it there would: it listens, and
+    /// speaks too when it is the kind that does. False when nothing could be wired
+    /// - the module has no frames port, or the one it has is taken.
+    bool attachToBus(QtNodes::NodeId module, QtNodes::NodeId bus);
+
+    /// Takes every wire between a module and a bus away.
+    void detachFromBus(QtNodes::NodeId module, QtNodes::NodeId bus);
+
+    /// What a module does on a bus: whether the bus's frames reach it, and
+    /// whether what it sends reaches the bus. One of the two is always kept.
+    struct BusDirection final {
+        bool listens{false};
+        bool talks{false};
+    };
+
+    [[nodiscard]] BusDirection busDirection(QtNodes::NodeId module, QtNodes::NodeId bus) const;
+    void setBusDirection(QtNodes::NodeId module, QtNodes::NodeId bus, BusDirection direction);
+
+    /// Which of the frames on a wire get through. Meaningful on a wire from a
+    /// bus, though it is a property of any wire that carries frames.
+    [[nodiscard]] CanFormatMatch frameFormat(QtNodes::ConnectionId connectionId) const;
+    void setFrameFormat(QtNodes::ConnectionId connectionId, CanFormatMatch format);
+
+    /// Moves a bus so that it covers the modules wired to it: a rail that does
+    /// not reach the module it carries has a drop that does not touch anything.
+    void fitBus(QtNodes::NodeId bus);
+
+    /// The channel a bus is: what its "CAN 2" refers to.
+    [[nodiscard]] std::int64_t busChannel(QtNodes::NodeId bus) const;
+
+    /// Moving a block tells the scene, and the scene lays out the bus it hangs from
+    /// and every wire to it. Done once for each of eighty blocks in turn that is
+    /// eighty times the work of moving them all, because every one of those eighty
+    /// lays the bus out again with its own wires - and laying a bus out reads every
+    /// wire it has. Arranging eighty modules took five seconds, and doubling them
+    /// made it eight times worse.
+    ///
+    /// Between beginMoves() and endMoves() a block's position is written and
+    /// nothing is said; endMoves() fits the buses once and tells the scene once.
+    /// They nest, and MoveBatch is the way to use them.
+    void beginMoves() noexcept { ++m_moveDepth; }
+    void endMoves();
+
+    class MoveBatch final {
+    public:
+        explicit MoveBatch(PipelineGraphModel& model)
+            : m_model{model}
+        {
+            m_model.beginMoves();
+        }
+
+        ~MoveBatch() { m_model.endMoves(); }
+
+        MoveBatch(const MoveBatch&) = delete;
+        MoveBatch& operator=(const MoveBatch&) = delete;
+        MoveBatch(MoveBatch&&) = delete;
+        MoveBatch& operator=(MoveBatch&&) = delete;
+
+    private:
+        PipelineGraphModel& m_model;
+    };
 
 Q_SIGNALS:
     /// A node's settings should be shown. The properties panel listens.
@@ -132,6 +250,29 @@ private:
     /// Assigns the next free canvas id to a description node.
     QtNodes::NodeId adopt(const std::string& id);
 
+    /// The one place an edge is added, so that the signal and the check cannot
+    /// be forgotten by one of the callers.
+    bool addEdge(QtNodes::ConnectionId connectionId);
+    bool removeEdge(QtNodes::ConnectionId connectionId);
+
+    /// The wire that completes a drop: the other half of what a module does on
+    /// a bus, if it is the kind that does both and the ports are free.
+    [[nodiscard]] bool completionOf(QtNodes::ConnectionId connectionId,
+                                    QtNodes::ConnectionId& completion) const;
+
+    /// The first frames input and output a module has, or npos.
+    [[nodiscard]] std::size_t firstFramesPort(QtNodes::NodeId nodeId, bool input) const;
+
+    [[nodiscard]] double blockWidth(const NodeDescription& block) const;
+
+    /// The furthest right a rail may start so that it still covers its modules.
+    [[nodiscard]] double busLeftBound(const NodeDescription& bus) const;
+    [[nodiscard]] double busWidth(const NodeDescription& bus) const;
+
+    /// Fits every bus the node is wired to, after the node moved or changed size.
+    void fitBusesOf(QtNodes::NodeId nodeId);
+    void fitAllBuses();
+
     GraphDescription& m_description;
     const NodeCatalog& m_catalog;
 
@@ -139,6 +280,16 @@ private:
     // on every paint, for every node and every port.
     std::unordered_map<QtNodes::NodeId, std::string> m_toDescription;
     std::unordered_map<std::string, QtNodes::NodeId> m_toCanvas;
+
+    /// Description ids of the blocks shown as cards.
+    std::unordered_set<std::string> m_expanded;
+
+    /// False while a change is being made to one half of a drop on purpose.
+    bool m_pairing{true};
+
+    /// How many MoveBatch objects are alive, and the blocks moved under them.
+    int m_moveDepth{0};
+    std::unordered_set<QtNodes::NodeId> m_moved;
 
     QtNodes::NodeId m_nextNodeId{0};
 };

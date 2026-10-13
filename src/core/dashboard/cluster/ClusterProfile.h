@@ -7,9 +7,9 @@
 //
 // A profile is plain data: for some of the roles, a binding. It reuses the Dashboard's own
 // DashboardBinding - a decoded CAN signal by message and signal name, or a system variable - so the
-// cluster reads exactly what a Gauge on the same panel would read, and a signal that the Graph can
-// plot is a signal the cluster can show. A second way of naming a value would be a second way for
-// the two to disagree.
+// cluster reads exactly what a Gauge on the same panel would read, and a signal that the Plot
+// Viewer can plot is a signal the cluster can show. A second way of naming a value would be a
+// second way for the two to disagree.
 //
 // A role the profile does not mention has no source. That is not a mistake: the cluster draws
 // dashes for it and lights up the day a source arrives, which is how one cluster serves a vehicle

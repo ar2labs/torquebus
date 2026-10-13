@@ -30,8 +30,8 @@
 // Where the values come from:
 //
 //   * a **signal** binding reads the plot store, which is where decoded signals
-//     already accumulate for the Graph panel. No second decode path, and a
-//     dashboard shows exactly what the Graph shows.
+//     already accumulate for the Plot Viewer. No second decode path, and a
+//     dashboard shows exactly what the Plot Viewer shows.
 //   * a **variable** binding reads and writes SystemVariables, lock-free.
 //
 // Neither is polled per frame: the panel repaints at 20 Hz like every other,
