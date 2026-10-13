@@ -37,7 +37,10 @@ visual identity, an open architecture and a GPLv3 licence.
   filters and sinks are blocks you wire together on the Pipeline canvas:
   `[Kvaser CAN 1] → [DBC Decoder] → [J1939 Decoder] → [PGN Filter] → [Signal Plot]`.
   The graph *is* the data path, not a picture of it — and it builds itself for
-  the simple case, so reading a bus never costs a canvas visit.
+  the simple case, so reading a bus never costs a canvas visit. It is drawn the
+  way a network is: the **CAN Bus** is two wires, every ECU hangs off it by a drop
+  (the two wires, amber and green, carried down to it), and a drop can be limited
+  to the 11-bit or the 29-bit frames.
 - **Simulated ECUs in Lua.** A script, a lifecycle, and frames on the wire.
   Editing a script and pressing Start is the whole edit-run loop.
 - **Vendor-neutral core.** One frame type, one driver interface. Kvaser, PEAK
@@ -137,12 +140,12 @@ acceptance pass, ordered so the cheapest failures surface first.
 
 ## Testing & Quality Assurance (Google Test)
 
-TorqueBus enforces a **100% automated test pass contract**. Every pull request and build runs **841 automated tests** powered by [Google Test](https://github.com/google/googletest) (v1.15.2) and CTest across four architectural layers:
+TorqueBus enforces a **100% automated test pass contract**. Every pull request and build runs **1092 automated tests** powered by [Google Test](https://github.com/google/googletest) (v1.15.2) and CTest across four architectural layers:
 
-* **Unit Tests (707 tests):** CAN engine core, DBC parser, J1939 codecs, ISO-TP, UDS, TinyML inference, and Lua runtime.
-* **UI Tests (104 tests):** QML Instrument Cluster, Canvas Pipeline, docking layouts, widgets, and property bindings.
-* **Integration Tests (41 tests):** Multi-node virtual CAN bus, Lua ECU lifecycles, and dataflow throughput (asserting 150,000 frames/s with zero loss).
-* **Hardware Loopback Tests (4 tests):** Physical PEAK and Kvaser adapter validation (cleanly skipped via `GTEST_SKIP()` when hardware is detached).
+* **Unit Tests (820 tests):** CAN engine core, DBC parser, J1939 codecs, ISO-TP, UDS, TinyML inference, the Lua runtime and its limits, and a seeded fuzz of every reader.
+* **UI Tests (194 tests):** QML Instrument Cluster, the Pipeline canvas and its CAN Bus, docking layouts, widgets, and property bindings.
+* **Integration Tests (67 tests):** Multi-node virtual CAN bus, Lua ECU lifecycles, every block of the catalog built and run on an engine, and dataflow throughput (asserting 150,000 frames/s with zero loss).
+* **Hardware Loopback Tests (11 tests):** Physical PEAK and Kvaser adapter validation (cleanly skipped via `GTEST_SKIP()` when hardware is detached).
 
 Run the full Google Test suite locally:
 
@@ -278,7 +281,7 @@ Full architectural specifications and development manuals are organized in the [
 | v0.5 | PEAK-System backend | done |
 | v0.6 | Transmit, and the QtNodes canvas | done |
 | v0.7 | DBC decoder node, `Signals` port | done |
-| v0.8 | Graph and Statistics | done |
+| v0.8 | Plot Viewer (first called Graph) and Statistics | done |
 | v0.9 | Logger and Playback (`.tblog`, ASC, CSV) | done |
 | v0.10 | Projects and workspaces | done |
 | v0.11 | ISO-TP | done |

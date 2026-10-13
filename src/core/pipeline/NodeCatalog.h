@@ -75,7 +75,7 @@ struct NodeBuildContext final {
     /// files I happen to have on the canvas".
     ReplayControl* replayControl{nullptr};
 
-    /// Where decoded signals accumulate for the Graph panel, or nullptr.
+    /// Where decoded signals accumulate for the Plot Viewer, or nullptr.
     ///
     /// Borrowed like the trace store and for the same reason: it belongs to the
     /// measurement rather than to the graph, and the panel reads it on its own
@@ -140,6 +140,11 @@ struct NodeBuildContext final {
     std::string basePath;
 };
 
+/// The type of the CAN Bus block: one network, which every module wired to it
+/// listens on and transmits on. The canvas draws it as the two wires of the bus
+/// rather than as a block, so it has to be able to recognise it.
+inline constexpr std::string_view kCanBusType = "can.bus";
+
 /// Everything a canvas needs to know about a type before instantiating it.
 struct NodeTypeInfo final {
     /// Stable identifier, written into project files: "can.source", "lua.ecu".
@@ -171,6 +176,17 @@ struct NodeTypeInfo final {
     /// either direction is bad: an editor that hides a setting the project
     /// already contains, or one that invites a setting nothing will ever read.
     bool acceptsExtraParameters{false};
+
+    /// A block that speaks on a bus as well as listening to it.
+    ///
+    /// What "attach to the bus" means for a block is decided by its ports: one
+    /// with a Frames input listens, one with a Frames output and no Frames input
+    /// only talks. A block with both is ambiguous - a Lua ECU answers on the bus,
+    /// a Frame Filter must not (its output fed back onto the bus it came from is
+    /// a loop) - and this is where a type says which of the two it is. Reading
+    /// it as a default of "listen only" is the safe way round: a block that
+    /// forgets to declare it is heard from less, never more.
+    bool talksOnBus{false};
 };
 
 /// Builds one node. Returns a failed Result rather than throwing, and names the
@@ -179,6 +195,17 @@ using NodeCreator = std::function<Result(const NodeParameters& parameters,
                                          const NodeBuildContext& context,
                                          std::string_view nodeId,
                                          std::unique_ptr<IPipelineNode>& out)>;
+
+/// Builds the node that one wire arriving at a fan-in port ends in.
+///
+/// The returned node has exactly one input, of the port's type, and the build
+/// connects the wire to that. See PortDescriptor::fanIn for why the node a
+/// description names never receives them itself.
+using NodeTapCreator = std::function<Result(const NodeParameters& parameters,
+                                            const NodeBuildContext& context,
+                                            std::string_view nodeId,
+                                            std::size_t port,
+                                            std::unique_ptr<IPipelineNode>& out)>;
 
 /// Checks a node's settings without building it.
 ///
@@ -200,7 +227,13 @@ public:
     /// that a plugin has added to without every other measurement seeing it.
     [[nodiscard]] static NodeCatalog withBuiltinTypes();
 
-    void registerType(NodeTypeInfo info, NodeCreator creator, NodeValidator validator = {});
+    /// `tap` is for a type with a fan-in port and for no other: it is what makes
+    /// "any number of wires" buildable, and a type that declares such a port
+    /// without one cannot be built once something is wired to it.
+    void registerType(NodeTypeInfo info,
+                      NodeCreator creator,
+                      NodeValidator validator = {},
+                      NodeTapCreator tap = {});
 
     /// Everything wrong with a node's settings that can be known without a
     /// build context - no channels, no trace store, no transmit list.
@@ -234,10 +267,21 @@ public:
                                 std::string_view nodeId,
                                 std::unique_ptr<IPipelineNode>& out) const;
 
+    /// Builds the node one wire into a fan-in port ends in. Fails, naming the
+    /// block, when the type has none - which is a type declaring a port it
+    /// cannot honour, not something a user did.
+    [[nodiscard]] Result createTap(std::string_view typeName,
+                                   const NodeParameters& parameters,
+                                   const NodeBuildContext& context,
+                                   std::string_view nodeId,
+                                   std::size_t port,
+                                   std::unique_ptr<IPipelineNode>& out) const;
+
 private:
     std::vector<NodeTypeInfo> m_order;
     std::map<std::string, NodeCreator, std::less<>> m_creators;
     std::map<std::string, NodeValidator, std::less<>> m_validators;
+    std::map<std::string, NodeTapCreator, std::less<>> m_taps;
     std::map<std::string, std::size_t, std::less<>> m_index;
 };
 

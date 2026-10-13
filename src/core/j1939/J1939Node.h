@@ -9,7 +9,7 @@
 // traffic, and splitting them into separate blocks would mean drawing the same
 // wire three times to ask three questions about one bus. So this takes frames
 // in and puts decoded signals out - exactly like the DBC decoder, so that the
-// Graph panel, the dashboard and the scripts go on receiving what they always
+// Plot Viewer, the dashboard and the scripts go on receiving what they always
 // received - and carries the other two answers alongside, for a panel to read.
 //
 // --- Matching by PGN, not by identifier --------------------------------------

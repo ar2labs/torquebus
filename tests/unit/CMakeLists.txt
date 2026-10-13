@@ -2,6 +2,15 @@
 
 add_executable(torquebus_unit_tests
     AccentColorTests.cpp
+    CanBusTests.cpp
+    CanChannelRobustnessTests.cpp
+    DbcRobustnessTests.cpp
+    FilePathTests.cpp
+    InputFuzzTests.cpp
+    LuaLimitsTests.cpp
+    ParameterValidationTests.cpp
+    PipelineFaultTests.cpp
+    ShippedDatabaseTests.cpp
     CanFrameTests.cpp
     ThreadGuardTests.cpp
     ShippedNameTableTests.cpp

@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "CrashTrace.h"
+
 #include "ui/mainwindow/Docking.h"
 #include "ui/theme/ThemeManager.h"
 
@@ -168,6 +170,9 @@ TEST_F(BottomPanelTest, WindowResizeAndThemeChangeKeepOnlyTabs)
 
 int main(int argc, char** argv)
 {
+    // First, so that a crash anywhere after it leaves a stack and not only a code.
+    torquebus::testing_support::installCrashTrace();
+
     testing::InitGoogleTest(&argc, argv);
     if (GTEST_FLAG_GET(list_tests)) {
         return RUN_ALL_TESTS();

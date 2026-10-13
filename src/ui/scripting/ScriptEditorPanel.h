@@ -69,7 +69,8 @@ public:
     /// Sets the SystemVariables instance for browsing dashboard & project variables.
     void setVariables(SystemVariables* variables);
 
-    /// Shows or hides the Symbol & API Explorer sidebar.
+    /// Shows or hides the Script Reference sidebar: the database's signals, the script API and the
+    /// system variables, with what each one is and a snippet to put in the script.
     void toggleSidebar(bool visible);
     [[nodiscard]] bool isSidebarVisible() const;
 
@@ -113,7 +114,7 @@ public Q_SLOTS:
     void onReplace();
     void onReplaceAll();
 
-    // Explorer sidebar slots
+    // Script Reference sidebar slots
     void onSignalFilterChanged(const QString& filter);
     void onFunctionFilterChanged(const QString& filter);
     void onVariableFilterChanged(const QString& filter);
@@ -226,7 +227,7 @@ private:
     ScriptEdit* m_editor{nullptr};
     LuaHighlighter* m_highlighter{nullptr};
 
-    // Explorer Sidebar Components
+    // Script Reference sidebar components
     QTabWidget* m_sideTabs{nullptr};
 
     // Tab 1: Signals

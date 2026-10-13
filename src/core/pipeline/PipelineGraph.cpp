@@ -6,6 +6,7 @@
 #include "core/pipeline/PipelineGraph.h"
 
 #include <algorithm>
+#include <exception>
 #include <format>
 #include <unordered_map>
 #include <utility>
@@ -25,6 +26,44 @@ namespace {
 
 PipelineGraph::PipelineGraph() = default;
 PipelineGraph::~PipelineGraph() = default;
+
+void PipelineGraph::setFaultHandler(FaultHandler handler)
+{
+    m_faultHandler = std::move(handler);
+}
+
+bool PipelineGraph::isFaulted(NodeId id) const noexcept
+{
+    const NodeEntry* entry = find(id);
+    return entry != nullptr && entry->faulted;
+}
+
+void PipelineGraph::reportFault(const NodeEntry& entry, std::string_view reason) noexcept
+{
+    if (!m_faultHandler) {
+        return;
+    }
+
+    // Everything here can throw - a name is a string, and a handler is somebody
+    // else's code - and this is called from inside a catch block, where a second
+    // exception is std::terminate. So nothing gets out.
+    try {
+        const std::string name = entry.node != nullptr ? entry.node->displayName() : "?";
+        m_faultHandler(name, reason);
+    } catch (...) {
+        // Nowhere left to say it.
+    }
+}
+
+void PipelineGraph::quarantine(NodeEntry& entry, std::string_view reason) noexcept
+{
+    if (!entry.faulted) {
+        entry.faulted = true;
+        ++m_faultedNodes;
+    }
+
+    reportFault(entry, reason);
+}
 
 // ---------------------------------------------------------------------------
 // Building
@@ -282,8 +321,40 @@ Result PipelineGraph::compile(std::size_t maximumBatchSize)
         target->inputSlots[edge.to.port] = index;
     }
 
-    for (NodeEntry& entry : m_nodes) {
-        if (Result result = entry.node->prepare(maximumBatchSize); result.failed()) {
+    m_faultedNodes = 0;
+
+    for (std::size_t index = 0; index < m_nodes.size(); ++index) {
+        NodeEntry& entry = m_nodes[index];
+        entry.faulted = false;
+
+        Result result = Result::ok();
+
+        // A node's prepare() allocates, opens files and runs scripts, and any of
+        // those can throw. It used to leave from here as an exception, through the
+        // engine and into the window that pressed Start. It is a failed compile
+        // like any other, with the node named.
+        try {
+            result = entry.node->prepare(maximumBatchSize);
+        } catch (const std::exception& problem) {
+            result = Result::error(ErrorCode::Unknown, problem.what());
+        } catch (...) {
+            result = Result::error(ErrorCode::Unknown, "an exception that is not a std::exception");
+        }
+
+        if (result.failed()) {
+            // The nodes before this one were prepared and have not been told the run is
+            // over: a script has had its on_enable, a logger has opened its file. They
+            // are finished here, last first, as Stop would have - otherwise the only
+            // thing that ever closes them is a destructor, and a script never hears that
+            // it was switched off.
+            for (std::size_t done = index; done-- > 0;) {
+                try {
+                    m_nodes[done].node->finish();
+                } catch (...) {
+                    // Already reporting a failure; this one cannot add to it.
+                }
+            }
+
             invalidate();
             return Result::error(result.code(),
                                  std::format("{} failed to prepare: {}",
@@ -331,8 +402,27 @@ void PipelineGraph::execute()
         // does not leave the previous batch visible to its consumers.
         std::ranges::fill(entry->outputViews, PortBatch{});
 
-        NodeContext context{entry->inputViews, entry->outputViews};
-        entry->node->process(context);
+        // A node that threw is out of the run, not the run's end. Everything it was
+        // feeding keeps going on what it does not feed - a script that divides by
+        // zero on frame 40,000 is one ECU going quiet, not the measurement being
+        // over. (The guard around the whole dispatch loop, in the engine, remains
+        // the net for what this cannot see.)
+        if (!entry->faulted) {
+            NodeContext context{entry->inputViews, entry->outputViews};
+
+            try {
+                entry->node->process(context);
+            } catch (const std::exception& problem) {
+                quarantine(*entry, problem.what());
+            } catch (...) {
+                quarantine(*entry, "an exception that is not a std::exception");
+            }
+
+            if (entry->faulted) {
+                // Whatever it had published before it threw is half of a batch.
+                std::ranges::fill(entry->outputViews, PortBatch{});
+            }
+        }
 
         // Publish to every consumer of each output port. They all receive the
         // same non-owning view of the producer's buffer - fan-out costs one
@@ -350,8 +440,19 @@ void PipelineGraph::finish()
     // Reverse order: a consumer is torn down before the thing feeding it, so a
     // logger flushes before the source that was still producing into it goes
     // away.
+    //
+    // Each node on its own: one that throws is reported and the rest still run, so
+    // the logger above it still closes its file.
     for (auto index = m_executionPlan.rbegin(); index != m_executionPlan.rend(); ++index) {
-        m_nodes[*index].node->finish();
+        NodeEntry& entry = m_nodes[*index];
+
+        try {
+            entry.node->finish();
+        } catch (const std::exception& problem) {
+            reportFault(entry, problem.what());
+        } catch (...) {
+            reportFault(entry, "an exception that is not a std::exception");
+        }
     }
 }
 

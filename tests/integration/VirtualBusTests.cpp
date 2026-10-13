@@ -134,6 +134,19 @@ TEST(VirtualBusTests, OpeningRejectsHandlesThatAreNotOurs)
     EXPECT_TRUE(backend.open(configFor("virtual:99", 0)).code() == ErrorCode::DeviceNotFound);
     EXPECT_TRUE(backend.open(configFor("", 0)).code() == ErrorCode::DeviceNotFound);
 
+    // A number too large for the type it is parsed into. stoul threw for these, out of a
+    // function whose contract is a Result.
+    for (const char* handle : {"virtual:99999999999999999999",
+                               "virtual:4294967296",
+                               "virtual:-1",
+                               "virtual:0x1",
+                               "virtual: 0",
+                               "virtual:0 "}) {
+        Result result = Result::ok();
+        EXPECT_NO_THROW(result = backend.open(configFor(handle, 0))) << handle;
+        EXPECT_TRUE(result.code() == ErrorCode::DeviceNotFound) << handle;
+    }
+
     EXPECT_TRUE(backend.open(configFor("virtual:0", 0)).succeeded());
     EXPECT_TRUE(backend.isOpen());
 

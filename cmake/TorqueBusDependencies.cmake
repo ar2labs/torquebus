@@ -186,6 +186,12 @@ FetchContent_Declare(QtNodes
 
 FetchContent_MakeAvailable(QtNodes)
 
+# One correction to its source, to a function that runs on every mouse move of a wire being
+# dragged: it reads the view transform out of the wrong object, and now and then that is the end
+# of a page. Why, and how it is kept safe, is in the file.
+include("${CMAKE_CURRENT_LIST_DIR}/PatchQtNodes.cmake")
+torquebus_patch_qtnodes("${qtnodes_SOURCE_DIR}")
+
 # QtNodes compiles with QT_NO_KEYWORDS privately, so `emit` and `signals` still
 # work in our own code. Recorded because it is the kind of setting that, if it
 # were PUBLIC, would break every Qt file in the project and take an afternoon

@@ -7,11 +7,18 @@
 #include "ui/scripting/ScriptEdit.h"
 #include "ui/scripting/ScriptEditorPanel.h"
 
+#include <QAbstractButton>
+#include <QAction>
 #include <QApplication>
+#include <QLabel>
+#include <QLineEdit>
+#include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTextCursor>
+#include <QTextEdit>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
+#include <QTreeWidgetItemIterator>
 
 #include <gtest/gtest.h>
 
@@ -331,6 +338,112 @@ TEST(ScriptEditorPanelTests, TreeItemDoubleClickAndKeyActivationInsertsExactlyOn
 
     const QString textAfterEnter = panel.editor()->toPlainText();
     EXPECT_EQ(textAfterEnter.count(funcName), 2);
+}
+
+/// Every piece of text the panel can put in front of a person: what is written on a widget, in a
+/// tool tip, a placeholder, on a tab, an action or a row of a tree - and, for each row, the
+/// documentation the panel shows for it.
+[[nodiscard]] QStringList everythingThePanelSays(ScriptEditorPanel& panel)
+{
+    QStringList texts;
+
+    const auto add = [&texts](const QString& text) {
+        if (!text.isEmpty()) {
+            texts.push_back(text);
+        }
+    };
+
+    for (const QWidget* widget : panel.findChildren<QWidget*>()) {
+        add(widget->toolTip());
+        add(widget->statusTip());
+        add(widget->whatsThis());
+        add(widget->accessibleName());
+        add(widget->accessibleDescription());
+    }
+    for (const QLabel* label : panel.findChildren<QLabel*>()) {
+        add(label->text());
+    }
+    for (const QAbstractButton* button : panel.findChildren<QAbstractButton*>()) {
+        add(button->text());
+    }
+    for (const QLineEdit* edit : panel.findChildren<QLineEdit*>()) {
+        add(edit->placeholderText());
+    }
+    for (const QAction* action : panel.findChildren<QAction*>()) {
+        add(action->text());
+        add(action->toolTip());
+        add(action->statusTip());
+    }
+    for (const QTabWidget* tabs : panel.findChildren<QTabWidget*>()) {
+        for (int index = 0; index < tabs->count(); ++index) {
+            add(tabs->tabText(index));
+            add(tabs->tabToolTip(index));
+        }
+    }
+
+    // A row's own text, and what the panel says about it once it is the one selected.
+    const auto* details = panel.findChild<QTextEdit*>();
+    for (QTreeWidget* tree : panel.findChildren<QTreeWidget*>()) {
+        for (int column = 0; column < tree->columnCount(); ++column) {
+            add(tree->headerItem()->text(column));
+        }
+
+        for (QTreeWidgetItemIterator it{tree}; *it != nullptr; ++it) {
+            for (int column = 0; column < tree->columnCount(); ++column) {
+                add((*it)->text(column));
+                add((*it)->toolTip(column));
+            }
+
+            tree->setCurrentItem(*it);
+            if (details != nullptr) {
+                add(details->toPlainText());
+                add(details->placeholderText());
+            }
+        }
+    }
+
+    return texts;
+}
+
+TEST(ScriptEditorPanelTests, TheSidebarIsTheScriptReference)
+{
+    GraphDescription description;
+    ScriptEditorPanel panel{description};
+
+    // What it is: the signals a database has, the functions a script can call and the variables it
+    // can read, with what each one is and a snippet to put in the script. A name that says that.
+    const auto* title = panel.findChild<QLabel*>(QStringLiteral("scriptSidebarTitle"));
+    ASSERT_NE(title, nullptr);
+    EXPECT_EQ(title->text(), QStringLiteral("Script Reference"));
+
+    // The button that shows and hides it is called the same.
+    bool found = false;
+    for (const QAction* action : panel.findChildren<QAction*>()) {
+        if (action->text() == QStringLiteral("Script Reference")) {
+            found = true;
+            EXPECT_TRUE(action->toolTip().contains(QStringLiteral("Script Reference")))
+                << action->toolTip().toStdString();
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST(ScriptEditorPanelTests, NothingThePanelSaysNamesAnotherVendorsScriptingLanguage)
+{
+    GraphDescription description;
+    ScriptEditorPanel panel{description};
+
+    // The scripting language of another vendor's tool has a name that is that vendor's. This is a
+    // scripting tool for Lua and says Lua. The name is put together here rather than written out,
+    // so that a search of the repository for it finds nothing - which is the point of this test.
+    const QString reserved = QStringLiteral("CA") + QStringLiteral("PL");
+
+    const QStringList texts = everythingThePanelSays(panel);
+    ASSERT_GT(texts.size(), 50);
+
+    for (const QString& text : texts) {
+        EXPECT_FALSE(text.contains(reserved, Qt::CaseInsensitive)) << text.toStdString();
+    }
 }
 
 } // namespace

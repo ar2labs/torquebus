@@ -68,6 +68,17 @@ CanEngine::CanEngine(Configuration configuration)
     : m_configuration{configuration}
 {
     // Frame buffers live in the pipeline nodes now; nothing to reserve here.
+
+    // A node that throws is taken out of the run and this is how the person finds
+    // out: on the Output panel, naming the block, rather than as a measurement that
+    // quietly lost one of its branches.
+    m_graph.setFaultHandler([this](std::string_view node, std::string_view reason) {
+        reportToLogSinks(std::format("'{}' stopped after an error and is out of the run: {}. "
+                                     "The rest of the measurement continues without it.",
+                                     node,
+                                     reason),
+                         true);
+    });
 }
 
 CanEngine::~CanEngine()
@@ -181,12 +192,28 @@ Result CanEngine::start()
         }
     }
 
-    if (Result result = buildGraph(); result.failed()) {
+    // Called from the window that pressed Start, so whatever the build throws - a
+    // node type a plugin registered, an allocation, a path the filesystem refuses -
+    // would end the application from a button. It is a failed Start instead.
+    Result built = Result::ok();
+
+    try {
+        built = buildGraph();
+    } catch (const std::exception& problem) {
+        built = Result::error(ErrorCode::Unknown,
+                              std::format("The pipeline could not be built: {}", problem.what()));
+    } catch (...) {
+        built = Result::error(ErrorCode::Unknown,
+                              "The pipeline could not be built: an exception that is not a "
+                              "std::exception");
+    }
+
+    if (built.failed()) {
         const std::lock_guard lock{m_channelsMutex};
         for (const std::unique_ptr<CanChannel>& channel : m_channels) {
             channel->stop();
         }
-        return result;
+        return built;
     }
 
     m_deliveredFrames.store(0, std::memory_order_relaxed);
@@ -342,7 +369,7 @@ void CanEngine::setGraphDescription(GraphDescription description,
             context.traceStore = &m_traceStore;
 
             // Samples from the previous run are cleared while the series
-            // themselves stay registered, so the Graph panel keeps its ticked
+            // themselves stay registered, so the Plot Viewer keeps its ticked
             // signals and colours across restarts.
             m_plotStore.clearSamples();
             context.plotStore = &m_plotStore;
@@ -596,16 +623,23 @@ void CanEngine::publishStatistics(std::uint64_t elapsedNs)
                 continue;
             }
 
-            std::vector<NodeStatistic> counters = node->statistics();
-            if (counters.empty()) {
-                // A node with nothing to report stays out of the table
-                // entirely. A row of a name and no numbers is a row that only
-                // makes the ones that matter harder to find.
+            // Asked of every node on this thread, ten times a second, and a node is
+            // free to throw from either call. One that does is left out of the table;
+            // it is not a reason to end a measurement that is otherwise fine.
+            try {
+                std::vector<NodeStatistic> counters = node->statistics();
+                if (counters.empty()) {
+                    // A node with nothing to report stays out of the table
+                    // entirely. A row of a name and no numbers is a row that only
+                    // makes the ones that matter harder to find.
+                    continue;
+                }
+
+                reports.push_back(NodeReport{
+                    node->displayName(), std::string{node->typeName()}, std::move(counters)});
+            } catch (...) {
                 continue;
             }
-
-            reports.push_back(NodeReport{
-                node->displayName(), std::string{node->typeName()}, std::move(counters)});
         }
 
         const std::lock_guard lock{m_nodeStatisticsMutex};

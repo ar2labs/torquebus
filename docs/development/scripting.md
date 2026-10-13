@@ -490,6 +490,29 @@ A script that fails to *compile* fails the start instead, with the Lua message
 and its line number — better than discovering it three seconds into a
 recording.
 
+### Time, memory and timers
+
+A script is held to a budget, so that a mistake in a loop is an error and not a
+frozen window:
+
+* **250 ms per call** into the script — one `on_message`, one `every` callback, one
+  `on_timer`. The top of the file, which runs once at start and sets things up, gets
+  **2 s**. Past it the call fails with a message that names the line that was
+  looping and the limit.
+* **64 MiB** of memory per script. Past it an allocation fails as `not enough memory`,
+  inside the script, with its line number; the script can catch it with `pcall`.
+* **1024 repeating jobs** (`every` and `cyclic` together) per ECU. `every()` inside
+  `on_message` adds one per frame, and the message says so.
+
+These are limits on a *handler*, which runs once per frame inside a pass of a few
+milliseconds; nothing a simulated ECU does comes near them. A script that runs out of
+time or memory is not given the five chances above — the next call would do the same,
+and each one costs the whole budget — and the node stops at once.
+
+What the time limit cannot interrupt is a single call into Lua's own library:
+a pattern with catastrophic backtracking in `string.find`, say, runs to the end of the
+call. See `robustness.md`.
+
 ## Editing a script while it runs
 
 Stop, edit, Start throws away the measurement — the trace, the state, the fault

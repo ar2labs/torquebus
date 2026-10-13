@@ -237,7 +237,7 @@ not "is `0x18FECA3D` in the file" but "is a message with PGN `0xFECA`".
 
 J1939 keeps the top of every field for two things: in a byte `0xFE` is *error* and `0xFF` is *not
 available*, in two bytes `0xFE00..` and `0xFF00..`, in two bits `2` and `3`, in four `14` and `15`. The J1939
-block turns those into **NaN**, which a plot shows as a gap, the Graph panel's legend as `n/a`, and the
+block turns those into **NaN**, which a plot shows as a gap, the Plot Viewer's legend as `n/a`, and the
 cluster as dashes - and never as 255 or 215 °C. A valid raw value goes no further than `0xFA`, `0xFAFF`,
 `0xFAFFFF` or `0xFAFFFFFF`.
 

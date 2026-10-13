@@ -141,7 +141,7 @@ void ScriptEditorPanel::buildUi()
     setupToolbar();
     rootLayout->addWidget(m_toolBar);
 
-    // 2. Central Splitter (Editor on left, Explorer Sidebar on right)
+    // 2. Central Splitter (Editor on left, Script Reference sidebar on right)
     m_splitter = new QSplitter(Qt::Horizontal, this);
     m_splitter->setChildrenCollapsible(false);
 
@@ -188,7 +188,7 @@ void ScriptEditorPanel::buildUi()
     editorLayout->addWidget(m_editor, 1);
     m_splitter->addWidget(m_editorContainer);
 
-    // Right Container: Explorer Sidebar
+    // Right Container: Script Reference sidebar
     setupSidebar();
     m_splitter->addWidget(m_sidebarWidget);
 
@@ -321,11 +321,10 @@ void ScriptEditorPanel::setupToolbar()
 
     m_toolBar->addSeparator();
 
-    // --- Toggle Symbol & API Explorer Sidebar -----------------------------
+    // --- Toggle the Script Reference sidebar ------------------------------
     m_actionToggleSidebar =
-        m_toolBar->addAction(getIcon(QStringLiteral("properties")), tr("Symbol Explorer"));
-    m_actionToggleSidebar->setToolTip(
-        tr("Show or hide the Symbol & API Explorer sidebar (Ctrl+B)"));
+        m_toolBar->addAction(getIcon(QStringLiteral("properties")), tr("Script Reference"));
+    m_actionToggleSidebar->setToolTip(tr("Show or hide the Script Reference sidebar (Ctrl+B)"));
     m_actionToggleSidebar->setShortcut(QKeySequence{Qt::CTRL | Qt::Key_B});
     m_actionToggleSidebar->setCheckable(true);
     m_actionToggleSidebar->setChecked(true);
@@ -1351,7 +1350,8 @@ void ScriptEditorPanel::setupSidebar()
     headerLayout->setContentsMargins(4, 2, 4, 2);
     headerLayout->setSpacing(6);
 
-    auto* titleLabel = new QLabel(tr("CAPL / Lua Symbol Explorer"), header);
+    auto* titleLabel = new QLabel(tr("Script Reference"), header);
+    titleLabel->setObjectName(QStringLiteral("scriptSidebarTitle"));
     titleLabel->setProperty("torquebusRole", QStringLiteral("caption"));
     QFont boldFont = titleLabel->font();
     boldFont.setBold(true);
@@ -1361,7 +1361,7 @@ void ScriptEditorPanel::setupSidebar()
     auto* closeBtn = new QToolButton(header);
     closeBtn->setAutoRaise(true);
     closeBtn->setIcon(getIcon(QStringLiteral("close")));
-    closeBtn->setToolTip(tr("Close Explorer (Ctrl+B)"));
+    closeBtn->setToolTip(tr("Close Script Reference (Ctrl+B)"));
     connect(closeBtn, &QToolButton::clicked, this, [this] { toggleSidebar(false); });
     headerLayout->addWidget(closeBtn);
 

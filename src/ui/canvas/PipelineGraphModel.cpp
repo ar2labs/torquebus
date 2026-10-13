@@ -5,6 +5,8 @@
 
 #include "ui/canvas/PipelineGraphModel.h"
 
+#include "ui/canvas/CanvasLayout.h"
+
 #include <QtNodes/ConnectionIdUtils>
 #include <QtNodes/NodeData>
 #include <QtNodes/StyleCollection>
@@ -14,11 +16,33 @@
 #include <QSize>
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <utility>
 #include <vector>
 
 namespace torquebus::ui {
 namespace {
+
+constexpr std::size_t kNoPort = static_cast<std::size_t>(-1);
+
+[[nodiscard]] bool isBusBlock(const NodeDescription* block)
+{
+    return block != nullptr && block->typeName == kCanBusType;
+}
+
+/// The other end of a wire as seen from `name`, or nullptr when the wire does
+/// not touch it.
+[[nodiscard]] const std::string* otherEnd(const EdgeDescription& edge, const std::string& name)
+{
+    if (edge.fromNode == name) {
+        return &edge.toNode;
+    }
+    if (edge.toNode == name) {
+        return &edge.fromNode;
+    }
+    return nullptr;
+}
 
 /// The colour family a port type belongs to, as QtNodes understands it.
 ///
@@ -74,6 +98,13 @@ void PipelineGraphModel::reload()
         adopt(node.id);
     }
 
+    // A card left open for a block the new project does not have would stay
+    // open for the next block to get that id.
+    std::erase_if(m_expanded,
+                  [this](const std::string& id) { return m_description.find(id) == nullptr; });
+
+    fitAllBuses();
+
     Q_EMIT modelReset();
 }
 
@@ -128,6 +159,16 @@ const NodeTypeInfo* PipelineGraphModel::typeInfo(QtNodes::NodeId nodeId) const
 {
     const NodeDescription* node = description(nodeId);
     return node == nullptr ? nullptr : m_catalog.find(node->typeName);
+}
+
+const NodeDescription* PipelineGraphModel::node(QtNodes::NodeId nodeId) const
+{
+    return description(nodeId);
+}
+
+const NodeTypeInfo* PipelineGraphModel::info(QtNodes::NodeId nodeId) const
+{
+    return typeInfo(nodeId);
 }
 
 // ---------------------------------------------------------------------------
@@ -223,36 +264,43 @@ bool PipelineGraphModel::connectionPossible(QtNodes::ConnectionId connectionId) 
         return false;
     }
 
+    // A bus to a bus is something the graph could build - a gateway - and
+    // nothing here could draw: a wire between two rails has no end to stand on.
+    if (isBus(connectionId.outNodeId) && isBus(connectionId.inNodeId)) {
+        return false;
+    }
+
+    // A fan-in port takes any number of wires, so the question there is only
+    // whether this one is already drawn. Answering yes to a wire that exists
+    // would hand QtNodes a connect command whose undo deletes the original.
+    if (toType->inputs[connectionId.inPortIndex].fanIn) {
+        return !connectionExists(connectionId);
+    }
+
     // One edge per input. Enforced here as well as in GraphDescription because
     // this is the copy the user feels: the wire simply refuses to land.
     return connections(connectionId.inNodeId, QtNodes::PortType::In, connectionId.inPortIndex)
         .empty();
 }
 
-void PipelineGraphModel::addConnection(QtNodes::ConnectionId connectionId)
+bool PipelineGraphModel::addEdge(QtNodes::ConnectionId connectionId)
 {
     const std::string from = descriptionId(connectionId.outNodeId);
     const std::string to = descriptionId(connectionId.inNodeId);
 
-    if (from.empty() || to.empty()) {
-        return;
-    }
-
-    if (connectionExists(connectionId)) {
-        return;
-    }
-
-    if (!connectionPossible(connectionId)) {
-        return;
+    if (from.empty() || to.empty() || connectionExists(connectionId)
+        || !connectionPossible(connectionId)) {
+        return false;
     }
 
     m_description.addEdge(
         EdgeDescription{from, connectionId.outPortIndex, to, connectionId.inPortIndex});
 
     Q_EMIT connectionCreated(connectionId);
+    return true;
 }
 
-bool PipelineGraphModel::deleteConnection(QtNodes::ConnectionId connectionId)
+bool PipelineGraphModel::removeEdge(QtNodes::ConnectionId connectionId)
 {
     const std::string from = descriptionId(connectionId.outNodeId);
     const std::string to = descriptionId(connectionId.inNodeId);
@@ -268,6 +316,107 @@ bool PipelineGraphModel::deleteConnection(QtNodes::ConnectionId connectionId)
     }
 
     Q_EMIT connectionDeleted(connectionId);
+    return true;
+}
+
+std::size_t PipelineGraphModel::firstFramesPort(QtNodes::NodeId nodeId, bool input) const
+{
+    const NodeTypeInfo* type = typeInfo(nodeId);
+    if (type == nullptr) {
+        return kNoPort;
+    }
+
+    const std::vector<PortDescriptor>& ports = input ? type->inputs : type->outputs;
+    for (std::size_t index = 0; index < ports.size(); ++index) {
+        if (ports[index].type == PortType::Frames) {
+            return index;
+        }
+    }
+    return kNoPort;
+}
+
+bool PipelineGraphModel::completionOf(QtNodes::ConnectionId connectionId,
+                                      QtNodes::ConnectionId& completion) const
+{
+    const bool toBus = isBus(connectionId.inNodeId);
+    const bool fromBus = isBus(connectionId.outNodeId);
+
+    if (toBus == fromBus) {
+        return false; // Not a drop at all.
+    }
+
+    const QtNodes::NodeId module = toBus ? connectionId.outNodeId : connectionId.inNodeId;
+    const QtNodes::NodeId bus = toBus ? connectionId.inNodeId : connectionId.outNodeId;
+
+    // Only a module that speaks on a bus as well as listening to it has a second
+    // half. A filter has a frames input and a frames output too, and wiring its
+    // output back onto the bus it listens to is the loop talksOnBus is for.
+    const NodeTypeInfo* type = typeInfo(module);
+    if (type == nullptr || !type->talksOnBus) {
+        return false;
+    }
+
+    if (toBus) {
+        const std::size_t input = firstFramesPort(module, true);
+        if (input == kNoPort) {
+            return false;
+        }
+        completion = QtNodes::ConnectionId{bus, 0, module, static_cast<QtNodes::PortIndex>(input)};
+    } else {
+        const std::size_t output = firstFramesPort(module, false);
+        if (output == kNoPort) {
+            return false;
+        }
+        completion = QtNodes::ConnectionId{module, static_cast<QtNodes::PortIndex>(output), bus, 0};
+    }
+
+    return !connectionExists(completion) && connectionPossible(completion);
+}
+
+void PipelineGraphModel::addConnection(QtNodes::ConnectionId connectionId)
+{
+    if (!addEdge(connectionId)) {
+        return;
+    }
+
+    // One drop is one thing to the person drawing it: dropping an ECU on the bus
+    // is wiring it to listen and to speak, and asking for the second wire by
+    // hand is asking them to know the graph holds a drop as two.
+    QtNodes::ConnectionId completion{};
+    if (m_pairing && completionOf(connectionId, completion)) {
+        addEdge(completion);
+    }
+
+    if (isBusTap(connectionId)) {
+        fitBus(isBus(connectionId.outNodeId) ? connectionId.outNodeId : connectionId.inNodeId);
+    }
+}
+
+bool PipelineGraphModel::deleteConnection(QtNodes::ConnectionId connectionId)
+{
+    const bool tap = isBusTap(connectionId);
+    const bool toBus = isBus(connectionId.inNodeId);
+    const QtNodes::NodeId bus = toBus ? connectionId.inNodeId : connectionId.outNodeId;
+    const QtNodes::NodeId module = toBus ? connectionId.outNodeId : connectionId.inNodeId;
+
+    if (!removeEdge(connectionId)) {
+        return false;
+    }
+
+    if (tap) {
+        // And the other half of the drop: a module detached from a bus that is
+        // still, for the other direction, wired to it is not detached.
+        if (m_pairing) {
+            for (const QtNodes::ConnectionId& other : tapsBetween(module, bus)) {
+                if (isBus(other.inNodeId) != toBus) {
+                    removeEdge(other);
+                }
+            }
+        }
+
+        fitBus(bus);
+    }
+
     return true;
 }
 
@@ -310,6 +459,10 @@ bool PipelineGraphModel::deleteNode(QtNodes::NodeId nodeId)
         return false;
     }
 
+    // The buses it was on, while there is still a wire to find them by: they
+    // are as long as their modules are spread out, and are one shorter now.
+    const std::vector<QtNodes::NodeId> buses = busesOf(nodeId);
+
     // The scene has to be told about each connection separately, before the
     // node goes: it holds graphics items for them, and a ConnectionGraphicsObject
     // whose node has been deleted is a dangling item that crashes on the next
@@ -323,8 +476,14 @@ bool PipelineGraphModel::deleteNode(QtNodes::NodeId nodeId)
 
     m_toCanvas.erase(name);
     m_toDescription.erase(nodeId);
+    m_expanded.erase(name);
 
     Q_EMIT nodeDeleted(nodeId);
+
+    for (const QtNodes::NodeId bus : buses) {
+        fitBus(bus);
+    }
+
     return true;
 }
 
@@ -345,7 +504,7 @@ QVariant PipelineGraphModel::nodeData(QtNodes::NodeId nodeId, QtNodes::NodeRole 
         return QPointF{node->x, node->y};
 
     case QtNodes::NodeRole::Size:
-        return QSize{310, 196};
+        return blockSize(nodeId);
 
     case QtNodes::NodeRole::CaptionVisible:
         return true;
@@ -399,11 +558,33 @@ bool PipelineGraphModel::setNodeData(QtNodes::NodeId nodeId, QtNodes::NodeRole r
         // The one write the canvas makes constantly. It goes into the
         // description, which is what makes a dragged block still be there
         // tomorrow: the position is part of the project, not of the view.
-        const QPointF position = value.value<QPointF>();
+        QPointF position = value.value<QPointF>();
+
+        // A rail cannot be put to the right of a module it carries: it would not
+        // reach it. Held there, and the rail follows the module when that is
+        // what moves.
+        const bool bus = isBusBlock(node);
+        if (bus) {
+            position.setX(std::min(position.x(), busLeftBound(*node)));
+        }
+
         node->x = position.x();
         node->y = position.y();
 
+        // Part of a batch: the position is written, and the scene hears of it once the
+        // batch is over.
+        if (m_moveDepth > 0) {
+            m_moved.insert(nodeId);
+            return true;
+        }
+
         Q_EMIT nodePositionUpdated(nodeId);
+
+        if (bus) {
+            Q_EMIT nodeUpdated(nodeId); // Its width is how far it is from its modules.
+        } else {
+            fitBusesOf(nodeId);
+        }
         return true;
     }
 
@@ -430,6 +611,10 @@ bool PipelineGraphModel::setNodeData(QtNodes::NodeId nodeId, QtNodes::NodeRole r
         }
 
         node->id = requested;
+
+        if (m_expanded.erase(previous) != 0) {
+            m_expanded.insert(requested);
+        }
 
         m_toCanvas.erase(previous);
         m_toCanvas.emplace(requested, nodeId);
@@ -483,8 +668,9 @@ QVariant PipelineGraphModel::portData(QtNodes::NodeId nodeId,
     case QtNodes::PortRole::ConnectionPolicyRole:
         // The typed-graph rule, expressed where the user meets it: an output
         // may feed any number of consumers, an input takes exactly one, because
-        // merging two streams needs a policy.
-        return QVariant::fromValue(portType == QtNodes::PortType::Out
+        // merging two streams needs a policy - except the one a bus has, where
+        // each wire is given a transmit of its own and nothing is merged.
+        return QVariant::fromValue(portType == QtNodes::PortType::Out || port.fanIn
                                        ? QtNodes::ConnectionPolicy::Many
                                        : QtNodes::ConnectionPolicy::One);
 
@@ -613,6 +799,426 @@ void PipelineGraphModel::loadNode(const QJsonObject& nodeJson)
     m_toCanvas.emplace(node.id, canvas);
 
     Q_EMIT nodeCreated(canvas);
+}
+
+// ---------------------------------------------------------------------------
+// Size
+// ---------------------------------------------------------------------------
+
+double PipelineGraphModel::blockWidth(const NodeDescription& block) const
+{
+    if (isBusBlock(&block)) {
+        return busWidth(block);
+    }
+    return m_expanded.contains(block.id) ? layout::kCardWidth : layout::kChipWidth;
+}
+
+QSize PipelineGraphModel::blockSize(QtNodes::NodeId nodeId) const
+{
+    const NodeDescription* block = description(nodeId);
+    if (block == nullptr) {
+        return {};
+    }
+
+    if (isBusBlock(block)) {
+        return QSize{static_cast<int>(std::ceil(busWidth(*block))),
+                     static_cast<int>(layout::kRailHeight)};
+    }
+
+    if (m_expanded.contains(block->id)) {
+        return QSize{static_cast<int>(layout::kCardWidth), static_cast<int>(layout::kCardHeight)};
+    }
+
+    return QSize{static_cast<int>(layout::kChipWidth), static_cast<int>(layout::kChipHeight)};
+}
+
+bool PipelineGraphModel::isExpanded(QtNodes::NodeId nodeId) const
+{
+    const NodeDescription* block = description(nodeId);
+    return block != nullptr && m_expanded.contains(block->id);
+}
+
+void PipelineGraphModel::setExpanded(QtNodes::NodeId nodeId, bool expanded)
+{
+    const NodeDescription* block = description(nodeId);
+    if (block == nullptr || isBusBlock(block) || isExpanded(nodeId) == expanded) {
+        return;
+    }
+
+    if (expanded) {
+        m_expanded.insert(block->id);
+    } else {
+        m_expanded.erase(block->id);
+    }
+
+    Q_EMIT nodeUpdated(nodeId);
+    fitBusesOf(nodeId);
+}
+
+void PipelineGraphModel::setAllExpanded(bool expanded)
+{
+    for (const NodeDescription& block : m_description.nodes()) {
+        if (!isBusBlock(&block)) {
+            setExpanded(canvasId(block.id), expanded);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The bus
+// ---------------------------------------------------------------------------
+
+bool PipelineGraphModel::isBus(QtNodes::NodeId nodeId) const
+{
+    return isBusBlock(description(nodeId));
+}
+
+bool PipelineGraphModel::isBusTap(QtNodes::ConnectionId connectionId) const
+{
+    return isBus(connectionId.outNodeId) != isBus(connectionId.inNodeId);
+}
+
+std::int64_t PipelineGraphModel::busChannel(QtNodes::NodeId bus) const
+{
+    const NodeDescription* block = description(bus);
+    return block == nullptr ? 0 : block->parameters.integer("channel", 0);
+}
+
+std::vector<QtNodes::NodeId> PipelineGraphModel::busesOf(QtNodes::NodeId module) const
+{
+    std::vector<QtNodes::NodeId> buses;
+
+    const std::string name = descriptionId(module);
+    if (name.empty() || isBus(module)) {
+        return buses;
+    }
+
+    for (const EdgeDescription& edge : m_description.edges()) {
+        const std::string* other = otherEnd(edge, name);
+        if (other == nullptr) {
+            continue;
+        }
+
+        const QtNodes::NodeId candidate = canvasId(*other);
+        if (candidate != QtNodes::InvalidNodeId && isBus(candidate)
+            && std::ranges::find(buses, candidate) == buses.end()) {
+            buses.push_back(candidate);
+        }
+    }
+
+    return buses;
+}
+
+std::vector<QtNodes::NodeId> PipelineGraphModel::modulesOn(QtNodes::NodeId bus) const
+{
+    std::vector<QtNodes::NodeId> modules;
+
+    const std::string name = descriptionId(bus);
+    if (name.empty() || !isBus(bus)) {
+        return modules;
+    }
+
+    for (const EdgeDescription& edge : m_description.edges()) {
+        const std::string* other = otherEnd(edge, name);
+        if (other == nullptr) {
+            continue;
+        }
+
+        const QtNodes::NodeId candidate = canvasId(*other);
+        if (candidate != QtNodes::InvalidNodeId && !isBus(candidate)
+            && std::ranges::find(modules, candidate) == modules.end()) {
+            modules.push_back(candidate);
+        }
+    }
+
+    return modules;
+}
+
+std::vector<QtNodes::ConnectionId> PipelineGraphModel::tapsBetween(QtNodes::NodeId module,
+                                                                   QtNodes::NodeId bus) const
+{
+    std::vector<QtNodes::ConnectionId> taps;
+
+    const std::string moduleName = descriptionId(module);
+    const std::string busName = descriptionId(bus);
+    if (moduleName.empty() || busName.empty()) {
+        return taps;
+    }
+
+    for (const EdgeDescription& edge : m_description.edges()) {
+        if (edge.fromNode == busName && edge.toNode == moduleName) {
+            taps.push_back(QtNodes::ConnectionId{bus,
+                                                 static_cast<QtNodes::PortIndex>(edge.fromPort),
+                                                 module,
+                                                 static_cast<QtNodes::PortIndex>(edge.toPort)});
+        } else if (edge.fromNode == moduleName && edge.toNode == busName) {
+            taps.push_back(QtNodes::ConnectionId{module,
+                                                 static_cast<QtNodes::PortIndex>(edge.fromPort),
+                                                 bus,
+                                                 static_cast<QtNodes::PortIndex>(edge.toPort)});
+        }
+    }
+
+    return taps;
+}
+
+bool PipelineGraphModel::canAttachToBus(QtNodes::NodeId module) const
+{
+    return nodeExists(module) && !isBus(module)
+           && (firstFramesPort(module, true) != kNoPort
+               || firstFramesPort(module, false) != kNoPort);
+}
+
+bool PipelineGraphModel::attachToBus(QtNodes::NodeId module, QtNodes::NodeId bus)
+{
+    if (!isBus(bus) || !canAttachToBus(module)) {
+        return false;
+    }
+
+    if (!tapsBetween(module, bus).empty()) {
+        return true; // Already on it.
+    }
+
+    const std::size_t input = firstFramesPort(module, true);
+    const std::size_t output = firstFramesPort(module, false);
+
+    // Listening first, because every module that is on a bus is listening to it
+    // and the drop completes itself with the speaking half when it should.
+    if (input != kNoPort) {
+        const QtNodes::ConnectionId listening{
+            bus, 0, module, static_cast<QtNodes::PortIndex>(input)};
+
+        if (connectionPossible(listening)) {
+            addConnection(listening);
+            return connectionExists(listening);
+        }
+    }
+
+    // Its input is taken by something else. A module that speaks can still be
+    // heard, and a bus it is deaf to is better than the drop not being made.
+    const NodeTypeInfo* type = typeInfo(module);
+    if (output != kNoPort && (input == kNoPort || (type != nullptr && type->talksOnBus))) {
+        const QtNodes::ConnectionId speaking{
+            module, static_cast<QtNodes::PortIndex>(output), bus, 0};
+
+        if (connectionPossible(speaking)) {
+            addConnection(speaking);
+            return connectionExists(speaking);
+        }
+    }
+
+    return false;
+}
+
+void PipelineGraphModel::detachFromBus(QtNodes::NodeId module, QtNodes::NodeId bus)
+{
+    bool removedAny = false;
+
+    for (const QtNodes::ConnectionId& tap : tapsBetween(module, bus)) {
+        removedAny = removeEdge(tap) || removedAny;
+    }
+
+    if (removedAny) {
+        fitBus(bus);
+    }
+}
+
+PipelineGraphModel::BusDirection PipelineGraphModel::busDirection(QtNodes::NodeId module,
+                                                                  QtNodes::NodeId bus) const
+{
+    BusDirection direction;
+
+    for (const QtNodes::ConnectionId& tap : tapsBetween(module, bus)) {
+        if (tap.outNodeId == bus) {
+            direction.listens = true;
+        } else {
+            direction.talks = true;
+        }
+    }
+
+    return direction;
+}
+
+void PipelineGraphModel::setBusDirection(QtNodes::NodeId module,
+                                         QtNodes::NodeId bus,
+                                         BusDirection direction)
+{
+    if (!isBus(bus) || !canAttachToBus(module)) {
+        return;
+    }
+
+    // A module on a bus does at least one of the two; neither is detaching, and
+    // that has a command of its own.
+    if (!direction.listens && !direction.talks) {
+        direction.listens = true;
+    }
+
+    const std::size_t input = firstFramesPort(module, true);
+    const std::size_t output = firstFramesPort(module, false);
+    const BusDirection now = busDirection(module, bus);
+
+    // Each half is changed on its own: the pairing that completes a drop would
+    // put back the half that is being taken away.
+    m_pairing = false;
+
+    const auto change = [this, module, bus](
+                            bool want, bool have, bool listening, std::size_t port) {
+        if (port == kNoPort || want == have) {
+            return;
+        }
+
+        if (want) {
+            if (listening) {
+                addEdge(
+                    QtNodes::ConnectionId{bus, 0, module, static_cast<QtNodes::PortIndex>(port)});
+            } else {
+                addEdge(
+                    QtNodes::ConnectionId{module, static_cast<QtNodes::PortIndex>(port), bus, 0});
+            }
+            return;
+        }
+
+        for (const QtNodes::ConnectionId& tap : tapsBetween(module, bus)) {
+            if ((tap.outNodeId == bus) == listening) {
+                removeEdge(tap);
+            }
+        }
+    };
+
+    change(direction.listens, now.listens, true, input);
+    change(direction.talks, now.talks, false, output);
+
+    m_pairing = true;
+
+    fitBus(bus);
+}
+
+CanFormatMatch PipelineGraphModel::frameFormat(QtNodes::ConnectionId connectionId) const
+{
+    const std::string from = descriptionId(connectionId.outNodeId);
+    const std::string to = descriptionId(connectionId.inNodeId);
+
+    for (const EdgeDescription& edge : m_description.edges()) {
+        if (edge.fromNode == from && edge.fromPort == connectionId.outPortIndex && edge.toNode == to
+            && edge.toPort == connectionId.inPortIndex) {
+            return edge.frameFormat;
+        }
+    }
+
+    return CanFormatMatch::Any;
+}
+
+void PipelineGraphModel::setFrameFormat(QtNodes::ConnectionId connectionId, CanFormatMatch format)
+{
+    const std::string from = descriptionId(connectionId.outNodeId);
+    const std::string to = descriptionId(connectionId.inNodeId);
+
+    for (EdgeDescription& edge : m_description.edges()) {
+        if (edge.fromNode == from && edge.fromPort == connectionId.outPortIndex && edge.toNode == to
+            && edge.toPort == connectionId.inPortIndex) {
+            if (edge.frameFormat == format) {
+                return;
+            }
+
+            edge.frameFormat = format;
+
+            // The scene repaints a wire when the block at either end is told it
+            // changed, and has no other way of being asked.
+            Q_EMIT nodeUpdated(connectionId.outNodeId);
+            Q_EMIT nodeUpdated(connectionId.inNodeId);
+            return;
+        }
+    }
+}
+
+double PipelineGraphModel::busLeftBound(const NodeDescription& bus) const
+{
+    double bound = std::numeric_limits<double>::infinity();
+
+    for (const QtNodes::NodeId moduleId : modulesOn(canvasId(bus.id))) {
+        if (const NodeDescription* module = description(moduleId)) {
+            bound = std::min(bound, module->x - layout::kRailPlateWidth - layout::kRailInset);
+        }
+    }
+
+    return bound;
+}
+
+double PipelineGraphModel::busWidth(const NodeDescription& bus) const
+{
+    double right = bus.x + layout::kRailMinWidth;
+
+    for (const QtNodes::NodeId moduleId : modulesOn(canvasId(bus.id))) {
+        if (const NodeDescription* module = description(moduleId)) {
+            right = std::max(right, module->x + blockWidth(*module) + layout::kRailInset);
+        }
+    }
+
+    return right - bus.x;
+}
+
+void PipelineGraphModel::fitBus(QtNodes::NodeId busId)
+{
+    NodeDescription* bus = description(busId);
+    if (!isBusBlock(bus)) {
+        return;
+    }
+
+    const double bound = busLeftBound(*bus);
+    if (bus->x > bound) {
+        bus->x = bound;
+        Q_EMIT nodePositionUpdated(busId);
+    }
+
+    Q_EMIT nodeUpdated(busId);
+}
+
+void PipelineGraphModel::fitBusesOf(QtNodes::NodeId nodeId)
+{
+    for (const QtNodes::NodeId bus : busesOf(nodeId)) {
+        fitBus(bus);
+    }
+}
+
+void PipelineGraphModel::endMoves()
+{
+    if (--m_moveDepth > 0) {
+        return;
+    }
+
+    m_moveDepth = 0;
+
+    std::unordered_set<QtNodes::NodeId> moved;
+    moved.swap(m_moved);
+
+    // The blocks first, then the buses: a bus is as wide as the distance to the furthest
+    // block it carries, and that distance is only the one that will be drawn once every
+    // block has been told where it is.
+    for (const QtNodes::NodeId nodeId : moved) {
+        if (nodeExists(nodeId)) {
+            Q_EMIT nodePositionUpdated(nodeId);
+        }
+    }
+
+    // Every bus, whether or not one of its modules was among those moved: this is once per
+    // bus, there are a handful of them, and asking which ones were touched costs a pass
+    // over every wire for each.
+    for (const NodeDescription& block : m_description.nodes()) {
+        if (isBusBlock(&block)) {
+            fitBus(canvasId(block.id));
+        }
+    }
+}
+
+void PipelineGraphModel::fitAllBuses()
+{
+    // Without a word to the scene: this runs while the model is being rebuilt,
+    // and the scene is about to be told everything.
+    for (NodeDescription& block : m_description.nodes()) {
+        if (isBusBlock(&block)) {
+            block.x = std::min(block.x, busLeftBound(block));
+        }
+    }
 }
 
 } // namespace torquebus::ui

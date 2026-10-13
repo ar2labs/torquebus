@@ -887,8 +887,8 @@ TEST(DashboardPanelClusterTests, ASignalThatIsNotAvailableIsDrawnLikeOneThatWasN
 
 TEST(DashboardPanelClusterTests, ASignalOnTheStoreReachesTheCluster)
 {
-    // The whole way, with nothing in between replaced: a decoded signal in the store the Graph
-    // reads, the panel's own timer and reader, the default profile, the QML.
+    // The whole way, with nothing in between replaced: a decoded signal in the store the Plot
+    // Viewer reads, the panel's own timer and reader, the default profile, the QML.
     pointQmlAtTheQtThatWasFound();
     const QmlWarningCatcher catcher;
 

@@ -654,7 +654,15 @@ struct ProbeState final {
     std::atomic<int> prepares{0};
     std::atomic<int> passes{0};
     std::atomic<int> finishes{0};
+
+    /// The node throws from process(). The graph takes it out of the run and the
+    /// measurement goes on.
     std::atomic<bool> throwOnPass{false};
+
+    /// Something that is not a node throws on the dispatch thread: here, a statistics sink.
+    /// This is what still ends a measurement on its own, and so what the tests of the loop
+    /// ending - the join, the window noticing - need to cause.
+    std::atomic<bool> throwOnStatistics{false};
 };
 
 /// A node that counts the calls the engine makes to it, and can be told to throw.
@@ -712,6 +720,12 @@ struct ProbedEngine final {
                 const NodeId probe = graph.addNode(std::make_unique<LifecycleProbe>(state));
                 return graph.connect(PortRef{sources[0], 0}, PortRef{probe, 0});
             });
+
+        engine.addStatisticsSink([state = state](std::span<const CanStatisticsSnapshot>) {
+            if (state->throwOnStatistics.load()) {
+                throw std::runtime_error{"a sink gave up"};
+            }
+        });
     }
 
     std::shared_ptr<ProbeState> state;
@@ -806,13 +820,17 @@ TEST(CanEngineTests, FinishComesAfterTheLastPassAndNotBefore)
 
 TEST(CanEngineTests, ADispatchLoopThatEndedOnItsOwnCanBeStoppedAndStartedAgain)
 {
-    // A node that throws ends the measurement, and the guard around the dispatch thread reports it
-    // and lets the thread return. A thread that returned is still a thread somebody has to join,
-    // and stop() used to leave without doing it because the loop was no longer "running": the next
-    // Start assigned a new thread over it, and destroying the engine did the same, and both are
-    // std::terminate - a plugin's node throwing took the application down with a delay.
+    // Something outside the nodes throws on the dispatch thread - a statistics sink, here - and
+    // the guard around the thread reports it and lets the thread return. A thread that returned is
+    // still a thread somebody has to join, and stop() used to leave without doing it because the
+    // loop was no longer "running": the next Start assigned a new thread over it, and destroying
+    // the engine did the same, and both are std::terminate - a plugin throwing took the
+    // application down with a delay.
+    //
+    // (A node that throws no longer gets this far: the graph takes that node out of the run and
+    // the measurement goes on - see ANodeThatThrowsIsTakenOutOfTheRun... below.)
     ProbedEngine probed;
-    probed.state->throwOnPass = true;
+    probed.state->throwOnStatistics = true;
 
     std::mutex mutex;
     std::vector<std::string> errors;
@@ -841,7 +859,7 @@ TEST(CanEngineTests, ADispatchLoopThatEndedOnItsOwnCanBeStoppedAndStartedAgain)
     EXPECT_EQ(probed.state->finishes.load(), 1);
 
     // And a second measurement, with the fault gone.
-    probed.state->throwOnPass = false;
+    probed.state->throwOnStatistics = false;
     ASSERT_TRUE(probed.engine.start().succeeded());
     std::this_thread::sleep_for(20ms);
     EXPECT_TRUE(probed.engine.isRunning());
@@ -849,11 +867,68 @@ TEST(CanEngineTests, ADispatchLoopThatEndedOnItsOwnCanBeStoppedAndStartedAgain)
     EXPECT_EQ(probed.state->finishes.load(), 2);
 }
 
+TEST(CanEngineTests, ANodeThatThrowsIsTakenOutOfTheRunAndTheMeasurementGoesOn)
+{
+    // One block failing on frame 40,000 is one block going quiet. It used to be the whole
+    // measurement ending: the dispatch loop was the only net, and it stopped everything - the
+    // recording that was in progress, the other ECUs, the trace - because a branch of the graph
+    // had a bug.
+    ProbedEngine probed;
+
+    std::mutex mutex;
+    std::vector<std::string> errors;
+    probed.engine.addLogSink([&](const std::string& text, bool isError) {
+        if (isError) {
+            const std::lock_guard lock{mutex};
+            errors.push_back(text);
+        }
+    });
+
+    // A second branch, so there is something left running to be seen running.
+    std::atomic<int> otherBranchFrames{0};
+    probed.engine.addFrameSink([&otherBranchFrames](std::span<const CanFrame> frames) {
+        otherBranchFrames += static_cast<int>(frames.size());
+    });
+
+    probed.state->throwOnPass = true;
+    ASSERT_TRUE(probed.engine.start().succeeded());
+
+    // Frames for both branches to see: a transmit is echoed back as received.
+    ASSERT_TRUE(probed.engine.transmit(0, frame(0x123)).succeeded());
+
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (probed.state->passes.load() == 0 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(1ms);
+    }
+    ASSERT_GT(probed.state->passes.load(), 0) << "the probe never ran";
+
+    // Let several passes go by. The probe throws on its first and is never asked again.
+    std::this_thread::sleep_for(60ms);
+    EXPECT_TRUE(probed.engine.isRunning()) << "one node throwing ended the measurement";
+    EXPECT_EQ(probed.state->passes.load(), 1) << "a node that threw was run again";
+    EXPECT_EQ(probed.engine.graph().faultedNodeCount(), 1U);
+
+    {
+        const std::lock_guard lock{mutex};
+        ASSERT_EQ(errors.size(), 1U) << "the failure was not reported exactly once";
+        EXPECT_NE(errors.front().find("probe"), std::string::npos) << errors.front();
+        EXPECT_NE(errors.front().find("a node gave up"), std::string::npos) << errors.front();
+    }
+
+    // And the rest of the pipeline is still delivering.
+    EXPECT_GT(otherBranchFrames.load(), 0);
+
+    probed.engine.stop();
+
+    // A node that threw is still told the measurement is over: it may hold a file open.
+    EXPECT_EQ(probed.state->finishes.load(), 1);
+}
+
 TEST(CanEngineTests, ADispatchLoopThatEndedOnItsOwnIsJoinedWhenTheEngineGoesAway)
 {
     {
         ProbedEngine probed;
-        probed.state->throwOnPass = true;
+        probed.state->throwOnStatistics = true;
         ASSERT_TRUE(probed.engine.start().succeeded());
 
         const auto deadline = std::chrono::steady_clock::now() + 2s;
@@ -910,4 +985,51 @@ TEST(CanEngineTests, AScriptsOnDisableRunsWhenTheEngineStops)
                                 return line.find("stopped cleanly") != std::string::npos;
                             }),
               1);
+}
+
+TEST(CanEngineTests, AFrameThatCannotBeOnAnyBusIsRefusedBeforeABackendSeesIt)
+{
+    // The backends are thin layers over vendor SDKs, and an SDK takes a length and a buffer
+    // and trusts both. What a frame has to be to be on a bus at all is checked once, at the
+    // channel, so that a mistake made upstream - a database read wrongly, a plugin, a script
+    // - is an error with a message and not the driver's problem.
+    CanEngine engine;
+    CanChannelConfig config = configFor("virtual:0");
+    config.canFdEnabled = true;
+    ASSERT_TRUE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
+    ASSERT_TRUE(engine.start().succeeded());
+
+    // An 11-bit frame with a 29-bit number in it.
+    CanFrame wide = frame(0x100);
+    wide.identifier = 0x1000;
+    wide.format = CanFrameFormat::Standard;
+    EXPECT_TRUE(engine.transmit(0, wide).failed());
+
+    // More bytes than the largest frame there is.
+    CanFrame tooLong = frame(0x100, 64);
+    tooLong.fd = true;
+    tooLong.length = 200;
+    EXPECT_TRUE(engine.transmit(0, tooLong).failed());
+
+    // A code no frame has.
+    CanFrame badCode = frame(0x100);
+    badCode.dlc = 16;
+    EXPECT_TRUE(engine.transmit(0, badCode).failed());
+
+    // Twelve bytes in a frame that is not CAN FD.
+    CanFrame classicTwelve = frame(0x100, 12);
+    const Result classic = engine.transmit(0, classicTwelve);
+    ASSERT_TRUE(classic.failed());
+    EXPECT_NE(std::string{classic.message()}.find("CAN FD"), std::string::npos)
+        << classic.message();
+
+    // And what is allowed still is.
+    EXPECT_TRUE(engine.transmit(0, frame(0x100, 8)).succeeded());
+    EXPECT_TRUE(engine.transmit(0, frame(0x18FEEE00, 8)).succeeded());
+
+    CanFrame fd = frame(0x100, 12);
+    fd.fd = true;
+    EXPECT_TRUE(engine.transmit(0, fd).succeeded());
+
+    engine.stop();
 }

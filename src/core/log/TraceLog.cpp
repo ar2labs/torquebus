@@ -5,6 +5,8 @@
 
 #include "core/log/TraceLog.h"
 
+#include "core/FilePath.h"
+
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -146,7 +148,7 @@ Result TraceLogWriter::open(const std::string& path, std::uint64_t startWallCloc
 {
     close();
 
-    m_file.open(path, std::ios::binary | std::ios::trunc);
+    m_file.open(pathFromUtf8(path), std::ios::binary | std::ios::trunc);
     if (!m_file.is_open()) {
         return Result::error(ErrorCode::FileAccessDenied,
                              std::format("Could not create the log file '{}'", path));
@@ -275,7 +277,7 @@ Result TraceLogReader::open(const std::string& path)
     m_truncated = 0;
     m_atEnd = false;
 
-    m_file.open(path, std::ios::binary);
+    m_file.open(pathFromUtf8(path), std::ios::binary);
     if (!m_file.is_open()) {
         return Result::error(ErrorCode::FileNotFound,
                              std::format("Could not open the log file '{}'", path));

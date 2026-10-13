@@ -321,6 +321,25 @@ This was a real defect, found by a test: a described graph carrying its own
 the batch first. Whichever node ran first won - silently, and depending on the
 order the user happened to add blocks in.
 
+### A bus is a node, and a wire into it is a tap
+
+A CAN network is the one place a pipeline wants more than one wire into an input: every ECU on a bus
+transmits on it. The graph refuses that everywhere else - merging two streams needs a policy, and
+picking one silently is worse than asking for a merge node - and `j1939-vehicle.tbsproj` shipped
+unstartable for exactly that reason ("Two wires arrive at 'tx_1' port 0").
+
+The CAN Bus block (`can.bus`) is the exception, kept out of the executor. `PortDescriptor::fanIn` says an
+input takes any number of wires, *in a description*; at build time `GraphDescription::build()` gives every
+wire into one a node of its own to end in (`NodeCatalog::createTap` - for the bus, a CAN Transmit on its
+channel). The running graph keeps its rule, nothing is merged, and each module's transmissions are counted
+on their own. The bus itself builds into a CAN Channel, read. A bus with six ECUs on it is, in the
+executor, what six CAN Channel / CAN Transmit pairs were. The canvas draws it as the line it is, and a
+project written before there was one can be rewritten onto a bus without changing what runs
+(`groupOnBuses`).
+
+`EdgeDescription::frameFormat` limits a wire to 11-bit or 29-bit frames and is built the same way: a filter
+on the wire, the one the Frame Filter block builds. See `development/pipeline-canvas.md`.
+
 ### The default graph is implicit
 
 The trap in CANdevStudio is that you must build a graph before you can see
@@ -400,6 +419,24 @@ what closes the loop to real hardware.
 Only `LuaRuntime.cpp` includes `lua.h`, so the interpreter is a private
 implementation detail of the core rather than a dependency of everything that
 touches a node.
+
+**A script is held to a time and a memory budget.** Every call into one has a
+deadline (a count hook raises an ordinary Lua error when it passes) and the heap a
+script may hold is capped by the allocator it is given, so an endless loop or a
+table that grows without end is an error with a line number and not a frozen
+pipeline or a machine out of memory. An ECU that ran out of either is taken out of
+the run at once. See `development/robustness.md`, which also says what this does not
+cover.
+
+### A failing node leaves the run, and the run goes on
+
+The dispatch loop's guard (`ThreadGuard.h`) was the only net, and it ended the whole
+measurement. Each node's `process()` is now guarded where it is called: a node that
+throws is reported once with its name, publishes nothing from then on, and what it
+was not feeding carries on. `prepare()` and `finish()` are guarded the same way, and a
+compile that fails halfway finishes the nodes it had already prepared. The guard
+around the loop stays, for what is not a node. See `development/robustness.md` for the
+whole map of what fails how far.
 
 ### Performance targets (from v0.4 onwards)
 
@@ -618,6 +655,9 @@ rest of the repository around it.
 | Lua built from source, pinned to 5.5.0 | Not a prebuilt `liblua.a` from a local path. CI has to reproduce the build anywhere, and a binary dependency living on one developer's disk is how a project stops building for everyone else. |
 | No Lua compatibility flags | `LUA_COMPAT_5_3` would resurrect `math.frexp`, `math.ldexp` and the global `unpack` for three `cansim` scripts that still call them - but it would also freeze the scripting surface in a 5.3 shape that every future script author inherits. The scripts migrate instead, in the direction their own newer siblings already took: `string.pack("<f", x)` replaces twenty lines of hand-rolled IEEE 754 with one. |
 | The Dashboard's instrument cluster is QML, hosted by one `QQuickWidget` per widget | It is the one widget that is a picture rather than a gauge - a housing, lit segments, dozens of tell-tales - and QML is the right tool for that; the rest of the Dashboard stays hand-painted. The cluster reads roles, and a profile registry says where each comes from (rule #10), through the Dashboard's own `DashboardBinding` and reader, so it cannot disagree with a Gauge about a value. The Widgets side only lays the view over the panel; see `docs/development/cluster.md`. |
+| A CAN Bus block, whose input takes any number of wires | A bus is the one place a pipeline wants fan-in, and the graph's rule against it is right everywhere else. So the *description* allows it on one declared port and the *build* gives every wire a node of its own: nothing in the executor is merged, and a project grouped on a bus runs frame for frame as it did. A bus that is a block is also what lets the canvas draw it as a line, and a wire carry "11-bit only" without a filter block drawn in between. |
+| The canvas draws a network, not a flowchart | A block used to be a 310 x 196 card on every one of twenty blocks, wired to its channel by a CAN Channel and a CAN Transmit each: the J1939 example was eight rows tall and was shown at a third of its size. A chip is 176 x 48 and a bus is a line with one drop per module, as a simulation setup in CANoe draws it; a card is what a block becomes when somebody opens it. What is static is drawn by the blocks, which QtNodes caches, and the foreground draws only what moves. |
+| QtNodes is corrected in one place, at configure time | `ConnectionGraphicsObject` casts the viewport of a scene event to a `QGraphicsView` and reads its transform, on every mouse move of a wire being dragged: several hundred bytes past the end of the object, nearly always other live memory and now and then the end of a page. It crashed a test once in a thousand runs and would crash anybody dragging a wire at the same rate. Forking the library for two lines was more than it earned, and a patch file does not apply to a source tree FetchContent did not populate; so `cmake/PatchQtNodes.cmake` rewrites the two lines when configuring, is idempotent, and stops configure if the lines are not what it expected (the tag moved, or upstream fixed it - at which point it is deleted). A test checks it was applied. |
 | KDDockWidgets **and** QtNodes, not one or the other | The two references each solved half of this. TSMaster has the workbench and no pipeline; CANdevStudio has the pipeline and no workbench density. Combining them is the actual product idea. |
 
 ### The Qt version is pinned, not preferred
@@ -704,6 +744,9 @@ found by reading the library rather than by trying it:
 | `PortRole::DataType` is "a QString describing the port data type" | Every painter unwraps it with `.value<NodeDataType>()`; a QString gives a default-constructed type — unnamed ports, every wire the same colour |
 | `AbstractGraphModel` is a `QObject` | It declares no constructor, so there is nothing to pass a parent to; use `setParent()` |
 | `NodeRole::Widget` returns an optional `QWidget*` | Read as `nodeData<QWidget*>()`, so an empty `QVariant` already means "none" |
+| A dragged wire is "a draft that grabs the mouse" | It lets go of the mouse *before* asking the node where it landed (`ConnectionGraphicsObject::mouseReleaseEvent`), so the grabber cannot tell a drop from a press; the draft is still an item of the scene, which is what the bus's geometry looks for |
+| A connection is repainted where its two ends and control points say | Plus `PointDiameter` of margin and nothing else: a drop to a bus and the pill on it have to be inside it, which is why the canvas sets it to 26 |
+| A node is a picture QtNodes redraws when it changes | `QGraphicsItem::update()` is what invalidates it and `QGraphicsScene::update()` is not, so the theme, a measurement starting and a loaded database all have to go through `CanvasPanel::invalidateItems()` |
 
 ### The project file is the description, written down
 

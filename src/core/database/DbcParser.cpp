@@ -5,10 +5,13 @@
 
 #include "core/database/DbcParser.h"
 
+#include "core/FilePath.h"
+#include "core/can/CanFrame.h"
+
 #include <algorithm>
 #include <charconv>
+#include <filesystem>
 #include <fstream>
-#include <locale>
 #include <sstream>
 #include <unordered_map>
 #include <vector>
@@ -26,6 +29,20 @@ constexpr std::uint32_t kExtendedFlag = 0x80000000U;
 /// and only one of them is useful to display.
 constexpr std::string_view kAnyNode = "Vector__XXX";
 
+/// The message CANdb++ and CANoe write for signals that belong to no frame.
+///
+/// Its number is 0xC0000000: the extended flag, and an identifier of 0x40000000 that
+/// does not fit 29 bits. It is in a very large share of the databases that come out
+/// of those tools, it has a payload length of zero, and nothing is ever sent or
+/// received on it - so a parser that took it for a message refused the whole file
+/// over the one entry in it that is not one.
+constexpr std::string_view kIndependentSignals = "VECTOR__INDEPENDENT_SIG_MSG";
+
+/// The most a database file may hold. A real one is a few hundred kilobytes and the
+/// largest seen in the wild a few tens of megabytes; past this it is not a database,
+/// and finding that out after reading it whole into memory is the expensive way.
+constexpr std::uintmax_t kMaximumDatabaseBytes = 64U * 1024U * 1024U;
+
 [[nodiscard]] constexpr bool isSpace(char c) noexcept
 {
     return c == ' ' || c == '\t' || c == '\r' || c == '\n';
@@ -37,6 +54,111 @@ constexpr std::string_view kAnyNode = "Vector__XXX";
 [[nodiscard]] constexpr bool isNameChar(char c) noexcept
 {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+}
+
+/// Whether `text` is well-formed UTF-8: no truncated or stray continuation bytes, no
+/// overlong forms, no surrogates and nothing past U+10FFFF.
+[[nodiscard]] bool isValidUtf8(std::string_view text) noexcept
+{
+    std::size_t index = 0;
+
+    while (index < text.size()) {
+        const auto lead = static_cast<unsigned char>(text[index]);
+
+        if (lead < 0x80U) {
+            ++index;
+            continue;
+        }
+
+        std::size_t extra = 0;
+        std::uint32_t minimum = 0;
+        std::uint32_t code = 0;
+
+        if ((lead & 0xE0U) == 0xC0U) {
+            extra = 1;
+            minimum = 0x80U;
+            code = lead & 0x1FU;
+        } else if ((lead & 0xF0U) == 0xE0U) {
+            extra = 2;
+            minimum = 0x800U;
+            code = lead & 0x0FU;
+        } else if ((lead & 0xF8U) == 0xF0U) {
+            extra = 3;
+            minimum = 0x10000U;
+            code = lead & 0x07U;
+        } else {
+            return false;
+        }
+
+        if (index + extra >= text.size()) {
+            return false; // The sequence is cut short by the end of the text.
+        }
+
+        for (std::size_t offset = 1; offset <= extra; ++offset) {
+            const auto next = static_cast<unsigned char>(text[index + offset]);
+            if ((next & 0xC0U) != 0x80U) {
+                return false;
+            }
+            code = (code << 6U) | (next & 0x3FU);
+        }
+
+        if (code < minimum || code > 0x10FFFFU || (code >= 0xD800U && code <= 0xDFFFU)) {
+            return false;
+        }
+
+        index += extra + 1;
+    }
+
+    return true;
+}
+
+/// Appends one code point as UTF-8.
+void appendUtf8(std::string& out, std::uint32_t code)
+{
+    if (code < 0x80U) {
+        out.push_back(static_cast<char>(code));
+    } else if (code < 0x800U) {
+        out.push_back(static_cast<char>(0xC0U | (code >> 6U)));
+        out.push_back(static_cast<char>(0x80U | (code & 0x3FU)));
+    } else {
+        out.push_back(static_cast<char>(0xE0U | (code >> 12U)));
+        out.push_back(static_cast<char>(0x80U | ((code >> 6U) & 0x3FU)));
+        out.push_back(static_cast<char>(0x80U | (code & 0x3FU)));
+    }
+}
+
+/// A file in Windows-1252, as UTF-8.
+///
+/// CANdb++ and most of what writes .dbc files on Windows save in the ANSI code page, so
+/// "°C" is the two bytes B0 43 and not the three UTF-8 would use - and everything in
+/// TorqueBus downstream is UTF-8. Read as it stands, the unit of every temperature signal
+/// in such a file arrived as a replacement character, and so did every accent in a
+/// comment: the Portuguese ones included.
+[[nodiscard]] std::string windows1252ToUtf8(std::string_view text)
+{
+    // 0x80 to 0x9F: the part where Windows-1252 and Latin-1 differ. The five that have no
+    // character (81, 8D, 8F, 90, 9D) become the replacement character.
+    static constexpr std::uint32_t kHigh[32] = {
+        0x20AC, 0xFFFD, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160,
+        0x2039, 0x0152, 0xFFFD, 0x017D, 0xFFFD, 0xFFFD, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022,
+        0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0xFFFD, 0x017E, 0x0178};
+
+    std::string out;
+    out.reserve(text.size() + text.size() / 8U);
+
+    for (const char character : text) {
+        const auto byte = static_cast<unsigned char>(character);
+
+        if (byte < 0x80U) {
+            out.push_back(character);
+        } else if (byte < 0xA0U) {
+            appendUtf8(out, kHigh[byte - 0x80U]);
+        } else {
+            appendUtf8(out, byte);
+        }
+    }
+
+    return out;
 }
 
 /// A cursor over one statement, with enough position tracking to say where a
@@ -217,8 +339,11 @@ public:
             return false;
         }
 
-        const std::string digits{m_text.substr(start, m_position - start)};
-        out = parseDouble(digits);
+        const std::string_view digits = m_text.substr(start, m_position - start);
+        if (!parseDouble(digits, out)) {
+            error = describe(std::string{what} + " is not a number that can be read");
+            return false;
+        }
         return true;
     }
 
@@ -240,15 +365,23 @@ public:
 
 private:
     /// Locale-independent. std::stod and strtod both follow the C locale's
-    /// decimal point, and a .dbc always uses a dot.
-    [[nodiscard]] static double parseDouble(const std::string& text)
+    /// decimal point, and a .dbc always uses a dot; from_chars never looks at the
+    /// locale at all, and is a good deal faster than a stream per number.
+    ///
+    /// False when the span is not entirely a number. "1.2.3" used to read as 1.2 and
+    /// go on - a factor of 1.2 where the file said something it did not mean.
+    [[nodiscard]] static bool parseDouble(std::string_view text, double& out) noexcept
     {
-        std::istringstream stream{text};
-        stream.imbue(std::locale::classic());
+        const char* begin = text.data();
+        const char* const end = begin + text.size();
 
-        double value = 0.0;
-        stream >> value;
-        return value;
+        // from_chars takes no leading plus sign, and a .dbc writes one now and then.
+        if (begin != end && *begin == '+') {
+            ++begin;
+        }
+
+        const auto parsed = std::from_chars(begin, end, out);
+        return parsed.ec == std::errc{} && parsed.ptr == end;
     }
 
     std::string_view m_text;
@@ -428,7 +561,12 @@ struct Statement final {
         return false;
     }
 
-    if (startBit < 0 || startBit > 63 || bitLength < 1 || bitLength > 64) {
+    // The start bit goes to 511, not 63: a CAN FD message is 64 bytes, and a signal in
+    // its last byte starts at bit 504. Limiting it to a classic frame's 63 refused
+    // every database that describes one, over the first signal past the eighth byte.
+    constexpr std::int64_t kLastFdBit = static_cast<std::int64_t>(kMaxCanPayload) * 8 - 1;
+
+    if (startBit < 0 || startBit > kLastFdBit || bitLength < 1 || bitLength > 64) {
         error = scanner.describe("signal \"" + signal.name + "\" has an impossible position: "
                                  + std::to_string(startBit) + "|" + std::to_string(bitLength));
         return false;
@@ -514,6 +652,22 @@ private:
 
 Result DbcParser::parse(std::string_view text, CanDatabase& database)
 {
+    // A byte order mark is what Notepad puts at the start of a file it saved as UTF-8. It
+    // is not part of the first statement, and left there it made the first keyword
+    // unreadable - which this parser skips, so the first line of the file silently was
+    // not.
+    if (text.starts_with("\xEF\xBB\xBF")) {
+        text.remove_prefix(3);
+    }
+
+    // Anything that is not UTF-8 is taken to be Windows-1252, which is what the tools that
+    // write these files save in.
+    std::string transcoded;
+    if (!isValidUtf8(text)) {
+        transcoded = windows1252ToUtf8(text);
+        text = transcoded;
+    }
+
     const std::string cleaned = stripBlockComments(text);
     const std::vector<Statement> statements = splitStatements(cleaned);
 
@@ -537,6 +691,10 @@ Result DbcParser::parse(std::string_view text, CanDatabase& database)
     // The way out is the shape of the entries rather than a list of names: an
     // NS_ entry is a bare word alone on its line, and no real section is.
     bool inNewSymbols = false;
+
+    // True under the container for unassigned signals, whose SG_ lines have no
+    // message to go to and are read past.
+    bool ignoringSignals = false;
 
     for (const Statement& statement : statements) {
         Scanner scanner{statement.text, statement.line};
@@ -592,6 +750,36 @@ Result DbcParser::parse(std::string_view text, CanDatabase& database)
                 return Result::error(ErrorCode::ParseError, error);
             }
 
+            // Signals under the message nothing is ever sent on belong to no frame.
+            if (messageName == kIndependentSignals) {
+                ignoringSignals = true;
+                current = nullptr;
+                continue;
+            }
+
+            ignoringSignals = false;
+
+            // Checked before it is narrowed: a number past 32 bits used to lose its top
+            // half and become some other message's identifier.
+            if (rawIdentifier < 0 || rawIdentifier > 0xFFFF'FFFFLL) {
+                return Result::error(ErrorCode::ParseError,
+                                     scanner.describe("message \"" + std::string{messageName}
+                                                      + "\" has identifier "
+                                                      + std::to_string(rawIdentifier)
+                                                      + ", which is not a 32-bit number"));
+            }
+
+            // And so is the length. A negative one used to be narrowed to 255, a frame
+            // that claims four times the payload there is room for, and everything that
+            // trusts a frame's length then reads past the end of it.
+            if (length < 0 || length > static_cast<std::int64_t>(kMaxCanPayload)) {
+                return Result::error(ErrorCode::ParseError,
+                                     scanner.describe("message \"" + std::string{messageName}
+                                                      + "\" has a payload length of "
+                                                      + std::to_string(length)
+                                                      + " bytes; a frame carries 0 to 64"));
+            }
+
             const auto raw = static_cast<std::uint32_t>(rawIdentifier);
 
             CanMessage message;
@@ -599,7 +787,7 @@ Result DbcParser::parse(std::string_view text, CanDatabase& database)
                 (raw & kExtendedFlag) != 0U ? CanFrameFormat::Extended : CanFrameFormat::Standard;
             message.identifier = raw & ~kExtendedFlag;
             message.name = std::string{messageName};
-            message.length = static_cast<std::uint8_t>(std::min<std::int64_t>(length, 64));
+            message.length = static_cast<std::uint8_t>(length);
 
             if (!isValidIdentifier(message.identifier, message.format)) {
                 return Result::error(ErrorCode::ParseError,
@@ -621,6 +809,10 @@ Result DbcParser::parse(std::string_view text, CanDatabase& database)
         }
 
         if (keyword == "SG_") {
+            if (ignoringSignals) {
+                continue;
+            }
+
             if (current == nullptr) {
                 return Result::error(ErrorCode::ParseError,
                                      scanner.describe("SG_ outside any message"));
@@ -638,6 +830,7 @@ Result DbcParser::parse(std::string_view text, CanDatabase& database)
         // Everything below refers back to a message rather than continuing one,
         // so the "current message" ends here.
         current = nullptr;
+        ignoringSignals = false;
 
         if (keyword == "VAL_") {
             std::int64_t rawIdentifier = 0;
@@ -757,7 +950,26 @@ Result DbcParser::parse(std::string_view text, CanDatabase& database)
 
 Result DbcParser::parseFile(const std::string& path, CanDatabase& database)
 {
-    std::ifstream file{path, std::ios::binary};
+    const std::filesystem::path location = pathFromUtf8(path);
+
+    std::error_code problem;
+
+    // A folder opens as a stream on some platforms and reads as an empty file, which
+    // parses as a database with nothing in it: a decoder that decodes nothing and
+    // says nothing, over a path that was never a file.
+    if (std::filesystem::is_directory(location, problem)) {
+        return Result::error(ErrorCode::InvalidArgument,
+                             "\"" + path + "\" is a folder, not a .dbc file");
+    }
+
+    const std::uintmax_t size = std::filesystem::file_size(location, problem);
+    if (!problem && size > kMaximumDatabaseBytes) {
+        return Result::error(ErrorCode::ParseError,
+                             "\"" + path + "\" is " + std::to_string(size / (1024U * 1024U))
+                                 + " MiB, which is too large to be a .dbc file");
+    }
+
+    std::ifstream file{location, std::ios::binary};
     if (!file) {
         return Result::error(ErrorCode::FileNotFound, "Cannot open \"" + path + "\"");
     }

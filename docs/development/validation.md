@@ -155,7 +155,7 @@ panels.
 
 - The window opens with **one column on the left** — **Project Explorer** above,
   **Properties** and **Block** tabbed below it — the analysis stack filling the
-  middle (**CAN Trace**, **DBC Explorer**, **Pipeline**, **Transmit**, **Graph**,
+  middle (**CAN Trace**, **DBC Explorer**, **Pipeline**, **Transmit**, **Plot Viewer**,
   **Playback**, **Statistics**, **Diagnostics**, **Script**), and **Output**
   under that stack rather than across the whole window: the left column runs the
   full height beside it.
@@ -223,9 +223,10 @@ This is the acceptance test for v0.6 and v0.7 together.
 1. **File → Open Project** →
    `examples\projects\virtual-vehicle.tbsproj`.
    The title bar becomes `virtual-vehicle - TorqueBus Studio`, and the Output
-   panel says `Pipeline: 5 node(s), 3 connection(s).`
-2. **Pipeline** tab. Five blocks, wired: `can_1 → ecu_vehicle → tx_1`, and
-   `can_2 → speed_only`. Blocks are draggable; dragging one and reopening the
+   panel says `Pipeline: 6 node(s), 6 connection(s).`
+2. **Pipeline** tab. Two buses, `can_1` and `can_2`, drawn as two wires each, with
+   `ecu_vehicle` over the first and `tinyml_ecu` under it (its plot under that), and
+   `speed_only` under the second. Blocks are draggable; dragging one and reopening the
    project puts it back where it was saved.
 3. Click **ecu_vehicle**. The **Block** panel comes forward and shows its
    settings, including the Lua script in a monospaced box and the script
@@ -510,7 +511,7 @@ places where the honest answer is to refuse and say so.
 
 ---
 
-## 5g. The Graph panel
+## 5g. The Plot Viewer
 
 The other half of v0.8, and the first thing that makes a decoded signal worth
 decoding.
@@ -518,7 +519,7 @@ decoding.
 1. Open a `.dbc` (**File -> Import Database**), then on the **Pipeline** canvas
    wire **CAN Channel -> DBC Decoder -> Signal Plot**. Give the decoder its
    database with the **...** button in the Block panel. Press **Start**.
-2. The **Graph** tab's list fills with `Message.Signal` names as the bus
+2. The **Plot Viewer** tab's list fills with `Message.Signal` names as the bus
    introduces them - qualified by message, because two databases can use one
    name for two different things.
 3. Tick two signals with very different ranges: an engine speed in the thousands
@@ -577,7 +578,7 @@ The v0.9 loop, and the point at which the tool stops needing a bus to be useful.
    through at memory speed destroys all three. Set the block's **Speed** to 10
    and it replays ten times faster, with the same shape.
 7. Wire the replay through a **DBC Decoder** into a **Signal Plot** instead. The
-   Graph panel draws a recorded measurement exactly as it draws a live one -
+   Plot Viewer draws a recorded measurement exactly as it draws a live one -
    nothing downstream of a source knows the difference, which is what rule #11
    has been claiming since v0.5.
 8. Kill TorqueBus with the task manager while a recording is running, then open
@@ -1014,7 +1015,7 @@ The instrument cluster (`docs/development/cluster.md`):
     controller lights the lamp.
 19. Press **Stop**: every lamp goes out and the values go back to dashes within a few
     seconds. With `ecu_engine` on `sensor_error`, plot `ET1.EngineCoolantTemperature` in
-    the Graph panel: a signal the bus reports as *not available* is a gap in the line,
+    the Plot Viewer: a signal the bus reports as *not available* is a gap in the line,
     and `n/a` in the legend, and not a spike to the middle of the plot.
 
 **Watch for:** a widget that overlaps a cluster. It is drawn *under* it, because a
@@ -1085,7 +1086,7 @@ mostly that the tool refuses to invent things.
    tooltip says so. Power-cycle one ECU and watch its row change to *claimed*
    with a NAME.
 5. A message that needs transport - engine configuration, or a DM1 with several
-   faults - decodes into signals like any other. Watch the **Graph** panel: the
+   faults - decodes into signals like any other. Watch the **Plot Viewer**: the
    values appear when the last packet lands, not seven bytes at a time.
 6. **Break a transfer.** Interrupt the bus mid-BAM, or drop a packet with a
    filter. The message must **not** appear. *Transport failures* counts up, and
@@ -1181,23 +1182,22 @@ whether the buttons look right in the window and whether the hand moves the way 
 
 1. Open `examples\projects\j1939-vehicle.tbsproj` and look at the **Pipeline** tab. A column of
    four small icons stands down the canvas's left edge: a four-way arrow, a magnifier with a plus,
-   one with a minus, and four corner brackets. They are the same drawings as the Graph panel's
+   one with a minus, and four corner brackets. They are the same drawings as the Plot Viewer's
    toolbar, tinted by the theme: switch to Light in **Tools > Preferences** and they follow. The
    four-way arrow has all four arrowheads the same.
 2. Hover each one. A tooltip says what it does.
 3. Roll the mouse wheel over the canvas, then press **Zoom In** and **Zoom Out**. The buttons
    step the way the wheel does, and neither goes past the same limits: out to a tenth of real size,
    where the whole project is a small map, and in to twice real size.
-4. Press **Fit to Window** from anywhere. Every block is on screen with a margin, centred, the
-   TinyML block's neural network card included. With the J1939 project the blocks stay small, because
-   that layout is eight rows tall and a window is not: that is what fits, not a fault. Delete
-   everything but one block and press it again: the block shows at real size, not enlarged to fill the
-   window.
+4. Press **Fit to Window** from anywhere. Every block is on screen with a margin, centred. With the J1939
+   project the whole pipeline - the bus, seven ECUs over it, the decoder, the filter and the plot - is
+   one screen at close to real size. Delete everything but one block and press it again: the block shows
+   at real size, not enlarged to fill the window.
 5. Press **Pan**. The button stays down. Drag from the middle of a block: the whole canvas moves with
    the pointer and the block neither moves nor is selected, and the cursor is a hand. Click a block's
    **Edit** pencil: nothing opens. Press **Pan** again, and the same drag picks the block up, and the
    pencil opens the script.
-6. Zoom in on one block and pan away from the rest. Switch to the **Graph** tab and back. The canvas
+6. Zoom in on one block and pan away from the rest. Switch to the **Plot Viewer** tab and back. The canvas
    is where you left it, at the zoom you left it at. (It used to fit the whole project again every time
    the tab was shown.)
 7. **File > Open Project** on another project, with the canvas showing. It is fitted when it opens, not
@@ -1208,6 +1208,87 @@ whether the buttons look right in the window and whether the hand moves the way 
 **Watch for:** the four-way arrow turned into something lopsided, which was the icon's bug and not the
 buttons'; and the strip showing a second edge or a different grey from the toolbars elsewhere in
 either theme.
+
+---
+
+## 5w. The CAN Bus on the Pipeline canvas
+
+The automated tests drive the palette, the ports and the mouse. What they cannot say is whether it looks like
+a bus and whether the hand finds it obvious.
+
+1. Open `examples\projects\j1939-vehicle.tbsproj`. The **Pipeline** tab shows a line across the middle with
+   two wires, an amber one and a green one, and a plate at its left that says `can_1` and `CAN 1`. Seven
+   small blocks hang over it, each by a pair of wires - an amber one on the left and a green one on the right -
+   down to the wires of the bus that are the same colour, with a dot where each one joins; two hang under it (the
+   J1939 decoder and a Frame Filter) and the plot hangs under the decoder. No block is bigger than a name, an
+   icon and a line of text.
+2. Hover a block's **chevron** (the small arrow at its corner, shown while it is under the pointer or
+   selected) and click it. The block opens into a card with the frame it last carried, and the blocks beside
+   it move aside. Click the arrow at the corner of the card: it closes. Press **Details** on the bar: all of
+   them open at once and are laid out for it; press it again and they close.
+3. **Drag** `ecu_body` somewhere else along its row, then far to the left of the plate. The bus follows it to
+   the left; drag the bus to the right past the module and it stops. Press **Arrange**: everything is back in
+   rows, the ones that speak over the bus and the ones that only listen under it.
+4. Delete `filter_ccvs1` and drag a **Frame Filter** from the palette onto the rail, and let go. It is wired
+   to the bus and hangs under it. Drag a **Lua ECU** the same way: both halves of the drop appear, arrows each
+   way. Select the drop and press **Delete**: both go.
+5. Drag from the bottom edge of a block that is not on the bus - `j1939_plot`'s neighbour, say - to anywhere
+   on the rail. While the wire is dragged the whole rail lights; let go and it is wired.
+6. Right-click a drop under the bus. **Hears** has *All frames*, *11-bit frames only* and *29-bit frames
+   only*; choose *29-bit* and a pill says so on the wire. Click the pill: it goes round. **Direction** gives
+   *Receive and send*, *Receive only* and *Send only*, and the arrows follow.
+7. Press **Start** (F5). A light runs down both wires of every drop, a light travels along each wire of the bus, and the
+   blocks that are running have a halo; each chip's second line becomes the last frame it carried
+   (`TX 0CF00400 • 10.0 ms`). The plate says the frame rate and the bus load. **Stop**: it all goes still.
+8. Switch to the Light theme in **Tools > Preferences**. Every chip, pencil and plate is still readable.
+9. Zoom out until the blocks are small: below about half size they are their names, larger, and nothing else.
+10. Open a project from before the bus (add a CAN Channel, an ECU and a CAN Transmit by hand, or open an old
+    one). The Output panel offers **Group the Wiring on a CAN Bus**; right-click the empty canvas and choose
+    it: one bus replaces the channel and the transmit blocks, and the project still runs.
+
+**Watch for:** a drop that ends on the plate instead of on a wire, an amber wire that joins the green wire of
+the bus (or the other way round), a dot on a wire that only passes the bus, two wires that touch where a
+drop steps sideways, a pill cut off at the edge of its line, a
+block that stays dim after the theme changes, and the Statistics panel showing one transmit row per module
+(`... transmit`) rather than one for the bus - that is what it is meant to do.
+
+---
+
+## 5x. When something is wrong
+
+The automated tests prove that the containment works; what they cannot say is whether the message that
+results is one a person can act on. This is the walk through the ways to break a pipeline on purpose, and
+what you should see for each. None of it may freeze the window or close the application.
+
+1. **An endless loop.** Add a **Lua ECU** to the J1939 example and give it the script
+   `function on_message(id, data) while true do end end`. Press **Start**. About a quarter of a second
+   later the Output panel says the script ran for more than 250 ms in a single call and names the line, then
+   that the ECU stopped; the other ECUs keep sending and the cluster keeps moving. **Stop** answers at once.
+2. **An endless loop at the top of a script.** Replace the script with `while true do end` and press **Start**.
+   The window does not freeze: after two seconds Start is refused with the same kind of message.
+3. **An identifier that does not exist.** Script `function on_enable() emit(0x20000000, "x") end`. Start is
+   refused with "emit: identifier 0x20000000 does not fit a 29-bit frame". (This used to close the application.)
+4. **A script that fills the memory.**
+   `function on_message() t = t or {} for i = 1, 1e9 do t[#t+1] = ("x"):rep(1024) end end`: the Output panel
+   says either "not enough memory" (and that the script was held to 64 MiB) or that it ran out of time,
+   whichever came first on this machine, and the ECU stops.
+5. **A setting that cannot be right.** Select a CAN Channel and try to type `300` as its Channel: the box
+   stops at 255. In a `.tbsproj` that holds `"channel": 300`, the box shows 300 and the Output panel warns
+   "Block 'can_1': Channel has to be between 0 and 255, not 300" when the project is opened.
+6. **A broken project.** Open a `.tbsproj` in which two nodes share an id, or a wire names a port that does not
+   exist: Open says so and the project that was open is still open, unchanged.
+7. **A database in an old encoding.** Save a `.dbc` with a `°C` unit from a tool that writes Windows-1252
+   (or `chcp 1252` and `echo` one) and import it in the DBC Explorer: the unit reads `°C`.
+8. **A folder with accents.** Put a `.dbc`, a `.lua` and a project into a folder called `Área de Simulação`
+   and open them from there: all three load.
+9. **A bus wired to itself.** In a `.tbsproj`, add a wire from a `can.bus` block to itself and open it: Start
+   is refused naming the bus, not run.
+10. **Arrange a large pipeline.** Paste forty Lua ECUs onto a bus and press **Arrange**: it finishes in a
+    fraction of a second.
+
+**Watch for:** a message that names a limit without saying which block it was, a window that stops painting
+for more than a moment, and an ECU that stays in the Statistics panel after it was taken out of the run (it
+should show its counters frozen, not growing).
 
 ---
 

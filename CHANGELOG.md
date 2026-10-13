@@ -21,8 +21,130 @@ from 1.0 onwards; below 1.0 the minor number is the milestone, as
 Since 0.17.0. Mostly a pass of checking what the project claims about itself
 against what it does, which turned up more than expected.
 
+### Added
+
+- **A CAN Bus on the Pipeline canvas, drawn the way a network is.** A bus is two wires - CAN_H amber, CAN_L
+  green - and every module hangs off it by one drop, as a simulation setup in CANoe draws one; it replaces
+  the CAN Channel and the CAN Transmit block each ECU needed (the J1939 example was twelve wires and a
+  column eight blocks tall). A drop is wired by dragging a port onto the rail, by adding a block with the
+  bus (or a module on it) selected, by dropping one from the palette near it, or from a module's context
+  menu; wiring one half of it wires the other for a module that speaks as well as listens, and deleting
+  one half deletes both. A drop's **Direction** (receive and send, receive only, send only) and its
+  **Hears** (all frames, 11-bit only, 29-bit only - a pill on the wire, clicked to cycle) are right-click
+  away.
+  In the graph the block is `can.bus`, one input that takes any number of wires and one output. The running
+  graph keeps its rule of one wire per input: each wire into the bus is given a CAN Transmit of its own at
+  build time and the bus's output is a CAN Channel, so a project grouped on a bus runs frame for frame as it
+  did. `EdgeDescription::frameFormat` (`"frames": "11-bit" | "29-bit"` in the project file, written only
+  when used) limits any wire that carries frames, built as the filter the Frame Filter block builds.
+  See `docs/development/pipeline-canvas.md`.
+- **Group the Wiring on a CAN Bus.** Right-click the empty canvas (the Output panel offers it when a project
+  from before the bus is opened). Replaces the CAN Channel and CAN Transmit blocks with a bus per channel,
+  taking over the id of the first CAN Channel; a channel feeding a transmit on another channel is a gateway
+  and is left alone. An action and not something opening a project does: it rewrites the pipeline.
+  `j1939-vehicle.tbsproj` and `virtual-vehicle.tbsproj` ship grouped.
+- **Arrange.** One button puts every block where a tidy diagram has it: each bus a line with the modules that
+  speak over it, the ones that only listen under it and what they feed under them; rows wrap at what the
+  window shows at a readable size. Idempotent, it keeps the order the blocks are in, and it can be undone -
+  as can Details, Group the Wiring on a CAN Bus and the TinyML demo, which replace what a person drew.
+- **Details.** Opens every block into a card (the frame it last carried, byte by byte, and what the database
+  says it means - what every block used to be); a chevron and **Show Frame Details** do it for one.
+- **Limits for scripts.** A call into a Lua script gets 250 ms (the top of a script, which sets things up,
+  2 s) and a script gets 64 MiB; past either the call fails with an error that names the line and the limit,
+  and an ECU that hit one is taken out of the run at once, where an ordinary error is given five chances.
+  `LuaLimits` on `LuaRuntime`; see `docs/development/robustness.md`.
+- **A block that fails is taken out of the run, not the run.** `PipelineGraph` runs each node's `process()`
+  guarded: one that throws is reported once on the Output panel with its name and the reason, publishes
+  nothing from then on, and the branches it was not feeding carry on. `prepare()` and `finish()` are guarded
+  the same way, and a compile that fails halfway finishes the nodes it had already prepared.
+  `PipelineGraph::setFaultHandler()`, `faultedNodeCount()`.
+- **Settings are checked against what the block says it takes.** `ParameterDescriptor` can state the range of
+  a number, and every declared parameter is checked for its kind (a number, a whole number, text, true or
+  false) and its range wherever the block is validated - in the words of the form, with the block's id.
+- **A stack when a UI test dies of an access violation** (`tests/ui/CrashTrace.h`): the faulting address and
+  the functions that were running, with their lines, on stderr, which ctest keeps for a failed test. gtest
+  reports only "SEH exception with code 0xc0000005" and an empty trace, which is no use against a crash
+  that happens once in a thousand runs - and that is how the one below was found.
+- **A test for every block the catalog offers** (`PipelineBlocksTests`): each type is built from the
+  catalog, wired the way its ports say, started on an engine, fed traffic and stopped, and the test fails
+  for a type that has no recipe. **The shipped databases are checked** (`ShippedDatabaseTests`): every
+  signal fits its message, no two share a bit, each is read back from where it was written. **A seeded
+  fuzz test** (`InputFuzzTests`) feeds damaged databases, models, logs, projects, ISO-TP, J1939 transport,
+  UDS, the Lua bindings, and frames that lie about their own length to the blocks that read them; `TORQUEBUS_FUZZ_SCALE=50` runs it fifty times longer, and under
+  AddressSanitizer that is the useful way to run it.
+
 ### Fixed
 
+- **Dragging a wire on the canvas could crash the application.** QtNodes 3.0.16 casts the widget of a scene
+  event - the viewport - to a `QGraphicsView` and reads its transform, on every mouse move of a wire being
+  dragged and when it is dropped: several hundred bytes past the end of the object, which is nearly always
+  other live memory and now and then the end of a page. It showed as a canvas test that died with an access
+  violation once in a thousand runs, and the stack (printed by the new crash trace) ended in
+  `ConnectionGraphicsObject::mouseMoveEvent`. `cmake/PatchQtNodes.cmake` corrects the two lines when
+  configuring and stops configure if they are not the ones it expects; a test checks it was applied.
+- **A script could end the application with `emit(0x20000000, ...)`.** The error message for an
+  identifier that does not fit a frame was written `"identifier 0x%X ... %s"`, and Lua's formatter has no
+  `%X`: it keeps an unknown conversion as text and does not consume its argument, so the `%s` after it took
+  the identifier for a string and read it from that address. An access violation, in the dispatch thread,
+  where nothing catches it. The same message was in `send()` of a test sequence, and `cyclic()` did not check
+  its identifier at all. They are a script error now, with the identifier in hex.
+- **A script with an endless loop froze the pipeline, Stop, and at Start the window.** Nothing could interrupt
+  Lua running, so `while true do end` - the commonest mistake in a loop - held the thread that runs every
+  other node and the join that Stop waits for; at the top of a script it held the window that pressed Start.
+  A script that grew a table without end took the machine's memory. See *Limits for scripts*.
+- **One block throwing ended the whole measurement.** The only net was the one around the dispatch loop, which
+  stopped everything: the recording in progress, the other ECUs, the trace. It is now one block going
+  quiet. A `prepare()` that threw left through Start into the window, and a creator or validator that
+  threw (a plugin's, say) did the same from the canvas.
+- **A `.dbc` exported by CANdb++ or CANoe was refused.** Those tools write `VECTOR__INDEPENDENT_SIG_MSG`, the
+  container for signals that belong to no frame, as message `0xC0000000`: an extended identifier that does
+  not fit 29 bits, and the parser refused the whole file over it. A **CAN FD** database was refused at its
+  first signal past the eighth byte (start bits stopped at 63; they go to 511). A negative message length
+  was narrowed to 255 - a frame that claims four times the payload there is room for, which everything that
+  trusts a length then reads past -, an identifier past 32 bits lost its top half and became another
+  message's, and `1.2.3` was read as `1.2`. A file saved in **Windows-1252**, which is what the Windows
+  tools write, had its `°C` and its accents read as replacement characters, and a **byte order mark** made
+  the first statement of the file unreadable - which the parser skips, so it was silently not read. A
+  folder named where a database belonged parsed as an empty database. All of these are read now or refused
+  with the line, the message and the number in the text.
+- **Files in folders with accents were not found.** The core passed UTF-8 paths to `std::ifstream` and
+  `std::filesystem::path`, which read a narrow path in the ANSI code page on Windows (1252 on a Brazilian
+  machine): a database in `Área de Trabalho` or a project in `Simulação` was reported missing from a folder
+  the window had just opened it from, because the window goes through Qt. Scripts, databases, models, logs
+  and exports now convert at one place, `core/FilePath.h`. (The machine this was written on runs Windows
+  with UTF-8 as its system code page, where the bug cannot show; a machine with another one is where
+  these tests can fail.)
+- **A CAN FD message sent a classic frame that does not exist.** `CanMessage::makeFrame()` set a payload of
+  twelve bytes and a code of eight. It now makes an FD frame, rounded up to the next FD size.
+- **Settings of the wrong kind or out of range were read as something else.** A channel of 256 was channel 0
+  and -1 was 255 (the cast reduces modulo the width), `"channel": "two"` read as 0 and `"database": 5` as no
+  database - blocks that built and ran on the wrong thing and said nothing. A TinyML model whose layer sizes
+  multiplied past 64 bits passed the check that the file had enough weights and then read memory that was
+  never allocated.
+- **Arranging a big pipeline took the cube of its size.** Moving a block lays out the bus it hangs from and
+  redraws every wire on it, and arrange moved each block on its own: eighty modules took five and a half
+  seconds in a debug build, and eight times that for a hundred and sixty. It is one batch now (14 times
+  faster for eighty, and no longer cubic).
+- **A bus wired to itself - or to another bus on the same channel - repeated every frame for as long as the
+  measurement ran.** A bus is built as two nodes, one that reads the channel and one that writes it, so the
+  loop is not a cycle in the graph and `compile()` could not see it. `validate()` refuses it.
+- **A script could declare timers without end** (`every()` inside `on_message` adds one per frame, to a list
+  walked in full on every pass). An ECU is limited to 1024.
+- **A project file could hold what no canvas could open.** Two nodes with one id, a negative port number, and
+  a number such as `1e300` - which was cast to a 64-bit integer, undefined - are refused or kept as a real;
+  a transmit row's channel, identifier and cycle are clamped or refused and no longer wrap.
+- **A hardware handle with a very large number threw out of `open()`.** `virtual:99999999999999999999` (and
+  `kvaser:` the same) went through `std::stoul`/`std::stoi`, which throw `out_of_range`, in a function whose
+  contract is a `Result`; the handle is text from a settings file. It is `from_chars` now and the handle is
+  simply not one of ours.
+- **A frame that cannot exist was handed to the driver.** The channel now refuses, with the reason, an identifier
+  that does not fit its format, a length past 64 or a code past 15, and a classic frame of more than eight
+  bytes; and a received frame that claims more bytes than its payload holds is held to the array before
+  anything downstream reads it (`CanFrame::payloadSize()`). The blocks that read frames - the decoders, ISO-TP,
+  the J1939 block - and the trace store hold to it themselves as well, because a block is also reached from
+  other blocks and from plugins that never went through the channel; AddressSanitizer found the ISO-TP one
+  (a first frame copied the bytes its length claimed, past the array) within a minute of the test that feeds
+  the blocks frames that lie.
 - **Stop never told the nodes the measurement was over.** `IPipelineNode::finish()` is documented as the
   place a script runs its `on_disable` and a test sequence closes the case that was in flight, and the
   engine never called it: the unit tests called `graph.finish()` themselves, so everything passed, and in
@@ -403,6 +525,36 @@ against what it does, which turned up more than expected.
 
 ### Changed
 
+- **A drop to the bus is drawn as the two wires of a CAN bus.** A module hung off the bus by one violet line to
+  the nearest of its two wires, which read as a module on one wire of a two-wire bus. A drop is now the pair:
+  **CAN_H** in amber on the left and **CAN_L** in green on the right, each joined - with a dot - to the wire of
+  the bus that is the same colour, and the one with the further to go passes the near wire without a dot, as a
+  crossing does on a schematic. A module is wired as before, by dragging one wire to the bus; the arrow for each
+  half of the drop sits between the two wires; the pair is picked up, lit and deleted as one; and while running a
+  light travels down both, in their colours. The colours are the bus's own, so they follow the theme. A module
+  that is not over the live part of the bus steps sideways with the two wires staying the same distance apart.
+  The pill of a drop that carries both halves is no longer crossed by the other half's wires, whichever end
+  was dragged from first.
+  The geometry is `layout::dropWire()`, tested for every placement without a window; see
+  `docs/development/pipeline-canvas.md`.
+- **The Graph tab is the Plot Viewer.** In the tab bar, the Analysis menu, the description of the Signal Plot block
+  and the documentation. The dock keeps the name a saved layout knows it by, so nobody's arrangement is lost
+  (the class is still `GraphPanel`).
+- **The script editor's sidebar is the Script Reference, and names nobody else's product.** It was titled after the
+  scripting language of a Vector Informatik tool - a name that is theirs, and the only place in the repository
+  that used it. The new title says what the panel is for: the signals a database has, the functions a script can
+  call and the variables it can read, with what each is and a snippet to put in the script. A test goes through
+  every piece of text the panel can show - labels, tool tips, placeholders, tabs, rows, and the documentation of
+  each row - for the old name.
+- **A block on the Pipeline canvas is a chip, not a card.** 176 x 48 instead of 310 x 196: a name, an icon and a
+  stripe in the colour of its kind, a status light and a line of what it is doing - the frame it last carried
+  while running. Ports are on the top and the bottom edge, and wires leave downwards. Below about half size a
+  chip is its name, larger. Each block is painted by QtNodes' cache and redrawn only when its own line changes;
+  the foreground draws only what moves (packets, a halo, a light along the bus) where it used to repaint every
+  card, port badge and wire glow 25 times a second. Measured on the J1939 example (18 blocks, an optimised build,
+  a 1500 x 800 canvas): opening it and painting the first frame 24 ms -> 6.5, an idle frame 7.7 ms -> 0.7, a
+  frame while running 9.4 ms -> 2, and a frame while a block is dragged 9.7 ms -> 2. The accents of the card are
+  readable on the Light theme.
 - **The bar above the canvas starts at the left, is grouped, and says what is on.** It was pushed to
   the right edge, away from the strip of view tools below it, in the order Add, Delete, Animate, Inject,
   Demo - the anomaly could be injected before the demo that has something to inject it into - and the

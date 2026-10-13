@@ -921,3 +921,30 @@ TEST(TinyMlEcuTests, AnEngineAskedForMoreThanItHasAtThatSpeedIsOutOfProfile)
 
     EXPECT_GT(driver.node().lastFeatures().busStressFactor, 0.5F);
 }
+
+TEST(TinyMlEcuTests, ALayerWhoseSizeIsNotBelievableIsRefusedBeforeAnythingIsReadFromIt)
+{
+    // The weights are inputSize * outputSize, both read from text. Two numbers whose
+    // product wrapped past 64 bits passed the check that the file had enough weights,
+    // and the forward pass then read the rest of the matrix from memory that was never
+    // allocated.
+    TinyMlModel model;
+
+    // 2^32 * 2^32 wraps to exactly 0.
+    const Result wrapping =
+        TinyMlModel::parse("TBUSML 1\nlayer l 4294967296 4294967296 linear 0.1\n", model);
+    ASSERT_TRUE(wrapping.failed());
+    EXPECT_NE(std::string{wrapping.message()}.find("larger than this block runs"),
+              std::string::npos)
+        << wrapping.message();
+
+    // Large but not wrapping: still not a network that runs in a CAN pass.
+    const Result large = TinyMlModel::parse("TBUSML 1\nlayer l 6 100000 linear 0.1\n", model);
+    EXPECT_TRUE(large.failed());
+
+    const Result wide = TinyMlModel::parse("TBUSML 1\nlayer l 4000 4000 linear 0.1\n", model);
+    EXPECT_TRUE(wide.failed()) << "16 million weights in one layer";
+
+    // And the model that ships still loads, which is the other half of the rule.
+    EXPECT_EQ(TinyMlModel::builtinPowertrainModel().layers().size(), 3U);
+}

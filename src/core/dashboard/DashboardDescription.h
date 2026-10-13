@@ -41,7 +41,7 @@
 namespace torquebus {
 
 /// What a widget looks like. The list is PLAN.md v0.14's, minus the ones that
-/// need a second mechanism to mean anything: "Graph" is the Graph panel, which
+/// need a second mechanism to mean anything: "Graph" is the Plot Viewer, which
 /// exists and is better at it, and "Image" is a file reference that a project
 /// would then have to carry and resolve.
 enum class DashboardWidgetKind : std::uint8_t {

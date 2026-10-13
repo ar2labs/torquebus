@@ -6,6 +6,7 @@
 #include "ui/mainwindow/MainWindow.h"
 
 #include "core/log/TraceExport.h"
+#include "core/pipeline/BusGrouping.h"
 #include "core/trace/TraceStore.h"
 #include "drivers/api/CanBackendRegistry.h"
 #include "services/ProjectFile.h"
@@ -563,7 +564,10 @@ void MainWindow::createPanels()
     m_graphPanel = new GraphPanel;
     m_graphPanel->setStore(&m_controller->engine().plotStore());
 
-    m_graphDock = createDockWidget(dockName(kDockGraph), tr("Graph"), m_graphPanel, icon("graph"));
+    // The tab is the Plot Viewer. Its dock keeps the name it was saved under (kDockGraph), or the
+    // layout somebody arranged would lose it.
+    m_graphDock =
+        createDockWidget(dockName(kDockGraph), tr("Plot Viewer"), m_graphPanel, icon("graph"));
 
     m_playbackPanel = new PlaybackPanel;
     m_playbackPanel->setControl(&m_controller->engine().replayControl());
@@ -1125,7 +1129,7 @@ void MainWindow::applyDefaultLayout()
     m_dashboardPropertiesDock->setMinimumWidth(kSidePanelMinimumWidth);
 
     // Three clean, logically grouped workspace regions:
-    //   1. Centre Workspace: Pipeline, Dashboard, CAN Trace, Transmit, Graph,
+    //   1. Centre Workspace: Pipeline, Dashboard, CAN Trace, Transmit, Plot Viewer,
     //      DBC Explorer, Script (ordered by workflow importance, 7 tabs with
     //      zero horizontal overflow).
     //   2. Left Column: Project Explorer on top; Properties / Block / Widget
@@ -2265,6 +2269,17 @@ void MainWindow::openProject(const QString& path)
     // replaced wholesale rather than edited.
     if (m_canvas != nullptr) {
         m_canvas->reload();
+    }
+
+    // A project drawn before the CAN Bus reaches a channel through a CAN Channel and a CAN Transmit
+    // block for each ECU. It opens and runs as it always did, and the canvas can draw it as one bus
+    // - but that rewrites the person's pipeline, so it is offered and not done.
+    if (m_output != nullptr && canGroupOnBuses(m_pipeline)) {
+        m_output->appendInfo(tr("This pipeline reaches CAN through a CAN Channel and a CAN "
+                                "Transmit block for each ECU. "
+                                "Right-click the Pipeline canvas and choose \"Group the Wiring on "
+                                "a CAN Bus\" to draw it "
+                                "as one bus; what runs does not change."));
     }
     if (m_nodeProperties != nullptr) {
         m_nodeProperties->clear();

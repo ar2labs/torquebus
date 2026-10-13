@@ -131,6 +131,127 @@ TEST(ProjectFileTests, APipelineSurvivesASaveAndALoadUnchanged)
     EXPECT_TRUE(reopened == original);
 }
 
+TEST(ProjectFileTests, ABusAndAWireLimitedToOneFrameFormatSurviveASaveAndALoad)
+{
+    // The two things the CAN Bus added to what a project holds: a block with an
+    // input that takes any number of wires, and a wire that says which frames it
+    // carries. The round trip is compared with ==, so a field the file forgot to
+    // write shows up as a difference and not as a missing assertion.
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+
+    GraphDescription original;
+
+    NodeDescription bus;
+    bus.id = "can_1";
+    bus.typeName = "can.bus";
+    bus.parameters.set("channel", ParameterValue::fromInteger(0));
+    bus.x = 12.5;
+    bus.y = -30.0;
+    original.addNode(bus);
+
+    NodeDescription decoder;
+    decoder.id = "j1939";
+    decoder.typeName = "j1939.decoder";
+    original.addNode(decoder);
+
+    NodeDescription trace;
+    trace.id = "trace_1";
+    trace.typeName = "trace.sink";
+    original.addNode(trace);
+
+    EdgeDescription extended{"can_1", 0, "j1939", 0};
+    extended.frameFormat = CanFormatMatch::ExtendedOnly;
+    original.addEdge(extended);
+
+    EdgeDescription standard{"can_1", 0, "trace_1", 0};
+    standard.frameFormat = CanFormatMatch::StandardOnly;
+    original.addEdge(standard);
+
+    const QString path = pathIn(directory, QStringLiteral("bus.tbsproj"));
+    ASSERT_TRUE(ProjectFile::save(path, original, scratch(), noDashboard()).succeeded());
+
+    GraphDescription reopened;
+    const Result result = ProjectFile::load(path, reopened, scratch(), noDashboard());
+
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    ASSERT_TRUE(result.succeeded());
+    EXPECT_TRUE(reopened == original);
+
+    // Written in words a person reading the file can follow.
+    QFile file{path};
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QByteArray contents = file.readAll();
+    EXPECT_TRUE(contents.contains("\"can.bus\""));
+    EXPECT_TRUE(contents.contains("\"29-bit\""));
+    EXPECT_TRUE(contents.contains("\"11-bit\""));
+}
+
+TEST(ProjectFileTests, AWireThatCarriesEveryFrameWritesNothingAboutFormat)
+{
+    // So a project that never limits a wire is what it was before the field
+    // existed, and opening and saving one does not make a diff.
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+
+    const QString path = pathIn(directory, QStringLiteral("plain.tbsproj"));
+    ASSERT_TRUE(ProjectFile::save(path, richPipeline(), scratch(), noDashboard()).succeeded());
+
+    QFile file{path};
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly | QIODevice::Text));
+    EXPECT_FALSE(file.readAll().contains("\"frames\""));
+}
+
+TEST(ProjectFileTests, AFrameFormatThisVersionDoesNotKnowIsRefusedNotReadAsEveryFrame)
+{
+    // A newer version limited the wire further than this one can read. Opening
+    // it as unlimited would carry more than the wire was drawn to, and say
+    // nothing.
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+
+    GraphDescription original;
+    NodeDescription bus;
+    bus.id = "can_1";
+    bus.typeName = "can.bus";
+    original.addNode(bus);
+    NodeDescription trace;
+    trace.id = "trace_1";
+    trace.typeName = "trace.sink";
+    original.addNode(trace);
+    original.addEdge(EdgeDescription{"can_1", 0, "trace_1", 0});
+
+    const QString path = pathIn(directory, QStringLiteral("future-frames.tbsproj"));
+    ASSERT_TRUE(ProjectFile::save(path, original, scratch(), noDashboard()).succeeded());
+
+    QFile file{path};
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+    file.close();
+
+    QJsonObject pipeline = root.value(QStringLiteral("pipeline")).toObject();
+    QJsonArray edges = pipeline.value(QStringLiteral("edges")).toArray();
+    ASSERT_EQ(edges.size(), 1);
+    QJsonObject edge = edges.at(0).toObject();
+    edge[QStringLiteral("frames")] = QStringLiteral("j1939-only");
+    edges.replace(0, edge);
+    pipeline[QStringLiteral("edges")] = edges;
+    root[QStringLiteral("pipeline")] = pipeline;
+
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    file.write(QJsonDocument{root}.toJson());
+    file.close();
+
+    GraphDescription reopened;
+    const Result result = ProjectFile::load(path, reopened, scratch(), noDashboard());
+
+    ASSERT_TRUE(result.failed());
+    const std::string message{result.message()};
+    EXPECT_TRUE(message.find("can_1") != std::string::npos);
+    EXPECT_TRUE(message.find("trace_1") != std::string::npos);
+    EXPECT_TRUE(message.find("j1939-only") != std::string::npos);
+}
+
 TEST(ProjectFileTests, SavingTwiceProducesByteIdenticalFiles)
 {
     // What makes a project file reviewable: opening a project and saving it
@@ -746,4 +867,186 @@ TEST(ProjectFileTests, DatabasesSurviveASaveAndALoadUnchanged)
     SCOPED_TRACE(::testing::Message() << std::string{result.message()});
     ASSERT_TRUE(result.succeeded());
     EXPECT_EQ(reopenedDatabases, originalDatabases);
+}
+
+// ---------------------------------------------------------------------------
+// A file that was edited by hand, or by something else
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// Writes `json` to a project file in `directory` and loads it, returning the result.
+[[nodiscard]] Result loadText(const QTemporaryDir& directory,
+                              const char* json,
+                              GraphDescription& pipeline,
+                              TransmitList& transmit)
+{
+    const QString path = pathIn(directory, QStringLiteral("edited.tbsproj"));
+
+    QFile file{path};
+    EXPECT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Text));
+    file.write(json);
+    file.close();
+
+    DashboardDescription dashboard;
+    return ProjectFile::load(path, pipeline, transmit, dashboard);
+}
+
+} // namespace
+
+TEST(ProjectFileTests, ANumberTooLargeForAnIntegerIsKeptAsARealAndNotCastIntoGarbage)
+{
+    // 1e300 is valid JSON. Converting a double outside the range of an int64 is
+    // undefined, and the conversion ran before the comparison that was meant to guard it.
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+
+    GraphDescription pipeline;
+    TransmitList transmit;
+
+    const Result result = loadText(directory,
+                                   R"({
+        "version": 3,
+        "pipeline": { "nodes": [
+            { "id": "a", "type": "can.source", "parameters": { "channel": 1e300, "other": -1e300, "ok": 7 } }
+        ], "edges": [] },
+        "transmit": []
+    })",
+                                   pipeline,
+                                   transmit);
+
+    ASSERT_TRUE(result.succeeded()) << result.message();
+
+    const NodeDescription* node = pipeline.find("a");
+    ASSERT_NE(node, nullptr);
+
+    EXPECT_EQ(node->parameters.values().at("channel").type(), ParameterValue::Type::Real);
+    EXPECT_EQ(node->parameters.values().at("other").type(), ParameterValue::Type::Real);
+    EXPECT_EQ(node->parameters.values().at("ok").type(), ParameterValue::Type::Integer);
+
+    // And a graph built from it says what is wrong with the channel instead of using a
+    // channel nobody typed.
+    EXPECT_TRUE(pipeline.validate(NodeCatalog::withBuiltinTypes()).failed());
+}
+
+TEST(ProjectFileTests, TheLargestExactIntegerStillComesBackAsAnInteger)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+
+    GraphDescription pipeline;
+    TransmitList transmit;
+
+    // 2^53 is the last point at which a double holds every integer, and a project file
+    // goes through one.
+    const Result result = loadText(directory,
+                                   R"({
+        "version": 3,
+        "pipeline": { "nodes": [
+            { "id": "a", "type": "can.source", "parameters": { "big": 9007199254740992, "neg": -4096 } }
+        ], "edges": [] },
+        "transmit": []
+    })",
+                                   pipeline,
+                                   transmit);
+
+    ASSERT_TRUE(result.succeeded()) << result.message();
+    EXPECT_EQ(pipeline.find("a")->parameters.integer("big", 0), 9007199254740992LL);
+    EXPECT_EQ(pipeline.find("a")->parameters.integer("neg", 0), -4096);
+}
+
+TEST(ProjectFileTests, TwoNodesWithTheSameIdRefuseTheFileAndNameTheId)
+{
+    // An id is how a wire names its ends. With two, a wire goes to either.
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+
+    GraphDescription pipeline;
+    TransmitList transmit;
+
+    const Result result = loadText(directory,
+                                   R"({
+        "version": 3,
+        "pipeline": { "nodes": [
+            { "id": "dup", "type": "can.source" },
+            { "id": "dup", "type": "trace.sink" }
+        ], "edges": [] },
+        "transmit": []
+    })",
+                                   pipeline,
+                                   transmit);
+
+    ASSERT_TRUE(result.failed());
+    EXPECT_EQ(result.code(), ErrorCode::ParseError);
+    EXPECT_NE(std::string{result.message()}.find("'dup'"), std::string::npos) << result.message();
+    EXPECT_TRUE(pipeline.nodes().empty()) << "a refused file left half a pipeline behind";
+}
+
+TEST(ProjectFileTests, ANegativePortNumberRefusesTheFile)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+
+    GraphDescription pipeline;
+    TransmitList transmit;
+
+    const Result result = loadText(directory,
+                                   R"({
+        "version": 3,
+        "pipeline": {
+            "nodes": [ { "id": "a", "type": "can.source" }, { "id": "b", "type": "trace.sink" } ],
+            "edges": [ { "from": "a", "fromPort": -1, "to": "b", "toPort": 0 } ]
+        },
+        "transmit": []
+    })",
+                                   pipeline,
+                                   transmit);
+
+    ASSERT_TRUE(result.failed());
+    EXPECT_NE(std::string{result.message()}.find("negative port"), std::string::npos)
+        << result.message();
+}
+
+TEST(ProjectFileTests, ATransmitRowWithNumbersOutOfRangeIsClampedOrRefusedNeverWrapped)
+{
+    // A channel of 256 is not channel 0, and a cycle past four billion milliseconds is
+    // not a short one.
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+
+    GraphDescription pipeline;
+    TransmitList transmit;
+
+    const Result result = loadText(directory,
+                                   R"({
+        "version": 3,
+        "pipeline": { "nodes": [], "edges": [] },
+        "transmit": [
+            { "name": "row", "channel": 256, "id": 256, "extended": false, "data": "01 02",
+              "trigger": "periodic", "cycleMs": 99999999999 }
+        ]
+    })",
+                                   pipeline,
+                                   transmit);
+
+    ASSERT_TRUE(result.succeeded()) << result.message();
+    ASSERT_EQ(transmit.entries().size(), 1U);
+
+    EXPECT_EQ(transmit.entries()[0].channel, 255);
+    EXPECT_EQ(transmit.entries()[0].cycleMs, 86'400'000U);
+
+    // An identifier past 32 bits is kept out of range, so the check that follows the
+    // read refuses the file - it does not become some small identifier.
+    GraphDescription other;
+    TransmitList otherTransmit;
+    const Result refused = loadText(directory,
+                                    R"({
+        "version": 3,
+        "pipeline": { "nodes": [], "edges": [] },
+        "transmit": [ { "name": "row", "id": 4294967297, "extended": true, "data": "" } ]
+    })",
+                                    other,
+                                    otherTransmit);
+
+    EXPECT_TRUE(refused.failed());
 }

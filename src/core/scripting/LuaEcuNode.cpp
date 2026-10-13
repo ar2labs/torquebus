@@ -8,6 +8,7 @@
 #include "core/scripting/LuaPrelude.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <format>
 #include <optional>
 #include <utility>
@@ -26,6 +27,15 @@ namespace {
 /// to stop somewhere, and stopping at a number is better than stopping when
 /// memory runs out. The script is told when it hits this.
 constexpr std::size_t kMaximumEmitsPerPass = 4096;
+
+/// How many repeating jobs - every() and cyclic() together - one ECU may declare.
+///
+/// A real ECU has a few dozen cyclic messages. A script that declares one each time it
+/// hears a frame - every() written inside on_message, easily done - adds a job to a list
+/// that is walked in full on every pass, so each pass is slower than the last until the
+/// pipeline cannot keep up, and the memory it holds is the script's closures and nothing
+/// the Lua limit would see in time.
+constexpr std::size_t kMaximumRepeatingJobs = 1024;
 
 } // namespace
 
@@ -478,8 +488,8 @@ void LuaEcuNode::process(NodeContext& context)
             // cansim scripts read payloads anyway.
             const std::vector<LuaValue> arguments{
                 LuaValue::fromInteger(frame.identifier),
-                LuaValue::fromString(
-                    std::string{reinterpret_cast<const char*>(frame.data.data()), frame.length}),
+                LuaValue::fromString(std::string{reinterpret_cast<const char*>(frame.data.data()),
+                                                 frame.payloadSize()}),
                 LuaValue::fromInteger(frame.channel),
                 LuaValue::fromInteger(static_cast<std::int64_t>(frame.isExtended() ? 1 : 0)),
             };
@@ -647,13 +657,31 @@ void LuaEcuNode::handleScriptFailure(const Result& result, std::string_view duri
                true);
     }
 
+    // A script that ran out of time or memory is not having a bad moment. The next
+    // call would do exactly the same, and each one spends its whole allowance inside
+    // a pass of a few milliseconds - so five more would freeze the pipeline for over
+    // a second before this stopped it. It stops now.
+    const bool hitALimit = m_lua != nullptr && m_lua->lastFailureWasALimit();
+
+    if (hitALimit) {
+        m_consecutiveErrors = kErrorLimit;
+    }
+
     if (m_consecutiveErrors >= kErrorLimit) {
         m_faulted = true;
-        report(std::format("{} stopped after {} consecutive errors. The measurement "
-                           "continues without it.",
-                           m_name,
-                           kErrorLimit),
-               true);
+
+        if (hitALimit) {
+            report(std::format("{} stopped: it used up the time or memory a script is allowed. "
+                               "The measurement continues without it.",
+                               m_name),
+                   true);
+        } else {
+            report(std::format("{} stopped after {} consecutive errors. The measurement "
+                               "continues without it.",
+                               m_name,
+                               kErrorLimit),
+                   true);
+        }
     }
 }
 
@@ -1051,6 +1079,14 @@ int LuaEcuNode::luaEvery(lua_State* state)
         return luaL_error(state, "every: a period is milliseconds and has to be positive");
     }
 
+    if (node->m_repeating.size() >= kMaximumRepeatingJobs) {
+        return luaL_error(
+            state,
+            "every: this ECU already repeats %d things, which is the most one can. Is "
+            "every() being called from a handler, so that it adds a timer each time?",
+            static_cast<int>(kMaximumRepeatingJobs));
+    }
+
     const LuaRuntime::CallableRef callable = node->m_lua->storeCallable(2);
 
     if (callable == 0) {
@@ -1086,6 +1122,12 @@ int LuaEcuNode::luaCyclic(lua_State* state)
         return luaL_error(state, "cyclic: a cycle time is milliseconds and has to be positive");
     }
 
+    if (identifier < 0 || identifier > static_cast<lua_Integer>(kMaxExtendedIdentifier)) {
+        return luaL_error(state,
+                          "cyclic: identifier %d is not a CAN identifier (0 to 0x1FFFFFFF)",
+                          static_cast<int>(identifier));
+    }
+
     Repeating job;
     job.isMessage = true;
     job.identifier = static_cast<std::uint32_t>(identifier);
@@ -1119,6 +1161,25 @@ int LuaEcuNode::luaCyclic(lua_State* state)
         lua_pop(state, 1);
     }
 
+    // Checked against the format the job ended up with, the way emit() does: an 11-bit
+    // frame with a 29-bit number in it is a frame no driver will take, sent on every cycle
+    // for as long as the measurement runs.
+    if (!isValidIdentifier(job.identifier,
+                           job.extended ? CanFrameFormat::Extended : CanFrameFormat::Standard)) {
+        // Formatted here and not by luaL_error. Lua's formatter knows %s %d %I %f %p %c %U and
+        // nothing else: it keeps an unknown conversion as text and does *not* consume its
+        // argument, so the %s after a %X took the identifier for a string and read it from
+        // address 0x800. A script that wrote emit(0x20000000, ...) ended the application.
+        char hex[16];
+        std::snprintf(hex, sizeof hex, "0x%X", static_cast<unsigned>(job.identifier));
+
+        node->m_lua->releaseCallable(job.provider);
+        return luaL_error(state,
+                          "cyclic: identifier %s does not fit a %s frame",
+                          hex,
+                          job.extended ? "29-bit" : "11-bit");
+    }
+
     // Replacing a cycle already declared for the same identifier, rather than
     // adding a second: two jobs sending 0x100 at different rates is never what
     // anybody meant, and it is what a reloaded script would otherwise produce.
@@ -1129,6 +1190,15 @@ int LuaEcuNode::luaCyclic(lua_State* state)
             lua_pushboolean(state, 1);
             return 1;
         }
+    }
+
+    if (node->m_repeating.size() >= kMaximumRepeatingJobs) {
+        node->m_lua->releaseCallable(job.provider);
+        return luaL_error(state,
+                          "cyclic: this ECU already repeats %d things, which is the most one can. "
+                          "Is cyclic() being called from a handler, so that it adds a message each "
+                          "time?",
+                          static_cast<int>(kMaximumRepeatingJobs));
     }
 
     node->m_repeating.push_back(std::move(job));
@@ -1245,9 +1315,16 @@ int LuaEcuNode::luaEmit(lua_State* state)
     frame.dlc = dlcFromPayloadLength(frame.length, isFd);
 
     if (!isValidIdentifier(frame.identifier, frame.format)) {
+        // Formatted here and not by luaL_error. Lua's formatter knows %s %d %I %f %p %c %U and
+        // nothing else: it keeps an unknown conversion as text and does *not* consume its
+        // argument, so the %s after a %X took the identifier for a string and read it from
+        // address 0x800. A script that wrote emit(0x20000000, ...) ended the application.
+        char hex[16];
+        std::snprintf(hex, sizeof hex, "0x%X", static_cast<unsigned>(frame.identifier));
+
         return luaL_error(state,
-                          "emit: identifier 0x%X does not fit a %s frame",
-                          static_cast<unsigned>(frame.identifier),
+                          "emit: identifier %s does not fit a %s frame",
+                          hex,
                           extended ? "29-bit" : "11-bit");
     }
 
@@ -1329,7 +1406,7 @@ int LuaEcuNode::luaEmitSignal(lua_State* state)
                 state, "emit_signal: '%s' has no signal named '%s'", messageName, signalName);
         }
 
-        if (!signal->encode(value, frame.data.data(), frame.length)) {
+        if (!signal->encode(value, frame.data.data(), frame.payloadSize())) {
             ++node->m_saturated;
         }
 

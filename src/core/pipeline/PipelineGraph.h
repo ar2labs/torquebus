@@ -32,8 +32,10 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace torquebus {
@@ -146,7 +148,24 @@ public:
 
     /// Calls finish() on every node, in reverse execution order, so a consumer
     /// is always torn down before the thing feeding it.
+    ///
+    /// One node failing to finish does not stop the others: a logger further up
+    /// still has a file to close.
     void finish();
+
+    // --- When a node throws -------------------------------------------------
+
+    /// Told - with the node's name and the reason - when a node throws from
+    /// process(), prepare() or finish(). Called on the thread that was running the
+    /// node, so it must not block; an exception it throws is swallowed.
+    using FaultHandler = std::function<void(std::string_view node, std::string_view reason)>;
+    void setFaultHandler(FaultHandler handler);
+
+    /// How many nodes threw from process() during this run and were taken out of it.
+    [[nodiscard]] std::size_t faultedNodeCount() const noexcept { return m_faultedNodes; }
+
+    /// True when that node threw and is no longer being run.
+    [[nodiscard]] bool isFaulted(NodeId id) const noexcept;
 
 private:
     struct NodeEntry final {
@@ -175,6 +194,11 @@ private:
         /// time so that execute() allocates nothing.
         std::vector<PortBatch> inputViews;
         std::vector<PortBatch> outputViews;
+
+        /// Set when process() threw. A faulted node is skipped for the rest of the
+        /// run and publishes nothing, so what hangs off it goes quiet instead of
+        /// taking the rest of the pipeline down with it.
+        bool faulted{false};
     };
 
     static constexpr std::size_t kUnconnected = static_cast<std::size_t>(-1);
@@ -185,6 +209,12 @@ private:
     [[nodiscard]] Result topologicalSort(std::vector<NodeId>& order) const;
 
     void invalidate() noexcept;
+
+    /// Takes a node out of the run and says so. Never throws.
+    void quarantine(NodeEntry& entry, std::string_view reason) noexcept;
+
+    /// Hands a node's name and a reason to the fault handler. Never throws.
+    void reportFault(const NodeEntry& entry, std::string_view reason) noexcept;
 
     std::vector<NodeEntry> m_nodes;
     std::vector<Edge> m_edges;
@@ -208,6 +238,9 @@ private:
     /// at compile time and never reallocated during a measurement, so the
     /// spans handed to nodes stay valid.
     std::vector<PortBatch> m_slots;
+
+    FaultHandler m_faultHandler;
+    std::size_t m_faultedNodes{0};
 };
 
 } // namespace torquebus

@@ -5,6 +5,7 @@
 
 #include "ui/properties/NodePropertiesEditor.h"
 
+#include "ui/common/NodeAppearance.h"
 #include "ui/theme/ThemeManager.h"
 
 #include <QCheckBox>
@@ -23,65 +24,15 @@
 #include <QSpinBox>
 #include <QVBoxLayout>
 
+#include <algorithm>
+#include <cstdint>
 #include <limits>
+#include <optional>
 #include <set>
 #include <string>
 
 namespace torquebus::ui {
 namespace {
-
-[[nodiscard]] QString iconNameForNodeType(const QString& typeName)
-{
-    if (typeName == QLatin1String("can.source")) {
-        return QStringLiteral("hardware");
-    }
-    if (typeName == QLatin1String("transmit.list")) {
-        return QStringLiteral("transmit");
-    }
-    if (typeName == QLatin1String("log.source")) {
-        return QStringLiteral("replay");
-    }
-    if (typeName == QLatin1String("can.filter")) {
-        return QStringLiteral("filter");
-    }
-    if (typeName == QLatin1String("dbc.decoder")) {
-        return QStringLiteral("database");
-    }
-    if (typeName == QLatin1String("j1939.decoder")) {
-        return QStringLiteral("network");
-    }
-    if (typeName == QLatin1String("lua.ecu")) {
-        return QStringLiteral("script");
-    }
-    if (typeName == QLatin1String("sim.restbus")) {
-        return QStringLiteral("restbus");
-    }
-    if (typeName == QLatin1String("lua.test")) {
-        return QStringLiteral("test");
-    }
-    if (typeName == QLatin1String("tinyml.ecu")) {
-        return QStringLiteral("neural");
-    }
-    if (typeName == QLatin1String("uds.client")) {
-        return QStringLiteral("diagnostics");
-    }
-    if (typeName == QLatin1String("isotp.transport")) {
-        return QStringLiteral("network");
-    }
-    if (typeName == QLatin1String("can.transmit")) {
-        return QStringLiteral("transmit");
-    }
-    if (typeName == QLatin1String("trace.sink")) {
-        return QStringLiteral("trace");
-    }
-    if (typeName == QLatin1String("can.log")) {
-        return QStringLiteral("save");
-    }
-    if (typeName == QLatin1String("signal.plot")) {
-        return QStringLiteral("graph");
-    }
-    return QStringLiteral("hardware");
-}
 
 /// Parameters whose value is a whole Lua script rather than a line of text.
 ///
@@ -403,9 +354,29 @@ void NodePropertiesEditor::addDeclaredRow(const NodeDescription& node,
         auto* spin = new QSpinBox;
         // A CAN identifier does not fit in a default 0-99 range, and a
         // spin box that silently clamps 0x18FEE500 to 99 is worse than no
-        // editor at all.
-        spin->setRange(std::numeric_limits<int>::min(), std::numeric_limits<int>::max());
-        spin->setValue(static_cast<int>(values.integer(name)));
+        // editor at all. The range is the one the block declares for the setting - a channel
+        // stops at 255 instead of being typed as 300 and read as something else - and where
+        // the block declares none, the whole of an int.
+        //
+        // Widened to take in the value already stored. A project edited by hand can hold one
+        // outside the range, and a box that showed 255 over a stored 300 would be telling the
+        // person what the block does not have; the Output panel says it is out of range, and
+        // the box lets it be corrected.
+        const auto stored =
+            static_cast<int>(std::clamp<std::int64_t>(values.integer(name),
+                                                      std::numeric_limits<int>::min(),
+                                                      std::numeric_limits<int>::max()));
+        const auto declared = [&](const std::optional<double>& bound, int fallback) {
+            return bound.has_value()
+                       ? static_cast<int>(std::clamp<double>(*bound,
+                                                             std::numeric_limits<int>::min(),
+                                                             std::numeric_limits<int>::max()))
+                       : fallback;
+        };
+        spin->setRange(
+            std::min(declared(parameter.minimum, std::numeric_limits<int>::min()), stored),
+            std::max(declared(parameter.maximum, std::numeric_limits<int>::max()), stored));
+        spin->setValue(stored);
         spin->setToolTip(toQt(parameter.description));
         connect(spin, &QSpinBox::valueChanged, this, [this, name](int value) {
             store(name, ParameterValue::fromInteger(value));
@@ -416,9 +387,11 @@ void NodePropertiesEditor::addDeclaredRow(const NodeDescription& node,
 
     case ParameterValue::Type::Real: {
         auto* spin = new QDoubleSpinBox;
-        spin->setRange(-1e9, 1e9);
+        const double storedReal = values.real(name);
+        spin->setRange(std::min(parameter.minimum.value_or(-1e9), storedReal),
+                       std::max(parameter.maximum.value_or(1e9), storedReal));
         spin->setDecimals(4);
-        spin->setValue(values.real(name));
+        spin->setValue(storedReal);
         spin->setToolTip(toQt(parameter.description));
         connect(spin, &QDoubleSpinBox::valueChanged, this, [this, name](double value) {
             store(name, ParameterValue::fromReal(value));

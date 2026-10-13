@@ -82,6 +82,19 @@ struct CanFrame final {
     }
 
     [[nodiscard]] constexpr bool isRx() const noexcept { return direction == CanDirection::Rx; }
+
+    /// How many bytes of `data` can be read: `length`, held to the size of the array.
+    ///
+    /// `length` is what a frame claims, and it is a byte that anything can set - a
+    /// vendor driver, a plugin, a database that was read wrongly. `data` holds 64. A
+    /// reader that indexes with the claim reads past the end of the frame when it
+    /// is false, and the frame is the last thing in its struct, so past the end is
+    /// whatever follows it in memory. Everything that reads the payload goes through
+    /// this, and the receive path (CanChannel::drain) makes the claim true as well.
+    [[nodiscard]] constexpr std::size_t payloadSize() const noexcept
+    {
+        return length < kMaxCanPayload ? static_cast<std::size_t>(length) : kMaxCanPayload;
+    }
 };
 
 static_assert(std::is_trivially_copyable_v<CanFrame>,

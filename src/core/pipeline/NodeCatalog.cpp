@@ -5,6 +5,7 @@
 
 #include "core/pipeline/NodeCatalog.h"
 
+#include "core/FilePath.h"
 #include "core/can/CanChannel.h"
 #include "core/database/DbcParser.h"
 #include "core/diagnostics/DiagnosticEvent.h"
@@ -24,9 +25,13 @@
 #include "core/transmit/TransmitListNode.h"
 
 #include <algorithm>
+#include <cmath>
+#include <exception>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <sstream>
+#include <type_traits>
 #include <utility>
 
 namespace torquebus {
@@ -43,7 +48,7 @@ namespace {
         return path;
     }
 
-    const std::filesystem::path candidate{path};
+    const std::filesystem::path candidate = pathFromUtf8(path);
     if (candidate.is_absolute()) {
         return path;
     }
@@ -51,13 +56,34 @@ namespace {
     // lexically_normal so that "../scripts/ecu.lua" comes out readable in an
     // error message rather than as a base directory with a "/../" in the
     // middle of it.
-    return (std::filesystem::path{context.basePath} / candidate).lexically_normal().string();
+    return utf8FromPath((pathFromUtf8(context.basePath) / candidate).lexically_normal());
 }
+
+/// The most a script file may hold. A script is text a person wrote; a file larger
+/// than this is a different file that ended up in the field, and reading it whole
+/// would be reading it into memory first and finding out second.
+constexpr std::uintmax_t kMaximumScriptBytes = 16U * 1024U * 1024U;
 
 /// Reads a script from disk, so a project can reference a .lua by path.
 [[nodiscard]] Result readFile(const std::string& path, std::string& out)
 {
-    std::ifstream file{path, std::ios::binary};
+    const std::filesystem::path location = pathFromUtf8(path);
+
+    std::error_code problem;
+    if (std::filesystem::is_directory(location, problem)) {
+        return Result::error(ErrorCode::InvalidArgument,
+                             std::format("'{}' is a folder, not a script", path));
+    }
+
+    const std::uintmax_t size = std::filesystem::file_size(location, problem);
+    if (!problem && size > kMaximumScriptBytes) {
+        return Result::error(ErrorCode::InvalidArgument,
+                             std::format("'{}' is {} MiB, which is too large to be a script",
+                                         path,
+                                         size / (1024U * 1024U)));
+    }
+
+    std::ifstream file{location, std::ios::binary};
     if (!file) {
         return Result::error(ErrorCode::FileNotFound, std::format("Cannot open script '{}'", path));
     }
@@ -69,13 +95,126 @@ namespace {
     return Result::ok();
 }
 
+/// A day, in milliseconds: the most any period or timeout in a block can usefully
+/// be, and far below where a 32-bit count of milliseconds stops holding it.
+constexpr double kMaximumPeriodMs = 86'400'000.0;
+
+/// An integer parameter, narrowed to the type the node keeps it in.
+///
+/// Clamped, never wrapped: a negative number is zero and a number too large is the
+/// largest the type holds. The cast it replaces reduced the value modulo the width,
+/// so 256 was 0 and -1 was 255 - a different channel, a different identifier, and
+/// nothing to say so. The validator refuses these before a node is built; this is
+/// for the caller that did not ask the validator.
+template<typename T>
+[[nodiscard]] T
+clampedParameter(const NodeParameters& parameters, const std::string& name, std::int64_t fallback)
+{
+    static_assert(std::is_unsigned_v<T>);
+
+    const std::int64_t value = parameters.integer(name, fallback);
+    constexpr auto kLargest = static_cast<std::int64_t>(std::numeric_limits<T>::max());
+
+    return static_cast<T>(std::clamp<std::int64_t>(value, 0, kLargest));
+}
+
+/// Whether one value is what its descriptor says the parameter is.
+///
+/// The map the values arrive in is untyped, and reading a parameter as the wrong
+/// type is not an error there: asInteger() of text is 0, asText() of a number is
+/// empty. A hand-edited project with "channel": "two" therefore built, on channel
+/// 0, and one with "database": 5 built a decoder with no database. Said here, in
+/// the words the block's form uses, it is a line next to the field.
+[[nodiscard]] Result checkParameterValue(const ParameterDescriptor& parameter,
+                                         const ParameterValue& value,
+                                         std::string_view nodeId)
+{
+    const auto wrongType = [&](std::string_view wanted) {
+        return Result::error(
+            ErrorCode::InvalidArgument,
+            std::format("Block '{}': {} has to be {}.", nodeId, parameter.displayName, wanted));
+    };
+
+    switch (parameter.type) {
+    case ParameterValue::Type::Text:
+        if (value.type() != ParameterValue::Type::Text) {
+            return wrongType("text");
+        }
+        return Result::ok();
+
+    case ParameterValue::Type::Boolean:
+        // 0 and 1 are accepted: a file written by hand says "padding": 1, and the
+        // reading of that has always been true.
+        if (value.type() == ParameterValue::Type::Boolean
+            || (value.type() == ParameterValue::Type::Integer
+                && (value.asInteger() == 0 || value.asInteger() == 1))) {
+            return Result::ok();
+        }
+        return wrongType("true or false");
+
+    case ParameterValue::Type::Integer:
+        if (value.type() == ParameterValue::Type::Real
+            || value.type() == ParameterValue::Type::Text) {
+            return wrongType("a whole number");
+        }
+        break;
+
+    case ParameterValue::Type::Real:
+        if (value.type() == ParameterValue::Type::Text) {
+            return wrongType("a number");
+        }
+        if (value.type() == ParameterValue::Type::Real && !std::isfinite(value.asReal())) {
+            return wrongType("a finite number");
+        }
+        break;
+    }
+
+    // A number. Compared as a double, which holds every integer a range here can
+    // name; written so that NaN fails both tests.
+    const double number = value.asReal();
+
+    const bool tooSmall = parameter.minimum.has_value() && !(number >= *parameter.minimum);
+    const bool tooLarge = parameter.maximum.has_value() && !(number <= *parameter.maximum);
+
+    if (tooSmall || tooLarge) {
+        std::string range;
+
+        if (parameter.minimum.has_value() && parameter.maximum.has_value()) {
+            range = std::format("between {} and {}", *parameter.minimum, *parameter.maximum);
+        } else if (parameter.minimum.has_value()) {
+            range = std::format("{} or more", *parameter.minimum);
+        } else {
+            range = std::format("{} or less", *parameter.maximum);
+        }
+
+        return Result::error(ErrorCode::InvalidArgument,
+                             std::format("Block '{}': {} has to be {}, not {}.",
+                                         nodeId,
+                                         parameter.displayName,
+                                         range,
+                                         number));
+    }
+
+    return Result::ok();
+}
+
 /// The channel a node names, or a failure that says which one was missing.
 [[nodiscard]] Result resolveChannel(const NodeParameters& parameters,
                                     const NodeBuildContext& context,
                                     std::string_view nodeId,
                                     CanChannel*& out)
 {
-    const auto index = static_cast<std::uint8_t>(parameters.integer("channel", 0));
+    const std::int64_t requested = parameters.integer("channel", 0);
+
+    if (requested < 0 || requested > std::numeric_limits<std::uint8_t>::max()) {
+        return Result::error(
+            ErrorCode::InvalidArgument,
+            std::format("Node '{}' is set to channel {}, which is not a channel number (0 to 255)",
+                        nodeId,
+                        requested));
+    }
+
+    const auto index = static_cast<std::uint8_t>(requested);
 
     if (!context.channel) {
         return Result::error(ErrorCode::InvalidState,
@@ -324,7 +463,10 @@ namespace {
 
 } // namespace
 
-void NodeCatalog::registerType(NodeTypeInfo info, NodeCreator creator, NodeValidator validator)
+void NodeCatalog::registerType(NodeTypeInfo info,
+                               NodeCreator creator,
+                               NodeValidator validator,
+                               NodeTapCreator tap)
 {
     const std::string typeName = info.typeName;
 
@@ -335,6 +477,7 @@ void NodeCatalog::registerType(NodeTypeInfo info, NodeCreator creator, NodeValid
         m_order[existing->second] = std::move(info);
         m_creators.insert_or_assign(typeName, std::move(creator));
         m_validators.insert_or_assign(typeName, std::move(validator));
+        m_taps.insert_or_assign(typeName, std::move(tap));
         return;
     }
 
@@ -342,6 +485,7 @@ void NodeCatalog::registerType(NodeTypeInfo info, NodeCreator creator, NodeValid
     m_order.push_back(std::move(info));
     m_creators.emplace(typeName, std::move(creator));
     m_validators.emplace(typeName, std::move(validator));
+    m_taps.emplace(typeName, std::move(tap));
 }
 
 Result NodeCatalog::validateParameters(std::string_view typeName,
@@ -370,9 +514,33 @@ Result NodeCatalog::validateParameters(std::string_view typeName,
                                          parameter.displayName));
     }
 
+    // What was set, against what the block says it takes.
+    for (const ParameterDescriptor& parameter : info->parameters) {
+        const auto found = parameters.values().find(std::string{parameter.name});
+        if (found == parameters.values().end()) {
+            continue;
+        }
+
+        if (Result result = checkParameterValue(parameter, found->second, nodeId);
+            result.failed()) {
+            return result;
+        }
+    }
+
     if (const auto validator = m_validators.find(typeName);
         validator != m_validators.end() && validator->second) {
-        return validator->second(parameters, nodeId);
+        // A validator is code somebody wrote, and this is called for every block on
+        // the canvas whenever one changes. One that throws must not end the editor.
+        try {
+            return validator->second(parameters, nodeId);
+        } catch (const std::exception& problem) {
+            return Result::error(
+                ErrorCode::Unknown,
+                std::format("Block '{}' could not be checked: {}", nodeId, problem.what()));
+        } catch (...) {
+            return Result::error(ErrorCode::Unknown,
+                                 std::format("Block '{}' could not be checked", nodeId));
+        }
     }
 
     return Result::ok();
@@ -412,7 +580,52 @@ Result NodeCatalog::create(std::string_view typeName,
                 "Node '{}' has unknown type '{}'. Known types: {}", nodeId, typeName, known));
     }
 
-    return creator->second(parameters, context, nodeId, out);
+    // A creator opens files, parses databases and allocates, and a plugin's is code
+    // this repository has never seen. Whatever it throws is a block that could not
+    // be built - with its name on it - and not an exception through Start.
+    try {
+        return creator->second(parameters, context, nodeId, out);
+    } catch (const std::exception& problem) {
+        return Result::error(
+            ErrorCode::Unknown,
+            std::format(
+                "Block '{}' ('{}') could not be built: {}", nodeId, typeName, problem.what()));
+    } catch (...) {
+        return Result::error(ErrorCode::Unknown,
+                             std::format("Block '{}' ('{}') could not be built", nodeId, typeName));
+    }
+}
+
+Result NodeCatalog::createTap(std::string_view typeName,
+                              const NodeParameters& parameters,
+                              const NodeBuildContext& context,
+                              std::string_view nodeId,
+                              std::size_t port,
+                              std::unique_ptr<IPipelineNode>& out) const
+{
+    const auto tap = m_taps.find(typeName);
+
+    if (tap == m_taps.end() || !tap->second) {
+        return Result::error(
+            ErrorCode::NotImplemented,
+            std::format("Block '{}' ('{}') takes any number of wires at input {} but has no way "
+                        "to build one",
+                        nodeId,
+                        typeName,
+                        port));
+    }
+
+    try {
+        return tap->second(parameters, context, nodeId, port, out);
+    } catch (const std::exception& problem) {
+        return Result::error(
+            ErrorCode::Unknown,
+            std::format(
+                "Block '{}' ('{}') could not be built: {}", nodeId, typeName, problem.what()));
+    } catch (...) {
+        return Result::error(ErrorCode::Unknown,
+                             std::format("Block '{}' ('{}') could not be built", nodeId, typeName));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -422,6 +635,63 @@ Result NodeCatalog::create(std::string_view typeName,
 NodeCatalog NodeCatalog::withBuiltinTypes()
 {
     NodeCatalog catalog;
+
+    // --- Network ----------------------------------------------------------
+
+    // First, so that it heads the palette: a pipeline starts from the bus, and
+    // every other block is something that is wired to it.
+    catalog.registerType(
+        NodeTypeInfo{
+            .typeName = std::string{kCanBusType},
+            .displayName = "CAN Bus",
+            .category = "Network",
+            .description =
+                "One CAN network. Every block wired to it hears what is on the bus, and what "
+                "a block sends to it goes onto the bus - no Channel and Transmit block per ECU.",
+            // `tx` takes a wire from every block that transmits on the bus. The
+            // running graph still has one input per wire, so each is given a
+            // CAN Transmit of its own at build time (the tap below).
+            .inputs = {PortDescriptor{"tx", PortType::Frames, true}},
+            .outputs = {PortDescriptor{"rx", PortType::Frames}},
+            .parameters = {ParameterDescriptor{.name = "channel",
+                                               .displayName = "Channel",
+                                               .type = ParameterValue::Type::Integer,
+                                               .required = false,
+                                               .description = "Application channel this bus is, "
+                                                              "0 for CAN 1.",
+                                               .minimum = 0,
+                                               .maximum = 255}},
+        },
+        // What the bus *is* in a running graph: the channel, read.
+        [](const NodeParameters& parameters,
+           const NodeBuildContext& context,
+           std::string_view nodeId,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
+            CanChannel* channel = nullptr;
+            if (Result result = resolveChannel(parameters, context, nodeId, channel);
+                result.failed()) {
+                return result;
+            }
+
+            out = std::make_unique<ChannelSourceNode>(*channel);
+            return Result::ok();
+        },
+        {},
+        // And what a wire into it is: a transmit on that same channel.
+        [](const NodeParameters& parameters,
+           const NodeBuildContext& context,
+           std::string_view nodeId,
+           std::size_t,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
+            CanChannel* channel = nullptr;
+            if (Result result = resolveChannel(parameters, context, nodeId, channel);
+                result.failed()) {
+                return result;
+            }
+
+            out = std::make_unique<ChannelSinkNode>(*channel);
+            return Result::ok();
+        });
 
     // --- Sources ----------------------------------------------------------
 
@@ -440,7 +710,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                                .displayName = "Channel",
                                                .type = ParameterValue::Type::Integer,
                                                .required = false,
-                                               .description = "Application channel, 0 for CAN 1."}},
+                                               .description = "Application channel, 0 for CAN 1.",
+                                               .minimum = 0,
+                                               .maximum = 255}},
         },
         [](const NodeParameters& parameters,
            const NodeBuildContext& context,
@@ -473,23 +745,31 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .displayName = "First identifier",
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
-                                        .description = "Lowest identifier to pass."},
+                                        .description = "Lowest identifier to pass.",
+                                        .minimum = 0,
+                                        .maximum = kMaxExtendedIdentifier},
                     ParameterDescriptor{.name = "to",
                                         .displayName = "Last identifier",
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
-                                        .description = "Highest identifier to pass."},
+                                        .description = "Highest identifier to pass.",
+                                        .minimum = 0,
+                                        .maximum = kMaxExtendedIdentifier},
                     ParameterDescriptor{.name = "mask",
                                         .displayName = "Mask",
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
                                         .description =
-                                            "Optional (id & mask) == (value & mask) test."},
+                                            "Optional (id & mask) == (value & mask) test.",
+                                        .minimum = 0,
+                                        .maximum = kMaxExtendedIdentifier},
                     ParameterDescriptor{.name = "value",
                                         .displayName = "Value",
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
-                                        .description = "The value the mask is compared against."},
+                                        .description = "The value the mask is compared against.",
+                                        .minimum = 0,
+                                        .maximum = kMaxExtendedIdentifier},
                     ParameterDescriptor{.name = "pgn",
                                         .displayName = "J1939 PGN",
                                         .type = ParameterValue::Type::Integer,
@@ -515,20 +795,20 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             CanFilter filter;
             filter.name = "graph";
             if (parameters.contains("pgn")) {
-                const auto pgn = static_cast<std::uint32_t>(parameters.integer("pgn", 0));
+                const auto pgn = clampedParameter<std::uint32_t>(parameters, "pgn", 0);
                 const std::optional<std::uint8_t> sa =
                     parameters.contains("sa")
-                        ? std::optional<std::uint8_t>{static_cast<std::uint8_t>(
-                              parameters.integer("sa", 0))}
+                        ? std::optional<std::uint8_t>{clampedParameter<std::uint8_t>(
+                              parameters, "sa", 0)}
                         : std::nullopt;
                 filter = CanFilter::acceptPgn(pgn, sa);
                 filter.name = "graph";
             } else {
-                filter.identifierFrom = static_cast<std::uint32_t>(parameters.integer("from", 0));
+                filter.identifierFrom = clampedParameter<std::uint32_t>(parameters, "from", 0);
                 filter.identifierTo =
-                    static_cast<std::uint32_t>(parameters.integer("to", kMaxExtendedIdentifier));
-                filter.mask = static_cast<std::uint32_t>(parameters.integer("mask", 0));
-                filter.value = static_cast<std::uint32_t>(parameters.integer("value", 0));
+                    clampedParameter<std::uint32_t>(parameters, "to", kMaxExtendedIdentifier);
+                filter.mask = clampedParameter<std::uint32_t>(parameters, "mask", 0);
+                filter.value = clampedParameter<std::uint32_t>(parameters, "value", 0);
             }
 
             CanFilterSet filters;
@@ -571,7 +851,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .displayName = "Transmit channel",
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
-                                        .description = "Channel stamped onto the frames it emits."},
+                                        .description = "Channel stamped onto the frames it emits.",
+                                        .minimum = 0,
+                                        .maximum = 255},
                     ParameterDescriptor{
                         .name = "udsRequestId",
                         .displayName = "Diagnostic request ID",
@@ -579,16 +861,21 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                         .required = false,
                         .description =
                             "Identifier this ECU *listens* on - what a tester sends to. "
-                            "Set it and the block answers UDS; leave it and it does not."},
+                            "Set it and the block answers UDS; leave it and it does not.",
+                        .minimum = 0,
+                        .maximum = kMaxExtendedIdentifier},
                     ParameterDescriptor{.name = "udsResponseId",
                                         .displayName = "Diagnostic response ID",
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
                                         .description =
                                             "Identifier this ECU answers on. 2024 (0x7E8) "
-                                            "answers a tester on 0x7E0."},
+                                            "answers a tester on 0x7E0.",
+                                        .minimum = 0,
+                                        .maximum = kMaxExtendedIdentifier},
                 },
             .acceptsExtraParameters = true,
+            .talksOnBus = true,
         },
         [](const NodeParameters& parameters,
            const NodeBuildContext& context,
@@ -627,7 +914,7 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             auto node = std::make_unique<LuaEcuNode>(
                 std::move(source),
                 std::move(name),
-                static_cast<std::uint8_t>(parameters.integer("channel", 0)));
+                clampedParameter<std::uint8_t>(parameters, "channel", 0));
 
             // What the measurement has seen, so a script can ask about the bus
             // rather than only about the frames wired into it. Borrowed, read
@@ -653,10 +940,10 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             if (parameters.contains("udsRequestId")) {
                 IsoTpAddress address;
                 address.receiveId =
-                    static_cast<std::uint32_t>(parameters.integer("udsRequestId", 0x7E0));
+                    clampedParameter<std::uint32_t>(parameters, "udsRequestId", 0x7E0);
                 address.transmitId =
-                    static_cast<std::uint32_t>(parameters.integer("udsResponseId", 0x7E8));
-                address.channel = static_cast<std::uint8_t>(parameters.integer("channel", 0));
+                    clampedParameter<std::uint32_t>(parameters, "udsResponseId", 0x7E8);
+                address.channel = clampedParameter<std::uint8_t>(parameters, "channel", 0);
                 address.format = address.receiveId > kMaxStandardIdentifier
                                          || address.transmitId > kMaxStandardIdentifier
                                      ? CanFrameFormat::Extended
@@ -782,12 +1069,16 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                        "default - leaves them unsent, because a message with no "
                                        "cycle time is usually event-triggered and inventing a "
                                        "period puts traffic on the bus the real network never "
-                                       "carries."},
+                                       "carries.",
+                        .minimum = 0,
+                        .maximum = kMaximumPeriodMs},
                     ParameterDescriptor{.name = "channel",
                                         .displayName = "Transmit channel",
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
-                                        .description = "Channel stamped onto the frames it sends."},
+                                        .description = "Channel stamped onto the frames it sends.",
+                                        .minimum = 0,
+                                        .maximum = 255},
                 },
         },
         [](const NodeParameters& parameters,
@@ -826,8 +1117,8 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             node->setSystemVariables(context.variables);
 
             node->setDefaultCycleMs(
-                static_cast<std::uint32_t>(parameters.integer("defaultCycleMs", 0)));
-            node->setTransmitChannel(static_cast<std::uint8_t>(parameters.integer("channel", 0)));
+                clampedParameter<std::uint32_t>(parameters, "defaultCycleMs", 0));
+            node->setTransmitChannel(clampedParameter<std::uint8_t>(parameters, "channel", 0));
 
             out = std::move(node);
             return Result::ok();
@@ -860,9 +1151,12 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .displayName = "Transmit channel",
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
-                                        .description = "Channel stamped onto the frames it sends."},
+                                        .description = "Channel stamped onto the frames it sends.",
+                                        .minimum = 0,
+                                        .maximum = 255},
                 },
             .acceptsExtraParameters = true,
+            .talksOnBus = true,
         },
         [](const NodeParameters& parameters,
            const NodeBuildContext& context,
@@ -894,7 +1188,7 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             auto node = std::make_unique<LuaTestNode>(
                 std::move(source),
                 std::move(name),
-                static_cast<std::uint8_t>(parameters.integer("channel", 0)));
+                clampedParameter<std::uint8_t>(parameters, "channel", 0));
 
             // Where the verdict goes. Null in a graph built without one, and
             // the sequence then still runs and still logs - which is what a
@@ -1102,7 +1396,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                 .displayName = "Channel",
                 .type = ParameterValue::Type::Integer,
                 .required = false,
-                .description = "Which channel's rows this block sends. 0 for CAN 1."}},
+                .description = "Which channel's rows this block sends. 0 for CAN 1.",
+                .minimum = 0,
+                .maximum = 255}},
         },
         [](const NodeParameters& parameters,
            const NodeBuildContext& context,
@@ -1116,7 +1412,7 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                 nodeId));
             }
 
-            const auto channel = static_cast<std::uint8_t>(parameters.integer("channel", 0));
+            const auto channel = clampedParameter<std::uint8_t>(parameters, "channel", 0);
 
             out = std::make_unique<TransmitListNode>(*context.transmitList, channel);
             return Result::ok();
@@ -1145,7 +1441,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .required = false,
                                         .description =
                                             "How much faster than real time. 1 replays a "
-                                            "minute in a minute."},
+                                            "minute in a minute.",
+                                        .minimum = 0.001,
+                                        .maximum = 1000.0},
                 },
         },
         [](const NodeParameters& parameters,
@@ -1212,12 +1510,16 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .required = false,
                                         .description =
                                             "Identifier requests go out on. 2016 (0x7E0) "
-                                            "is the legislated tester address."},
+                                            "is the legislated tester address.",
+                                        .minimum = 0,
+                                        .maximum = kMaxExtendedIdentifier},
                     ParameterDescriptor{.name = "receiveId",
                                         .displayName = "Response ID",
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
-                                        .description = "Identifier the ECU answers on."},
+                                        .description = "Identifier the ECU answers on.",
+                                        .minimum = 0,
+                                        .maximum = kMaxExtendedIdentifier},
                     ParameterDescriptor{.name = "extendedId",
                                         .displayName = "29-bit identifiers",
                                         .type = ParameterValue::Type::Boolean,
@@ -1227,7 +1529,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .displayName = "Channel",
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
-                                        .description = "Application channel, 0 for CAN 1."},
+                                        .description = "Application channel, 0 for CAN 1.",
+                                        .minimum = 0,
+                                        .maximum = 255},
                     ParameterDescriptor{.name = "padding",
                                         .displayName = "Pad frames",
                                         .type = ParameterValue::Type::Boolean,
@@ -1261,6 +1565,7 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                             "does not expire while nobody is asking "
                                             "anything."},
                 },
+            .talksOnBus = true,
         },
         [](const NodeParameters& parameters,
            const NodeBuildContext& context,
@@ -1269,20 +1574,19 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             static_cast<void>(nodeId);
 
             IsoTpAddress address;
-            address.transmitId =
-                static_cast<std::uint32_t>(parameters.integer("transmitId", 0x7E0));
-            address.receiveId = static_cast<std::uint32_t>(parameters.integer("receiveId", 0x7E8));
+            address.transmitId = clampedParameter<std::uint32_t>(parameters, "transmitId", 0x7E0);
+            address.receiveId = clampedParameter<std::uint32_t>(parameters, "receiveId", 0x7E8);
             address.format = parameters.boolean("extendedId", false) ? CanFrameFormat::Extended
                                                                      : CanFrameFormat::Standard;
-            address.channel = static_cast<std::uint8_t>(parameters.integer("channel", 0));
+            address.channel = clampedParameter<std::uint8_t>(parameters, "channel", 0);
 
             IsoTpConfig transport;
             transport.padding = parameters.boolean("padding", true);
             transport.canFd = parameters.boolean("canFd", false);
 
             UdsTiming timing;
-            timing.p2Ms = static_cast<std::uint32_t>(parameters.integer("p2Ms", 50));
-            timing.p2StarMs = static_cast<std::uint32_t>(parameters.integer("p2StarMs", 5000));
+            timing.p2Ms = clampedParameter<std::uint32_t>(parameters, "p2Ms", 50);
+            timing.p2StarMs = clampedParameter<std::uint32_t>(parameters, "p2StarMs", 5000);
             timing.keepSessionAlive = parameters.boolean("keepSessionAlive", true);
 
             out = std::make_unique<UdsClientNode>(
@@ -1335,14 +1639,18 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .required = false,
                                         .description =
                                             "Identifier this end sends on. 2016 (0x7E0) is "
-                                            "the legislated tester address."},
+                                            "the legislated tester address.",
+                                        .minimum = 0,
+                                        .maximum = kMaxExtendedIdentifier},
                     ParameterDescriptor{.name = "receiveId",
                                         .displayName = "Response ID",
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
                                         .description =
                                             "Identifier the ECU answers on. 2024 (0x7E8) "
-                                            "answers 0x7E0."},
+                                            "answers 0x7E0.",
+                                        .minimum = 0,
+                                        .maximum = kMaxExtendedIdentifier},
                     ParameterDescriptor{.name = "extendedId",
                                         .displayName = "29-bit identifiers",
                                         .type = ParameterValue::Type::Boolean,
@@ -1353,7 +1661,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .displayName = "Channel",
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
-                                        .description = "Application channel, 0 for CAN 1."},
+                                        .description = "Application channel, 0 for CAN 1.",
+                                        .minimum = 0,
+                                        .maximum = 255},
                     ParameterDescriptor{.name = "blockSize",
                                         .displayName = "Block size",
                                         .type = ParameterValue::Type::Integer,
@@ -1392,8 +1702,11 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .description =
                                             "0 asks once, at Start. Anything else repeats "
                                             "- which is what a tester watching a value "
-                                            "while somebody drives does."},
+                                            "while somebody drives does.",
+                                        .minimum = 0,
+                                        .maximum = kMaximumPeriodMs},
                 },
+            .talksOnBus = true,
         },
         [](const NodeParameters& parameters,
            const NodeBuildContext& context,
@@ -1402,17 +1715,16 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             static_cast<void>(context);
 
             IsoTpAddress address;
-            address.transmitId =
-                static_cast<std::uint32_t>(parameters.integer("transmitId", 0x7E0));
-            address.receiveId = static_cast<std::uint32_t>(parameters.integer("receiveId", 0x7E8));
+            address.transmitId = clampedParameter<std::uint32_t>(parameters, "transmitId", 0x7E0);
+            address.receiveId = clampedParameter<std::uint32_t>(parameters, "receiveId", 0x7E8);
             address.format = parameters.boolean("extendedId", false) ? CanFrameFormat::Extended
                                                                      : CanFrameFormat::Standard;
-            address.channel = static_cast<std::uint8_t>(parameters.integer("channel", 0));
+            address.channel = clampedParameter<std::uint8_t>(parameters, "channel", 0);
 
             IsoTpConfig config;
-            config.blockSize = static_cast<std::uint8_t>(parameters.integer("blockSize", 0));
+            config.blockSize = clampedParameter<std::uint8_t>(parameters, "blockSize", 0);
             config.separationTime =
-                static_cast<std::uint8_t>(parameters.integer("separationTimeMs", 0));
+                clampedParameter<std::uint8_t>(parameters, "separationTimeMs", 0);
             config.padding = parameters.boolean("padding", true);
             config.canFd = parameters.boolean("canFd", false);
 
@@ -1431,7 +1743,7 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                 address,
                 config,
                 std::move(request),
-                static_cast<std::uint32_t>(parameters.integer("requestIntervalMs", 0)));
+                clampedParameter<std::uint32_t>(parameters, "requestIntervalMs", 0));
 
             return Result::ok();
         },
@@ -1486,7 +1798,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                                .displayName = "Channel",
                                                .type = ParameterValue::Type::Integer,
                                                .required = false,
-                                               .description = "Application channel to send on."}},
+                                               .description = "Application channel to send on.",
+                                               .minimum = 0,
+                                               .maximum = 255}},
         },
         [](const NodeParameters& parameters,
            const NodeBuildContext& context,
@@ -1558,7 +1872,7 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             .typeName = "signal.plot",
             .displayName = "Signal Plot",
             .category = "Sinks",
-            .description = "Keeps the decoded signals it receives, for the Graph panel.",
+            .description = "Keeps the decoded signals it receives, for the Plot Viewer.",
             .inputs = {PortDescriptor{"signals", PortType::Signals}},
             .outputs = {},
             .parameters = {},
@@ -1600,7 +1914,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .type = ParameterValue::Type::Integer,
                                         .required = false,
                                         .description =
-                                            "Application channel for emitted telemetry frames."},
+                                            "Application channel for emitted telemetry frames.",
+                                        .minimum = 0,
+                                        .maximum = 255},
                     ParameterDescriptor{.name = "speedCanId",
                                         .displayName = "Speed CAN ID",
                                         .type = ParameterValue::Type::Integer,
@@ -1635,7 +1951,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .required = false,
                                         .description =
                                             "Run neural network inference every N monitored "
-                                            "frames (default 1)."},
+                                            "frames (default 1).",
+                                        .minimum = 1,
+                                        .maximum = 1000000},
                     ParameterDescriptor{.name = "modelPath",
                                         .displayName = "Model File (.tbusml)",
                                         .type = ParameterValue::Type::Text,
@@ -1651,6 +1969,7 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                         .description =
                             "Enable SAE J1939 decoding and Proprietary B (0x18FF0080) output."},
                 },
+            .talksOnBus = true,
         },
         [](const NodeParameters& parameters,
            const NodeBuildContext& context,

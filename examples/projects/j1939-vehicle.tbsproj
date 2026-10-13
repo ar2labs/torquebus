@@ -27,19 +27,19 @@
             {
                 "from": "ecu_engine",
                 "fromPort": 0,
-                "to": "tx_engine",
+                "to": "can_1",
                 "toPort": 0
             },
             {
                 "from": "ecu_aftertreatment",
                 "fromPort": 0,
-                "to": "tx_aftertreatment",
+                "to": "can_1",
                 "toPort": 0
             },
             {
                 "from": "ecu_body",
                 "fromPort": 0,
-                "to": "tx_body",
+                "to": "can_1",
                 "toPort": 0
             },
             {
@@ -51,19 +51,19 @@
             {
                 "from": "ecu_brakes",
                 "fromPort": 0,
-                "to": "tx_brakes",
+                "to": "can_1",
                 "toPort": 0
             },
             {
                 "from": "ecu_switches",
                 "fromPort": 0,
-                "to": "tx_switches",
+                "to": "can_1",
                 "toPort": 0
             },
             {
                 "from": "ecu_cluster_core",
                 "fromPort": 0,
-                "to": "tx_cluster_core",
+                "to": "can_1",
                 "toPort": 0
             },
             {
@@ -81,7 +81,7 @@
             {
                 "from": "tinyml_ecu",
                 "fromPort": 0,
-                "to": "tx_tinyml",
+                "to": "can_1",
                 "toPort": 0
             },
             {
@@ -110,10 +110,10 @@
                     "channel": 0
                 },
                 "position": {
-                    "x": -520,
-                    "y": 1100
+                    "x": 0,
+                    "y": 112
                 },
-                "type": "can.source"
+                "type": "can.bus"
             },
             {
                 "id": "ecu_engine",
@@ -125,21 +125,10 @@
                     "tick_ms": 10
                 },
                 "position": {
-                    "x": -40,
+                    "x": 234,
                     "y": 0
                 },
                 "type": "lua.ecu"
-            },
-            {
-                "id": "tx_engine",
-                "parameters": {
-                    "channel": 0
-                },
-                "position": {
-                    "x": 440,
-                    "y": 0
-                },
-                "type": "can.transmit"
             },
             {
                 "id": "ecu_aftertreatment",
@@ -151,21 +140,10 @@
                     "tick_ms": 50
                 },
                 "position": {
-                    "x": -40,
-                    "y": 260
+                    "x": 430,
+                    "y": 0
                 },
                 "type": "lua.ecu"
-            },
-            {
-                "id": "tx_aftertreatment",
-                "parameters": {
-                    "channel": 0
-                },
-                "position": {
-                    "x": 440,
-                    "y": 260
-                },
-                "type": "can.transmit"
             },
             {
                 "id": "ecu_body",
@@ -177,21 +155,10 @@
                     "tick_ms": 50
                 },
                 "position": {
-                    "x": -40,
-                    "y": 520
+                    "x": 626,
+                    "y": 0
                 },
                 "type": "lua.ecu"
-            },
-            {
-                "id": "tx_body",
-                "parameters": {
-                    "channel": 0
-                },
-                "position": {
-                    "x": 440,
-                    "y": 520
-                },
-                "type": "can.transmit"
             },
             {
                 "id": "ecu_brakes",
@@ -203,21 +170,10 @@
                     "tick_ms": 50
                 },
                 "position": {
-                    "x": -40,
-                    "y": 780
+                    "x": 822,
+                    "y": 0
                 },
                 "type": "lua.ecu"
-            },
-            {
-                "id": "tx_brakes",
-                "parameters": {
-                    "channel": 0
-                },
-                "position": {
-                    "x": 440,
-                    "y": 780
-                },
-                "type": "can.transmit"
             },
             {
                 "id": "ecu_switches",
@@ -229,21 +185,10 @@
                     "tick_ms": 50
                 },
                 "position": {
-                    "x": -40,
-                    "y": 1040
+                    "x": 1018,
+                    "y": 0
                 },
                 "type": "lua.ecu"
-            },
-            {
-                "id": "tx_switches",
-                "parameters": {
-                    "channel": 0
-                },
-                "position": {
-                    "x": 440,
-                    "y": 1040
-                },
-                "type": "can.transmit"
             },
             {
                 "id": "ecu_cluster_core",
@@ -255,46 +200,24 @@
                     "tick_ms": 50
                 },
                 "position": {
-                    "x": -40,
-                    "y": 1300
+                    "x": 1214,
+                    "y": 0
                 },
                 "type": "lua.ecu"
             },
             {
-                "id": "tx_cluster_core",
-                "parameters": {
-                    "channel": 0
-                },
-                "position": {
-                    "x": 440,
-                    "y": 1300
-                },
-                "type": "can.transmit"
-            },
-            {
                 "id": "tinyml_ecu",
                 "parameters": {
-                    "anomalyThreshold": 80.0,
+                    "anomalyThreshold": 80,
                     "channel": 0,
                     "inferenceStride": 1,
                     "j1939": true
                 },
                 "position": {
-                    "x": -40,
-                    "y": 1560
+                    "x": 1410,
+                    "y": 0
                 },
                 "type": "tinyml.ecu"
-            },
-            {
-                "id": "tx_tinyml",
-                "parameters": {
-                    "channel": 0
-                },
-                "position": {
-                    "x": 440,
-                    "y": 1560
-                },
-                "type": "can.transmit"
             },
             {
                 "id": "j1939_decoder",
@@ -302,8 +225,8 @@
                     "database": "../databases/j1939.dbc"
                 },
                 "position": {
-                    "x": -40,
-                    "y": 1940
+                    "x": 234,
+                    "y": 212
                 },
                 "type": "j1939.decoder"
             },
@@ -312,8 +235,8 @@
                 "parameters": {
                 },
                 "position": {
-                    "x": 440,
-                    "y": 1940
+                    "x": 234,
+                    "y": 316
                 },
                 "type": "signal.plot"
             },
@@ -323,8 +246,8 @@
                     "pgn": 65265
                 },
                 "position": {
-                    "x": -40,
-                    "y": 2200
+                    "x": 430,
+                    "y": 212
                 },
                 "type": "can.filter"
             }

@@ -36,21 +36,24 @@ All codecs are located in `src/core/j1939/` and operate with zero dynamic alloca
 The J1939 simulation runs directly within the **TorqueBus Visual Pipeline**:
 
 ```
-+----------------------------------------------------------------------------+
-|                            PIPELINE DATAFLOW                               |
-|                                                                            |
-|  [Simulated ECUs (Lua)]                                                    |
-|  ├── EngineECU.lua         ──────\                                         |
-|  ├── AftertreatmentECU.lua ───────+──> [Virtual CAN 1] ──> [J1939 Decoder]  |
-|  ├── BodyController.lua    ───────|                             │          |
-|  ├── BrakeSystem.lua       ───────/                             ▼          |
-|  └── SwitchPanel.lua                                  [Dashboard Cluster]  |
-|                                                       ├── Digital Speed    |
-|  [TinyML Virtual ECU]      ──────────> [Virtual CAN 2] ├── Analog Tacho     |
-|                                                       ├── Fuel & Temp      |
-|                                                       └── Warning Lamps    |
-+----------------------------------------------------------------------------+
+   EngineECU  Aftertreatment  BodyController  BrakeSystem  SwitchPanel  ClusterCore  TinyML ECU
+   (Lua)      (Lua)           (Lua)           (Lua)        (Lua)        (Lua)        (int8 model)
+      |           |               |               |            |            |            |
+ CAN 1 =====================================================================================  CAN_H
+ (virtual)  ===================================================================================  CAN_L
+                   |                |
+             [J1939 Decoder]   [Frame Filter: PGN 65265]
+                   |
+             [Signal Plot]  ------>  [Dashboard Cluster]
+                                      |-- Digital Speed
+                                      |-- Analog Tacho
+                                      |-- Fuel & Temp
+                                      '-- Warning Lamps
 ```
+
+Every ECU is one drop off the **CAN Bus** block - the two wires - and the J1939 decoder and the filter are two
+more. There is no CAN Channel and no CAN Transmit block per ECU: a wire to the bus *is* the transmit, and a wire
+from it *is* the channel (see [The Pipeline Canvas & the CAN Bus](pipeline-canvas.md)).
 
 ### The Shipped Example Project
 A complete, turnkey J1939 truck simulation is provided in:

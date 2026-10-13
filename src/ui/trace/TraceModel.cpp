@@ -398,7 +398,7 @@ QString TraceModel::decodedText(const CanFrame& frame) const
     }
 
     QStringList parts;
-    for (const CanSignal* signal : message->signalsIn(frame.data.data(), frame.length)) {
+    for (const CanSignal* signal : message->signalsIn(frame.data.data(), frame.payloadSize())) {
         if (!signal->fitsIn(frame.length)) {
             // The frame is shorter than the database says. Say so rather than
             // printing the zero the decoder would return.
@@ -406,7 +406,7 @@ QString TraceModel::decodedText(const CanFrame& frame) const
             continue;
         }
 
-        const std::int64_t raw = signal->rawValue(frame.data.data(), frame.length);
+        const std::int64_t raw = signal->rawValue(frame.data.data(), frame.payloadSize());
 
         // A value table entry replaces the number. "Reverse" is what the
         // engineer is looking for; the 2 behind it is in the Data column.

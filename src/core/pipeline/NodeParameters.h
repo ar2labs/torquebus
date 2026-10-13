@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <format>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -104,6 +105,13 @@ struct ParameterDescriptor final {
 
     /// Shown in the properties panel. One sentence, in the user's terms.
     std::string_view description;
+
+    /// The inclusive range a number may take, when it has one. Checked wherever the
+    /// block is validated, so a value outside it is refused in the block's own words
+    /// while the block is on screen - and never narrowed to whatever fits and used,
+    /// which is how a channel typed as 256 became channel 0 without a word.
+    std::optional<double> minimum;
+    std::optional<double> maximum;
 };
 
 /// A node's settings, by name.

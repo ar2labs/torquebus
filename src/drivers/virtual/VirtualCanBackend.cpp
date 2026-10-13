@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <charconv>
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
@@ -209,7 +210,16 @@ private:
         return false;
     }
 
-    channelIndex = static_cast<std::uint32_t>(std::stoul(suffix));
+    // from_chars and not stoul: a handle comes out of a settings file or a hardware profile, and
+    // "virtual:99999999999999999999" made stoul throw out_of_range - out of open(), which
+    // reports a refusal as a Result and does not throw.
+    std::uint32_t value = 0;
+    const auto parsed = std::from_chars(suffix.data(), suffix.data() + suffix.size(), value);
+    if (parsed.ec != std::errc{} || parsed.ptr != suffix.data() + suffix.size()) {
+        return false;
+    }
+
+    channelIndex = value;
     return channelIndex < VirtualCanBackend::kChannelCount;
 }
 

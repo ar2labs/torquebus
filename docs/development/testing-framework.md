@@ -1,6 +1,6 @@
 # Testing Framework & Quality Assurance (Google Test & CTest)
 
-TorqueBus relies on automated testing as a design constraint, not an afterthought: **every commit runs 841 automated tests** across unit, UI, integration, and hardware layers. The project uses [Google Test](https://github.com/google/googletest) (v1.15.2) as its primary C++ testing framework, integrated with CMake and CTest.
+TorqueBus relies on automated testing as a design constraint, not an afterthought: **every commit runs 1092 automated tests** across unit, UI, integration, and hardware layers. The project uses [Google Test](https://github.com/google/googletest) (v1.15.2) as its primary C++ testing framework, integrated with CMake and CTest.
 
 ---
 
@@ -10,10 +10,10 @@ The test suite is structured into four distinct layers in `tests/`:
 
 ```
 tests/
-├── unit/          # Fast, isolated tests for core data structures and protocols (707 tests)
-├── ui/            # Headless and GUI tests for QML components, widgets, and docking (104 tests)
-├── integration/   # Multi-node bus scenarios, Lua scripts, dataflow throughput (41 tests)
-└── hardware/      # Adapter loopbacks against physical Kvaser / PEAK hardware (4 tests)
+├── unit/          # Fast, isolated tests for core data structures and protocols (820 tests)
+├── ui/            # Headless and GUI tests for QML components, widgets, the Pipeline canvas, and docking (194 tests)
+├── integration/   # Multi-node bus scenarios, Lua scripts, every block of the catalog run on an engine, dataflow throughput (67 tests)
+└── hardware/      # Adapter loopbacks against physical Kvaser / PEAK hardware (11 tests)
 ```
 
 | Suite | Target | Focus | Execution Speed |
@@ -136,7 +136,7 @@ Every pull request and push to `master` triggers `.github/workflows/ci.yml`.
 
 ### Automated Test Pipeline:
 1. **Configures & Compiles** in both `Debug` and `Release` modes using MSVC 2022.
-2. **Executes 834 Google Tests** across both configurations.
+2. **Executes 1092 Google Tests** across both configurations.
 3. **Generates JUnit XML Artifacts** for both Debug and Release.
 4. **Publishes Visual Summary** directly to GitHub Actions Job Summary with test metrics and duration tables.
 5. **Uploads Test Results** as downloadable artifacts for auditing and grading.

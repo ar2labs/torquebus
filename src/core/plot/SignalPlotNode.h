@@ -11,8 +11,8 @@
 // it is what makes "CAN Channel -> DBC Decoder -> Signal Plot" a graph somebody
 // can draw rather than a sentence in a design document.
 //
-// It does no plotting. It writes into a SignalSeriesStore, which the Graph
-// panel reads on its own timer - the same arrangement as the trace, and for the
+// It does no plotting. It writes into a SignalSeriesStore, which the Plot
+// Viewer reads on its own timer - the same arrangement as the trace, and for the
 // same reason (rule #5): the executor thread must never wait on a repaint.
 
 #pragma once
