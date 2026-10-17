@@ -7,6 +7,7 @@
 
 #include "core/diagnostics/DiagnosticEvent.h"
 
+#include <algorithm>
 #include <format>
 
 namespace torquebus {
@@ -112,11 +113,27 @@ void UdsClient::finish(UdsExchange::Outcome outcome,
     m_busy = false;
     m_pendingCount = 0;
 
+    if (m_session != UdsSession::Default && m_timing.keepSessionAlive) {
+        m_nextKeepAliveNs = nowNs + millisecondsToNs(m_timing.s3Ms * 2U / 5U);
+    }
+
     m_exchanges.push_back(std::move(exchange));
 }
 
 void UdsClient::noteSessionChange(const std::vector<std::uint8_t>& response, std::uint64_t nowNs)
 {
+    if (response.empty()) {
+        return;
+    }
+
+    if (response[0]
+        == static_cast<std::uint8_t>(static_cast<std::uint8_t>(UdsService::EcuReset) + 0x40U)) {
+        // An ECU that accepted a reset returns to the default session.
+        m_session = UdsSession::Default;
+        m_nextKeepAliveNs = 0;
+        return;
+    }
+
     if (response.size() < 2
         || response[0]
                != static_cast<std::uint8_t>(
@@ -180,6 +197,17 @@ bool UdsClient::onMessage(const std::vector<std::uint8_t>& message, std::uint64_
     finish(UdsExchange::Outcome::Positive, message, 0, nowNs);
 
     return true;
+}
+
+void UdsClient::notifyTransportActive(std::uint64_t nowNs) noexcept
+{
+    if (!m_busy) {
+        return;
+    }
+
+    const std::uint64_t windowNs =
+        millisecondsToNs(m_pendingCount > 0 ? m_timing.p2StarMs : m_timing.p2Ms);
+    m_deadlineNs = std::max(m_deadlineNs, nowNs + windowNs);
 }
 
 void UdsClient::poll(std::uint64_t nowNs)

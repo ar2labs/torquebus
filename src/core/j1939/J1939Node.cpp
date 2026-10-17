@@ -44,7 +44,7 @@ namespace {
 /// values mean something - so a range that reaches the raw value says nothing about it.
 [[nodiscard]] bool isReserved(const CanSignal& signal, std::int64_t raw) noexcept
 {
-    return !signal.isSigned && raw >= 0
+    return !signal.isSigned
            && isJ1939SpecialValue(static_cast<std::uint64_t>(raw), signal.bitLength)
            && signal.nameForValue(raw).empty();
 }
@@ -153,7 +153,11 @@ std::size_t J1939Node::decodeInto(std::uint32_t pgn,
         if (isReserved(*signal, decoded.raw)) {
             decoded.value = std::numeric_limits<double>::quiet_NaN();
         } else {
-            decoded.value = static_cast<double>(decoded.raw) * signal->factor + signal->offset;
+            const double unscaled =
+                (!signal->isSigned && signal->bitLength == 64U)
+                    ? static_cast<double>(static_cast<std::uint64_t>(decoded.raw))
+                    : static_cast<double>(decoded.raw);
+            decoded.value = unscaled * signal->factor + signal->offset;
         }
         decoded.identifier = identifier;
         decoded.channel = channel;
@@ -210,8 +214,9 @@ void J1939Node::process(NodeContext& context)
                     frame.timestampNs);
                 message.has_value()) {
                 ++m_diagnosticMessages;
-                recordDiagnostic(std::move(*message));
-                m_networkDirty = true;
+                if (recordDiagnostic(std::move(*message))) {
+                    m_networkDirty = true;
+                }
             }
 
             // A DM1 may also be described in the database, and somebody who
@@ -249,8 +254,9 @@ void J1939Node::process(NodeContext& context)
                     event.pgn, event.sourceAddress, event.data, m_spnReading, event.timestampNs);
                 message.has_value()) {
                 ++m_diagnosticMessages;
-                recordDiagnostic(std::move(*message));
-                m_networkDirty = true;
+                if (recordDiagnostic(std::move(*message))) {
+                    m_networkDirty = true;
+                }
             }
         }
 
@@ -262,7 +268,7 @@ void J1939Node::process(NodeContext& context)
             event.pgn,
             j1939Identifier(
                 event.pgn, event.sourceAddress, event.destinationAddress, event.priority),
-            0U,
+            event.channel,
             event.timestampNs,
             event.data.data(),
             event.data.size(),
@@ -297,7 +303,7 @@ void J1939Node::process(NodeContext& context)
     context.publish<DecodedSignal>(0, std::span<const DecodedSignal>{m_buffer.data(), count});
 }
 
-void J1939Node::recordDiagnostic(J1939Diagnostic message)
+bool J1939Node::recordDiagnostic(J1939Diagnostic message)
 {
     const auto found = std::find_if(
         m_diagnostics.begin(), m_diagnostics.end(), [&message](const J1939Diagnostic& existing) {
@@ -306,10 +312,12 @@ void J1939Node::recordDiagnostic(J1939Diagnostic message)
         });
 
     if (found != m_diagnostics.end()) {
+        const bool changed = found->lamps != message.lamps || found->flash != message.flash
+                             || found->faults != message.faults;
         // A fault list is a statement about now. An older copy of the same ECU
         // list is not history, it is a stale answer to the same question.
         *found = std::move(message);
-        return;
+        return changed;
     }
 
     const auto position =
@@ -327,6 +335,7 @@ void J1939Node::recordDiagnostic(J1939Diagnostic message)
                          });
 
     m_diagnostics.insert(position, std::move(message));
+    return true;
 }
 
 void J1939Node::publishLamps(std::uint64_t nowNs) noexcept

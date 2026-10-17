@@ -34,7 +34,7 @@ constexpr std::string_view kTransmitType = "can.transmit";
 /// catalog builds it as.
 [[nodiscard]] std::int64_t channelOf(const NodeDescription& node)
 {
-    return node.parameters.integer("channel", 0);
+    return std::clamp<std::int64_t>(node.parameters.integer("channel", 0), 0, 254);
 }
 
 /// The CAN Channel and CAN Transmit blocks that are only a way onto a bus.

@@ -29,7 +29,16 @@ Bits: 28..26  25   24   23..16    15..8      7..0
 
 All codecs are located in `src/core/j1939/` and operate with zero dynamic allocations on hot data paths.
 
+### Standards conformance notes
+
+The decoder and the multi-packet transport follow these rules, each covered by a regression test:
+
+* **Special values (SAE J1939-71 §5.1.4):** the top of every signal's range is reserved. For 8/16/24/32-bit fields `0xFB..` is reserved, `0xFE..` is *error* and `0xFF..` is *not available*; for 3-bit fields `6` is error and `7` is not available; for 64-bit fields anything `>= 0xFE00000000000000` is special. Such raw values decode to `NaN` rather than to a plausible number. Unsigned 64-bit signals are scaled without passing through a signed integer.
+* **Transport (SAE J1939-21 §5.10, ISO 11783-3 §5.11):** `TP.DT`/`ETP.DT` sequence numbers are `1..255` (`0` abandons the session); `BAM` must be broadcast and `RTS` point-to-point; `ETP.CM_DPO` windows may not exceed the announced packet count; an `Abort` or `CTS` sent by the *responder* (addresses reversed) is matched to its session, and a `CTS` refreshes the `T3` handshake timeout. Sessions are keyed by source, destination **and CAN channel**.
+* **DM1 broadcasts:** a steady 1 Hz `DM1` with unchanged faults does not rebuild the J1939 Network panel; expanded ECU rows survive rebuilds and ECUs with active faults expand automatically.
+
 ---
+
 
 ## 2. Pipeline Dataflow: Simulation to Dashboard
 

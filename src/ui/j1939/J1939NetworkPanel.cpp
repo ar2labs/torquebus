@@ -12,6 +12,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
+#include <QSet>
 #include <QShowEvent>
 #include <QTimer>
 #include <QTreeWidget>
@@ -129,8 +130,11 @@ enum Column : int {
 
 [[nodiscard]] QString faultText(const J1939Dtc& fault)
 {
+    const std::string_view fmiDescription = j1939FmiName(fault.fmi);
+    const QString fmiWord =
+        QString::fromUtf8(fmiDescription.data(), static_cast<qsizetype>(fmiDescription.size()));
     const QString suffix =
-        QObject::tr("FMI %1, seen %2x").arg(fault.fmi).arg(fault.occurrenceCount);
+        QObject::tr("FMI %1 (%2), seen %3x").arg(fault.fmi).arg(fmiWord).arg(fault.occurrenceCount);
 
     if (fault.spnAssembled) {
         return QObject::tr("SPN %1, %2").arg(fault.spn).arg(suffix);
@@ -139,13 +143,13 @@ enum Column : int {
     // No SPN, and the bytes instead - because a number read under the wrong
     // packing still looks like an SPN, and somebody who knows this ECU reads
     // the right convention out of the bytes in a second.
-    return QObject::tr("SPN not assembled (bytes %1 %2 %3 %4), %5")
-        .arg(fault.raw[0], 2, 16, QLatin1Char('0'))
-        .arg(fault.raw[1], 2, 16, QLatin1Char('0'))
-        .arg(fault.raw[2], 2, 16, QLatin1Char('0'))
-        .arg(fault.raw[3], 2, 16, QLatin1Char('0'))
-        .arg(suffix)
-        .toUpper();
+    const QString rawBytes = QStringLiteral("%1 %2 %3 %4")
+                                 .arg(fault.raw[0], 2, 16, QLatin1Char('0'))
+                                 .arg(fault.raw[1], 2, 16, QLatin1Char('0'))
+                                 .arg(fault.raw[2], 2, 16, QLatin1Char('0'))
+                                 .arg(fault.raw[3], 2, 16, QLatin1Char('0'))
+                                 .toUpper();
+    return QObject::tr("SPN not assembled (bytes %1), %2").arg(rawBytes, suffix);
 }
 
 } // namespace
@@ -247,7 +251,7 @@ void J1939NetworkPanel::refresh()
 
     const J1939NetworkSnapshot snapshot = m_network->snapshot();
     m_shownRevision = snapshot.revision;
-    m_sawPublication = true;
+    m_sawPublication = snapshot.published;
 
     rebuild(snapshot);
     updateSummary(snapshot);
@@ -257,12 +261,21 @@ void J1939NetworkPanel::rebuild(const J1939NetworkSnapshot& snapshot)
 {
     const Theme theme = currentTheme();
 
+    QSet<QString> expandedRows;
+    for (int i = 0; i < m_nodes->topLevelItemCount(); ++i) {
+        if (const QTreeWidgetItem* existing = m_nodes->topLevelItem(i);
+            existing != nullptr && existing->isExpanded()) {
+            expandedRows.insert(existing->text(ColumnAddress));
+        }
+    }
+
     m_nodes->setUpdatesEnabled(false);
     m_nodes->clear();
 
     for (const J1939NetworkNode& node : snapshot.nodes) {
         auto* row = new QTreeWidgetItem(m_nodes);
-        row->setText(ColumnAddress, addressText(node.address));
+        const QString addrLabel = addressText(node.address);
+        row->setText(ColumnAddress, addrLabel);
         row->setText(ColumnFrames, QString::number(node.framesSeen));
 
         row->setText(ColumnDetail,
@@ -286,6 +299,8 @@ void J1939NetworkPanel::rebuild(const J1939NetworkSnapshot& snapshot)
             row->setText(ColumnState, tr("transmitting"));
             row->setForeground(ColumnName, theme.textMuted);
         }
+
+        bool hasActiveFaults = false;
 
         // What is wrong with this ECU, under it.
         for (const J1939Diagnostic& message : snapshot.diagnostics) {
@@ -321,6 +336,13 @@ void J1939NetworkPanel::rebuild(const J1939NetworkSnapshot& snapshot)
 
             // Faults open themselves; a healthy list stays folded.
             group->setExpanded(message.active);
+            if (message.active) {
+                hasActiveFaults = true;
+            }
+        }
+
+        if (hasActiveFaults || expandedRows.contains(addrLabel)) {
+            row->setExpanded(true);
         }
     }
 

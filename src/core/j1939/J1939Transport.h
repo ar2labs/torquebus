@@ -301,6 +301,7 @@ struct J1939TransportEvent final {
     std::uint8_t sourceAddress{0U};
     std::uint8_t destinationAddress{kJ1939GlobalAddress};
     std::uint8_t priority{7U};
+    std::uint8_t channel{0U};
 
     /// Arrived by BAM rather than by a negotiated transfer.
     bool broadcast{false};
@@ -417,8 +418,10 @@ private:
         std::uint8_t priority{7U};
         std::uint8_t sourceAddress{0U};
         std::uint8_t destinationAddress{kJ1939GlobalAddress};
+        std::uint8_t channel{0U};
         bool broadcast{false};
         bool extended{false};
+        bool inHandshake{false};
 
         std::uint32_t totalSize{0U};
         std::uint32_t totalPackets{0U};
@@ -480,7 +483,8 @@ private:
               J1939AbortRole abortRole = J1939AbortRole::Unspecified);
 
     /// Emits a ReceiveFailed for a transfer that never got a session.
-    void failAnnouncement(const J1939Id& id,
+    void failAnnouncement(const CanFrame& frame,
+                          const J1939Id& id,
                           std::uint32_t pgn,
                           J1939TransportError error,
                           std::uint32_t expectedPackets,

@@ -7,6 +7,7 @@
 
 #include "core/diagnostics/DiagnosticEvent.h"
 #include "core/diagnostics/DiagnosticSession.h"
+#include "core/diagnostics/DtcCatalog.h"
 #include "core/diagnostics/UdsServiceCatalog.h"
 #include "core/diagnostics/UdsTypes.h"
 #include "ui/theme/Theme.h"
@@ -196,8 +197,56 @@ void DiagnosticsPanel::buildUi()
     m_log->setShowGrid(false);
     m_log->setAlternatingRowColors(true);
     m_log->horizontalHeader()->setSectionResizeMode(ColumnMeaning, QHeaderView::Stretch);
+    connect(m_log, &QTableWidget::cellClicked, this, &DiagnosticsPanel::onLogCellClicked);
 
     layout->addWidget(m_log, 1);
+
+    // --- DTC Lookup & Diagnostic Guide (always available, online or offline) -
+    auto* dtcRow = new QHBoxLayout;
+    dtcRow->setContentsMargins(0, 0, 0, 0);
+    dtcRow->setSpacing(6);
+
+    auto* dtcLabel = new QLabel(tr("DTC Lookup:"));
+    dtcLabel->setProperty("torquebusRole", QStringLiteral("caption"));
+    dtcRow->addWidget(dtcLabel);
+
+    m_dtcLookup = new QLineEdit;
+    m_dtcLookup->setObjectName(QStringLiteral("dtcLookupEdit"));
+    m_dtcLookup->setPlaceholderText(tr("Enter DTC (e.g. P0300, P0171, U0100, C0035, or 01 28 00)"));
+    m_dtcLookup->setFont(ThemeManager::monospaceFont());
+    m_dtcLookup->setClearButtonEnabled(true);
+    m_dtcLookup->setToolTip(
+        tr("Decode any OBD-II / UDS trouble code structure (L D D D D), view SAE J1939 SPN/FMI "
+           "equivalents, and inspect first checks before replacing parts."));
+    connect(m_dtcLookup, &QLineEdit::textChanged, this, &DiagnosticsPanel::onDtcLookupChanged);
+    dtcRow->addWidget(m_dtcLookup, 1);
+
+    m_dtcPreset = new QComboBox;
+    m_dtcPreset->setObjectName(QStringLiteral("dtcPresetCombo"));
+    m_dtcPreset->addItem(tr("Common DTCs..."), QString{});
+    for (const DtcCatalogEntry& entry : dtcCatalogEntries()) {
+        const QString code =
+            QString::fromUtf8(entry.code.data(), static_cast<qsizetype>(entry.code.size()));
+        const QString summary =
+            QString::fromUtf8(entry.summary.data(), static_cast<qsizetype>(entry.summary.size()));
+        m_dtcPreset->addItem(QStringLiteral("%1 - %2").arg(code, summary), code);
+    }
+    m_dtcPreset->setToolTip(
+        tr("Pick a common OBD-II / UDS trouble code to inspect its structure, J1939 SPN/FMI "
+           "cross-reference, and workshop troubleshooting checklist."));
+    connect(
+        m_dtcPreset, &QComboBox::currentIndexChanged, this, &DiagnosticsPanel::onDtcPresetChanged);
+    dtcRow->addWidget(m_dtcPreset);
+
+    layout->addLayout(dtcRow);
+
+    m_dtcGuide = new QLabel;
+    m_dtcGuide->setObjectName(QStringLiteral("dtcGuideLabel"));
+    m_dtcGuide->setWordWrap(true);
+    m_dtcGuide->setTextFormat(Qt::RichText);
+    m_dtcGuide->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_dtcGuide->setVisible(false);
+    layout->addWidget(m_dtcGuide);
 }
 
 void DiagnosticsPanel::setSession(DiagnosticSession* session)
@@ -225,6 +274,12 @@ void DiagnosticsPanel::updateAvailability()
                        && !m_session->isBusy());
     m_service->setEnabled(active);
     m_request->setEnabled(active);
+
+    for (QWidget* field : m_fields) {
+        if (field != nullptr) {
+            field->setEnabled(active);
+        }
+    }
 
     if (!active) {
         m_sessionLabel->setText(tr("Drop a UDS Client block and press Start."));
@@ -445,7 +500,8 @@ void DiagnosticsPanel::appendRow(const QString& time,
                                  const QString& direction,
                                  const QString& bytes,
                                  const QString& meaning,
-                                 const QColor& tint)
+                                 const QColor& tint,
+                                 const QString& dtcCode)
 {
     // Whether to follow the log is decided *before* the row is added: after it,
     // the scroll bar's maximum has already moved and every read looks like it
@@ -460,8 +516,11 @@ void DiagnosticsPanel::appendRow(const QString& time,
     const int row = m_log->rowCount();
     m_log->insertRow(row);
 
-    const auto cell = [](const QString& text) {
+    const auto cell = [&dtcCode](const QString& text) {
         auto* item = new QTableWidgetItem(text);
+        if (!dtcCode.isEmpty()) {
+            item->setData(Qt::UserRole, dtcCode);
+        }
         return item;
     };
 
@@ -487,19 +546,39 @@ void DiagnosticsPanel::appendExchange(const UdsExchange& exchange)
     const Theme theme = currentTheme();
 
     QString meaning = QString::fromStdString(exchange.describe());
+    std::vector<DiagnosticTroubleCode> decodedDtcs;
+    const bool isDtcReport = exchange.outcome == UdsExchange::Outcome::Positive
+                             && exchange.response.size() >= 3 && exchange.response[0] == 0x59
+                             && (exchange.response[1] == 0x02 || exchange.response[1] == 0x0A);
+    const bool isDtcCount = exchange.outcome == UdsExchange::Outcome::Positive
+                            && exchange.response.size() >= 6 && exchange.response[0] == 0x59
+                            && exchange.response[1] == 0x01;
 
     // The ASCII, when there is any: a VIN is bytes on the wire and letters to
     // the person reading, and making them transcribe seventeen hex pairs is
     // a tool being unhelpful on purpose.
     if (exchange.outcome == UdsExchange::Outcome::Positive) {
-        // Past the service byte and whatever echo the service carries: 0x62
-        // repeats the two-byte identifier, everything else is taken from byte
-        // one.
-        const std::size_t from =
-            exchange.response.size() > 3 && exchange.response[0] == 0x62 ? 3U : 1U;
+        if (isDtcReport) {
+            decodedDtcs = parseDtcResponse(exchange.response);
+            if (decodedDtcs.empty()) {
+                meaning += tr("  (0 DTCs reported)");
+            } else {
+                meaning += tr("  (%n DTC(s))", nullptr, static_cast<int>(decodedDtcs.size()));
+            }
+        } else if (isDtcCount) {
+            const int count = (static_cast<int>(exchange.response[4]) << 8)
+                              | static_cast<int>(exchange.response[5]);
+            meaning += tr("  (%n matching DTC(s))", nullptr, count);
+        } else {
+            // Past the service byte and whatever echo the service carries: 0x62
+            // repeats the two-byte identifier, everything else is taken from byte
+            // one.
+            const std::size_t from =
+                exchange.response.size() > 3 && exchange.response[0] == 0x62 ? 3U : 1U;
 
-        if (const QString text = asciiOf(exchange.response, from); !text.isEmpty()) {
-            meaning += QStringLiteral("  \"%1\"").arg(text);
+            if (const QString text = asciiOf(exchange.response, from); !text.isEmpty()) {
+                meaning += QStringLiteral("  \"%1\"").arg(text);
+            }
         }
     }
 
@@ -514,12 +593,63 @@ void DiagnosticsPanel::appendExchange(const UdsExchange& exchange)
         tint = theme.error;
     }
 
-    appendRow(QTime::currentTime().toString(QStringLiteral("HH:mm:ss.zzz")),
+    const QString timestamp = QTime::currentTime().toString(QStringLiteral("HH:mm:ss.zzz"));
+
+    appendRow(timestamp,
               QStringLiteral("RX"),
               exchange.response.empty() ? tr("-")
                                         : QString::fromStdString(toHexBytes(exchange.response)),
               meaning,
               tint);
+
+    // Expand each DTC returned in a 0x59 0x02 / 0x0A response into its own
+    // decoded row so the engineer sees the SAE/ISO code, status flags, summary,
+    // and J1939 equivalent immediately without decoding 24-bit hex by hand.
+    QString firstDtcCode;
+    for (const DiagnosticTroubleCode& dtc : decodedDtcs) {
+        const DtcStructure structure = analyzeDtcCode(dtc.code);
+        const QString codeText = QString::fromStdString(structure.code);
+        if (firstDtcCode.isEmpty()) {
+            firstDtcCode = codeText;
+        }
+
+        const QString statusHex =
+            QStringLiteral("%1").arg(dtc.status, 2, 16, QLatin1Char('0')).toUpper();
+        const QString bytesCol = QStringLiteral("%1 (%2)").arg(codeText, statusHex);
+
+        const QString statusFlags = QString::fromStdString(describeDtcStatus(dtc.status));
+        QString dtcMeaning;
+
+        if (const DtcCatalogEntry* entry = findDtcCatalogEntry(structure.code); entry != nullptr) {
+            const QString summary = QString::fromUtf8(
+                entry->summary.data(), static_cast<qsizetype>(entry->summary.size()));
+            const QString j1939 =
+                QString::fromUtf8(entry->j1939Equivalent.data(),
+                                  static_cast<qsizetype>(entry->j1939Equivalent.size()));
+            dtcMeaning = QStringLiteral("[%1] %2  (J1939: %3)").arg(statusFlags, summary, j1939);
+        } else {
+            const QString sys = QString::fromUtf8(
+                structure.systemName.data(), static_cast<qsizetype>(structure.systemName.size()));
+            const QString scope = QString::fromUtf8(
+                structure.scopeName.data(), static_cast<qsizetype>(structure.scopeName.size()));
+            const QString subsys =
+                QString::fromUtf8(structure.subsystemName.data(),
+                                  static_cast<qsizetype>(structure.subsystemName.size()));
+            dtcMeaning = QStringLiteral("[%1] %2 - %3 (%4)").arg(statusFlags, sys, subsys, scope);
+        }
+
+        const bool isActiveFault = (dtc.status & 0x09U) != 0U;
+        appendRow(timestamp,
+                  QStringLiteral("DTC"),
+                  bytesCol,
+                  dtcMeaning,
+                  isActiveFault ? theme.error : theme.warning,
+                  codeText);
+    }
+
+    if (!firstDtcCode.isEmpty() && m_dtcLookup->text().trimmed().isEmpty()) {
+        m_dtcLookup->setText(firstDtcCode);
+    }
 }
 
 void DiagnosticsPanel::refresh()
@@ -555,7 +685,9 @@ void DiagnosticsPanel::refresh()
 
     // Send is greyed while an answer is outstanding, because UDS is one
     // question at a time and a second one would only queue behind the first.
-    m_send->setEnabled(!m_session->isBusy() && m_request->isEnabled()
+    std::vector<std::uint8_t> parsed;
+    const bool valid = parseHexBytes(m_request->text().toStdString(), parsed);
+    m_send->setEnabled(!m_session->isBusy() && m_request->isEnabled() && valid
                        && !m_request->text().trimmed().isEmpty());
 }
 
@@ -564,7 +696,149 @@ void DiagnosticsPanel::onThemeChanged()
     // The rows already in the log keep the colours they were written with:
     // repainting them would mean storing the outcome per row, and a console is
     // read now rather than after a theme change.
+    if (m_dtcLookup != nullptr && !m_dtcLookup->text().trimmed().isEmpty()) {
+        updateDtcGuide(m_dtcLookup->text());
+    }
     update();
+}
+
+void DiagnosticsPanel::onDtcLookupChanged(const QString& text)
+{
+    if (m_dtcPreset != nullptr) {
+        const QSignalBlocker blocker{m_dtcPreset};
+        const QString normalized = text.trimmed().toUpper();
+        const int idx = m_dtcPreset->findData(normalized);
+        m_dtcPreset->setCurrentIndex(idx >= 0 ? idx : 0);
+    }
+
+    updateDtcGuide(text);
+}
+
+void DiagnosticsPanel::onDtcPresetChanged(int index)
+{
+    if (m_dtcPreset == nullptr || index <= 0) {
+        return;
+    }
+
+    const QString code = m_dtcPreset->itemData(index).toString();
+    if (!code.isEmpty() && m_dtcLookup != nullptr) {
+        m_dtcLookup->setText(code);
+    }
+}
+
+void DiagnosticsPanel::onLogCellClicked(int row, int column)
+{
+    static_cast<void>(column);
+    if (m_log == nullptr || m_dtcLookup == nullptr) {
+        return;
+    }
+
+    if (const QTableWidgetItem* item = m_log->item(row, ColumnBytes); item != nullptr) {
+        const QString dtcCode = item->data(Qt::UserRole).toString();
+        if (!dtcCode.isEmpty()) {
+            m_dtcLookup->setText(dtcCode);
+        }
+    }
+}
+
+void DiagnosticsPanel::updateDtcGuide(const QString& input)
+{
+    if (m_dtcGuide == nullptr) {
+        return;
+    }
+
+    const QString trimmed = input.trimmed();
+    if (trimmed.isEmpty()) {
+        m_dtcGuide->clear();
+        m_dtcGuide->setVisible(false);
+        return;
+    }
+
+    const std::string raw = trimmed.toStdString();
+    const std::optional<DtcStructure> parsed = parseDtcCode(raw);
+
+    const Theme theme = currentTheme();
+
+    if (!parsed.has_value()) {
+        m_dtcGuide->setStyleSheet(
+            QStringLiteral("background-color: %1; color: %2; border: 1px solid %3; "
+                           "border-radius: 4px; padding: 6px;")
+                .arg(theme.panelAlternate.name(), theme.warning.name(), theme.border.name()));
+        m_dtcGuide->setText(
+            tr("<b>Invalid DTC format.</b> Enter a 5-character SAE/ISO code (e.g. "
+               "<code>P0300</code>, <code>P0171</code>, <code>B1000</code>, <code>C0035</code>, "
+               "<code>U0100</code>) or 3-byte UDS hex (e.g. <code>01 28 00</code>)."));
+        m_dtcGuide->setVisible(true);
+        return;
+    }
+
+    const DtcStructure& st = *parsed;
+    const QString code = QString::fromStdString(st.code).toHtmlEscaped();
+    const QString udsHex =
+        QStringLiteral("0x%1").arg(st.rawCode, 6, 16, QLatin1Char('0')).toUpper();
+    const QString systemName =
+        QString::fromUtf8(st.systemName.data(), static_cast<qsizetype>(st.systemName.size()))
+            .toHtmlEscaped();
+    const QString scopeName =
+        QString::fromUtf8(st.scopeName.data(), static_cast<qsizetype>(st.scopeName.size()))
+            .toHtmlEscaped();
+    const QString subsystemName =
+        QString::fromUtf8(st.subsystemName.data(), static_cast<qsizetype>(st.subsystemName.size()))
+            .toHtmlEscaped();
+    const QString letterText =
+        st.code.empty() ? QStringLiteral("P") : QString{QLatin1Char{st.code.front()}};
+    const QString faultDigits =
+        st.code.size() >= 5 ? QString::fromStdString(st.code.substr(3, 2)) : QStringLiteral("00");
+
+    QString html =
+        QStringLiteral(
+            "<div><b>%1</b> <span style=\"color:%2;\">(UDS 24-bit: <code>%3</code>)</span>"
+            " &mdash; <b>Structure (L D D D D):</b> "
+            "<b>%4</b> = %5 &middot; <b>%6</b> = %7 &middot; "
+            "<b>%8</b> = %9 &middot; <b>%10</b> = Fault index</div>")
+            .arg(code,
+                 theme.textMuted.name(),
+                 udsHex,
+                 letterText,
+                 systemName,
+                 QString{QLatin1Char{st.firstDigit}},
+                 scopeName,
+                 QString{QLatin1Char{st.subsystemDigit}},
+                 subsystemName,
+                 faultDigits);
+
+    if (const DtcCatalogEntry* entry = findDtcCatalogEntry(st.code); entry != nullptr) {
+        const QString summary =
+            QString::fromUtf8(entry->summary.data(), static_cast<qsizetype>(entry->summary.size()))
+                .toHtmlEscaped();
+        const QString j1939 =
+            QString::fromUtf8(entry->j1939Equivalent.data(),
+                              static_cast<qsizetype>(entry->j1939Equivalent.size()))
+                .toHtmlEscaped();
+        const QString checks = QString::fromUtf8(entry->firstChecks.data(),
+                                                 static_cast<qsizetype>(entry->firstChecks.size()))
+                                   .toHtmlEscaped();
+
+        html += QStringLiteral("<div style=\"margin-top:3px;\"><b>Meaning:</b> %1 "
+                               "&nbsp;|&nbsp; <b>SAE J1939 (SPN/FMI):</b> <code>%2</code></div>"
+                               "<div style=\"margin-top:3px;\"><b>First Checks &amp; Diagnostic "
+                               "Guide (Before Replacing Parts):</b> %3</div>")
+                    .arg(summary, j1939, checks);
+    } else {
+        html += QStringLiteral(
+            "<div style=\"margin-top:3px;\"><b>Diagnostic Rule of Thumb:</b> "
+            "1) Capture Freeze Frame (RPM, load, coolant temp, voltage at fault trigger). "
+            "2) Inspect Live Data sensors and actuator trims under the same operating condition. "
+            "3) Check connectors, grounds, and wiring continuity before replacing "
+            "components.</div>");
+    }
+
+    m_dtcGuide->setStyleSheet(
+        QStringLiteral("background-color: %1; color: %2; border: 1px solid %3; "
+                       "border-radius: 4px; padding: 6px;")
+            .arg(theme.panelAlternate.name(), theme.text.name(), theme.border.name()));
+    m_dtcGuide->setText(html);
+    m_dtcGuide->setVisible(true);
 }
 
 } // namespace torquebus::ui

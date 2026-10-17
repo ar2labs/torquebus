@@ -263,6 +263,7 @@ Full architectural specifications and development manuals are organized in the [
 * 🛠️ **[Getting Started](docs/development/getting-started.md)** — Toolchain setup and local build guide.
 * 🧪 **[Google Test & QA Framework](docs/development/testing-framework.md)** — Unit, integration, and UI testing guide.
 * 🚛 **[J1939 Protocol & Cluster](docs/development/j1939-pipeline.md)** — Heavy-duty simulation and QML instrument cluster.
+* 🩺 **[DTC Diagnostics Guide (OBD-II, UDS & J1939)](docs/development/dtc-diagnostics.md)** — `L D D D D` structure, J1939 `SPN/FMI` bridge, and troubleshooting workflows.
 * 📜 **[Lua ECU Scripting](docs/development/scripting.md)** — Writing simulated ECUs and sandbox lifecycle.
 * 📊 **[DBC Database Engine](docs/development/databases.md)** — Signal decoding, bit numbering, and multiplexing.
 * 🤖 **[TinyML Anomaly Detection](docs/development/tinyml.md)** — Machine learning models on CAN bus.

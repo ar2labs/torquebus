@@ -376,3 +376,14 @@ TEST(J1939DiagnosticsTests, TheOccurrenceCountDoesNotStealTheConversionBit)
     EXPECT_TRUE(first->faults[0].spnAssembled);
     EXPECT_FALSE(second->faults[0].spnAssembled);
 }
+
+TEST(J1939DiagnosticsTests, FmiNumbersMapToSaeJ1939Table2Descriptions)
+{
+    EXPECT_EQ(j1939FmiName(0U),
+              "Data valid but above normal operational range - most severe level");
+    EXPECT_EQ(j1939FmiName(3U), "Voltage above normal, or shorted to high source");
+    EXPECT_EQ(j1939FmiName(4U), "Voltage below normal, or shorted to low source");
+    EXPECT_EQ(j1939FmiName(19U), "Received network data in error");
+    EXPECT_EQ(j1939FmiName(25U), "Reserved for SAE assignment");
+    EXPECT_EQ(j1939FmiName(31U), "Condition exists");
+}

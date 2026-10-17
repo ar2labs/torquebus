@@ -107,7 +107,11 @@ void DbcDecoderNode::process(NodeContext& context)
             decoded.message = message;
             decoded.signal = signal;
             decoded.raw = signal->rawValue(frame.data.data(), length);
-            decoded.value = static_cast<double>(decoded.raw) * signal->factor + signal->offset;
+            const double unscaled =
+                (!signal->isSigned && signal->bitLength == 64U)
+                    ? static_cast<double>(static_cast<std::uint64_t>(decoded.raw))
+                    : static_cast<double>(decoded.raw);
+            decoded.value = unscaled * signal->factor + signal->offset;
             decoded.identifier = frame.identifier;
             decoded.channel = frame.channel;
             decoded.truncated = !fits;

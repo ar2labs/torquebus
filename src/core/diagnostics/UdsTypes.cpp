@@ -258,11 +258,12 @@ std::vector<DiagnosticTroubleCode> parseDtcResponse(const std::vector<std::uint8
 {
     std::vector<DiagnosticTroubleCode> codes;
 
-    // 0x59 0x02 <availability mask> then four bytes per code. Anything else is
-    // a different sub-function's answer, and guessing at its layout would
-    // invent trouble codes that are not there - which is the worst possible
-    // thing for this particular screen to do.
-    if (response.size() < 3 || response[0] != 0x59U || response[1] != 0x02U) {
+    // 0x59 0x02 / 0x0A <availability mask> then four bytes per code. Anything
+    // else is a different sub-function's answer, and guessing at its layout
+    // would invent trouble codes that are not there - which is the worst
+    // possible thing for this particular screen to do.
+    if (response.size() < 3 || response[0] != 0x59U
+        || (response[1] != 0x02U && response[1] != 0x0AU)) {
         return codes;
     }
 

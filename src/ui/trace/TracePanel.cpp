@@ -412,6 +412,7 @@ void TracePanel::onClear()
 {
     m_model->reset();
     m_treeModel->reset();
+    refreshStatus();
 }
 
 void TracePanel::onThemeChanged(const Theme& theme)

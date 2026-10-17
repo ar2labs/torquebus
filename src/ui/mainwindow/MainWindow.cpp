@@ -88,7 +88,7 @@ constexpr auto kDockStatistics = "torquebus.dock.statistics";
 constexpr auto kDockDiagnostics = "torquebus.dock.diagnostics";
 constexpr auto kDockScript = "torquebus.dock.script";
 constexpr auto kDockTest = "torquebus.dock.test";
-[[maybe_unused]] constexpr auto kDockJ1939 = "torquebus.dock.j1939";
+constexpr auto kDockJ1939 = "torquebus.dock.j1939";
 constexpr auto kDockDashboard = "torquebus.dock.dashboard";
 constexpr auto kDockDashboardProperties = "torquebus.dock.dashboard.widget";
 constexpr auto kDockOutput = "torquebus.dock.output";
@@ -139,7 +139,9 @@ constexpr auto kBullet = "●";
 ///  16  v0.17 Synchronously initialized KDDockWidgets layoutSize before initial
 ///            dock placement so Project Explorer and Properties/Block/Widget
 ///            split ~60%/40% vertically.
-constexpr int kDockLayoutVersion = 16;
+///  17  v0.17 Restored J1939 Network panel to the bottom Console & Monitor
+///            dock and the Diagnostics menu.
+constexpr int kDockLayoutVersion = 17;
 
 /// Converts one of the frozen dock names above into a QString.
 ///
@@ -557,6 +559,7 @@ void MainWindow::createPanels()
     connect(m_transmitPanel, &TransmitPanel::reported, this, [this](const QString& text) {
         m_output->appendWarning(text);
     });
+    connect(m_transmitPanel, &TransmitPanel::modified, this, &MainWindow::markDirty);
 
     m_transmitDock = createDockWidget(
         dockName(kDockTransmit), tr("Transmit"), m_transmitPanel, icon("transmit"));
@@ -594,6 +597,13 @@ void MainWindow::createPanels()
 
     m_diagnosticsDock = createDockWidget(
         dockName(kDockDiagnostics), tr("Diagnostics"), m_diagnosticsPanel, icon("diagnostics"));
+
+    m_j1939Panel = new J1939NetworkPanel;
+    m_j1939Panel->setNameTables(&m_j1939Names);
+    m_j1939Panel->setNetwork(&m_controller->engine().j1939Network());
+
+    m_j1939Dock =
+        createDockWidget(dockName(kDockJ1939), tr("J1939 Network"), m_j1939Panel, icon("network"));
 
     // The script editor edits the project like the Block panel does, and hands
     // the result to the running node like the console hands it a request - so
@@ -700,6 +710,7 @@ void MainWindow::createPanels()
                   m_outputDock,
                   m_statisticsDock,
                   m_diagnosticsDock,
+                  m_j1939Dock,
                   m_testDock,
                   m_playbackDock};
 }
@@ -942,6 +953,7 @@ void MainWindow::createMenus()
     simulationMenu->addAction(m_actionEditDashboard);
 
     diagnosticsMenu->addAction(m_diagnosticsDock->toggleAction());
+    diagnosticsMenu->addAction(m_j1939Dock->toggleAction());
 
     QMenu* toolsMenu = bar->addMenu(tr("&Tools"));
     toolsMenu->addAction(m_actionPlugins);
@@ -1166,6 +1178,7 @@ void MainWindow::applyDefaultLayout()
 
     m_outputDock->addDockWidgetAsTab(m_statisticsDock);
     m_outputDock->addDockWidgetAsTab(m_diagnosticsDock);
+    m_outputDock->addDockWidgetAsTab(m_j1939Dock);
     m_outputDock->addDockWidgetAsTab(m_testDock);
     if (m_playbackDock != nullptr && m_playbackDock->isOpen()) {
         m_playbackDock->close();

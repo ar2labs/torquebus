@@ -329,3 +329,34 @@ TEST(UdsClientTests, AnUnknownServiceIsStillShownByNumber)
 
     EXPECT_TRUE(describeService(0x22) == "ReadDataByIdentifier");
 }
+
+TEST(UdsClientTests, EcuResetReturnsClientToDefaultSessionAndTransportHoldsP2)
+{
+    UdsClient client;
+    ASSERT_TRUE(client.request(diagnosticSessionControl(UdsSession::Extended), 0).succeeded());
+    EXPECT_TRUE(client.onMessage(Bytes{0x50, 0x03}, 0));
+    EXPECT_EQ(client.session(), UdsSession::Extended);
+
+    // Positive ECUReset (0x51) resets the client back to Default session so it
+    // stops sending TesterPresent keep-alives.
+    ASSERT_TRUE(client.request(ecuReset(0x01), 10 * kMillisecond).succeeded());
+    EXPECT_TRUE(client.onMessage(Bytes{0x51, 0x01}, 20 * kMillisecond));
+    EXPECT_EQ(client.session(), UdsSession::Default);
+
+    client.clearPendingRequests();
+    client.poll(5000 * kMillisecond);
+    EXPECT_TRUE(client.pendingRequests().empty());
+
+    // While ISO-TP is actively receiving a multi-frame response, notifyTransportActive
+    // prevents P2 from expiring prematurely.
+    ASSERT_TRUE(client.request(readDataByIdentifier(0xF190), 0).succeeded());
+    client.notifyTransportActive(490 * kMillisecond);
+    client.poll(510 * kMillisecond);
+    EXPECT_TRUE(client.isBusy());
+
+    // And 0x59 0x0A (reportSupportedDTC) is parsed identically to 0x59 0x02.
+    const std::vector<DiagnosticTroubleCode> supported =
+        parseDtcResponse({0x59, 0x0A, 0xFF, 0x01, 0x28, 0x00, 0x2F});
+    ASSERT_EQ(supported.size(), 1U);
+    EXPECT_EQ(supported[0].name(), "P0128");
+}

@@ -143,7 +143,12 @@ void UdsClientNode::process(NodeContext& context)
                        m_queued.end() - static_cast<std::ptrdiff_t>(kMaximumQueued));
     }
 
-    if (!m_queued.empty() && !m_client.isBusy()) {
+    if (m_transport.isSending() || m_transport.isReceiving()) {
+        m_client.notifyTransportActive(nowNs);
+    }
+
+    if (!m_queued.empty() && !m_client.isBusy() && !m_transport.isSending()
+        && !m_transport.isReceiving()) {
         if (m_client.request(m_queued.front(), nowNs).succeeded()) {
             ++m_sent;
             m_queued.erase(m_queued.begin());

@@ -59,6 +59,9 @@ struct J1939NetworkSnapshot final {
     /// yet, which is a measurement that has not started rather than a bus with
     /// nobody on it - and a panel must say the difference.
     std::uint64_t revision{0U};
+
+    /// True when this snapshot came from publish() rather than clear().
+    bool published{false};
 };
 
 /// The hand-over point between the block and the panel.
@@ -96,6 +99,7 @@ private:
     std::vector<J1939NetworkNode> m_nodes;
     std::vector<J1939Defeated> m_defeated;
     std::vector<J1939Diagnostic> m_diagnostics;
+    bool m_published{false};
 
     /// Outside the mutex on purpose: it is the thing read without taking it.
     std::atomic<std::uint64_t> m_revision{0U};

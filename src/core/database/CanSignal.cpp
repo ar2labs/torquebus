@@ -226,7 +226,11 @@ bool CanSignal::encode(double physical,
 
 double CanSignal::decode(const std::uint8_t* payload, std::size_t payloadLength) const noexcept
 {
-    return static_cast<double>(rawValue(payload, payloadLength)) * factor + offset;
+    const std::int64_t raw = rawValue(payload, payloadLength);
+    const double unscaled = (!isSigned && bitLength == 64U)
+                                ? static_cast<double>(static_cast<std::uint64_t>(raw))
+                                : static_cast<double>(raw);
+    return unscaled * factor + offset;
 }
 
 std::string_view CanSignal::nameForValue(std::int64_t raw) const noexcept

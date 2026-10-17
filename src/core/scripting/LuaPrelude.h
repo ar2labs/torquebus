@@ -164,11 +164,30 @@ end
 local _J1939_MAXV = { [1] = 0xFA, [2] = 0xFAFF, [3] = 0xFAFFFF, [4] = 0xFAFFFFFF }
 local _J1939_NA   = { [1] = 0xFF, [2] = 0xFFFF, [3] = 0xFFFFFF, [4] = 0xFFFFFFFF }
 
---- The 29-bit identifier of a J1939 message from its priority, PGN and source address.
-function j1939_id(prio, pgn, sa)
-    return (((prio or 6) & 0x7) << 26) | (((pgn or 0) & 0x3FFFF) << 8) | ((sa or 0) & 0xFF)
+--- The 29-bit identifier of a J1939 message from its priority, PGN, source address, and optional
+--- destination address (used when `da` is given and the PGN is PDU1, PF < 240).
+function j1939_id(prio, pgn, sa, da)
+    pgn = (pgn or 0) & 0x3FFFF
+    local pf = (pgn >> 8) & 0xFF
+    if da ~= nil and pf < 240 and (pgn & 0xFF) == 0 then
+        pgn = (pgn & 0x3FF00) | (da & 0xFF)
+    end
+    return (((prio or 6) & 0x7) << 26) | (pgn << 8) | ((sa or 0) & 0xFF)
 end
 tb.j1939_id = j1939_id
+
+--- Broadcasts an SAE J1939-81 Address Claimed (PGN 60928 / 0xEE00, DA = 0xFF) frame carrying a 64-bit NAME.
+function j1939_claim(sa, func, mfr, id_num, industry_group, aac)
+    id_num = (id_num or (sa or 0)) & 0x1FFFFF
+    mfr = (mfr or 0) & 0x7FF
+    func = (func or 0) & 0xFF
+    industry_group = (industry_group or 1) & 0x7
+    aac = (aac == nil or aac) and 1 or 0
+    local low32 = id_num | (mfr << 21)
+    local high32 = (func << 8) | (industry_group << 28) | (aac << 31)
+    return j1939_send(6, 0xEEFF, sa, string.pack("<I4I4", low32, high32))
+end
+tb.j1939_claim = j1939_claim
 
 --- A physical value as the raw number J1939 sends: round((value - offset) / res), held to the
 --- biggest valid value of an `nbytes` field rather than wrapped into the ones that mean an error.

@@ -154,6 +154,9 @@ private:
     /// indices the view holds no longer mean what they did.
     std::uint64_t m_lastDiscarded{0};
 
+    /// Global sequence number up to which the user explicitly cleared the view.
+    std::uint64_t m_clearedUpTo{0};
+
     bool m_frozen{false};
     bool m_decimalIdentifiers{false};
 

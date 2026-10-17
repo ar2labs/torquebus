@@ -83,10 +83,14 @@ private Q_SLOTS:
 
     void onClear();
     void onThemeChanged();
+    void onDtcLookupChanged(const QString& text);
+    void onDtcPresetChanged(int index);
+    void onLogCellClicked(int row, int column);
 
 private:
     void buildUi();
     void updateAvailability();
+    void updateDtcGuide(const QString& input);
 
     /// Replaces the field editors with the ones the chosen service takes.
     void buildForm();
@@ -109,7 +113,8 @@ private:
                    const QString& direction,
                    const QString& bytes,
                    const QString& meaning,
-                   const QColor& tint);
+                   const QColor& tint,
+                   const QString& dtcCode = {});
 
     DiagnosticSession* m_session{nullptr};
 
@@ -130,6 +135,10 @@ private:
     QPushButton* m_clear{nullptr};
 
     QTableWidget* m_log{nullptr};
+
+    QLineEdit* m_dtcLookup{nullptr};
+    QComboBox* m_dtcPreset{nullptr};
+    QLabel* m_dtcGuide{nullptr};
 
     /// Whether the transport was last drawn as available, so the controls are
     /// only re-enabled when that actually changed.

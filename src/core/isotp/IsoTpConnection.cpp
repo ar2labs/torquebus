@@ -82,7 +82,7 @@ void IsoTpConnection::finishFrame(CanFrame& frame, std::size_t used) const
     }
 
     frame.length = static_cast<std::uint8_t>(length);
-    frame.dlc = static_cast<std::uint8_t>(length);
+    frame.dlc = dlcFromPayloadLength(frame.length, frame.fd);
 }
 
 void IsoTpConnection::queue(CanFrame frame)
@@ -111,16 +111,18 @@ Result IsoTpConnection::send(std::span<const std::uint8_t> payload, std::uint64_
     }
 
     const std::size_t offset = m_address.addressBytes();
+    const std::size_t maxOneByteSf = kMaxClassicCanPayload - offset - 1U;
 
     // --- Single frame -----------------------------------------------------
     //
     // The classic form puts the length in the low nibble of one byte, so it
-    // reaches seven bytes. CAN FD needs more, and rather than widen that nibble
-    // the standard added an escape: a zero length, then a real length byte.
-    // Two different capacities, because the escape form costs a second
-    // protocol byte: seven bytes fit behind one, and anything above that -
-    // which only CAN FD can carry in a single frame at all - fits behind two.
-    const bool fitsInOneFrame = payload.size() <= 7U
+    // reaches seven bytes (or six with extended addressing). CAN FD needs more,
+    // and rather than widen that nibble the standard added an escape: a zero
+    // length, then a real length byte. Two different capacities, because the
+    // escape form costs a second protocol byte: classic-sized payloads fit
+    // behind one, and anything above that - which only CAN FD can carry in a
+    // single frame at all - fits behind two.
+    const bool fitsInOneFrame = payload.size() <= maxOneByteSf
                                     ? payload.size() <= capacity(1)
                                     : (m_config.canFd && payload.size() <= capacity(2));
 
@@ -128,7 +130,7 @@ Result IsoTpConnection::send(std::span<const std::uint8_t> payload, std::uint64_
         CanFrame frame = makeFrame(nowNs);
         std::size_t used = offset;
 
-        if (payload.size() <= 7U) {
+        if (payload.size() <= maxOneByteSf) {
             frame.data[used++] = static_cast<std::uint8_t>((kSingleFrame << 4U) | payload.size());
         } else {
             frame.data[used++] = kSingleFrame << 4U;
@@ -344,6 +346,13 @@ void IsoTpConnection::onSingleFrame(std::span<const std::uint8_t> data, std::uin
         return;
     }
 
+    if (m_receive.state == ReceiveState::Assembling) {
+        // ISO 15765-2 section 9.6.5.2 (Table 22): an unexpected Single Frame
+        // arriving mid-assembly terminates the current multi-frame reception
+        // and is then processed as the start of a new Single Frame message.
+        failReceive(IsoTpError::ProtocolError, nowNs);
+    }
+
     IsoTpEvent event;
     event.kind = IsoTpEvent::Kind::MessageReceived;
     event.timestampNs = nowNs;
@@ -371,6 +380,19 @@ void IsoTpConnection::onFirstFrame(std::span<const std::uint8_t> data, std::uint
                  | (static_cast<std::size_t>(data[3]) << 16U)
                  | (static_cast<std::size_t>(data[4]) << 8U) | data[5];
         start = 6;
+    }
+
+    if (length == 0 || length <= data.size() - start) {
+        // ISO 15765-2 section 9.6.3.2: a First Frame whose declared message
+        // length fits inside the First Frame itself is invalid and ignored.
+        return;
+    }
+
+    if (m_receive.state == ReceiveState::Assembling) {
+        // ISO 15765-2 section 9.6.5.2 (Table 22): an unexpected First Frame
+        // arriving mid-assembly terminates the previous multi-frame reception
+        // before starting the new one.
+        failReceive(IsoTpError::ProtocolError, nowNs);
     }
 
     if (length > kMaximumMessage) {
@@ -406,6 +428,10 @@ void IsoTpConnection::onConsecutiveFrame(std::span<const std::uint8_t> data, std
         // message whose first frame was missed - a tester that joined the bus
         // half way through a transfer. Ignored: there is nothing to attach it
         // to, and reporting it would fire on every such join.
+        return;
+    }
+
+    if (data.size() < 2) {
         return;
     }
 

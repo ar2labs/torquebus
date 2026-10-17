@@ -236,6 +236,11 @@ Result buildRequest(const UdsServiceTemplate& service,
     for (std::size_t index = 0; index < service.fields.size(); ++index) {
         const UdsField& field = service.fields[index];
 
+        // ISO 14229-1: 0x19 0x0A (reportSupportedDTC) takes no status mask byte.
+        if (service.service == 0x19 && index == 1 && out.size() >= 2 && (out[1] & 0x7FU) == 0x0AU) {
+            continue;
+        }
+
         const std::string text = index < values.size() ? values[index] : std::string{field.initial};
 
         if (text.empty()) {

@@ -115,6 +115,7 @@ void TraceModel::setStore(const TraceStore* store)
     m_store = store;
     m_visibleRows = 0;
     m_lastDiscarded = 0;
+    m_clearedUpTo = 0;
     endResetModel();
 }
 
@@ -157,6 +158,7 @@ void TraceModel::reset()
     beginResetModel();
     m_visibleRows = 0;
     m_lastDiscarded = m_store != nullptr ? m_store->discarded() : 0;
+    m_clearedUpTo = m_store != nullptr ? m_store->totalAppended() : 0;
     endResetModel();
 }
 
@@ -166,26 +168,36 @@ void TraceModel::pollStore()
         return;
     }
 
-    const std::size_t available = m_store->size();
+    const std::uint64_t total = m_store->totalAppended();
     const std::uint64_t discarded = m_store->discarded();
 
-    // The ring wrapped: every row index the view is holding now refers to a
-    // different frame. Shifting a million indices would cost more than the
-    // reset and would be wrong in the middle of it, so the model resets.
-    //
-    // On a bounded trace this happens once, when the buffer first fills, and
-    // then on every subsequent batch - which is why the trace visibly stops
-    // growing and starts scrolling at capacity, and why the panel says how many
-    // frames have fallen off.
-    if (discarded != m_lastDiscarded) {
+    if (total < m_clearedUpTo) {
+        m_clearedUpTo = 0;
+    }
+
+    const std::uint64_t firstGlobal = std::max(m_clearedUpTo, discarded);
+    const std::size_t available =
+        total >= firstGlobal ? static_cast<std::size_t>(total - firstGlobal) : 0U;
+
+    // The ring wrapped past the visible window (or the store was cleared):
+    // every row index the view is holding now refers to a different frame.
+    if (discarded != m_lastDiscarded && discarded > m_clearedUpTo) {
         m_lastDiscarded = discarded;
         beginResetModel();
         m_visibleRows = available;
         endResetModel();
         return;
     }
+    m_lastDiscarded = discarded;
 
-    if (available <= m_visibleRows) {
+    if (available < m_visibleRows) {
+        beginResetModel();
+        m_visibleRows = available;
+        endResetModel();
+        return;
+    }
+
+    if (available == m_visibleRows) {
         return;
     }
 
@@ -216,11 +228,18 @@ QVariant TraceModel::data(const QModelIndex& index, int role) const
     }
 
     const auto row = static_cast<std::size_t>(index.row());
-    if (row >= m_visibleRows || row >= m_store->size()) {
+    if (row >= m_visibleRows) {
         return {};
     }
 
-    const TraceRow& entry = m_store->row(row);
+    const std::uint64_t discarded = m_store->discarded();
+    const std::uint64_t firstGlobal = std::max(m_clearedUpTo, discarded);
+    const std::size_t storeIndex = static_cast<std::size_t>(firstGlobal - discarded) + row;
+    if (storeIndex >= m_store->size()) {
+        return {};
+    }
+
+    const TraceRow& entry = m_store->row(storeIndex);
 
     switch (role) {
     case Qt::DisplayRole:
@@ -417,10 +436,9 @@ QString TraceModel::decodedText(const CanFrame& frame) const
             continue;
         }
 
-        QString text =
-            QStringLiteral("%1 = %2")
-                .arg(QString::fromStdString(signal->name))
-                .arg(static_cast<double>(raw) * signal->factor + signal->offset, 0, 'g', 8);
+        QString text = QStringLiteral("%1 = %2")
+                           .arg(QString::fromStdString(signal->name))
+                           .arg(signal->decode(frame.data.data(), frame.payloadSize()), 0, 'g', 8);
 
         if (!signal->unit.empty()) {
             text += QLatin1Char(' ') + QString::fromStdString(signal->unit);

@@ -248,6 +248,7 @@ Result CanEngine::buildGraph()
     // months. Rebuilding makes that impossible by construction.
     m_graph.clear();
     m_sourceNodes.clear();
+    m_traceStore.clear();
 
     std::vector<std::pair<SinkId, FrameSink>> sinks;
     {
@@ -292,30 +293,26 @@ Result CanEngine::buildGraph()
     // action at all. ARCHITECTURE.md section 3b - reading a bus must never cost
     // a visit to the canvas.
     //
-    // One node per channel, all writing into the engine's single store. An
-    // input takes exactly one edge, so this is what "every channel feeds the
-    // trace" has to look like; the executor's deterministic order is what keeps
-    // the interleaving reproducible.
-    for (const NodeId source : m_sourceNodes) {
-        const NodeId traceNode = m_graph.addNode(std::make_unique<TraceSinkNode>(m_traceStore));
+    // Skipped when the user's pipeline explicitly contains an enabled
+    // `trace.sink` block (e.g. behind a filter), so unfiltered frames do not
+    // bypass the user's pipeline and duplicate filtered ones.
+    if (!m_hasUserTraceSink) {
+        for (const NodeId source : m_sourceNodes) {
+            const NodeId traceNode = m_graph.addNode(std::make_unique<TraceSinkNode>(m_traceStore));
 
-        if (Result result = m_graph.connect(PortRef{source, 0}, PortRef{traceNode, 0});
-            result.failed()) {
-            return result;
+            if (Result result = m_graph.connect(PortRef{source, 0}, PortRef{traceNode, 0});
+                result.failed()) {
+                return result;
+            }
         }
     }
 
     // The implicit transmit path, for the same reason as the trace above.
     //
-    // ARCHITECTURE.md 3b says reading a bus must never cost a visit to the
-    // canvas. Transmitting is the same promise seen from the other side: a user
-    // who fills in a row in the Transmit panel and presses Send has said
-    // everything they mean, and requiring them to also drop a block and draw a
-    // wire before anything happens would make the panel look broken.
-    //
-    // One pair per channel. Each list node collects only the rows that name its
-    // own channel, so a row goes out once, on the bus it was addressed to.
-    if (m_transmitList != nullptr) {
+    // Skipped when the user's pipeline explicitly contains an enabled
+    // `transmit.list` block, so the implicit node does not drain due frames
+    // ahead of the user's block.
+    if (m_transmitList != nullptr && !m_hasUserTransmitList) {
         // Counted in size_t and narrowed, not counted in uint8_t: a loop whose
         // counter is the same width as its limit never terminates once the
         // limit passes 255.
@@ -350,6 +347,8 @@ Result CanEngine::buildGraph()
 
 void CanEngine::setGraphBuilder(GraphBuilder builder)
 {
+    m_hasUserTraceSink = false;
+    m_hasUserTransmitList = false;
     m_graphBuilder = std::move(builder);
 }
 
@@ -357,6 +356,15 @@ void CanEngine::setGraphDescription(GraphDescription description,
                                     NodeCatalog catalog,
                                     std::string basePath)
 {
+    const bool hasTraceSink = std::any_of(
+        description.nodes().begin(), description.nodes().end(), [](const NodeDescription& node) {
+            return node.enabled && node.typeName == "trace.sink";
+        });
+    const bool hasTransmitList = std::any_of(
+        description.nodes().begin(), description.nodes().end(), [](const NodeDescription& node) {
+            return node.enabled && node.typeName == "transmit.list";
+        });
+
     // Captured by value into the builder, which is what makes the description
     // safe to edit while a measurement runs.
     setGraphBuilder(
@@ -420,6 +428,9 @@ void CanEngine::setGraphDescription(GraphDescription description,
 
             return description.build(catalog, context, graph);
         });
+
+    m_hasUserTraceSink = hasTraceSink;
+    m_hasUserTransmitList = hasTransmitList;
 }
 
 NodeId CanEngine::sourceNode(std::uint8_t applicationChannel) const
@@ -552,6 +563,10 @@ std::size_t CanEngine::dispatchPass()
 
 std::uint64_t CanEngine::totalSourceFrames() const
 {
+    if (m_sinkNodes.empty()) {
+        return m_traceStore.totalAppended();
+    }
+
     // Counted at the sinks rather than at the sources: "delivered" has always
     // meant "reached a consumer", and with a filter node in the middle those
     // two numbers are legitimately different.
