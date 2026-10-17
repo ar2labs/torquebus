@@ -561,6 +561,14 @@ void MainWindow::createPanels()
     });
     connect(m_transmitPanel, &TransmitPanel::modified, this, &MainWindow::markDirty);
 
+    m_transmitPanel->setMeasurementRunning(m_controller->isRunning());
+    connect(m_controller, &CanEngineController::started, m_transmitPanel, [this] {
+        m_transmitPanel->setMeasurementRunning(true);
+    });
+    connect(m_controller, &CanEngineController::stopped, m_transmitPanel, [this] {
+        m_transmitPanel->setMeasurementRunning(false);
+    });
+
     m_transmitDock = createDockWidget(
         dockName(kDockTransmit), tr("Transmit"), m_transmitPanel, icon("transmit"));
 

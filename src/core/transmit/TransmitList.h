@@ -55,10 +55,18 @@ public:
     /// while the engine is stopped would otherwise grow it without limit.
     static constexpr std::size_t kOneShotCapacity = 256;
 
+    /// Marks a one-shot that does not belong to any row of the list.
+    static constexpr std::size_t kNoEntry = static_cast<std::size_t>(-1);
+
     /// A frame waiting to go out once, and the channel it was asked for on.
     struct OneShot final {
         CanFrame frame;
         std::uint8_t channel{0};
+
+        /// The row it was queued from, so the row's Count can follow the send.
+        /// Checked against the frame's identifier when collected, because a row
+        /// removed in between shifts the ones after it.
+        std::size_t entryIndex{kNoEntry};
     };
 
     TransmitList() = default;

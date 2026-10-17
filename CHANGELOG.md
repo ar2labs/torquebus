@@ -84,6 +84,12 @@ against what it does, which turned up more than expected.
 
 ### Fixed
 
+- **The Transmit panel's Send button looked dead.** With no measurement running, Send queued the frame
+  silently and the queue was dropped at the next Start; and even while running, a manual send never
+  incremented the row's `Count`. Send now says "no measurement is running" on the Output panel instead of
+  queueing, and every manual send is counted in its row (`TransmitList::sendOnce(index)` remembers the row;
+  `TransmitPanel::setMeasurementRunning`).
+
 - **SAE J1939, ISO 15765-2 (ISO-TP), ISO 14229-1 (UDS), and CAN Engine production-readiness pass:**
   - **SAE J1939-21 / J1939-71 / J1939-73 (`J1939Id`, `J1939Transport`, `J1939Node`, `J1939Network`, `CanSignal`, `DbcDecoderNode`, `J1939NetworkPanel`, `LuaPrelude`):**
     Added 3-bit (`raw >= 6U`) and 64-bit (`raw >= 0xFE00'0000'0000'0000ULL`) SAE J1939-71 §5.1.4 special value

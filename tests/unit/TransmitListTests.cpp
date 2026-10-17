@@ -175,6 +175,45 @@ TEST(TransmitListTests, AOneShotGoesOutOnTheNextPassWhateverTheScheduleSays)
     EXPECT_TRUE(out.size() == 1);
 }
 
+TEST(TransmitListTests, AOneShotIsCountedInItsRow)
+{
+    // The Count column stayed at zero after Send, which made a frame that had
+    // gone out look like a button that did nothing.
+    TransmitList list;
+    const std::size_t index = list.add(manual(0x200));
+
+    EXPECT_TRUE(list.sendOnce(index));
+    EXPECT_TRUE(list.sendOnce(index));
+
+    std::vector<CanFrame> out;
+    collect(list, ms(5), out);
+    ASSERT_EQ(out.size(), 2U);
+
+    TransmitEntry entry;
+    ASSERT_TRUE(list.entryAt(index, entry));
+    EXPECT_EQ(entry.sentCount, 2U);
+    EXPECT_EQ(entry.lastSentUs, ms(5));
+}
+
+TEST(TransmitListTests, AOneShotWhoseRowWasRemovedDoesNotCountAnotherRow)
+{
+    TransmitList list;
+    const std::size_t first = list.add(manual(0x200));
+    (void)list.add(manual(0x300));
+
+    EXPECT_TRUE(list.sendOnce(first));
+    list.remove(first); // the row now at index 0 is 0x300
+
+    std::vector<CanFrame> out;
+    collect(list, ms(5), out);
+    ASSERT_EQ(out.size(), 1U); // the frame still goes out
+
+    TransmitEntry entry;
+    ASSERT_TRUE(list.entryAt(0, entry));
+    EXPECT_EQ(entry.frame.identifier, 0x300U);
+    EXPECT_EQ(entry.sentCount, 0U);
+}
+
 TEST(TransmitListTests, AOneShotOnADisabledRowIsRefused)
 {
     // Disabled means disabled. A send button that works on a row the user

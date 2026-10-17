@@ -45,6 +45,11 @@ public:
     /// Rebuilds every row from the list.
     void reload();
 
+    /// Tells the panel whether a measurement is running. Send only transmits on
+    /// a running bus; without this the button would queue a frame that is
+    /// dropped when the measurement starts, and appear to do nothing.
+    void setMeasurementRunning(bool running) noexcept { m_measurementRunning = running; }
+
     [[nodiscard]] QTreeView* treeView() const noexcept { return m_treeView; }
     [[nodiscard]] TransmitTreeModel* treeModel() const noexcept { return m_treeModel; }
 
@@ -72,6 +77,7 @@ private:
     [[nodiscard]] int selectedMessageIndex() const;
 
     TransmitList& m_list;
+    bool m_measurementRunning{false};
     std::vector<std::shared_ptr<const CanDatabase>> m_databases;
 
     TransmitTreeModel* m_treeModel{nullptr};

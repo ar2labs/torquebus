@@ -145,12 +145,19 @@ bool TransmitList::sendOnce(const CanFrame& frame, std::uint8_t channel)
 
 bool TransmitList::sendOnce(std::size_t index)
 {
-    TransmitEntry entry;
-    if (!entryAt(index, entry) || !entry.enabled) {
+    const std::lock_guard guard{m_mutex};
+
+    if (index >= m_entries.size() || !m_entries[index].enabled) {
         return false;
     }
 
-    return sendOnce(entry.frame, entry.channel);
+    if (m_oneShots.size() >= kOneShotCapacity) {
+        return false;
+    }
+
+    const TransmitEntry& entry = m_entries[index];
+    m_oneShots.push_back(OneShot{entry.frame, entry.channel, index});
+    return true;
 }
 
 void TransmitList::collectDue(std::uint64_t nowUs, std::uint8_t channel, std::vector<CanFrame>& out)
@@ -171,6 +178,17 @@ void TransmitList::collectDue(std::uint64_t nowUs, std::uint8_t channel, std::ve
             CanFrame frame = shot.frame;
             frame.channel = channel;
             out.push_back(frame);
+
+            // A press from the Send button counts as a send of its row: a Count
+            // that stayed at zero after the frame went out made the button look
+            // like it had done nothing.
+            if (shot.entryIndex < m_entries.size()) {
+                TransmitEntry& row = m_entries[shot.entryIndex];
+                if (row.frame.identifier == shot.frame.identifier && row.channel == shot.channel) {
+                    ++row.sentCount;
+                    row.lastSentUs = nowUs;
+                }
+            }
         } else {
             remaining.push_back(shot);
         }
