@@ -12,6 +12,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QLineEdit>
+#include <QStringList>
 #include <QTreeView>
 
 using namespace torquebus;
@@ -174,6 +175,40 @@ TEST_F(TransmitPanelTest, RemoveAndSendFollowTheSelection)
     EXPECT_EQ(list.size(), 0U);
     EXPECT_EQ(model()->rowCount(), 0);
     EXPECT_FALSE(remove->isEnabled());
+}
+
+TEST_F(TransmitPanelTest, SendSaysSoWhenNoMeasurementIsRunningAndCountsWhenOneIs)
+{
+    QAction* add = action(QStringLiteral("Add"));
+    QAction* send = action(QStringLiteral("Send"));
+    ASSERT_NE(add, nullptr);
+    ASSERT_NE(send, nullptr);
+
+    QStringList reports;
+    QObject::connect(&panel, &TransmitPanel::reported, &panel, [&reports](const QString& text) {
+        reports.push_back(text);
+    });
+
+    add->trigger();
+    settle();
+
+    // Stopped: said out loud, and nothing queued to fire at the next Start.
+    send->trigger();
+    ASSERT_EQ(reports.size(), 1);
+    EXPECT_TRUE(reports.front().contains(QStringLiteral("no measurement is running")));
+
+    // Running: queued, and the row's Count follows the pass that sends it.
+    panel.setMeasurementRunning(true);
+    send->trigger();
+    EXPECT_EQ(reports.size(), 1);
+
+    std::vector<CanFrame> out;
+    list.collectDue(1000, 0, out);
+    ASSERT_EQ(out.size(), 1U);
+
+    TransmitEntry entry;
+    ASSERT_TRUE(list.entryAt(0, entry));
+    EXPECT_EQ(entry.sentCount, 1U);
 }
 
 TEST_F(TransmitPanelTest, EditingTheIdentifierReachesTheList)

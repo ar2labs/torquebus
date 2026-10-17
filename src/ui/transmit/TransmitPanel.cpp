@@ -307,6 +307,14 @@ void TransmitPanel::onSendSelected()
         return;
     }
 
+    if (!m_measurementRunning) {
+        // Said, not queued: a frame queued while stopped is dropped when the
+        // measurement starts, so accepting it silently looked like a dead button.
+        Q_EMIT reported(tr("Nothing was sent: no measurement is running. Press Start, "
+                           "then Send."));
+        return;
+    }
+
     if (!m_list.sendOnce(static_cast<std::size_t>(row))) {
         Q_EMIT reported(tr("Row %1 was not sent: it is switched off, or the "
                            "send queue is full.")
