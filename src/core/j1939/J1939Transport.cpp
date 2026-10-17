@@ -193,6 +193,15 @@ bool J1939Transport::onFrame(const CanFrame& frame, std::uint64_t nowNs)
 
     if (pgn == kPgnTransportData) {
         if (frame.length >= kDataBytes) {
+            if (frame.data[0] == 0U) {
+                const auto found =
+                    m_sessions.find(keyFor(id->sourceAddress, id->destinationAddress()));
+                if (found != m_sessions.end() && !found->second.extended) {
+                    fail(found->second, J1939TransportError::SequenceGap, nowNs);
+                }
+                return true;
+            }
+
             // TP numbers its packets from one, straight through.
             onDataTransfer(*id, frame, static_cast<std::uint32_t>(frame.data[0]) - 1U, nowNs);
         }
@@ -211,7 +220,7 @@ bool J1939Transport::onFrame(const CanFrame& frame, std::uint64_t nowNs)
         }
 
         const auto found = m_sessions.find(keyFor(id->sourceAddress, id->destinationAddress()));
-        if (found == m_sessions.end()) {
+        if (found == m_sessions.end() || !found->second.extended) {
             return true;
         }
 
@@ -220,6 +229,11 @@ bool J1939Transport::onFrame(const CanFrame& frame, std::uint64_t nowNs)
             // would put these bytes at the start of the message and silently
             // misplace every window after it.
             fail(found->second, J1939TransportError::MissingPacketOffset, nowNs);
+            return true;
+        }
+
+        if (frame.data[0] == 0U) {
+            fail(found->second, J1939TransportError::SequenceGap, nowNs);
             return true;
         }
 
@@ -246,16 +260,26 @@ void J1939Transport::onConnectionManagement(const CanFrame& frame,
 
     switch (static_cast<J1939TransportControl>(frame.data[0])) {
     case J1939TransportControl::BroadcastAnnounce:
+        if (!id.isBroadcast()) {
+            return;
+        }
         beginSession(frame, id, true, false, announcedSize(frame), nowNs);
         return;
 
     case J1939TransportControl::RequestToSend:
+        if (id.isBroadcast()) {
+            return;
+        }
         beginSession(frame, id, false, false, announcedSize(frame), nowNs);
         return;
 
     case J1939TransportControl::Abort: {
-        const auto existing = m_sessions.find(keyFor(id.sourceAddress, id.destinationAddress()));
-        if (existing != m_sessions.end()) {
+        auto existing = m_sessions.find(keyFor(id.sourceAddress, id.destinationAddress()));
+        if (existing == m_sessions.end()) {
+            existing = m_sessions.find(keyFor(id.destinationAddress(), id.sourceAddress));
+        }
+        if (existing != m_sessions.end() && !existing->second.broadcast
+            && !existing->second.extended) {
             // Byte 2 of the message is the reason and byte 3 carries the role
             // in its low two bits - J1939-21 Figure 14 and Table 6, counting
             // the control byte as byte 1.
@@ -266,7 +290,19 @@ void J1939Transport::onConnectionManagement(const CanFrame& frame,
         return;
     }
 
-    case J1939TransportControl::ClearToSend:
+    case J1939TransportControl::ClearToSend: {
+        // Responder (id.sourceAddress) replies to Originator (id.destinationAddress()).
+        // Refreshing the session timer and marking it in-handshake prevents a false T1 timeout
+        // during multi-window CTS handshakes or CTS(0) connection holds.
+        const auto existing = m_sessions.find(keyFor(id.destinationAddress(), id.sourceAddress));
+        if (existing != m_sessions.end() && !existing->second.broadcast
+            && !existing->second.extended && existing->second.pgn == carriedPgn(frame)) {
+            existing->second.lastFrameNs = nowNs;
+            existing->second.inHandshake = true;
+        }
+        return;
+    }
+
     case J1939TransportControl::EndOfMessageAck:
         // Read and not answered: these belong to the two ECUs negotiating with
         // each other, and this is a bystander.
@@ -289,6 +325,9 @@ void J1939Transport::onExtendedConnection(const CanFrame& frame,
     switch (static_cast<J1939ExtendedControl>(frame.data[0])) {
     case J1939ExtendedControl::RequestToSend:
         // ETP is always destination specific; there is no broadcast form.
+        if (id.isBroadcast()) {
+            return;
+        }
         beginSession(frame, id, false, true, announcedExtendedSize(frame), nowNs);
         return;
 
@@ -299,6 +338,11 @@ void J1939Transport::onExtendedConnection(const CanFrame& frame,
         }
 
         Session& session = existing->second;
+        if (frame.data[1] == 0U) {
+            fail(session, J1939TransportError::PacketCountMismatch, nowNs);
+            return;
+        }
+
         const std::uint32_t offset = announcedOffset(frame);
 
         // The window has to start where the message has got to. A DPO that
@@ -311,13 +355,17 @@ void J1939Transport::onExtendedConnection(const CanFrame& frame,
 
         session.packetOffset = offset;
         session.offsetDeclared = true;
+        session.inHandshake = false;
         session.lastFrameNs = nowNs;
         return;
     }
 
     case J1939ExtendedControl::Abort: {
-        const auto existing = m_sessions.find(keyFor(id.sourceAddress, id.destinationAddress()));
-        if (existing != m_sessions.end()) {
+        auto existing = m_sessions.find(keyFor(id.sourceAddress, id.destinationAddress()));
+        if (existing == m_sessions.end()) {
+            existing = m_sessions.find(keyFor(id.destinationAddress(), id.sourceAddress));
+        }
+        if (existing != m_sessions.end() && existing->second.extended) {
             // No role: the layout of an extended abort belongs to ISO 11783-3,
             // which this project has not read. Reading J1939-21's byte here
             // would be a guess wearing the clothes of a fact.
@@ -326,7 +374,16 @@ void J1939Transport::onExtendedConnection(const CanFrame& frame,
         return;
     }
 
-    case J1939ExtendedControl::ClearToSend:
+    case J1939ExtendedControl::ClearToSend: {
+        const auto existing = m_sessions.find(keyFor(id.destinationAddress(), id.sourceAddress));
+        if (existing != m_sessions.end() && existing->second.extended
+            && existing->second.pgn == carriedPgn(frame)) {
+            existing->second.lastFrameNs = nowNs;
+            existing->second.inHandshake = true;
+        }
+        return;
+    }
+
     case J1939ExtendedControl::EndOfMessageAck:
         // The receiver's half of somebody else's handshake.
         return;
@@ -357,7 +414,7 @@ void J1939Transport::beginSession(const CanFrame& frame,
     const std::size_t highest = extended ? kMaximumExtendedMessage : kMaximumMessage;
 
     if (size < lowest || size > highest) {
-        failAnnouncement(id, pgn, J1939TransportError::SizeOutOfRange, packets, nowNs);
+        failAnnouncement(frame, id, pgn, J1939TransportError::SizeOutOfRange, packets, nowNs);
         return;
     }
 
@@ -367,7 +424,7 @@ void J1939Transport::beginSession(const CanFrame& frame,
         // One of the two numbers is wrong and there is no way to tell which, so
         // neither is trusted: trusting the size would overrun a short transfer,
         // and trusting the count would truncate a long one.
-        failAnnouncement(id, pgn, J1939TransportError::PacketCountMismatch, packets, nowNs);
+        failAnnouncement(frame, id, pgn, J1939TransportError::PacketCountMismatch, packets, nowNs);
         return;
     }
 
@@ -376,8 +433,10 @@ void J1939Transport::beginSession(const CanFrame& frame,
     session.priority = id.priority;
     session.sourceAddress = id.sourceAddress;
     session.destinationAddress = id.destinationAddress();
+    session.channel = frame.channel;
     session.broadcast = broadcast;
     session.extended = extended;
+    session.inHandshake = !broadcast;
     session.totalSize = size;
     session.totalPackets = packets;
     session.nextPacket = 0U;
@@ -431,6 +490,7 @@ void J1939Transport::onDataTransfer(const J1939Id& id,
                         frame.data.begin() + 1 + static_cast<std::ptrdiff_t>(take));
 
     ++session.nextPacket;
+    session.inHandshake = false;
     session.lastFrameNs = nowNs;
 
     if (session.nextPacket < session.totalPackets) {
@@ -443,6 +503,7 @@ void J1939Transport::onDataTransfer(const J1939Id& id,
     event.sourceAddress = session.sourceAddress;
     event.destinationAddress = session.destinationAddress;
     event.priority = session.priority;
+    event.channel = session.channel;
     event.broadcast = session.broadcast;
     event.extended = session.extended;
     event.data = std::move(session.data);
@@ -457,13 +518,14 @@ void J1939Transport::onDataTransfer(const J1939Id& id,
 void J1939Transport::poll(std::uint64_t nowNs)
 {
     for (auto it = m_sessions.begin(); it != m_sessions.end();) {
-        // T1 counts from a packet, so before the first one there is nothing for
-        // it to count from. A negotiated transfer is waiting on a handshake
-        // between two other ECUs at that point, and T3 is what the standard
-        // gives the sender to wait for it. A broadcast has no handshake - the
-        // packets follow the announcement directly - so T1 applies from the
-        // start and a dead BAM is reported half a second sooner.
-        const bool started = it->second.packetsReceived() > 0U;
+        // T1 counts from a packet, so before the first one (or while waiting on
+        // a CTS / CTS(0) handshake between windows) there is nothing for it to
+        // count from. A negotiated transfer is waiting on a handshake between
+        // two other ECUs at that point, and T3 is what the standard gives the
+        // sender to wait for it. A broadcast has no handshake - the packets
+        // follow the announcement directly - so T1 applies from the start and a
+        // dead BAM is reported half a second sooner.
+        const bool started = it->second.packetsReceived() > 0U && !it->second.inHandshake;
         const std::uint64_t patience =
             (started || it->second.broadcast) ? kPacketTimeoutNs : kHandshakeTimeoutNs;
 
@@ -476,6 +538,7 @@ void J1939Transport::poll(std::uint64_t nowNs)
             event.sourceAddress = it->second.sourceAddress;
             event.destinationAddress = it->second.destinationAddress;
             event.priority = it->second.priority;
+            event.channel = it->second.channel;
             event.broadcast = it->second.broadcast;
             event.extended = it->second.extended;
             event.packetsReceived = it->second.packetsReceived();
@@ -506,6 +569,7 @@ void J1939Transport::fail(const Session& session,
     event.sourceAddress = session.sourceAddress;
     event.destinationAddress = session.destinationAddress;
     event.priority = session.priority;
+    event.channel = session.channel;
     event.broadcast = session.broadcast;
     event.extended = session.extended;
     event.packetsReceived = session.packetsReceived();
@@ -516,7 +580,8 @@ void J1939Transport::fail(const Session& session,
     m_sessions.erase(keyFor(session.sourceAddress, session.destinationAddress));
 }
 
-void J1939Transport::failAnnouncement(const J1939Id& id,
+void J1939Transport::failAnnouncement(const CanFrame& frame,
+                                      const J1939Id& id,
                                       std::uint32_t pgn,
                                       J1939TransportError error,
                                       std::uint32_t expectedPackets,
@@ -529,6 +594,7 @@ void J1939Transport::failAnnouncement(const J1939Id& id,
     event.sourceAddress = id.sourceAddress;
     event.destinationAddress = id.destinationAddress();
     event.priority = id.priority;
+    event.channel = frame.channel;
     event.broadcast = id.isBroadcast();
     event.extended = id.pgn() == kPgnExtendedTransportConnection;
     event.packetsReceived = 0U;

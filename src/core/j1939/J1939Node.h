@@ -138,7 +138,8 @@ private:
                            std::size_t at);
 
     /// Files a DM1 or DM2, replacing the previous one from that ECU.
-    void recordDiagnostic(J1939Diagnostic message);
+    /// Returns true when the fault list or lamps changed.
+    bool recordDiagnostic(J1939Diagnostic message);
 
     /// Writes the OR of the lamps of every ECU whose DM1 is current at `nowNs` to the system
     /// variables, when that is a change. Cheap enough to call every pass: a handful of ECUs, and

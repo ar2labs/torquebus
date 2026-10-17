@@ -60,6 +60,7 @@ struct TraceTreeNode {
     CanFrameFormat format{CanFrameFormat::Standard};
     CanDirection msgDirection{CanDirection::Rx};
     const CanMessage* dbMessage{nullptr};
+    std::uint64_t baselineCount{0};
     std::uint64_t lastFrameCount{0};
 
     // For Signal node:
@@ -145,6 +146,8 @@ private:
     TraceTreeNode* m_txGroup{nullptr};
 
     std::size_t m_lastIdentifierCount{0};
+    std::uint64_t m_clearedTotalAppended{0};
+    std::vector<std::uint64_t> m_clearedCounts;
     std::unordered_map<std::uint64_t, TraceTreeNode*> m_messageNodeMap;
 
     bool m_frozen{false};

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 add_executable(torquebus_ui_tests DockingTests.cpp TransmitPanelTests.cpp CanvasPanelTests.cpp CanvasBusTests.cpp
-    CanvasRobustnessTests.cpp NodePropertiesRangeTests.cpp CanvasArrangeTests.cpp TracePanelTests.cpp GraphPanelTests.cpp ScriptEditorPanelTests.cpp IconImageProviderTests.cpp ClusterThemeSyncTests.cpp ClusterViewTests.cpp ClusterHostTests.cpp EngineControllerTests.cpp)
+    CanvasRobustnessTests.cpp NodePropertiesRangeTests.cpp CanvasArrangeTests.cpp TracePanelTests.cpp GraphPanelTests.cpp ScriptEditorPanelTests.cpp IconImageProviderTests.cpp ClusterThemeSyncTests.cpp ClusterViewTests.cpp ClusterHostTests.cpp EngineControllerTests.cpp DiagnosticsPanelTests.cpp)
 target_link_libraries(torquebus_ui_tests
     PRIVATE torquebus::ui torquebus_clusterplugin torquebus::warnings GTest::gtest
 )

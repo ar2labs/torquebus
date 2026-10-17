@@ -238,6 +238,7 @@ Result TraceLogWriter::flush()
                  static_cast<std::streamsize>(m_buffer.size()));
 
     if (!m_file) {
+        m_buffer.clear();
         return Result::error(ErrorCode::FileAccessDenied,
                              "The log file stopped accepting writes - the disk may be full");
     }

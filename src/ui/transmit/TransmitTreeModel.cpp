@@ -456,6 +456,7 @@ bool TransmitTreeModel::setData(const QModelIndex& index, const QVariant& value,
         const bool checked = (value.toInt() == Qt::Checked);
         m_list.setEnabled(node->entryIndex, checked);
         Q_EMIT dataChanged(index, index, {Qt::CheckStateRole});
+        Q_EMIT modified();
         return true;
     }
 
@@ -487,8 +488,9 @@ bool TransmitTreeModel::setData(const QModelIndex& index, const QVariant& value,
             const std::size_t maxLen = entry.frame.fd ? 64 : 8;
             for (std::size_t l = entry.frame.length + 1; l <= maxLen; ++l) {
                 if (sig->fitsIn(l)) {
-                    entry.frame.length = static_cast<std::uint8_t>(l);
-                    entry.frame.dlc = static_cast<std::uint8_t>(l);
+                    entry.frame.dlc =
+                        dlcFromPayloadLength(static_cast<std::uint8_t>(l), entry.frame.fd);
+                    entry.frame.length = payloadLengthFromDlc(entry.frame.dlc, entry.frame.fd);
                     break;
                 }
             }
@@ -535,6 +537,7 @@ bool TransmitTreeModel::setData(const QModelIndex& index, const QVariant& value,
                     this->index(node->parent->childCount() - 1, ColumnData, parentMsgIdx);
                 Q_EMIT dataChanged(sigStart, sigEnd);
             }
+            Q_EMIT modified();
             return true;
         }
         return false;
@@ -550,6 +553,7 @@ bool TransmitTreeModel::setData(const QModelIndex& index, const QVariant& value,
                 entry.channel = static_cast<std::uint8_t>(ch - 1);
                 m_list.update(node->entryIndex, entry);
                 Q_EMIT dataChanged(index, index);
+                Q_EMIT modified();
                 return true;
             }
             break;
@@ -562,12 +566,18 @@ bool TransmitTreeModel::setData(const QModelIndex& index, const QVariant& value,
             const bool fd = text.contains(QLatin1String("FD"), Qt::CaseInsensitive);
             entry.frame.format = ext ? CanFrameFormat::Extended : CanFrameFormat::Standard;
             entry.frame.fd = fd;
+            if (!fd && entry.frame.length > kMaxClassicCanPayload) {
+                entry.frame.length = static_cast<std::uint8_t>(kMaxClassicCanPayload);
+            }
+            entry.frame.dlc = dlcFromPayloadLength(entry.frame.length, entry.frame.fd);
+            entry.frame.length = payloadLengthFromDlc(entry.frame.dlc, entry.frame.fd);
             m_list.update(node->entryIndex, entry);
             updateMessageSignals(node, node->rowInParent);
             const QModelIndex rowStart = this->index(node->rowInParent, 0, QModelIndex());
             const QModelIndex rowEnd =
                 this->index(node->rowInParent, TransmitColumnCount - 1, QModelIndex());
             Q_EMIT dataChanged(rowStart, rowEnd);
+            Q_EMIT modified();
             return true;
         }
 
@@ -582,6 +592,7 @@ bool TransmitTreeModel::setData(const QModelIndex& index, const QVariant& value,
                 const QModelIndex rowEnd =
                     this->index(node->rowInParent, TransmitColumnCount - 1, QModelIndex());
                 Q_EMIT dataChanged(rowStart, rowEnd);
+                Q_EMIT modified();
                 return true;
             }
             break;
@@ -591,6 +602,7 @@ bool TransmitTreeModel::setData(const QModelIndex& index, const QVariant& value,
             entry.name = value.toString().toStdString();
             m_list.update(node->entryIndex, entry);
             Q_EMIT dataChanged(index, index);
+            Q_EMIT modified();
             return true;
 
         case ColumnData:
@@ -611,6 +623,7 @@ bool TransmitTreeModel::setData(const QModelIndex& index, const QVariant& value,
                 const QModelIndex lenIdx =
                     this->index(node->rowInParent, ColumnLength, QModelIndex());
                 Q_EMIT dataChanged(lenIdx, lenIdx);
+                Q_EMIT modified();
                 return true;
             }
             break;
@@ -622,6 +635,7 @@ bool TransmitTreeModel::setData(const QModelIndex& index, const QVariant& value,
                 entry.trigger = TransmitTrigger::Manual;
                 m_list.update(node->entryIndex, entry);
                 Q_EMIT dataChanged(index, index);
+                Q_EMIT modified();
                 return true;
             }
 
@@ -634,6 +648,7 @@ bool TransmitTreeModel::setData(const QModelIndex& index, const QVariant& value,
                 entry.cycleMs = std::max<std::uint32_t>(cycle, TransmitList::kMinimumCycleMs);
                 m_list.update(node->entryIndex, entry);
                 Q_EMIT dataChanged(index, index);
+                Q_EMIT modified();
                 return true;
             }
             break;
@@ -725,7 +740,7 @@ QString TransmitTreeModel::signalDecodedText(const TransmitTreeNode* node,
         return QStringLiteral("= ?");
     }
 
-    const std::int64_t raw = sig->rawValue(parentFrame.data.data(), parentFrame.length);
+    const std::int64_t raw = sig->rawValue(parentFrame.data.data(), parentFrame.payloadSize());
 
     // Named enum description
     if (const std::string_view named = sig->nameForValue(raw); !named.empty()) {
@@ -733,8 +748,8 @@ QString TransmitTreeModel::signalDecodedText(const TransmitTreeNode* node,
             QString::fromUtf8(named.data(), static_cast<int>(named.size())));
     }
 
-    QString text =
-        QStringLiteral("= %1").arg(static_cast<double>(raw) * sig->factor + sig->offset, 0, 'g', 8);
+    QString text = QStringLiteral("= %1").arg(
+        sig->decode(parentFrame.data.data(), parentFrame.payloadSize()), 0, 'g', 8);
 
     if (!sig->unit.empty()) {
         text += QLatin1Char(' ') + QString::fromStdString(sig->unit);
@@ -754,13 +769,13 @@ QString TransmitTreeModel::signalPhysicalText(const TransmitTreeNode* node,
         return QStringLiteral("0");
     }
 
-    const std::int64_t raw = sig->rawValue(parentFrame.data.data(), parentFrame.length);
+    const std::int64_t raw = sig->rawValue(parentFrame.data.data(), parentFrame.payloadSize());
 
     if (const std::string_view named = sig->nameForValue(raw); !named.empty()) {
         return QString::fromUtf8(named.data(), static_cast<int>(named.size()));
     }
 
-    return QString::number(static_cast<double>(raw) * sig->factor + sig->offset, 'g', 8);
+    return QString::number(sig->decode(parentFrame.data.data(), parentFrame.payloadSize()), 'g', 8);
 }
 
 QVariant TransmitTreeModel::headerData(int section, Qt::Orientation orientation, int role) const

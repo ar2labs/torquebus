@@ -94,6 +94,8 @@ struct J1939Lamps final {
     J1939LampState redStop{J1939LampState::NotAvailable};
     J1939LampState amberWarning{J1939LampState::NotAvailable};
     J1939LampState protect{J1939LampState::NotAvailable};
+
+    friend constexpr bool operator==(const J1939Lamps&, const J1939Lamps&) noexcept = default;
 };
 
 /// How a code that declares the legacy packing should be read.
@@ -147,6 +149,8 @@ struct J1939Dtc final {
 
     /// The four bytes exactly as they arrived. Carried on every code, always.
     std::array<std::uint8_t, kJ1939DtcBytes> raw{};
+
+    friend constexpr bool operator==(const J1939Dtc&, const J1939Dtc&) noexcept = default;
 };
 
 /// A decoded DM1 or DM2.
@@ -226,5 +230,9 @@ j1939DecodeDiagnostic(std::uint32_t pgn,
                       std::span<const std::uint8_t> payload,
                       J1939SpnReading reading,
                       std::uint64_t timestampNs);
+
+/// Returns the SAE J1939-73 Table 2 failure mode description for `fmi` (0..31).
+/// Thirty-two values, fixed by the standard.
+[[nodiscard]] std::string_view j1939FmiName(std::uint8_t fmi) noexcept;
 
 } // namespace torquebus

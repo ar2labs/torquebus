@@ -129,4 +129,60 @@ std::optional<J1939Diagnostic> j1939DecodeDiagnostic(std::uint32_t pgn,
     return result;
 }
 
+std::string_view j1939FmiName(std::uint8_t fmi) noexcept
+{
+    switch (fmi & 0x1FU) {
+    case 0U:
+        return "Data valid but above normal operational range - most severe level";
+    case 1U:
+        return "Data valid but below normal operational range - most severe level";
+    case 2U:
+        return "Data erratic, intermittent or incorrect";
+    case 3U:
+        return "Voltage above normal, or shorted to high source";
+    case 4U:
+        return "Voltage below normal, or shorted to low source";
+    case 5U:
+        return "Current below normal or open circuit";
+    case 6U:
+        return "Current above normal or grounded circuit";
+    case 7U:
+        return "Mechanical system not responding or out of adjustment";
+    case 8U:
+        return "Abnormal frequency or pulse width or period";
+    case 9U:
+        return "Abnormal update rate";
+    case 10U:
+        return "Abnormal rate of change";
+    case 11U:
+        return "Root cause not known";
+    case 12U:
+        return "Bad intelligent device or component";
+    case 13U:
+        return "Out of calibration";
+    case 14U:
+        return "Special instructions";
+    case 15U:
+        return "Data valid but above normal operating range - least severe level";
+    case 16U:
+        return "Data valid but above normal operating range - moderately severe level";
+    case 17U:
+        return "Data valid but below normal operating range - least severe level";
+    case 18U:
+        return "Data valid but below normal operating range - moderately severe level";
+    case 19U:
+        return "Received network data in error";
+    case 20U:
+        return "Data drifted high";
+    case 21U:
+        return "Data drifted low";
+    case 31U:
+        return "Condition exists";
+    default:
+        break;
+    }
+
+    return "Reserved for SAE assignment";
+}
+
 } // namespace torquebus

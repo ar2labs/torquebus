@@ -236,3 +236,67 @@ TEST(TracePanelTests, FilterReducesVisibleTreeItems)
     settle();
     EXPECT_EQ(model->rowCount(rxGroup), 2);
 }
+
+TEST(TracePanelTests, ClearHidesExistingFramesAcrossSubsequentPollsUntilNewFramesArrive)
+{
+    TraceStore store{100};
+    TracePanel panel;
+    panel.setStore(&store);
+    panel.resize(1000, 600);
+    panel.show();
+    settle();
+
+    const CanFrame frame1 = makeFrame(0x100, CanDirection::Rx);
+    const CanFrame frame2 = makeFrame(0x200, CanDirection::Tx);
+    store.append(std::span<const CanFrame>{&frame1, 1});
+    store.append(std::span<const CanFrame>{&frame2, 1});
+
+    panel.poll();
+    settle();
+
+    auto* tree = panel.findChild<QTreeView*>("torquebusTraceTree");
+    auto* table = panel.findChild<QTableView*>("torquebusTraceTable");
+    ASSERT_NE(tree, nullptr);
+    ASSERT_NE(table, nullptr);
+
+    auto* treeModel = tree->model();
+    auto* tableModel = table->model();
+    ASSERT_NE(treeModel, nullptr);
+    ASSERT_NE(tableModel, nullptr);
+
+    EXPECT_EQ(tableModel->rowCount(), 2);
+    EXPECT_EQ(treeModel->rowCount(treeModel->index(0, 0)), 1);
+    EXPECT_EQ(treeModel->rowCount(treeModel->index(1, 0)), 1);
+
+    // Find and trigger the Clear action
+    QAction* clearAction = nullptr;
+    for (QAction* action : panel.findChildren<QAction*>()) {
+        if (action->text() == QStringLiteral("Clear")) {
+            clearAction = action;
+            break;
+        }
+    }
+    ASSERT_NE(clearAction, nullptr);
+    clearAction->trigger();
+    settle();
+
+    // Polling again while no new frames have arrived must NOT re-populate cleared frames
+    panel.poll();
+    settle();
+
+    EXPECT_EQ(tableModel->rowCount(), 0);
+    EXPECT_EQ(treeModel->rowCount(treeModel->index(0, 0)), 0);
+    EXPECT_EQ(treeModel->rowCount(treeModel->index(1, 0)), 0);
+
+    // Appending a new frame after Clear shows only the new frame with count = 1
+    const CanFrame frame3 = makeFrame(0x100, CanDirection::Rx);
+    store.append(std::span<const CanFrame>{&frame3, 1});
+    panel.poll();
+    settle();
+
+    EXPECT_EQ(tableModel->rowCount(), 1);
+    const QModelIndex rxGroup = treeModel->index(0, 0);
+    ASSERT_EQ(treeModel->rowCount(rxGroup), 1);
+    EXPECT_EQ(treeModel->data(treeModel->index(0, ColumnCount, rxGroup)).toString(),
+              QStringLiteral("1"));
+}

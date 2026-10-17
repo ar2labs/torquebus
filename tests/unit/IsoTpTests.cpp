@@ -515,3 +515,45 @@ TEST(IsoTpTests, AConsecutiveFrameWithNothingStartedIsIgnored)
     EXPECT_TRUE(connection.onFrame(incoming({0x21, 1, 2, 3, 4, 5, 6, 7}), 0));
     EXPECT_TRUE(connection.events().empty());
 }
+
+TEST(IsoTpTests, ExtendedAddressingSevenByteMessageAndUnexpectedFramesDuringAssembly)
+{
+    // With extended addressing (1 byte in data[0]), a 7-byte payload cannot fit
+    // in a 1-byte PCI Single Frame on an 8-byte Classic CAN frame: it must use
+    // FirstFrame + ConsecutiveFrame on Classic CAN, or the 2-byte escape on CAN FD.
+    IsoTpAddress extAddr = IsoTpAddress::obd(0);
+    extAddr.addressing = IsoTpAddressing::Extended;
+    extAddr.transmitExtension = 0x22U;
+    extAddr.receiveExtension = 0x11U;
+
+    IsoTpConfig classicCfg;
+    IsoTpConnection classicConn{extAddr, classicCfg};
+    ASSERT_TRUE(classicConn.send(ramp(7), 0).succeeded());
+    ASSERT_EQ(classicConn.pendingFrames().size(), 1U);
+    EXPECT_EQ(classicConn.pendingFrames().front().data[0], 0x22U);
+    EXPECT_EQ(classicConn.pendingFrames().front().data[1] & 0xF0U, 0x10U); // FirstFrame
+
+    IsoTpConfig fdCfg = classicCfg;
+    fdCfg.canFd = true;
+    IsoTpConnection fdConn{extAddr, fdCfg};
+    ASSERT_TRUE(fdConn.send(ramp(7), 0).succeeded());
+    ASSERT_EQ(fdConn.pendingFrames().size(), 1U);
+    EXPECT_EQ(fdConn.pendingFrames().front().data[0], 0x22U);
+    EXPECT_EQ(fdConn.pendingFrames().front().data[1], 0x00U); // 2-byte SF escape
+    EXPECT_EQ(fdConn.pendingFrames().front().data[2], 7U);
+    EXPECT_EQ(fdConn.pendingFrames().front().dlc, 9U); // 12-byte FD frame has DLC 9
+
+    // ISO 15765-2 §9.6.5.2: an unexpected SingleFrame arriving while assembling
+    // a multi-frame message aborts the in-progress reception with ProtocolError
+    // and processes the new SingleFrame.
+    IsoTpConnection rx = tester();
+    EXPECT_TRUE(rx.onFrame(incoming({0x10, 0x14, 1, 2, 3, 4, 5, 6}), 0));
+    rx.clearPendingFrames();
+    EXPECT_TRUE(rx.onFrame(incoming({0x02, 0xAA, 0xBB, 0, 0, 0, 0, 0}), 100));
+
+    ASSERT_EQ(rx.events().size(), 2U);
+    EXPECT_EQ(rx.events()[0].kind, IsoTpEvent::Kind::ReceiveFailed);
+    EXPECT_EQ(rx.events()[0].error, IsoTpError::ProtocolError);
+    EXPECT_EQ(rx.events()[1].kind, IsoTpEvent::Kind::MessageReceived);
+    EXPECT_EQ(rx.events()[1].data, (std::vector<std::uint8_t>{0xAA, 0xBB}));
+}

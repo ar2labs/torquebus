@@ -16,6 +16,7 @@ void J1939Network::publish(std::vector<J1939NetworkNode> nodes,
         m_nodes = std::move(nodes);
         m_defeated = std::move(defeated);
         m_diagnostics = std::move(diagnostics);
+        m_published = true;
     }
 
     // After the lock is released, and with release ordering, so a reader that
@@ -32,6 +33,7 @@ J1939NetworkSnapshot J1939Network::snapshot() const
         result.nodes = m_nodes;
         result.defeated = m_defeated;
         result.diagnostics = m_diagnostics;
+        result.published = m_published;
     }
 
     result.revision = revision();
@@ -45,6 +47,7 @@ void J1939Network::clear()
         m_nodes.clear();
         m_defeated.clear();
         m_diagnostics.clear();
+        m_published = false;
     }
 
     // Moved rather than reset to zero: a panel watching for a change would miss

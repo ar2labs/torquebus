@@ -42,6 +42,7 @@
 #include "core/database/CanSignal.h"
 #include "core/database/DbcParser.h"
 #include "core/database/DecodedSignal.h"
+#include "core/diagnostics/DtcCatalog.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "core/pipeline/NodeParameters.h"

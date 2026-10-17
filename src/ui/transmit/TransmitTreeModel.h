@@ -96,6 +96,7 @@ public:
 
 Q_SIGNALS:
     void reported(const QString& message);
+    void modified();
 
 private:
     void rebuildTree();

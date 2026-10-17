@@ -109,6 +109,8 @@ void TraceTreeModel::setStore(const TraceStore* store)
     beginResetModel();
     m_store = store;
     m_lastIdentifierCount = 0;
+    m_clearedTotalAppended = 0;
+    m_clearedCounts.clear();
     m_messageNodeMap.clear();
     m_rxGroup->children.clear();
     m_txGroup->children.clear();
@@ -170,6 +172,16 @@ void TraceTreeModel::reset()
 {
     beginResetModel();
     m_lastIdentifierCount = 0;
+    m_clearedCounts.clear();
+    m_clearedTotalAppended = 0;
+    if (m_store != nullptr) {
+        m_clearedTotalAppended = m_store->totalAppended();
+        const auto& identifiers = m_store->identifiers();
+        m_clearedCounts.reserve(identifiers.size());
+        for (const TraceIdentifierStats& stats : identifiers) {
+            m_clearedCounts.push_back(stats.count);
+        }
+    }
     m_messageNodeMap.clear();
     if (m_rxGroup != nullptr) {
         m_rxGroup->children.clear();
@@ -225,48 +237,56 @@ void TraceTreeModel::pollStore()
     const auto& identifiers = m_store->identifiers();
 
     // Check if store was cleared
-    if (identifiers.empty() && m_lastIdentifierCount > 0) {
+    if ((identifiers.empty() && (m_lastIdentifierCount > 0 || !m_clearedCounts.empty()))
+        || m_store->totalAppended() < m_clearedTotalAppended) {
         reset();
         return;
     }
 
-    // 1. Insert any new identifiers
-    if (identifiers.size() > m_lastIdentifierCount) {
-        for (std::size_t i = m_lastIdentifierCount; i < identifiers.size(); ++i) {
-            const TraceIdentifierStats& stats = identifiers[i];
-            TraceTreeNode* group = (stats.direction == CanDirection::Tx) ? m_txGroup : m_rxGroup;
-            const QModelIndex groupIdx =
-                (stats.direction == CanDirection::Tx) ? txGroupIndex() : rxGroupIndex();
-
-            const std::uint64_t key =
-                keyFor(stats.channel, stats.direction, stats.format, stats.identifier);
-
-            auto msgNode = std::make_unique<TraceTreeNode>();
-            msgNode->type = TreeNodeType::Message;
-            msgNode->parent = group;
-            msgNode->statsIndex = i;
-            msgNode->messageKey = key;
-            msgNode->channel = stats.channel;
-            msgNode->identifier = stats.identifier;
-            msgNode->format = stats.format;
-            msgNode->msgDirection = stats.direction;
-            msgNode->lastFrameCount = stats.count;
-            msgNode->dbMessage = definitionFor(stats.identifier, stats.format);
-
-            populateSignalsForMessage(msgNode.get(), stats.lastFrame);
-
-            const int newRow = group->childCount();
-            msgNode->rowInParent = newRow;
-
-            beginInsertRows(groupIdx, newRow, newRow);
-            m_messageNodeMap[key] = msgNode.get();
-            group->children.push_back(std::move(msgNode));
-            endInsertRows();
-
-            Q_EMIT groupPopulated(groupIdx);
+    // 1. Insert any identifiers that have received at least one frame since the last reset()
+    for (std::size_t i = 0; i < identifiers.size(); ++i) {
+        const TraceIdentifierStats& stats = identifiers[i];
+        const std::uint64_t baseline = i < m_clearedCounts.size() ? m_clearedCounts[i] : 0ULL;
+        if (stats.count <= baseline) {
+            continue;
         }
-        m_lastIdentifierCount = identifiers.size();
+
+        const std::uint64_t key =
+            keyFor(stats.channel, stats.direction, stats.format, stats.identifier);
+        if (m_messageNodeMap.contains(key)) {
+            continue;
+        }
+
+        TraceTreeNode* group = (stats.direction == CanDirection::Tx) ? m_txGroup : m_rxGroup;
+        const QModelIndex groupIdx =
+            (stats.direction == CanDirection::Tx) ? txGroupIndex() : rxGroupIndex();
+
+        auto msgNode = std::make_unique<TraceTreeNode>();
+        msgNode->type = TreeNodeType::Message;
+        msgNode->parent = group;
+        msgNode->statsIndex = i;
+        msgNode->messageKey = key;
+        msgNode->channel = stats.channel;
+        msgNode->identifier = stats.identifier;
+        msgNode->format = stats.format;
+        msgNode->msgDirection = stats.direction;
+        msgNode->baselineCount = baseline;
+        msgNode->lastFrameCount = stats.count;
+        msgNode->dbMessage = definitionFor(stats.identifier, stats.format);
+
+        populateSignalsForMessage(msgNode.get(), stats.lastFrame);
+
+        const int newRow = group->childCount();
+        msgNode->rowInParent = newRow;
+
+        beginInsertRows(groupIdx, newRow, newRow);
+        m_messageNodeMap[key] = msgNode.get();
+        group->children.push_back(std::move(msgNode));
+        endInsertRows();
+
+        Q_EMIT groupPopulated(groupIdx);
     }
+    m_lastIdentifierCount = identifiers.size();
 
     // 2. Update existing identifiers that received new frames
     for (TraceTreeNode* group : {m_rxGroup, m_txGroup}) {
@@ -291,8 +311,8 @@ void TraceTreeModel::pollStore()
                     if (sigNode != nullptr && sigNode->dbSignal != nullptr) {
                         const CanSignal* sig = sigNode->dbSignal;
                         if (sig->fitsIn(stats.lastFrame.length)) {
-                            const std::int64_t raw =
-                                sig->rawValue(stats.lastFrame.data.data(), stats.lastFrame.length);
+                            const std::int64_t raw = sig->rawValue(stats.lastFrame.data.data(),
+                                                                   stats.lastFrame.payloadSize());
                             sigNode->valueChanged =
                                 (sigNode->hasLastValue && raw != sigNode->lastRawValue);
                             sigNode->lastRawValue = raw;
@@ -545,7 +565,9 @@ QString TraceTreeModel::textFor(const TraceTreeNode* node, int column) const
             return formatInterval(stats.lastCycleUs);
 
         case ColumnCount:
-            return QString::number(stats.count);
+            return QString::number(stats.count >= node->baselineCount
+                                       ? stats.count - node->baselineCount
+                                       : stats.count);
 
         case ColumnDescription:
             return node->dbMessage != nullptr ? QString::fromStdString(node->dbMessage->comment)
@@ -607,7 +629,7 @@ QString TraceTreeModel::signalDecodedText(const TraceTreeNode* node,
         return QStringLiteral("= ?");
     }
 
-    const std::int64_t raw = signal->rawValue(parentFrame.data.data(), parentFrame.length);
+    const std::int64_t raw = signal->rawValue(parentFrame.data.data(), parentFrame.payloadSize());
 
     if (const std::string_view named = signal->nameForValue(raw); !named.empty()) {
         return QStringLiteral("= %1").arg(
@@ -615,7 +637,7 @@ QString TraceTreeModel::signalDecodedText(const TraceTreeNode* node,
     }
 
     QString text = QStringLiteral("= %1").arg(
-        static_cast<double>(raw) * signal->factor + signal->offset, 0, 'g', 8);
+        signal->decode(parentFrame.data.data(), parentFrame.payloadSize()), 0, 'g', 8);
 
     if (!signal->unit.empty()) {
         text += QLatin1Char(' ') + QString::fromStdString(signal->unit);

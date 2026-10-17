@@ -396,6 +396,8 @@ private:
 
     /// Re-run on every start; see setGraphBuilder().
     GraphBuilder m_graphBuilder;
+    bool m_hasUserTraceSink{false};
+    bool m_hasUserTransmitList{false};
 
     /// Source node per application channel, indexed by channel.
     std::vector<NodeId> m_sourceNodes;

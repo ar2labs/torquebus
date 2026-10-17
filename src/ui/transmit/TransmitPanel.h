@@ -50,6 +50,7 @@ public:
 
 Q_SIGNALS:
     void reported(const QString& message);
+    void modified();
 
 protected:
     void keyPressEvent(QKeyEvent* event) override;

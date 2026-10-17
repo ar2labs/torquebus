@@ -141,6 +141,7 @@ void TransmitPanel::buildUi()
     // Tree View
     m_treeModel = new TransmitTreeModel(m_list, this);
     connect(m_treeModel, &TransmitTreeModel::reported, this, &TransmitPanel::reported);
+    connect(m_treeModel, &TransmitTreeModel::modified, this, &TransmitPanel::modified);
 
     m_proxyModel = new TransmitTreeFilterModel(this);
     m_proxyModel->setSourceModel(m_treeModel);
@@ -214,6 +215,7 @@ void TransmitPanel::onAdd()
 
     (void)m_list.add(std::move(entry));
     reload();
+    Q_EMIT modified();
 
     const int newRow = static_cast<int>(m_list.size()) - 1;
     const QModelIndex proxyIdx = m_proxyModel->mapFromSource(m_treeModel->index(newRow, 0));
@@ -266,6 +268,7 @@ void TransmitPanel::onAddFromMessage()
 
     (void)m_list.add(std::move(entry));
     reload();
+    Q_EMIT modified();
 
     const int newRow = static_cast<int>(m_list.size()) - 1;
     const QModelIndex srcIdx = m_treeModel->index(newRow, 0);
@@ -285,6 +288,7 @@ void TransmitPanel::onRemove()
 
     m_list.remove(static_cast<std::size_t>(row));
     reload();
+    Q_EMIT modified();
 
     if (m_list.size() > 0) {
         const int nextRow = std::min(row, static_cast<int>(m_list.size()) - 1);
@@ -340,6 +344,7 @@ void TransmitPanel::onEditSignals()
     m_list.update(static_cast<std::size_t>(row), entry);
 
     reload();
+    Q_EMIT modified();
     const QModelIndex proxyIdx = m_proxyModel->mapFromSource(m_treeModel->index(row, 0));
     if (proxyIdx.isValid()) {
         m_treeView->setCurrentIndex(proxyIdx);

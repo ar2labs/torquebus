@@ -179,27 +179,32 @@ UdsServer::handleReadDtc(std::span<const std::uint8_t> request)
         return refuse(request[0], UdsNegativeResponse::IncorrectMessageLength);
     }
 
-    const std::uint8_t report = request[1];
+    const std::uint8_t report = request[1] & 0x7FU;
 
-    // 0x01 counts them, 0x02 lists them. Anything else is a sub-function this
-    // ECU does not implement - said rather than guessed at, because a tester
-    // reading a made-up layout invents faults that are not there.
-    if (report != 0x01 && report != 0x02) {
+    // 0x01 counts them, 0x02 lists them by mask, 0x0A lists all supported DTCs.
+    // Anything else is a sub-function this ECU does not implement - said rather
+    // than guessed at, because a tester reading a made-up layout invents faults
+    // that are not there.
+    if (report != 0x01 && report != 0x02 && report != 0x0A) {
         return refuse(request[0], UdsNegativeResponse::SubFunctionNotSupported);
     }
 
-    if (request.size() < 3) {
+    if (report != 0x0A && request.size() < 3) {
         return refuse(request[0], UdsNegativeResponse::IncorrectMessageLength);
     }
 
-    const std::uint8_t mask = request[2];
+    const std::uint8_t mask = (report == 0x0A && request.size() < 3) ? 0xFFU : request[2];
 
     std::vector<const DiagnosticTroubleCode*> matching;
 
     for (const DiagnosticTroubleCode& dtc : m_troubleCodes) {
-        if ((dtc.status & mask) != 0) {
+        if (report == 0x0A || (dtc.status & mask) != 0) {
             matching.push_back(&dtc);
         }
+    }
+
+    if ((request[1] & kSuppressPositiveResponse) != 0) {
+        return std::nullopt;
     }
 
     std::vector<std::uint8_t> response{static_cast<std::uint8_t>(request[0] + 0x40U), report};
@@ -335,6 +340,9 @@ std::optional<std::vector<std::uint8_t>> UdsServer::handle(std::span<const std::
         return handleReadDtc(request);
 
     case UdsService::ClearDiagnosticInformation:
+        if (request.size() != 4) {
+            return refuse(service, UdsNegativeResponse::IncorrectMessageLength);
+        }
         clearTroubleCodes();
         return std::vector<std::uint8_t>{static_cast<std::uint8_t>(service + 0x40U)};
 
@@ -342,7 +350,13 @@ std::optional<std::vector<std::uint8_t>> UdsServer::handle(std::span<const std::
         return handleSecurityAccess(request);
 
     case UdsService::TesterPresent:
-        if (request.size() >= 2 && (request[1] & kSuppressPositiveResponse) != 0) {
+        if (request.size() != 2) {
+            return refuse(service, UdsNegativeResponse::IncorrectMessageLength);
+        }
+        if ((request[1] & 0x7FU) != 0x00U) {
+            return refuse(service, UdsNegativeResponse::SubFunctionNotSupported);
+        }
+        if ((request[1] & kSuppressPositiveResponse) != 0) {
             // The ordinary form: heard, and not answered. The session was
             // already extended above, which is the whole point of the message.
             return std::nullopt;

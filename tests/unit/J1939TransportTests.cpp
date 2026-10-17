@@ -812,3 +812,59 @@ TEST(J1939TransportTests, StoppingAMeasurementDropsTransfersWithoutReportingThem
     EXPECT_TRUE(transport.openSessions() == 0U);
     EXPECT_TRUE(transport.events().empty());
 }
+
+TEST(J1939TransportTests, SequenceNumberZeroIsRejectedAsASequenceGap)
+{
+    // SAE J1939-21 §5.10.2.2: sequence numbers in TP.DT and ETP.DT are 1..255.
+    // Sequence 0 is illegal on the wire and must not underflow to 0xFFFFFFFF.
+    J1939Transport transport;
+    transport.onFrame(bam(14U, 2U, kEngine), 0U);
+    transport.onFrame(dataFrame(0U, countingPayload(7U), kEngine), 100U);
+
+    ASSERT_EQ(transport.events().size(), 1U);
+    EXPECT_EQ(transport.events()[0].kind, J1939TransportEvent::Kind::ReceiveFailed);
+    EXPECT_EQ(transport.events()[0].error, J1939TransportError::SequenceGap);
+    EXPECT_EQ(transport.openSessions(), 0U);
+
+    transport.clearEvents();
+    transport.onFrame(extendedRts(1792U, kEngine, kTester), 200U);
+    transport.onFrame(extendedOffset(255U, 0U, kEngine, kTester), 210U);
+    transport.onFrame(extendedData(0U, countingPayload(7U), kEngine, kTester), 220U);
+
+    ASSERT_EQ(transport.events().size(), 1U);
+    EXPECT_EQ(transport.events()[0].kind, J1939TransportEvent::Kind::ReceiveFailed);
+    EXPECT_EQ(transport.events()[0].error, J1939TransportError::SequenceGap);
+    EXPECT_EQ(transport.openSessions(), 0U);
+}
+
+TEST(J1939TransportTests, ResponderOriginatedAbortAndClearToSendAreHonoured)
+{
+    // When the receiver (Responder) aborts a transfer, SA and DA are reversed
+    // relative to the originator's RTS. The session must still be found and closed.
+    J1939Transport transport;
+    transport.onFrame(requestToSend(21U, 3U, kEngine, kTester), 0U);
+    transport.onFrame(
+        connectionFrame(J1939TransportControl::Abort, kCarried, 0x0102U, 0U, kTester, kEngine),
+        500U);
+
+    ASSERT_EQ(transport.events().size(), 1U);
+    EXPECT_EQ(transport.events()[0].error, J1939TransportError::AbortedByPeer);
+    EXPECT_EQ(transport.events()[0].sourceAddress, kEngine);
+    EXPECT_EQ(transport.events()[0].destinationAddress, kTester);
+    EXPECT_EQ(transport.openSessions(), 0U);
+
+    // A ClearToSend from the Responder mid-transfer switches the session back to
+    // handshake patience (T3 = 1250 ms) and refreshes the timeout clock.
+    constexpr std::uint64_t kT1 = J1939Transport::kPacketTimeoutNs;
+    transport.clearEvents();
+    transport.onFrame(requestToSend(14U, 2U, kEngine, kTester), 1000U);
+    transport.onFrame(dataFrame(1U, countingPayload(7U), kEngine, kTester), 2000U);
+    transport.onFrame(
+        connectionFrame(J1939TransportControl::ClearToSend, kCarried, 0U, 0U, kTester, kEngine),
+        2000U + kT1 / 2U);
+
+    // Past T1 from the CTS, but well within T3 (1250 ms): still alive.
+    transport.poll(2000U + kT1 / 2U + kT1 + 1000U);
+    EXPECT_TRUE(transport.events().empty());
+    EXPECT_EQ(transport.openSessions(), 1U);
+}

@@ -578,7 +578,7 @@ void LuaEcuNode::process(NodeContext& context)
             frame.direction = CanDirection::Tx;
             frame.length = static_cast<std::uint8_t>(
                 std::min<std::size_t>(job.payload.size(), kMaxCanPayload));
-            frame.dlc = frame.length;
+            frame.dlc = dlcFromPayloadLength(frame.length, frame.fd);
 
             std::copy_n(job.payload.begin(), frame.length, frame.data.begin());
 
@@ -1058,7 +1058,8 @@ void LuaEcuNode::applyFaults()
         // The DLC last, so it wins over anything the truncation implied - which
         // is the whole point of being able to set it: a frame carrying three
         // bytes and claiming eight.
-        frame.dlc = fault.dlc >= 0 ? static_cast<std::uint8_t>(fault.dlc) : frame.length;
+        frame.dlc = fault.dlc >= 0 ? static_cast<std::uint8_t>(fault.dlc)
+                                   : dlcFromPayloadLength(frame.length, frame.fd);
 
         ++m_corrupted;
     }

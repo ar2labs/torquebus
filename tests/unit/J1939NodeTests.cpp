@@ -844,3 +844,67 @@ TEST(J1939NodeTests, AnUnnamedErrorValueIsNotANumber)
     EXPECT_TRUE(std::isnan(decodeFirstByte(node, 0xFEU))); // error
     EXPECT_TRUE(std::isnan(decodeFirstByte(node, 0xFFU))); // not available
 }
+
+TEST(J1939NodeTests, ThreeBitAndSixtyFourBitSpecialValuesAndUnsigned64BitScaling)
+{
+    // 3-bit SAE J1939-71 §5.1.4: 0b110 (6) = Error, 0b111 (7) = Not Available.
+    EXPECT_FALSE(isJ1939SpecialValue(5U, 3U));
+    EXPECT_TRUE(isJ1939SpecialValue(6U, 3U));
+    EXPECT_TRUE(isJ1939SpecialValue(7U, 3U));
+
+    // 64-bit SAE J1939-71 §5.1.4: >= 0xFE00000000000000ULL is special.
+    EXPECT_FALSE(isJ1939SpecialValue(0x8000'0000'0000'0000ULL, 64U));
+    EXPECT_TRUE(isJ1939SpecialValue(0xFE00'0000'0000'0000ULL, 64U));
+    EXPECT_TRUE(isJ1939SpecialValue(0xFFFF'FFFF'FFFF'FFFFULL, 64U));
+
+    // 64-bit unsigned signal with bit 63 set must decode as positive, not negative.
+    CanSignal u64;
+    u64.name = "Counter64";
+    u64.bitLength = 64U;
+    u64.isSigned = false;
+    u64.factor = 1.0;
+
+    J1939Node node{databaseWithSignal(u64), "J1939"};
+    ASSERT_TRUE(node.prepare(64U).succeeded());
+
+    Driver driver{node};
+    const std::array<CanFrame, 1> highBitFrame{
+        frameOf(j1939Identifier(kTemperature, kEngine), {0U, 0U, 0U, 0U, 0U, 0U, 0U, 0x80U})};
+    const std::span<const DecodedSignal> decoded = driver.run(highBitFrame);
+    ASSERT_EQ(decoded.size(), 1U);
+    EXPECT_GT(decoded[0].value, 0.0);
+
+    const std::array<CanFrame, 1> naFrame{
+        frameOf(j1939Identifier(kTemperature, kEngine),
+                {0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU})};
+    const std::span<const DecodedSignal> naDecoded = driver.run(naFrame);
+    ASSERT_EQ(naDecoded.size(), 1U);
+    EXPECT_TRUE(std::isnan(naDecoded[0].value));
+}
+
+TEST(J1939NodeTests, IdenticalDm1BroadcastsDoNotDirtyTheNetworkSnapshot)
+{
+    J1939Network network;
+    EXPECT_FALSE(network.snapshot().published);
+
+    J1939Node node{nullptr, "J1939"};
+    node.setNetwork(&network);
+    ASSERT_TRUE(node.prepare(64U).succeeded());
+
+    Driver driver{node};
+    const std::array<CanFrame, 1> dm1{
+        frameOf(j1939Identifier(kPgnDm1, kEngine), {0x40U, 0x00U, 100U, 0U, 1U, 5U, 0xFFU, 0xFFU})};
+
+    driver.run(dm1);
+    const std::uint64_t revAfterFirst = network.revision();
+    EXPECT_TRUE(network.snapshot().published);
+
+    // Repeating the same 1 Hz DM1 broadcast must not republish the snapshot.
+    driver.run(dm1);
+    EXPECT_EQ(network.revision(), revAfterFirst);
+
+    // Clearing the network resets published to false while incrementing revision.
+    network.clear();
+    EXPECT_FALSE(network.snapshot().published);
+    EXPECT_GT(network.revision(), revAfterFirst);
+}

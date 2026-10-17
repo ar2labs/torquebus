@@ -49,6 +49,11 @@ bool parseHexBytes(std::string_view text, std::vector<std::uint8_t>& out)
 
         if (hexValue(character) >= 0) {
             digits.push_back(character);
+            continue;
+        }
+
+        if ((character >= 'g' && character <= 'z') || (character >= 'G' && character <= 'Z')) {
+            return false;
         }
     }
 

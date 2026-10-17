@@ -187,7 +187,8 @@ Result TraceExporter::writeAsc(const CanFrame& frame)
     line += std::format("{} ", static_cast<unsigned>(frame.dlc));
 
     if (!frame.rtr) {
-        for (std::size_t index = 0; index < frame.length; ++index) {
+        const std::size_t count = frame.payloadSize();
+        for (std::size_t index = 0; index < count; ++index) {
             appendHexByte(line, frame.data[index]);
             line.push_back(' ');
         }
@@ -199,10 +200,11 @@ Result TraceExporter::writeAsc(const CanFrame& frame)
 
 Result TraceExporter::writeCsv(const CanFrame& frame)
 {
+    const std::size_t count = frame.payloadSize();
     std::string data;
-    data.reserve(static_cast<std::size_t>(frame.length) * 2);
+    data.reserve(count * 2);
 
-    for (std::size_t index = 0; index < frame.length; ++index) {
+    for (std::size_t index = 0; index < count; ++index) {
         appendHexByte(data, frame.data[index]);
     }
 

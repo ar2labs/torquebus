@@ -137,6 +137,11 @@ public:
     /// session needs holding open.
     void poll(std::uint64_t nowNs);
 
+    /// Extends the response deadline while the underlying ISO-TP transport is
+    /// actively transmitting a multi-frame request or assembling a multi-frame
+    /// response, so P2 does not expire mid-transfer.
+    void notifyTransportActive(std::uint64_t nowNs) noexcept;
+
     /// Messages to put on the wire, oldest first.
     [[nodiscard]] std::span<const std::vector<std::uint8_t>> pendingRequests() const noexcept
     {

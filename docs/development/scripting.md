@@ -259,9 +259,10 @@ padded the way J1939 pads one. They are in the prelude, and the example ECUs in
 
 | Function | What it gives |
 |---|---|
-| `j1939_id(prio, pgn, sa)` | The 29-bit identifier. `prio` defaults to 6. |
+| `j1939_id(prio, pgn, sa [, da])` | The 29-bit identifier. `prio` defaults to 6. For a PDU1 PGN (PF < 240) the optional `da` is the destination address placed in the PS byte; without `da` the PGN is used as given. |
 | `j1939_raw(value, res, offset, nbytes)` | `round((value - offset) / res)`, held to the biggest **valid** value of an `nbytes` field (`0xFA`, `0xFAFF`, `0xFAFFFF`, `0xFAFFFFFF`) and not wrapped into the ones J1939 keeps for "error". `nil` - and a number that is not one - is **not available** (`0xFF`, `0xFFFF`...), which is how a script says a sensor has failed. |
 | `j1939_send(prio, pgn, sa, payload)` | `emit()` of that identifier, always as a 29-bit frame, with the payload padded with `0xFF` to eight bytes. |
+| `j1939_claim(sa, func, mfr, id_num, industry_group, aac)` | Broadcasts an SAE J1939-81 **Address Claimed** message (PGN 60928, global destination) carrying the 64-bit NAME built from its fields. |
 | `j1939_dm1(mil, red, amber, protect, spn, fmi, oc)` | The payload of a DM1 with one trouble code; lamps are 0 off, 1 on. `j1939_dm1(0, 0, 0, 0, 0, 0, 0)` is J1939's "no active fault". |
 
 `raw`, `send` and `dm1` are short names for the same functions, as the example ECUs write them.

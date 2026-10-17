@@ -349,3 +349,30 @@ TEST(UdsServerTests, ASessionChangeReportsTheTimingsItPromises)
 
     EXPECT_TRUE((ask(ecu, {0x10, 0x03}) == Bytes{0x50, 0x03, 0x00, 0x32, 0x01, 0xF4}));
 }
+
+TEST(UdsServerTests, ReportSupportedDtcsAndValidateClearAndTesterPresent)
+{
+    UdsServer ecu = engineEcu();
+
+    // 0x19 0x0A (reportSupportedDTC) takes 2 bytes and returns all supported DTCs.
+    const Bytes supported = ask(ecu, {0x19, 0x0A});
+    ASSERT_EQ(supported.size(), 3U + 4U);
+    EXPECT_EQ(supported[0], 0x59U);
+    EXPECT_EQ(supported[1], 0x0AU);
+
+    // 0x14 requires a 3-byte groupOfDTC (4 bytes total).
+    EXPECT_EQ(ask(ecu, {0x14, 0xFF, 0xFF, 0xFF, 0x00}),
+              (Bytes{0x7F,
+                     0x14,
+                     static_cast<std::uint8_t>(UdsNegativeResponse::IncorrectMessageLength)}));
+
+    // 0x3E only accepts sub-function 0x00 (with optional suppressPosRspMsgIndicationBit 0x80).
+    EXPECT_EQ(ask(ecu, {0x3E, 0x01}),
+              (Bytes{0x7F,
+                     0x3E,
+                     static_cast<std::uint8_t>(UdsNegativeResponse::SubFunctionNotSupported)}));
+    EXPECT_EQ(ask(ecu, {0x3E, 0x00, 0x00}),
+              (Bytes{0x7F,
+                     0x3E,
+                     static_cast<std::uint8_t>(UdsNegativeResponse::IncorrectMessageLength)}));
+}

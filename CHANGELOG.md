@@ -23,6 +23,15 @@ against what it does, which turned up more than expected.
 
 ### Added
 
+- **DTC Diagnostics & Lookup Guide (`DtcCatalog`, `DiagnosticsPanel`, `J1939NetworkPanel`).** UDS `0x59 0x02`
+  (`ReadDTCInformation`) responses in the Diagnostic Console now automatically expand into decoded `DTC` rows
+  showing the 5-character `P/C/B/U` code, ISO 14229 status flags (`active`, `pending`, `confirmed`, `MIL on`),
+  description, and SAE J1939 `SPN/FMI` cross-reference. An always-available **DTC Lookup & Diagnostic Guide**
+  in the Diagnostics panel breaks down any `L D D D D` or 24-bit hex code into its family (`P/B/C/U`), scope
+  (`Generic SAE/ISO` vs `Manufacturer-specific OEM`), subsystem, and fault index, and provides a curated
+  42-code catalog with Freeze Frame / Live Data first checks and troubleshooting workflows. `J1939NetworkPanel`
+  also names all 32 SAE J1939-73 Table 2 Failure Mode Identifiers (`j1939FmiName`). See
+  `docs/development/dtc-diagnostics.md`.
 - **A CAN Bus on the Pipeline canvas, drawn the way a network is.** A bus is two wires - CAN_H amber, CAN_L
   green - and every module hangs off it by one drop, as a simulation setup in CANoe draws one; it replaces
   the CAN Channel and the CAN Transmit block each ECU needed (the J1939 example was twelve wires and a
@@ -75,6 +84,37 @@ against what it does, which turned up more than expected.
 
 ### Fixed
 
+- **SAE J1939, ISO 15765-2 (ISO-TP), ISO 14229-1 (UDS), and CAN Engine production-readiness pass:**
+  - **SAE J1939-21 / J1939-71 / J1939-73 (`J1939Id`, `J1939Transport`, `J1939Node`, `J1939Network`, `CanSignal`, `DbcDecoderNode`, `J1939NetworkPanel`, `LuaPrelude`):**
+    Added 3-bit (`raw >= 6U`) and 64-bit (`raw >= 0xFE00'0000'0000'0000ULL`) SAE J1939-71 §5.1.4 special value
+    ranges (`isJ1939SpecialRawValue`); fixed 64-bit unsigned signal scaling so values above `2^53` no longer
+    lose precision and falsely pass special-value checks; enforced sequence number `>= 1` on `TP.DT` and
+    `ETP.DT`; enforced broadcast vs point-to-point destination rules for `TP.CM_BAM` vs `TP.CM_RTS` and
+    `ETP.CM_DPO` window bounds; handled Responder-originated `TP.Conn_Abort` (`byte[0] == 255`) and refreshed
+    the `T3` handshake timeout on `TP.CM_CTS`; tagged transport sessions by `(sourceAddress, destinationAddress, channel)`
+    and preserved `event.channel` on reassembled messages; stopped steady 1 Hz `DM1` broadcasts with unchanged
+    faults from forcing a full `J1939NetworkPanel` tree rebuild every second (adding `J1939NetworkSnapshot::published`
+    and preserving expanded ECU rows across rebuilds); and restored `J1939NetworkPanel` to `MainWindow`'s docks
+    and Diagnostics menu.
+  - **ISO 15765-2 ISO-TP & ISO 14229-1 UDS (`IsoTpConnection`, `UdsClient`, `UdsClientNode`, `UdsServer`, `UdsServiceCatalog`, `UdsTypes`):**
+    Fixed CAN FD `dlcFromPayloadLength` mapping in `IsoTpConnection::makeFrame()`, corrected extended-addressing
+    Single Frame payload threshold (6 bytes on Classic CAN), handled unexpected `SingleFrame` and `FirstFrame`
+    during `ReceiveState::Assembling` by aborting the in-progress reception and starting the new one per
+    ISO 15765-2 §9.6.5.2, validated `FirstFrame`/`ConsecutiveFrame` minimum DLC, kept `UdsClient`'s `P2` timer
+    alive during active multi-frame ISO-TP receptions (`notifyTransportActive`), prevented dequeuing the next
+    UDS request while `IsoTpConnection` is still busy, reset client session tracking to `Default` on positive
+    `ECUReset` (`0x51`), fixed `0x19 0x0A` (`reportSupportedDTC`) sub-function encoding in `UdsServiceCatalog`,
+    validated `0x14` (`ClearDiagnosticInformation`) and `0x3E` (`TesterPresent`) request lengths in `UdsServer`,
+    and rejected non-hex alphabetic characters in `parseHexBytes()`.
+  - **CAN Engine, Trace, Scripting & Logging (`CanEngine`, `TraceModel`, `TraceTreeModel`, `LuaEcuNode`, `TransmitPanel`, `TraceExport`, `TraceLog`, `BusGrouping`):**
+    Cleared `m_traceStore` in `CanEngine::buildGraph()`, skipped implicit `TraceSinkNode` / `TransmitListNode`
+    injection when the user's pipeline graph already contains an enabled `trace.sink` or `transmit.list` node
+    (avoiding duplicate frames in the Trace panel and double-rate cyclic transmission), fixed `TraceModel::reset()`
+    and `TraceTreeModel::reset()` so clearing the trace view keeps previously captured frames hidden across
+    `pollStore()` ticks, used `CanFrame::dlcFromPayloadLength` in `LuaEcuNode` (`emit` and `cyclic`), bounded
+    `TraceExport` formatter loops by `frame.payloadSize()`, cleared `TraceLog`'s write buffer before throwing on
+    flush errors, clamped out-of-range channel indices in `BusGrouping`, and wired `TransmitPanel::modified` to
+    `MainWindow::markDirty`.
 - **Dragging a wire on the canvas could crash the application.** QtNodes 3.0.16 casts the widget of a scene
   event - the viewport - to a `QGraphicsView` and reads its transform, on every mouse move of a wire being
   dragged and when it is dropped: several hundred bytes past the end of the object, which is nearly always

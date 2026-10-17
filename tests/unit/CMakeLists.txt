@@ -56,6 +56,7 @@ add_executable(torquebus_unit_tests
     LuaTestSequenceTests.cpp
     LuaTimingTests.cpp
     LuaUdsEcuTests.cpp
+    DtcCatalogTests.cpp
     UdsClientNodeTests.cpp
     UdsClientTests.cpp
     UdsServerTests.cpp
