@@ -23,6 +23,17 @@ against what it does, which turned up more than expected.
 
 ### Added
 
+- **The lamps of `j1939.dbc` have words.** The lamp fields of DM1 (`ProtectLamp`, `AmberWarningLamp`,
+  `RedStopLamp`, `MalfunctionIndicatorLamp`), of EBC1 (`ABSAmberWarning`, `EBSRedWarning`) and of BAS
+  (`SeatBeltWarningLamp`) carry a value table, `0` "Off" and `1` "On", so a row added from DM1 or EBC1 in the
+  Transmit panel reads `= On` and offers Off and On in a drop-down instead of a bare 0 and 1, and the CAN Trace
+  says the same. `2` and `3` are left without a name **on purpose**: to the J1939 block a value with a name is
+  a state and not an error, so the obvious way to complete the table, `2 "Error"` and `3 "NotAvailable"`,
+  would have made a lamp read 2.0 and 3.0 where it reads NaN - and the cluster lights a lamp on anything above
+  a half, so ABS would have come on for "not available". Nothing in a normal run sends a 2 or a 3 to a lamp,
+  so no other test would have said so; `ShippedDatabaseTests` now fails a shipped J1939 database that names a
+  value the standard keeps for error or not available (the TinyML message's `ModelStatus`, a proprietary
+  enumeration whose 2 and 3 are states, is the one listed exception).
 - **DTC Diagnostics & Lookup Guide (`DtcCatalog`, `DiagnosticsPanel`, `J1939NetworkPanel`).** UDS `0x59 0x02`
   (`ReadDTCInformation`) responses in the Diagnostic Console now automatically expand into decoded `DTC` rows
   showing the 5-character `P/C/B/U` code, ISO 14229 status flags (`active`, `pending`, `confirmed`, `MIL on`),
