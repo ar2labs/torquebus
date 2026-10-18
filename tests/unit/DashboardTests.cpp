@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <limits>
 #include <memory>
 #include <string>
 #include <thread>
@@ -243,6 +244,12 @@ TEST(DashboardTests, WidgetKindsSurviveTheRoundTripThroughTheirNames)
         DashboardWidgetKind::Knob,
         DashboardWidgetKind::Label,
         DashboardWidgetKind::Cluster,
+        DashboardWidgetKind::Bar,
+        DashboardWidgetKind::State,
+        DashboardWidgetKind::Image,
+        DashboardWidgetKind::Trend,
+        DashboardWidgetKind::Table,
+        DashboardWidgetKind::Group,
     };
 
     for (const DashboardWidgetKind kind : kAll) {
@@ -269,6 +276,463 @@ TEST(DashboardTests, ControlsAreTheKindsThatWrite)
     EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Lamp));
     EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Label));
     EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Cluster));
+
+    // The kinds that came later only read.
+    EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Bar));
+    EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::State));
+    EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Image));
+    EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Trend));
+    EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Table));
+    EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Group));
+}
+
+// ---------------------------------------------------------------------------
+// What each kind asks of the person configuring it
+// ---------------------------------------------------------------------------
+
+TEST(DashboardTests, EachKindKeepsTheFieldsItsFormShowedBeforeTheTableExisted)
+{
+    // The table replaced conditions written in two places. It is only a refactoring if the kinds
+    // that were here come out the same, so the rows they had are pinned.
+    const DashboardKindTraits& gauge = traitsOf(DashboardWidgetKind::Gauge);
+    EXPECT_EQ(gauge.binding, BindingNeed::Required);
+    EXPECT_TRUE(gauge.range && gauge.unit && gauge.decimals);
+    EXPECT_FALSE(gauge.threshold);
+
+    // A lamp has a threshold and nothing to sweep, no unit and no digits.
+    const DashboardKindTraits& lamp = traitsOf(DashboardWidgetKind::Lamp);
+    EXPECT_TRUE(lamp.threshold);
+    EXPECT_FALSE(lamp.range || lamp.unit || lamp.decimals);
+
+    // A button writes its range, so it has one; it shows no unit.
+    for (const DashboardWidgetKind kind :
+         {DashboardWidgetKind::Button, DashboardWidgetKind::Switch}) {
+        const DashboardKindTraits& control = traitsOf(kind);
+        EXPECT_TRUE(control.range && control.threshold && control.decimals);
+        EXPECT_FALSE(control.unit);
+    }
+
+    for (const DashboardWidgetKind kind :
+         {DashboardWidgetKind::Slider, DashboardWidgetKind::Knob}) {
+        const DashboardKindTraits& control = traitsOf(kind);
+        EXPECT_TRUE(control.range && control.unit && control.decimals);
+        EXPECT_FALSE(control.threshold);
+    }
+
+    // A label and a cluster read nothing, and a cluster has a profile instead.
+    for (const DashboardWidgetKind kind :
+         {DashboardWidgetKind::Label, DashboardWidgetKind::Cluster}) {
+        const DashboardKindTraits& none = traitsOf(kind);
+        EXPECT_EQ(none.binding, BindingNeed::None);
+        EXPECT_FALSE(none.range || none.unit || none.decimals || none.threshold);
+    }
+}
+
+TEST(DashboardTests, TheKindsThatCameLaterAskForWhatTheyShow)
+{
+    EXPECT_TRUE(traitsOf(DashboardWidgetKind::Bar).range);
+    EXPECT_TRUE(traitsOf(DashboardWidgetKind::Bar).limits);
+
+    EXPECT_TRUE(traitsOf(DashboardWidgetKind::State).states);
+    EXPECT_FALSE(traitsOf(DashboardWidgetKind::State).range);
+
+    EXPECT_EQ(traitsOf(DashboardWidgetKind::Image).binding, BindingNeed::Optional);
+    EXPECT_TRUE(traitsOf(DashboardWidgetKind::Image).image);
+    EXPECT_TRUE(traitsOf(DashboardWidgetKind::Image).states);
+
+    EXPECT_TRUE(traitsOf(DashboardWidgetKind::Trend).window);
+    EXPECT_TRUE(traitsOf(DashboardWidgetKind::Trend).range);
+
+    EXPECT_EQ(traitsOf(DashboardWidgetKind::Table).binding, BindingNeed::Message);
+    EXPECT_EQ(traitsOf(DashboardWidgetKind::Group).binding, BindingNeed::None);
+
+    // A lamp can carry a picture and names; a gauge cannot.
+    EXPECT_TRUE(traitsOf(DashboardWidgetKind::Lamp).image);
+    EXPECT_FALSE(traitsOf(DashboardWidgetKind::Gauge).image);
+    EXPECT_TRUE(traitsOf(DashboardWidgetKind::Numeric).states);
+}
+
+TEST(DashboardTests, AWidgetStartsAsTheMenuHasAlwaysMadeIt)
+{
+    EXPECT_DOUBLE_EQ(defaultWidgetOf(DashboardWidgetKind::Slider).width, 220.0);
+    EXPECT_DOUBLE_EQ(defaultWidgetOf(DashboardWidgetKind::Slider).maximum, 1.0);
+    EXPECT_DOUBLE_EQ(defaultWidgetOf(DashboardWidgetKind::Knob).height, 140.0);
+    EXPECT_DOUBLE_EQ(defaultWidgetOf(DashboardWidgetKind::Lamp).maximum, 1.0);
+    EXPECT_EQ(defaultWidgetOf(DashboardWidgetKind::Label).title, "Label");
+    EXPECT_EQ(defaultWidgetOf(DashboardWidgetKind::Cluster).profile,
+              std::string{kDefaultClusterProfile});
+
+    // A gauge is the size of every widget before it had a size of its own.
+    EXPECT_DOUBLE_EQ(defaultWidgetOf(DashboardWidgetKind::Gauge).width, 160.0);
+    EXPECT_DOUBLE_EQ(defaultWidgetOf(DashboardWidgetKind::Gauge).height, 120.0);
+    EXPECT_DOUBLE_EQ(defaultWidgetOf(DashboardWidgetKind::Gauge).maximum, 100.0);
+
+    for (const DashboardWidgetKind kind : {DashboardWidgetKind::Bar,
+                                           DashboardWidgetKind::State,
+                                           DashboardWidgetKind::Image,
+                                           DashboardWidgetKind::Trend,
+                                           DashboardWidgetKind::Table,
+                                           DashboardWidgetKind::Group}) {
+        EXPECT_GT(defaultWidgetOf(kind).width, 0.0) << nameOf(kind);
+        EXPECT_GT(defaultWidgetOf(kind).height, 0.0) << nameOf(kind);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A table, a picture, a group
+// ---------------------------------------------------------------------------
+
+TEST(DashboardTests, ATableIsBoundToAMessageAndToNothingElse)
+{
+    DashboardWidget table = defaultWidgetOf(DashboardWidgetKind::Table);
+    table.id = "eec1";
+
+    DashboardDescription dashboard;
+
+    // Bound to nothing: which message?
+    dashboard.add(table);
+    const Result nothing = dashboard.validate();
+    ASSERT_TRUE(nothing.failed());
+    EXPECT_NE(std::string{nothing.message()}.find("message"), std::string::npos);
+
+    // To a signal: a table lists many.
+    dashboard.widgets().front().binding.source = DashboardBinding::Source::Signal;
+    dashboard.widgets().front().binding.message = "EEC1";
+    dashboard.widgets().front().binding.signal = "EngineSpeed";
+    EXPECT_TRUE(dashboard.validate().failed());
+
+    // To a message with no name.
+    dashboard.widgets().front().binding.source = DashboardBinding::Source::Message;
+    dashboard.widgets().front().binding.message.clear();
+    EXPECT_TRUE(dashboard.validate().failed());
+
+    dashboard.widgets().front().binding.message = "EEC1";
+    EXPECT_TRUE(dashboard.validate().succeeded());
+}
+
+TEST(DashboardTests, OnlyATableMayBeBoundToAWholeMessage)
+{
+    DashboardDescription dashboard;
+
+    DashboardWidget gauge = goodGauge();
+    gauge.binding.source = DashboardBinding::Source::Message;
+    gauge.binding.message = "EEC1";
+    gauge.binding.signal.clear();
+    dashboard.add(gauge);
+
+    const Result result = dashboard.validate();
+
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+
+    // Names the way out: pick a signal.
+    EXPECT_NE(std::string{result.message()}.find("signal"), std::string::npos);
+}
+
+TEST(DashboardTests, APictureNeedsNoBindingAndAGroupNeedsNothing)
+{
+    DashboardDescription dashboard;
+
+    DashboardWidget logo = defaultWidgetOf(DashboardWidgetKind::Image);
+    logo.id = "logo";
+    logo.image = "pictures/logo.png";
+    dashboard.add(logo);
+
+    DashboardWidget group = defaultWidgetOf(DashboardWidgetKind::Group);
+    group.id = "powertrain";
+    dashboard.add(group);
+
+    SCOPED_TRACE(::testing::Message() << std::string{dashboard.validate().message()});
+    EXPECT_TRUE(dashboard.validate().succeeded());
+
+    // Bound, it is the picture of a state; the binding is held to the same rules as any other.
+    dashboard.widgets().front().binding.source = DashboardBinding::Source::Signal;
+    dashboard.widgets().front().binding.message = "Doors";
+    EXPECT_TRUE(dashboard.validate().failed());
+
+    dashboard.widgets().front().binding.signal = "DoorState";
+    EXPECT_TRUE(dashboard.validate().succeeded());
+}
+
+TEST(DashboardTests, AStateAndATrendAreBoundLikeAGauge)
+{
+    DashboardDescription dashboard;
+
+    for (const DashboardWidgetKind kind :
+         {DashboardWidgetKind::State, DashboardWidgetKind::Trend, DashboardWidgetKind::Bar}) {
+        DashboardWidget widget = defaultWidgetOf(kind);
+        widget.id = std::string{nameOf(kind)};
+        dashboard.add(widget);
+    }
+
+    // Unbound, each is a picture of itself.
+    EXPECT_TRUE(dashboard.validate().failed());
+
+    for (DashboardWidget& widget : dashboard.widgets()) {
+        widget.binding.source = DashboardBinding::Source::Variable;
+        widget.binding.variable = "rpm";
+    }
+
+    EXPECT_TRUE(dashboard.validate().succeeded());
+
+    // A trend and a bar sweep a range, a state does not: the state is not the one refused.
+    for (DashboardWidget& widget : dashboard.widgets()) {
+        widget.minimum = 5.0;
+        widget.maximum = 5.0;
+    }
+
+    const Result result = dashboard.validate();
+    ASSERT_TRUE(result.failed());
+    EXPECT_NE(std::string{result.message()}.find("'trend'"), std::string::npos);
+}
+
+// ---------------------------------------------------------------------------
+// States
+// ---------------------------------------------------------------------------
+
+TEST(DashboardTests, AStateIsFoundByItsValueToAPartInABillion)
+{
+    DashboardWidget widget = defaultWidgetOf(DashboardWidgetKind::State);
+
+    DashboardState reverse;
+    reverse.value = -1.0;
+    reverse.label = "Reverse";
+
+    DashboardState first;
+    first.value = 1.0;
+    first.label = "First";
+
+    widget.states = {reverse, first};
+
+    ASSERT_NE(widget.stateOf(-1.0), nullptr);
+    EXPECT_EQ(widget.stateOf(-1.0)->label, "Reverse");
+    EXPECT_EQ(widget.stateOf(1.0 + 1e-12)->label, "First");
+
+    EXPECT_EQ(widget.stateOf(0.0), nullptr);
+    EXPECT_EQ(widget.stateOf(1.1), nullptr);
+    EXPECT_EQ(widget.stateOf(std::numeric_limits<double>::quiet_NaN()), nullptr);
+
+    EXPECT_EQ(DashboardWidget{}.stateOf(0.0), nullptr);
+}
+
+TEST(DashboardTests, TwoNamesForOneValueAreRefusedAndSoIsAValueThatIsNotANumber)
+{
+    DashboardDescription dashboard;
+
+    DashboardWidget widget = defaultWidgetOf(DashboardWidgetKind::State);
+    widget.id = "gear";
+    widget.binding.source = DashboardBinding::Source::Variable;
+    widget.binding.variable = "gear";
+
+    DashboardState a;
+    a.value = 1.0;
+    a.label = "First";
+
+    DashboardState b;
+    b.value = 2.0;
+    b.label = "Second";
+
+    widget.states = {a, b};
+    dashboard.add(widget);
+    EXPECT_TRUE(dashboard.validate().succeeded());
+
+    dashboard.widgets().front().states[1].value = 1.0;
+    const Result twice = dashboard.validate();
+    ASSERT_TRUE(twice.failed());
+    EXPECT_NE(std::string{twice.message()}.find("twice"), std::string::npos);
+
+    dashboard.widgets().front().states[1].value = std::numeric_limits<double>::quiet_NaN();
+    const Result nan = dashboard.validate();
+    ASSERT_TRUE(nan.failed());
+    EXPECT_NE(std::string{nan.message()}.find("Second"), std::string::npos);
+}
+
+// ---------------------------------------------------------------------------
+// Alarm limits
+// ---------------------------------------------------------------------------
+
+TEST(DashboardTests, ALimitIsExceededOnlyWhenTheReadingIsStrictlyPastIt)
+{
+    DashboardLimits limits;
+    limits.warningAbove = 100.0;
+    limits.criticalAbove = 110.0;
+    limits.warningBelow = 20.0;
+    limits.criticalBelow = 10.0;
+
+    EXPECT_TRUE(limits.any());
+
+    EXPECT_EQ(limits.toneOf(60.0), DashboardTone::Neutral);
+
+    // At the limit is not past it.
+    EXPECT_EQ(limits.toneOf(100.0), DashboardTone::Neutral);
+    EXPECT_EQ(limits.toneOf(20.0), DashboardTone::Neutral);
+
+    EXPECT_EQ(limits.toneOf(100.1), DashboardTone::Warning);
+    EXPECT_EQ(limits.toneOf(19.9), DashboardTone::Warning);
+
+    EXPECT_EQ(limits.toneOf(110.0), DashboardTone::Warning);
+    EXPECT_EQ(limits.toneOf(110.1), DashboardTone::Danger);
+    EXPECT_EQ(limits.toneOf(10.0), DashboardTone::Warning);
+    EXPECT_EQ(limits.toneOf(9.9), DashboardTone::Danger);
+
+    // Not a number is not past anything.
+    EXPECT_EQ(limits.toneOf(std::numeric_limits<double>::quiet_NaN()), DashboardTone::Neutral);
+}
+
+TEST(DashboardTests, LimitsThatAreNotSetAreNotThere)
+{
+    EXPECT_FALSE(DashboardLimits{}.any());
+    EXPECT_EQ(DashboardLimits{}.toneOf(1e9), DashboardTone::Neutral);
+
+    // Only the side that is set counts.
+    DashboardLimits oilPressure;
+    oilPressure.criticalBelow = 100.0;
+
+    EXPECT_EQ(oilPressure.toneOf(5000.0), DashboardTone::Neutral);
+    EXPECT_EQ(oilPressure.toneOf(99.0), DashboardTone::Danger);
+}
+
+TEST(DashboardTests, LimitsThatContradictEachOtherAreRefusedAndTheOnesThatDoNotAreNot)
+{
+    DashboardDescription dashboard;
+    dashboard.add(goodGauge());
+
+    DashboardLimits& limits = dashboard.widgets().front().limits;
+
+    limits.warningAbove = 6000.0;
+    limits.criticalAbove = 7000.0;
+    limits.warningBelow = 800.0;
+    limits.criticalBelow = 500.0;
+    EXPECT_TRUE(dashboard.validate().succeeded());
+
+    // A band that is empty: everything is a warning.
+    limits.warningBelow = 6500.0;
+    EXPECT_TRUE(dashboard.validate().failed());
+    limits.warningBelow = 800.0;
+
+    // A critical limit short of the warning one it is meant to follow.
+    limits.criticalAbove = 5000.0;
+    const Result short_ = dashboard.validate();
+    ASSERT_TRUE(short_.failed());
+    EXPECT_NE(std::string{short_.message()}.find("critical"), std::string::npos);
+    limits.criticalAbove = 7000.0;
+
+    limits.criticalBelow = 900.0;
+    EXPECT_TRUE(dashboard.validate().failed());
+    limits.criticalBelow = 500.0;
+
+    limits.warningAbove = std::numeric_limits<double>::infinity();
+    EXPECT_TRUE(dashboard.validate().failed());
+    limits.warningAbove = 6000.0;
+
+    EXPECT_TRUE(dashboard.validate().succeeded());
+}
+
+// ---------------------------------------------------------------------------
+// A trend's window, and how long a signal may go quiet
+// ---------------------------------------------------------------------------
+
+TEST(DashboardTests, ATrendDrawsBetweenASecondAndAnHour)
+{
+    DashboardWidget trend = defaultWidgetOf(DashboardWidgetKind::Trend);
+    trend.id = "rpm";
+    trend.binding.source = DashboardBinding::Source::Variable;
+    trend.binding.variable = "rpm";
+
+    DashboardDescription dashboard;
+    dashboard.add(trend);
+    EXPECT_TRUE(dashboard.validate().succeeded());
+
+    for (const double bad : {0.0, 0.5, 3601.0, -5.0, std::numeric_limits<double>::quiet_NaN()}) {
+        dashboard.widgets().front().windowSeconds = bad;
+        EXPECT_TRUE(dashboard.validate().failed()) << bad;
+    }
+
+    for (const double good : {1.0, 30.0, 3600.0}) {
+        dashboard.widgets().front().windowSeconds = good;
+        EXPECT_TRUE(dashboard.validate().succeeded()) << good;
+    }
+
+    // A window is the Trend's business: a gauge with a nonsense one is not refused for it.
+    DashboardDescription gauges;
+    gauges.add(goodGauge());
+    gauges.widgets().front().windowSeconds = 0.0;
+    EXPECT_TRUE(gauges.validate().succeeded());
+}
+
+TEST(DashboardTests, ASignalMayNotBeCalledStaleAfterMoreThanAnHour)
+{
+    DashboardDescription dashboard;
+    dashboard.add(goodGauge());
+
+    dashboard.widgets().front().staleMs = 0;
+    EXPECT_TRUE(dashboard.validate().succeeded());
+
+    dashboard.widgets().front().staleMs = 3'600'000;
+    EXPECT_TRUE(dashboard.validate().succeeded());
+
+    dashboard.widgets().front().staleMs = 3'600'001;
+    EXPECT_TRUE(dashboard.validate().failed());
+}
+
+// ---------------------------------------------------------------------------
+// Editing
+// ---------------------------------------------------------------------------
+
+TEST(DashboardTests, ACopyHasAnIdOfItsOwnAndSitsOffsetFromTheOriginal)
+{
+    DashboardDescription dashboard;
+
+    DashboardWidget widget = goodGauge("engine_speed");
+    widget.x = 40.0;
+    widget.y = 60.0;
+    dashboard.add(widget);
+
+    const std::string first = dashboard.duplicate("engine_speed");
+    EXPECT_EQ(first, "engine_speed_2");
+
+    const DashboardWidget* copy = dashboard.find(first);
+    ASSERT_NE(copy, nullptr);
+    EXPECT_DOUBLE_EQ(copy->x, 60.0);
+    EXPECT_DOUBLE_EQ(copy->y, 80.0);
+    EXPECT_EQ(copy->binding, widget.binding);
+
+    // A copy of a copy is the next number, and not "engine_speed_2_2".
+    EXPECT_EQ(dashboard.duplicate(first, 10.0), "engine_speed_3");
+    EXPECT_EQ(dashboard.widgets().size(), 3U);
+
+    EXPECT_EQ(dashboard.duplicate("nothing"), "");
+    EXPECT_EQ(dashboard.widgets().size(), 3U);
+    EXPECT_TRUE(dashboard.validate().succeeded());
+}
+
+TEST(DashboardTests, TheOrderOfTheListIsTheLayering)
+{
+    DashboardDescription dashboard;
+    dashboard.add(goodGauge("a"));
+    dashboard.add(goodGauge("b"));
+    dashboard.add(goodGauge("c"));
+
+    const auto order = [&dashboard] {
+        std::string ids;
+        for (const DashboardWidget& widget : dashboard.widgets()) {
+            ids += widget.id;
+        }
+        return ids;
+    };
+
+    dashboard.bringToFront("a");
+    EXPECT_EQ(order(), "bca");
+
+    dashboard.sendToBack("c");
+    EXPECT_EQ(order(), "cba");
+
+    // Already there, or not there at all: nothing moves.
+    dashboard.bringToFront("a");
+    dashboard.sendToBack("c");
+    dashboard.bringToFront("nothing");
+    dashboard.sendToBack("nothing");
+    EXPECT_EQ(order(), "cba");
 }
 
 // ---------------------------------------------------------------------------

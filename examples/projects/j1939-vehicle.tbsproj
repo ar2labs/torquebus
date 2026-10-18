@@ -5,6 +5,21 @@
             {
                 "binding": {
                 },
+                "height": 322,
+                "id": "fluids_and_power",
+                "kind": "group",
+                "maximum": 100,
+                "minimum": 0,
+                "position": {
+                    "x": 752,
+                    "y": 14
+                },
+                "title": "Fluids and power",
+                "width": 248
+            },
+            {
+                "binding": {
+                },
                 "height": 315,
                 "id": "cluster",
                 "kind": "cluster",
@@ -16,6 +31,268 @@
                 },
                 "profile": "j1939-commercial",
                 "width": 720
+            },
+            {
+                "binding": {
+                    "message": "DD1",
+                    "signal": "FuelLevel1",
+                    "source": "signal"
+                },
+                "height": 58,
+                "id": "fuel",
+                "kind": "bar",
+                "limits": {
+                    "criticalBelow": 10,
+                    "warningBelow": 25
+                },
+                "maximum": 100,
+                "minimum": 0,
+                "position": {
+                    "x": 764,
+                    "y": 44
+                },
+                "staleMs": 5000,
+                "title": "Fuel",
+                "unit": "%",
+                "width": 224
+            },
+            {
+                "binding": {
+                    "message": "AT1T1I1",
+                    "signal": "DieselExhaustFluidTankLevel",
+                    "source": "signal"
+                },
+                "height": 58,
+                "id": "def",
+                "kind": "bar",
+                "limits": {
+                    "criticalBelow": 8,
+                    "warningBelow": 20
+                },
+                "maximum": 100,
+                "minimum": 0,
+                "position": {
+                    "x": 764,
+                    "y": 108
+                },
+                "staleMs": 5000,
+                "title": "DEF",
+                "unit": "%",
+                "width": 224
+            },
+            {
+                "binding": {
+                    "message": "VEP1",
+                    "signal": "BatteryPotential",
+                    "source": "signal"
+                },
+                "height": 66,
+                "id": "battery",
+                "kind": "numeric",
+                "limits": {
+                    "criticalBelow": 11,
+                    "warningBelow": 12
+                },
+                "maximum": 32,
+                "minimum": 0,
+                "position": {
+                    "x": 764,
+                    "y": 174
+                },
+                "staleMs": 5000,
+                "title": "Battery",
+                "unit": "V",
+                "width": 108
+            },
+            {
+                "binding": {
+                    "message": "EFL_P1",
+                    "signal": "EngineOilPressure",
+                    "source": "signal"
+                },
+                "decimals": 0,
+                "height": 66,
+                "id": "oil_pressure",
+                "kind": "numeric",
+                "limits": {
+                    "criticalBelow": 100,
+                    "warningBelow": 150
+                },
+                "maximum": 1000,
+                "minimum": 0,
+                "position": {
+                    "x": 880,
+                    "y": 174
+                },
+                "staleMs": 2000,
+                "title": "Oil pressure",
+                "unit": "kPa",
+                "width": 108
+            },
+            {
+                "binding": {
+                    "message": "TinyML_Proprietary",
+                    "signal": "RegimeClass",
+                    "source": "signal"
+                },
+                "height": 76,
+                "id": "ai_regime_picture",
+                "kind": "image",
+                "maximum": 100,
+                "minimum": 0,
+                "position": {
+                    "x": 764,
+                    "y": 250
+                },
+                "staleMs": 2000,
+                "states": [
+                    {
+                        "image": "../images/regime-idle.svg",
+                        "label": "Idle",
+                        "tone": "off",
+                        "value": 0
+                    },
+                    {
+                        "image": "../images/regime-cruise.svg",
+                        "label": "Cruise",
+                        "tone": "ok",
+                        "value": 1
+                    },
+                    {
+                        "image": "../images/regime-high-load.svg",
+                        "label": "HighLoad",
+                        "tone": "warning",
+                        "value": 2
+                    },
+                    {
+                        "image": "../images/regime-thermal-stress.svg",
+                        "label": "ThermalStress",
+                        "tone": "warning",
+                        "value": 3
+                    },
+                    {
+                        "image": "../images/regime-anomaly.svg",
+                        "label": "Anomaly",
+                        "tone": "danger",
+                        "value": 4
+                    }
+                ],
+                "width": 76
+            },
+            {
+                "binding": {
+                    "message": "TinyML_Proprietary",
+                    "signal": "RegimeClass",
+                    "source": "signal"
+                },
+                "decimals": 0,
+                "height": 76,
+                "id": "ai_regime",
+                "kind": "state",
+                "maximum": 100,
+                "minimum": 0,
+                "position": {
+                    "x": 846,
+                    "y": 250
+                },
+                "staleMs": 2000,
+                "states": [
+                    {
+                        "label": "Idle",
+                        "tone": "off",
+                        "value": 0
+                    },
+                    {
+                        "label": "Cruise",
+                        "tone": "ok",
+                        "value": 1
+                    },
+                    {
+                        "label": "HighLoad",
+                        "tone": "warning",
+                        "value": 2
+                    },
+                    {
+                        "label": "ThermalStress",
+                        "tone": "warning",
+                        "value": 3
+                    },
+                    {
+                        "label": "Anomaly",
+                        "tone": "danger",
+                        "value": 4
+                    }
+                ],
+                "title": "AI regime",
+                "width": 142
+            },
+            {
+                "binding": {
+                    "message": "EEC1",
+                    "signal": "EngineSpeed",
+                    "source": "signal"
+                },
+                "height": 168,
+                "id": "engine_speed_trend",
+                "kind": "trend",
+                "limits": {
+                    "criticalAbove": 2800,
+                    "warningAbove": 2400
+                },
+                "maximum": 3000,
+                "minimum": 0,
+                "position": {
+                    "x": 20,
+                    "y": 352
+                },
+                "staleMs": 1500,
+                "title": "Engine speed",
+                "unit": "rpm",
+                "width": 356,
+                "windowSeconds": 60
+            },
+            {
+                "binding": {
+                    "message": "ET1",
+                    "signal": "EngineCoolantTemperature",
+                    "source": "signal"
+                },
+                "decimals": 0,
+                "height": 168,
+                "id": "coolant_trend",
+                "kind": "trend",
+                "limits": {
+                    "criticalAbove": 110,
+                    "warningAbove": 100
+                },
+                "maximum": 130,
+                "minimum": 60,
+                "position": {
+                    "x": 388,
+                    "y": 352
+                },
+                "staleMs": 5000,
+                "title": "Coolant temperature",
+                "unit": "degC",
+                "width": 352,
+                "windowSeconds": 60
+            },
+            {
+                "binding": {
+                    "message": "TinyML_Proprietary",
+                    "source": "message"
+                },
+                "height": 168,
+                "id": "ai_signals",
+                "kind": "table",
+                "maximum": 100,
+                "minimum": 0,
+                "position": {
+                    "x": 752,
+                    "y": 352
+                },
+                "title": "AI telemetry",
+                "width": 248
             }
         ]
     },

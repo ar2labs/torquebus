@@ -49,6 +49,9 @@ add_executable(torquebus_unit_tests
     J1939NodeTests.cpp
     PluginLoaderTests.cpp
     DashboardTests.cpp
+    DashboardAssetsTests.cpp
+    SignalDictionaryTests.cpp
+    ExampleDashboardTests.cpp
     ClusterProfilesTests.cpp
     RestBusTests.cpp
     LuaBusAndFaultTests.cpp

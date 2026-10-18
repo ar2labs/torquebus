@@ -3,7 +3,7 @@
 **Open Automotive Network & Diagnostics Workbench**
 
 [![CI](https://github.com/ar2labs/torquebus/actions/workflows/ci.yml/badge.svg)](https://github.com/ar2labs/torquebus/actions/workflows/ci.yml)
-[![Google Test](https://img.shields.io/badge/Google_Test-841_tests-2ea44f?logo=google)](https://github.com/ar2labs/torquebus/actions)
+[![Google Test](https://img.shields.io/badge/Google_Test-1259_tests-2ea44f?logo=google)](https://github.com/ar2labs/torquebus/actions)
 [![Tests Passing](https://img.shields.io/badge/tests-100%25_passing-brightgreen)](https://github.com/ar2labs/torquebus/actions)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
@@ -54,6 +54,13 @@ visual identity, an open architecture and a GPLv3 licence.
   windows-msvc-release`, then
   `ctest --preset windows-msvc-release -R Throughput -V -j1` (`-V` because a
   passing test prints nothing otherwise, `-j1` so they do not compete for cores).
+- **A Dashboard built from your database.** Drag a signal out of the DBC Explorer onto
+  the Dashboard and it becomes the widget it suits - a lamp for a two-state signal, a bar
+  for a percentage, a state chip for a value table - already bound, with its unit, range,
+  the names of its values and a time-out filled in. Alarm limits turn a reading amber and
+  red, a PNG, JPEG or SVG can stand for each state of a value, a signal that goes quiet says
+  so instead of holding its last number, and a misspelled one is marked and corrected:
+  *Did you mean EngineSpeed?* See [`docs/development/dashboard.md`](docs/development/dashboard.md).
 - **Recording outlives the UI.** Close the Trace panel; the log keeps writing.
 - **Protocols above the frame.** ISO-TP and UDS, and J1939/ISOBUS with address
   claiming, transport (BAM, RTS/CTS, ETP) and DM1/DM2 — checked line by line
@@ -140,10 +147,10 @@ acceptance pass, ordered so the cheapest failures surface first.
 
 ## Testing & Quality Assurance (Google Test)
 
-TorqueBus enforces a **100% automated test pass contract**. Every pull request and build runs **1092 automated tests** powered by [Google Test](https://github.com/google/googletest) (v1.15.2) and CTest across four architectural layers:
+TorqueBus enforces a **100% automated test pass contract**. Every pull request and build runs **1259 automated tests** powered by [Google Test](https://github.com/google/googletest) (v1.15.2) and CTest across four architectural layers:
 
-* **Unit Tests (820 tests):** CAN engine core, DBC parser, J1939 codecs, ISO-TP, UDS, TinyML inference, the Lua runtime and its limits, and a seeded fuzz of every reader.
-* **UI Tests (194 tests):** QML Instrument Cluster, the Pipeline canvas and its CAN Bus, docking layouts, widgets, and property bindings.
+* **Unit Tests (907 tests):** CAN engine core, DBC parser, J1939 codecs, ISO-TP, UDS, TinyML inference, the Lua runtime and its limits, and a seeded fuzz of every reader.
+* **UI Tests (274 tests):** QML Instrument Cluster, the Dashboard's widgets, form and signal picker, the Pipeline canvas and its CAN Bus, docking layouts, widgets, and property bindings.
 * **Integration Tests (67 tests):** Multi-node virtual CAN bus, Lua ECU lifecycles, every block of the catalog built and run on an engine, and dataflow throughput (asserting 150,000 frames/s with zero loss).
 * **Hardware Loopback Tests (11 tests):** Physical PEAK and Kvaser adapter validation (cleanly skipped via `GTEST_SKIP()` when hardware is detached).
 
@@ -190,7 +197,8 @@ sandbox, error handling, and measured execution cost — is in
 
 [`examples/projects/j1939-vehicle.tbsproj`](examples/projects) is the same idea on a J1939 truck: six Lua ECUs
 (engine, aftertreatment, body, brakes, a switch panel and the cluster's own core), the TinyML Virtual ECU, a J1939
-block and the instrument cluster on the Dashboard. Each ECU takes a `scenario` parameter - `low_oil_pressure`,
+block and, on the Dashboard, the instrument cluster with bars, trends, a table and a picture for each AI regime
+beside it. Each ECU takes a `scenario` parameter - `low_oil_pressure`,
 `overheating`, `abs_fault`, `hazard`... - and the cluster answers with the lamp it would light on a vehicle; see
 [`docs/development/j1939-pipeline.md`](docs/development/j1939-pipeline.md) and
 [`docs/development/cluster.md`](docs/development/cluster.md#the-j1939-example).

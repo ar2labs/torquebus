@@ -15,6 +15,10 @@
 // its own decoding without depending on what happens to be open in a panel.
 // Loading a file here and wiring a decoder there are deliberately separate -
 // the alternative is a graph whose behaviour depends on UI state.
+//
+// What it does hand out is the names. Signals and messages can be dragged from the tree onto the
+// Dashboard (SignalMime.h), where each becomes the widget it suits; what travels is the pair of
+// names a widget's binding holds, not a pointer into a database.
 
 #pragma once
 

@@ -190,6 +190,18 @@ Failures are reported in the Output panel rather than in a message box: the
 message names a line number, and a line number is something you want to keep
 looking at while you open the file in an editor.
 
+### On the Dashboard
+
+The Explorer is also where a Dashboard is **built from**: its messages and signals are
+drag sources. Dropped on the Dashboard in Edit mode, a signal becomes the widget it suits -
+already bound, with its unit, range, the names in its value table and a time-out from its
+message's cycle time filled in - and a message becomes a table of its signals. The same
+databases feed the completion and the *Browse...* dialog of the Widget form, and the check
+that marks a widget whose signal no loaded database has. The Dashboard reads them through
+its own copy (`SignalDictionary`), taken whenever a database is loaded or the Explorer is cleared, so a reload
+between the press and the release of a drag cannot leave it holding a pointer into one that
+is gone. See `dashboard.md`.
+
 ### In a pipeline
 
 Drop a **DBC Decoder** block and set its `database` parameter to a `.dbc` path.

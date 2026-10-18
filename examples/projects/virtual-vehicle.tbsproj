@@ -5,6 +5,21 @@
             {
                 "binding": {
                 },
+                "height": 322,
+                "id": "ai_group",
+                "kind": "group",
+                "maximum": 100,
+                "minimum": 0,
+                "position": {
+                    "x": 752,
+                    "y": 14
+                },
+                "title": "AI telemetry",
+                "width": 248
+            },
+            {
+                "binding": {
+                },
                 "height": 315,
                 "id": "cluster",
                 "kind": "cluster",
@@ -16,6 +31,260 @@
                 },
                 "profile": "example-11bit",
                 "width": 720
+            },
+            {
+                "binding": {
+                    "message": "TinyML_Telemetry",
+                    "signal": "RegimeClass",
+                    "source": "signal"
+                },
+                "height": 76,
+                "id": "ai_regime_picture",
+                "kind": "image",
+                "maximum": 100,
+                "minimum": 0,
+                "position": {
+                    "x": 764,
+                    "y": 44
+                },
+                "staleMs": 2000,
+                "states": [
+                    {
+                        "image": "../images/regime-idle.svg",
+                        "label": "Idle",
+                        "tone": "off",
+                        "value": 0
+                    },
+                    {
+                        "image": "../images/regime-cruise.svg",
+                        "label": "Cruise",
+                        "tone": "ok",
+                        "value": 1
+                    },
+                    {
+                        "image": "../images/regime-high-load.svg",
+                        "label": "HighLoad",
+                        "tone": "warning",
+                        "value": 2
+                    },
+                    {
+                        "image": "../images/regime-thermal-stress.svg",
+                        "label": "ThermalStress",
+                        "tone": "warning",
+                        "value": 3
+                    },
+                    {
+                        "image": "../images/regime-anomaly.svg",
+                        "label": "Anomaly",
+                        "tone": "danger",
+                        "value": 4
+                    }
+                ],
+                "width": 76
+            },
+            {
+                "binding": {
+                    "message": "TinyML_Telemetry",
+                    "signal": "RegimeClass",
+                    "source": "signal"
+                },
+                "decimals": 0,
+                "height": 76,
+                "id": "ai_regime",
+                "kind": "state",
+                "maximum": 100,
+                "minimum": 0,
+                "position": {
+                    "x": 846,
+                    "y": 44
+                },
+                "staleMs": 2000,
+                "states": [
+                    {
+                        "label": "Idle",
+                        "tone": "off",
+                        "value": 0
+                    },
+                    {
+                        "label": "Cruise",
+                        "tone": "ok",
+                        "value": 1
+                    },
+                    {
+                        "label": "HighLoad",
+                        "tone": "warning",
+                        "value": 2
+                    },
+                    {
+                        "label": "ThermalStress",
+                        "tone": "warning",
+                        "value": 3
+                    },
+                    {
+                        "label": "Anomaly",
+                        "tone": "danger",
+                        "value": 4
+                    }
+                ],
+                "title": "Regime",
+                "width": 142
+            },
+            {
+                "binding": {
+                    "message": "TinyML_Telemetry",
+                    "signal": "ThermalHealth",
+                    "source": "signal"
+                },
+                "height": 58,
+                "id": "thermal_health",
+                "kind": "bar",
+                "limits": {
+                    "criticalBelow": 30,
+                    "warningBelow": 60
+                },
+                "maximum": 100,
+                "minimum": 0,
+                "position": {
+                    "x": 764,
+                    "y": 130
+                },
+                "staleMs": 2000,
+                "title": "Thermal Health",
+                "unit": "%",
+                "width": 224
+            },
+            {
+                "binding": {
+                    "message": "TinyML_Telemetry",
+                    "signal": "AnomalyScore",
+                    "source": "signal"
+                },
+                "height": 58,
+                "id": "anomaly_score",
+                "kind": "bar",
+                "limits": {
+                    "criticalAbove": 80,
+                    "warningAbove": 50
+                },
+                "maximum": 100,
+                "minimum": 0,
+                "position": {
+                    "x": 764,
+                    "y": 194
+                },
+                "staleMs": 2000,
+                "title": "Anomaly Score",
+                "unit": "%",
+                "width": 224
+            },
+            {
+                "binding": {
+                    "message": "TinyML_Telemetry",
+                    "signal": "Confidence",
+                    "source": "signal"
+                },
+                "decimals": 0,
+                "height": 66,
+                "id": "confidence",
+                "kind": "numeric",
+                "maximum": 100,
+                "minimum": 0,
+                "position": {
+                    "x": 764,
+                    "y": 260
+                },
+                "staleMs": 2000,
+                "title": "Confidence",
+                "unit": "%",
+                "width": 108
+            },
+            {
+                "binding": {
+                    "message": "TinyML_Telemetry",
+                    "signal": "InferenceTimeUs",
+                    "source": "signal"
+                },
+                "decimals": 0,
+                "height": 66,
+                "id": "inference_time",
+                "kind": "numeric",
+                "maximum": 65535,
+                "minimum": 0,
+                "position": {
+                    "x": 880,
+                    "y": 260
+                },
+                "staleMs": 2000,
+                "title": "Inference Time Us",
+                "unit": "us",
+                "width": 108
+            },
+            {
+                "binding": {
+                    "message": "TinyML_Telemetry",
+                    "signal": "ThermalHealth",
+                    "source": "signal"
+                },
+                "height": 168,
+                "id": "thermal_health_trend",
+                "kind": "trend",
+                "limits": {
+                    "criticalBelow": 30,
+                    "warningBelow": 60
+                },
+                "maximum": 100,
+                "minimum": 0,
+                "position": {
+                    "x": 20,
+                    "y": 352
+                },
+                "staleMs": 2000,
+                "title": "Thermal health",
+                "unit": "%",
+                "width": 356,
+                "windowSeconds": 60
+            },
+            {
+                "binding": {
+                    "message": "TinyML_Telemetry",
+                    "signal": "AnomalyScore",
+                    "source": "signal"
+                },
+                "height": 168,
+                "id": "anomaly_trend",
+                "kind": "trend",
+                "limits": {
+                    "criticalAbove": 80,
+                    "warningAbove": 50
+                },
+                "maximum": 100,
+                "minimum": 0,
+                "position": {
+                    "x": 388,
+                    "y": 352
+                },
+                "staleMs": 2000,
+                "title": "Anomaly score",
+                "unit": "%",
+                "width": 352,
+                "windowSeconds": 60
+            },
+            {
+                "binding": {
+                    "message": "TinyML_Telemetry",
+                    "source": "message"
+                },
+                "height": 168,
+                "id": "ai_signals",
+                "kind": "table",
+                "maximum": 100,
+                "minimum": 0,
+                "position": {
+                    "x": 752,
+                    "y": 352
+                },
+                "title": "Model output",
+                "width": 248
             }
         ]
     },

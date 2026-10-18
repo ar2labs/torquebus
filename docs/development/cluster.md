@@ -8,7 +8,7 @@ Lamp (**Add Cluster**, in Edit mode), and it ships in
 
 `ARCHITECTURE.md` already said where QML belongs — *Qt Widgets for the workbench,
 QML for dashboards* — and this is the first of it. Everything else in the
-application is still Widgets, and the rest of the Dashboard is unchanged.
+application is still Widgets, and the rest of the Dashboard is described in `dashboard.md`.
 
 ## The idea: roles, and a profile that feeds them
 

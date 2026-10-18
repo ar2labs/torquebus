@@ -985,7 +985,8 @@ The instrument cluster (`docs/development/cluster.md`):
     hidden and nothing greyed out. The lamps flash once, as on a real panel.
 12. Open `examples/projects/virtual-vehicle.tbsproj` and press **Start**. The cluster is
     already on the Dashboard, and its AI panel follows the TinyML virtual ECU - the
-    regime, the risk, the confidence, the thermal health. Speed, engine speed and
+    regime, the risk, the confidence, the thermal health - as do the widgets beside it
+    (see 31). Speed, engine speed and
     temperature stay as dashes: the example emits `0x101` and `0x102` but no block
     decodes them into the plot store. That is the example, not the cluster. Press
     **Stop**: within a few seconds the AI panel goes back to dashes - *AI waiting for
@@ -1017,6 +1018,63 @@ The instrument cluster (`docs/development/cluster.md`):
     seconds. With `ecu_engine` on `sensor_error`, plot `ET1.EngineCoolantTemperature` in
     the Plot Viewer: a signal the bus reports as *not available* is a gap in the line,
     and `n/a` in the legend, and not a spike to the middle of the plot.
+
+Building one from the databases (`docs/development/dashboard.md`):
+
+20. **File → Import Database…** `examples/databases/j1939.dbc`. The DBC Explorer and the
+    Dashboard are tabs of one group by default, so drag the Explorer's tab to the side of the
+    window to see both. In the Explorer expand `EEC1` and, with **Edit Dashboard** on, drag
+    `EngineSpeed` onto an empty part of the Dashboard. A **Gauge** appears where it was dropped, selected, already bound, in
+    rpm, with the database's range and the title in words: *Engine Speed*.
+21. Drag `ET1.EngineCoolantTemperature`, `DD1.FuelLevel1` and a lamp signal such as
+    `EBC1.ABSAmberWarning`. Each is the widget it suits - a numeric or a gauge, a bar, a
+    lamp - and none had to be bound by hand.
+22. Drag the *message* row `TinyML_Proprietary`: a **Table** of its signals, with the value
+    names shown as words. Select several signals with Ctrl-click and drag them together:
+    they land in a grid, in the order the Explorer lists them.
+23. Drag one signal **onto a widget** that already reads one. That widget is re-bound and
+    keeps its place, its size and its limits.
+24. Select a widget and type `EngineSped` in **Signal**. The line under the fields says
+    *EEC1 has no signal "EngineSped". Did you mean EngineSpeed?* and the widget wears a
+    mark on the Dashboard. Choose `EngineSpeed` from the completion list: the unit, the
+    range and the title are filled in. Type a title of your own and choose another signal:
+    **your title stays** - only a choice fills things in, and typing never replaces.
+25. **Show as**: turn a Gauge into a Bar, a State and a Trend in turn. The signal stays and
+    each kind brings what it uses (a bar the range, a state the names).
+26. **Browse...** opens the picker. Type `ect`: *Engine Coolant Temperature* is the first
+    result. Select two signals, pick *Show as* Bar and press OK: two bars.
+27. Rename the `.dbc` a saved project names and open the project. The Output panel says the
+    database was not found, no widget wears a mark (an empty dictionary cannot say a widget is
+    wrong) and the Widget form says that no database is loaded - and the widgets keep working
+    exactly as they were, with every name typed as typed.
+28. Tick **Warning above** and **Critical above** on the engine speed gauge, run the engine
+    ECU's drive cycle: the needle turns amber, then red, past each, and the limits are
+    marked on the scale.
+29. Tick **Stale after** (500 ms) on a widget, press **Start**, then **Stop**. Within half
+    a second it shows dashes and a *stale* badge instead of holding its last value; **Start**
+    again and it returns. A widget with no time-out keeps its last value, as it always did.
+30. **Drop a PNG** from the file manager onto an empty part of the Dashboard: an **Image**
+    with the proportions of the file. Drop another onto *that* Image: it replaces the
+    picture and does not add one. Bind an Image to `TinyML_Proprietary.RegimeClass`, give
+    each name in **Named values** a picture, and run the example: the picture follows the
+    regime. Rename the file on disk: the widget shows *No such file* and hovering names the
+    path; put it back and it returns within a few seconds.
+31. Open `examples/projects/j1939-vehicle.tbsproj` and press **Start**. Beside the cluster
+    are bars for fuel and DEF, battery and oil pressure readouts, the AI regime as a picture
+    and a name, trends of engine speed and coolant temperature and a table of the model's
+    output. Set `ecu_engine` to `low_oil_pressure`: the oil pressure turns **red** together
+    with the cluster's oil lamp. `virtual-vehicle.tbsproj` has the AI telemetry the same way.
+32. **Save As** into another folder: the pictures still show, and the file names them
+    relative to itself. Copy the project folder, *with* `examples/images`, to another
+    machine: they resolve there too.
+33. **Add Group** puts a titled frame behind other widgets, which can then be dragged onto
+    it. `Ctrl+D` copies the selected widget (`engine_speed_2`), `Delete` removes it, and the
+    context menu has *Bring to Front* and *Send to Back*.
+
+**Watch for:** a gauge that shows dashes with a correctly spelled signal. The line under the
+fields in the Widget form says whether the signal is reaching the plot store - *No samples
+yet. A Signal Plot block has to receive this signal* - which is the commonest reason and
+the one nobody can see from the gauge.
 
 **Watch for:** a widget that overlaps a cluster. It is drawn *under* it, because a
 `QQuickWidget` stacks above the painting beneath it - a limit of the host, and the
