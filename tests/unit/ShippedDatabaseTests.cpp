@@ -15,12 +15,14 @@
 
 #include "core/database/CanMessage.h"
 #include "core/database/DbcParser.h"
+#include "core/j1939/J1939Id.h"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <filesystem>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -197,4 +199,64 @@ TEST(ShippedDatabaseTests, EverySignalIsReadBackFromWhereItWasWritten)
             }
         }
     }
+}
+
+TEST(ShippedDatabaseTests, NoSignalNamesAValueJ1939KeepsForErrorOrNotAvailable)
+{
+    // The J1939 block publishes the values a field keeps for "error" and "not available" as NaN,
+    // which a plot shows as a gap and the cluster as dashes - unless the database has given the
+    // value a name, because a value with a name is a state and not an error (J1939Node.cpp,
+    // isReserved; docs/development/databases.md). So a table that completes a two-bit lamp with
+    // 2 "Error" and 3 "NotAvailable" reads like documentation and does the opposite of it: the
+    // lamp now reads 2 and 3 where it read NaN, and a cluster that lights a lamp on anything above
+    // a half lights it on "not available".
+    //
+    // Nothing in a normal run sends a 2 or a 3 to a lamp, so nothing else notices. A name for a
+    // value J1939 keeps has to be a decision, and the decisions are on this list.
+    const std::set<std::string> deliberate{
+        // Proprietary, not a J1939 status field: its 2 and 3 are things the model can be, and
+        // whoever reads them wants the number.
+        "TinyML_Proprietary.ModelStatus",
+    };
+
+    std::size_t names = 0;
+
+    for (const std::filesystem::path& file : shippedDatabases()) {
+        CanDatabase database;
+        ASSERT_TRUE(DbcParser::parseFile(file.string(), database).succeeded());
+
+        for (const CanMessage& message : database.messages()) {
+            // The J1939 block reads 29-bit messages and nothing else.
+            if (message.format != CanFrameFormat::Extended) {
+                continue;
+            }
+
+            for (const CanSignal& signal : message.signalList) {
+                // A signed signal has no such values: 0xFF in a signed byte is -1.
+                if (signal.isSigned) {
+                    continue;
+                }
+
+                for (const SignalValueName& entry : signal.valueNames) {
+                    ++names;
+
+                    const std::string where = message.name + "." + signal.name;
+                    const bool reserved =
+                        entry.value >= 0
+                        && isJ1939SpecialValue(static_cast<std::uint64_t>(entry.value),
+                                               signal.bitLength);
+
+                    EXPECT_TRUE(!reserved || deliberate.contains(where))
+                        << file.filename().string() << " / " << where << " names " << entry.value
+                        << " \"" << entry.name << "\", which J1939 keeps for error and not "
+                        << "available. The J1939 block reads a named value as a state, so this "
+                        << "signal could no longer say \"not available\": leave the value out of "
+                        << "the table, or list the signal here if it really is a state.";
+                }
+            }
+        }
+    }
+
+    // A loop over nothing passes: a parser that lost every VAL_ line would pass this too.
+    EXPECT_GT(names, 0U);
 }
