@@ -5,37 +5,68 @@
 
 #include "ui/dashboard/DashboardPanel.h"
 
+#include "core/dashboard/DashboardAssets.h"
 #include "core/dashboard/SystemVariables.h"
 #include "core/dashboard/cluster/ClusterProfiles.h"
 #include "core/plot/SignalSeries.h"
+#include "ui/dashboard/DashboardText.h"
+#include "ui/dashboard/SignalMime.h"
+#include "ui/dashboard/SignalPickerDialog.h"
 #include "ui/dashboard/cluster/ClusterHost.h"
 #include "ui/theme/Theme.h"
 #include "ui/theme/ThemeManager.h"
 
 #include <QAction>
 #include <QContextMenuEvent>
+#include <QDir>
+#include <QDragEnterEvent>
+#include <QDragLeaveEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QFontMetricsF>
+#include <QHelpEvent>
 #include <QKeyEvent>
 #include <QMenu>
+#include <QMimeData>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPen>
 #include <QShowEvent>
 #include <QTimer>
+#include <QToolTip>
+#include <QUrl>
 
 // For M_PI, which MSVC does not define from <cmath> without _USE_MATH_DEFINES.
 // QtMath defines it if the platform did not, which is the portable way to ask.
 #include <QtMath>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 
 namespace torquebus::ui {
 namespace {
 
+/// `text` cut to fit `width` pixels in the painter's current font, ending in an ellipsis when it
+/// had to be. A title from a database is as long as the database made it - "Driver Demand Torque"
+/// in a box the size of a number - and text that runs past its box is clipped at both ends, which
+/// reads as a different word.
+[[nodiscard]] QString fitted(const QPainter& painter, const QString& text, double width)
+{
+    return painter.fontMetrics().elidedText(
+        text, Qt::ElideRight, static_cast<int>(std::max(0.0, width - 6.0)));
+}
+
 /// 20 Hz, like every other panel that reads shared state on a timer. A needle
 /// updated faster than the screen refreshes is work nobody can see.
 constexpr int kRefreshMs = 50;
+
+/// How many ticks between the checks that a picture on disk is still the one on screen: two
+/// seconds.
+constexpr unsigned kPictureRecheckTicks = 40;
 
 /// The resize handle in edit mode, in pixels.
 constexpr double kHandleSize = 12.0;
@@ -46,6 +77,9 @@ constexpr double kHandleSize = 12.0;
 constexpr double kGaugeStartDegrees = 210.0;
 constexpr double kGaugeSweepDegrees = -240.0;
 
+/// The gap between widgets made together from several signals.
+constexpr int kGridGap = 12;
+
 [[nodiscard]] Theme currentTheme()
 {
     if (const ThemeManager* themes = ThemeManager::instance()) {
@@ -54,14 +88,28 @@ constexpr double kGaugeSweepDegrees = -240.0;
     return Theme::dark();
 }
 
-/// Where `value` sits between the bounds, clamped to 0..1.
-[[nodiscard]] double fraction(double value, double minimum, double maximum)
+/// The value as the bits it is made of: a signal has no revision counter, and this answers the same
+/// question for both sources - did it change.
+[[nodiscard]] std::uint64_t bitsOf(double value)
 {
-    if (!(maximum > minimum)) {
-        return 0.0;
-    }
+    std::uint64_t bits = 0;
+    static_assert(sizeof(bits) == sizeof(value));
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
 
-    return std::clamp((value - minimum) / (maximum - minimum), 0.0, 1.0);
+[[nodiscard]] std::uint64_t mix(std::uint64_t seed, std::uint64_t value)
+{
+    return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U));
+}
+
+/// Whether a signal can be bound to this kind of widget: one that reads, and has a value to read.
+[[nodiscard]] bool takesASignal(const DashboardWidget& widget)
+{
+    const BindingNeed need = traitsOf(widget.kind).binding;
+
+    return !writesItsBinding(widget.kind)
+           && (need == BindingNeed::Required || need == BindingNeed::Optional);
 }
 
 } // namespace
@@ -76,6 +124,10 @@ DashboardPanel::DashboardPanel(DashboardDescription& dashboard, QWidget* parent)
     // Delete has to reach the panel in edit mode, and a panel that cannot take
     // focus never sees a key.
     setFocusPolicy(Qt::StrongFocus);
+
+    // Signals and pictures are dropped on it, in Edit mode; in Run mode canAccept says no.
+    setAcceptDrops(true);
+    setMouseTracking(true);
 
     auto* timer = new QTimer(this);
     timer->setInterval(kRefreshMs);
@@ -109,11 +161,34 @@ void DashboardPanel::setVariables(SystemVariables* variables)
     update();
 }
 
+void DashboardPanel::setDatabases(const std::vector<std::shared_ptr<const CanDatabase>>& databases)
+{
+    m_dictionary.rebuild(databases);
+
+    // The bindings are checked against a different dictionary now.
+    ++m_dictionaryRevision;
+    m_findingsFor.clear();
+
+    update();
+}
+
+void DashboardPanel::setAssetBase(const QString& directory)
+{
+    m_images.setBaseDirectory(directory);
+    update();
+}
+
 void DashboardPanel::reload()
 {
     m_selected.clear();
     m_pressed.clear();
+    m_dropTarget.clear();
     m_drag = Drag::None;
+
+    m_seen.clear();
+    m_stale.clear();
+    m_findings.clear();
+    m_findingsFor.clear();
 
     Q_EMIT selectionChanged(QString{});
 
@@ -132,6 +207,7 @@ void DashboardPanel::setEditing(bool editing)
     // A drag in progress belongs to the mode it started in.
     m_drag = Drag::None;
     m_pressed.clear();
+    m_dropTarget.clear();
 
     if (!m_editing) {
         m_selected.clear();
@@ -142,13 +218,31 @@ void DashboardPanel::setEditing(bool editing)
     update();
 }
 
+void DashboardPanel::select(const std::string& id)
+{
+    m_selected = m_dashboard.find(id) != nullptr ? id : std::string{};
+
+    Q_EMIT selectionChanged(QString::fromStdString(m_selected));
+    update();
+}
+
 // ---------------------------------------------------------------------------
 // Values
 // ---------------------------------------------------------------------------
 
 DashboardPanel::Reading DashboardPanel::read(const DashboardWidget& widget) const
 {
-    return readBinding(widget.binding);
+    Reading reading = readBinding(widget.binding);
+
+    // A signal that has been silent for longer than the widget allows is not shown as the value it
+    // last had: dashes, and a badge that says why.
+    if (m_stale.contains(widget.id)) {
+        reading.known = false;
+        reading.timed = false;
+        reading.stale = true;
+    }
+
+    return reading;
 }
 
 DashboardPanel::Reading DashboardPanel::readBinding(const DashboardBinding& binding) const
@@ -195,6 +289,8 @@ DashboardPanel::Reading DashboardPanel::readBinding(const DashboardBinding& bind
         reading.known = std::isfinite(reading.value);
         break;
 
+    // A whole message has no single value; a Table asks for each of its signals.
+    case DashboardBinding::Source::Message:
     case DashboardBinding::Source::None:
         break;
     }
@@ -216,11 +312,96 @@ void DashboardPanel::syncClusters()
     m_clusters->sync(m_dashboard, m_editing);
 }
 
+void DashboardPanel::updateStale(Clock::time_point now)
+{
+    std::unordered_set<std::string> stale;
+
+    for (const DashboardWidget& widget : m_dashboard.widgets()) {
+        if (widget.staleMs == 0 || widget.binding.source != DashboardBinding::Source::Signal) {
+            m_seen.erase(widget.id);
+            continue;
+        }
+
+        // The raw reading, not read(): this is what decides whether it is stale.
+        const Reading raw = readBinding(widget.binding);
+
+        // A signal that never spoke, or whose last word was "not available", is unknown and not
+        // stale: stale is a signal that was alive.
+        if (!raw.known || !raw.timed) {
+            m_seen.erase(widget.id);
+            continue;
+        }
+
+        const auto [it, inserted] = m_seen.try_emplace(widget.id, Seen{raw.stamp, now});
+        Seen& seen = it->second;
+
+        if (!inserted && seen.stamp != raw.stamp) {
+            // A new sample, whatever its stamp: compared for change and not for order, so a store
+            // that started over is as fresh as one that went on.
+            seen = Seen{raw.stamp, now};
+        } else if (now - seen.since > std::chrono::milliseconds{widget.staleMs}) {
+            stale.insert(widget.id);
+        }
+    }
+
+    // A widget that has been deleted leaves nothing behind.
+    std::erase_if(m_seen,
+                  [this](const auto& item) { return m_dashboard.find(item.first) == nullptr; });
+
+    m_stale = std::move(stale);
+}
+
+void DashboardPanel::updateFindings()
+{
+    // The bindings and the dictionary they are checked against, as one string: cheap to build every
+    // tick, and the only things the findings depend on.
+    std::string signature = std::to_string(m_dictionaryRevision);
+
+    for (const DashboardWidget& widget : m_dashboard.widgets()) {
+        if (widget.binding.source == DashboardBinding::Source::Signal
+            || widget.binding.source == DashboardBinding::Source::Message) {
+            signature += '\n';
+            signature += widget.id;
+            signature += widget.binding.source == DashboardBinding::Source::Signal ? '|' : '#';
+            signature += widget.binding.message;
+            signature += '.';
+            signature += widget.binding.signal;
+        }
+    }
+
+    if (signature == m_findingsFor) {
+        return;
+    }
+
+    m_findingsFor = std::move(signature);
+    m_findings.clear();
+
+    for (const WidgetFinding& finding : m_dictionary.audit(m_dashboard)) {
+        if (const DashboardWidget* widget = m_dashboard.find(finding.widgetId); widget != nullptr) {
+            m_findings[finding.widgetId] = describeFinding(finding.finding, widget->binding);
+        }
+    }
+
+    update();
+}
+
+QString DashboardPanel::findingFor(const std::string& widgetId) const
+{
+    const auto found = m_findings.find(widgetId);
+    return found == m_findings.end() ? QString{} : found->second;
+}
+
 void DashboardPanel::refresh()
 {
     if (!isVisible()) {
         return;
     }
+
+    const Clock::time_point now = Clock::now();
+
+    updateStale(now);
+    recordTrails(now);
+    updateFindings();
 
     // Every tick, because the description can change without the panel being told: the widget
     // editor writes a cluster's profile straight into it. A tick with nothing changed does
@@ -243,22 +424,48 @@ void DashboardPanel::refresh()
     // of eight gauges on a stopped measurement would otherwise repaint twenty
     // times a second to draw the same picture.
     std::vector<std::uint64_t> revisions;
-    revisions.reserve(m_dashboard.widgets().size());
+    revisions.reserve(m_dashboard.widgets().size() + 1);
+
+    bool hasPictures = false;
 
     for (const DashboardWidget& widget : m_dashboard.widgets()) {
         const Reading reading = read(widget);
 
         // The value itself, as bits, rather than a revision counter: a signal
-        // has no counter, and this answers the same question for both sources.
-        std::uint64_t token = 0;
-        static_assert(sizeof(token) == sizeof(reading.value));
-        std::memcpy(&token, &reading.value, sizeof(token));
+        // has no counter, and this answers the same question for both sources. A stale reading
+        // is a different picture from an unknown one, so it is a different token.
+        std::uint64_t token = reading.known ? bitsOf(reading.value) : (reading.stale ? 1U : 0U);
 
-        revisions.push_back(reading.known ? token : 0);
+        if (widget.kind == DashboardWidgetKind::Trend) {
+            // Its line moves with the clock, whether or not its own signal changed.
+            token = mix(token, trendNewestNs(widget));
+        } else if (widget.kind == DashboardWidgetKind::Table) {
+            for (const DictionaryEntry* entry : m_dictionary.signalsOf(widget.binding.message)) {
+                DashboardBinding row;
+                row.source = DashboardBinding::Source::Signal;
+                row.message = entry->message;
+                row.signal = entry->signal;
+
+                const Reading value = readBinding(row);
+                token = mix(token, value.known ? bitsOf(value.value) : 0U);
+            }
+        }
+
+        hasPictures = hasPictures || !widget.image.empty() || !widget.states.empty();
+        revisions.push_back(token);
     }
+
+    // A mark appearing or going is a change too.
+    revisions.push_back(m_findings.size());
 
     if (revisions != m_lastRevisions) {
         m_lastRevisions = std::move(revisions);
+        update();
+    }
+
+    // A picture saved over in an editor shows within a couple of seconds, on a dashboard that is
+    // otherwise standing still.
+    if (hasPictures && ++m_ticks % kPictureRecheckTicks == 0) {
         update();
     }
 }
@@ -285,6 +492,19 @@ DashboardWidget* DashboardPanel::widgetAt(const QPoint& point)
     // Backwards: later widgets are drawn over earlier ones, so they are hit
     // first too. Anything else means the widget on top cannot be clicked.
     std::vector<DashboardWidget>& widgets = m_dashboard.widgets();
+
+    for (auto it = widgets.rbegin(); it != widgets.rend(); ++it) {
+        if (rectOf(*it).contains(point)) {
+            return &*it;
+        }
+    }
+
+    return nullptr;
+}
+
+const DashboardWidget* DashboardPanel::widgetAt(const QPoint& point) const
+{
+    const std::vector<DashboardWidget>& widgets = m_dashboard.widgets();
 
     for (auto it = widgets.rbegin(); it != widgets.rend(); ++it) {
         if (rectOf(*it).contains(point)) {
@@ -493,9 +713,20 @@ void DashboardPanel::contextMenuEvent(QContextMenuEvent* event)
         connect(action, &QAction::triggered, this, [this, kind, where] { addWidget(kind, where); });
     };
 
+    // First, because it is the way to make a widget that is bound and configured when it arrives.
+    QAction* fromDatabase = menu.addAction(tr("Add from Database..."));
+    fromDatabase->setToolTip(tr("Pick signals, or a whole message, from the loaded databases. Each "
+                                "becomes the widget it suits, already bound."));
+    connect(fromDatabase, &QAction::triggered, this, [this, where] { addFromPicker(where); });
+    menu.addSeparator();
+
     addKind(DashboardWidgetKind::Gauge, tr("Add Gauge"));
     addKind(DashboardWidgetKind::Numeric, tr("Add Numeric"));
+    addKind(DashboardWidgetKind::Bar, tr("Add Bar"));
     addKind(DashboardWidgetKind::Lamp, tr("Add Lamp"));
+    addKind(DashboardWidgetKind::State, tr("Add State"));
+    addKind(DashboardWidgetKind::Trend, tr("Add Trend"));
+    addKind(DashboardWidgetKind::Table, tr("Add Message Table"));
     menu.addSeparator();
     addKind(DashboardWidgetKind::Slider, tr("Add Slider"));
     addKind(DashboardWidgetKind::Knob, tr("Add Knob"));
@@ -503,15 +734,41 @@ void DashboardPanel::contextMenuEvent(QContextMenuEvent* event)
     addKind(DashboardWidgetKind::Button, tr("Add Button"));
     menu.addSeparator();
     addKind(DashboardWidgetKind::Label, tr("Add Label"));
+    addKind(DashboardWidgetKind::Group, tr("Add Group"));
+
+    QAction* image = menu.addAction(tr("Add Image..."));
+    connect(image, &QAction::triggered, this, [this, where] { addImageFromDialog(where); });
+
     menu.addSeparator();
     addKind(DashboardWidgetKind::Cluster, tr("Add Cluster"));
 
     if (const DashboardWidget* widget = widgetAt(where); widget != nullptr) {
         menu.addSeparator();
 
-        QAction* remove = menu.addAction(tr("Delete '%1'").arg(QString::fromStdString(widget->id)));
-
         const std::string id = widget->id;
+        const QString name = QString::fromStdString(id);
+
+        QAction* duplicate = menu.addAction(tr("Duplicate '%1'").arg(name));
+        connect(duplicate, &QAction::triggered, this, [this, id] {
+            m_selected = id;
+            (void)duplicateSelected();
+        });
+
+        QAction* front = menu.addAction(tr("Bring '%1' to Front").arg(name));
+        connect(front, &QAction::triggered, this, [this, id] {
+            m_dashboard.bringToFront(id);
+            Q_EMIT dashboardEdited();
+            update();
+        });
+
+        QAction* back = menu.addAction(tr("Send '%1' to Back").arg(name));
+        connect(back, &QAction::triggered, this, [this, id] {
+            m_dashboard.sendToBack(id);
+            Q_EMIT dashboardEdited();
+            update();
+        });
+
+        QAction* remove = menu.addAction(tr("Delete '%1'").arg(name));
         connect(remove, &QAction::triggered, this, [this, id] {
             m_selected = id;
             removeSelected();
@@ -529,67 +786,381 @@ void DashboardPanel::keyPressEvent(QKeyEvent* event)
         return;
     }
 
+    if (m_editing && !m_selected.empty() && event->key() == Qt::Key_D
+        && event->modifiers().testFlag(Qt::ControlModifier)) {
+        (void)duplicateSelected();
+        return;
+    }
+
     QWidget::keyPressEvent(event);
 }
 
-void DashboardPanel::addWidget(DashboardWidgetKind kind, const QPoint& where)
+bool DashboardPanel::event(QEvent* event)
 {
-    DashboardWidget widget;
-    widget.id = m_dashboard.uniqueId(std::string{nameOf(kind)});
-    widget.kind = kind;
-    widget.x = where.x();
-    widget.y = where.y();
+    if (event->type() == QEvent::ToolTip) {
+        const auto* help = static_cast<QHelpEvent*>(event);
+        const QString text = detailsAt(help->pos());
 
-    // A control needs a variable to write and a reader needs something to read.
-    // Neither is guessed: the widget arrives unbound and validate() says so,
-    // which is the same contract a half-configured block on the canvas has.
-    switch (kind) {
-    case DashboardWidgetKind::Slider:
-        widget.width = 220.0;
-        widget.height = 60.0;
-        widget.maximum = 1.0;
-        break;
+        if (text.isEmpty()) {
+            QToolTip::hideText();
+            event->ignore();
+        } else {
+            QToolTip::showText(help->globalPos(), text, this);
+        }
 
-    case DashboardWidgetKind::Knob:
-        widget.width = 140.0;
-        widget.height = 140.0;
-        widget.maximum = 1.0;
-        break;
-
-    case DashboardWidgetKind::Lamp:
-    case DashboardWidgetKind::Button:
-    case DashboardWidgetKind::Switch:
-        widget.width = 120.0;
-        widget.height = 80.0;
-        widget.maximum = 1.0;
-        break;
-
-    case DashboardWidgetKind::Label:
-        widget.width = 200.0;
-        widget.height = 40.0;
-        widget.title = "Label";
-        break;
-
-    case DashboardWidgetKind::Cluster:
-        // The cluster's own stage is 1280 x 560; drawn at another shape it is centred in what it
-        // is given, so this is just the size at which it is first seen whole.
-        widget.width = 720.0;
-        widget.height = 315.0;
-        widget.profile = std::string{kDefaultClusterProfile};
-        break;
-
-    default:
-        break;
+        return true;
     }
 
-    m_selected = widget.id;
+    return QWidget::event(event);
+}
+
+// ---------------------------------------------------------------------------
+// Drag and drop
+// ---------------------------------------------------------------------------
+
+QStringList DashboardPanel::pictureFilesIn(const QMimeData* mime)
+{
+    QStringList files;
+
+    if (mime == nullptr || !mime->hasUrls()) {
+        return files;
+    }
+
+    for (const QUrl& url : mime->urls()) {
+        if (!url.isLocalFile()) {
+            continue;
+        }
+
+        const QString path = url.toLocalFile();
+
+        if (isImagePath(path.toStdString())) {
+            files << path;
+        }
+    }
+
+    return files;
+}
+
+bool DashboardPanel::canAccept(const QMimeData* mime) const
+{
+    // Only while editing: in Run mode a drop would add a widget to a dashboard that nobody can see
+    // being edited.
+    return m_editing && mime != nullptr
+           && (hasSignalReferences(mime) || !pictureFilesIn(mime).isEmpty());
+}
+
+void DashboardPanel::dragEnterEvent(QDragEnterEvent* event)
+{
+    if (!canAccept(event->mimeData())) {
+        event->ignore();
+        return;
+    }
+
+    event->acceptProposedAction();
+}
+
+void DashboardPanel::dragMoveEvent(QDragMoveEvent* event)
+{
+    if (!canAccept(event->mimeData())) {
+        event->ignore();
+        return;
+    }
+
+    event->acceptProposedAction();
+
+    // The widget a drop would land on: a single signal onto a widget that reads one, a picture onto
+    // one that has a picture of its own. Anywhere else a drop makes a new widget, and there is
+    // nothing to highlight.
+    std::string target;
+
+    if (const DashboardWidget* widget = widgetAt(event->position().toPoint()); widget != nullptr) {
+        const QList<SignalReference> references = signalReferencesOf(event->mimeData());
+        const bool oneSignal = references.size() == 1 && !references.front().signal.isEmpty();
+
+        if ((oneSignal && takesASignal(*widget))
+            || (!oneSignal && traitsOf(widget->kind).image
+                && !pictureFilesIn(event->mimeData()).isEmpty())) {
+            target = widget->id;
+        }
+    }
+
+    if (target != m_dropTarget) {
+        m_dropTarget = target;
+        update();
+    }
+}
+
+void DashboardPanel::dragLeaveEvent(QDragLeaveEvent* event)
+{
+    Q_UNUSED(event)
+
+    if (!m_dropTarget.empty()) {
+        m_dropTarget.clear();
+        update();
+    }
+}
+
+void DashboardPanel::dropEvent(QDropEvent* event)
+{
+    const QMimeData* mime = event->mimeData();
+
+    if (!canAccept(mime)) {
+        event->ignore();
+        return;
+    }
+
+    const QPoint where = event->position().toPoint();
+
+    m_dropTarget.clear();
+
+    if (hasSignalReferences(mime)) {
+        std::vector<DictionaryEntry> entries;
+        std::vector<std::string> messages;
+        QStringList unknown;
+
+        for (const SignalReference& reference : signalReferencesOf(mime)) {
+            const std::string message = reference.message.toStdString();
+            const std::string signal = reference.signal.toStdString();
+
+            if (signal.empty()) {
+                if (m_dictionary.hasMessage(message)) {
+                    messages.push_back(message);
+                } else {
+                    unknown << reference.message;
+                }
+            } else if (const DictionaryEntry* entry = m_dictionary.find(message, signal);
+                       entry != nullptr) {
+                entries.push_back(*entry);
+            } else {
+                unknown << reference.message + QLatin1Char('.') + reference.signal;
+            }
+        }
+
+        const DashboardWidget* target = widgetAt(where);
+
+        if (entries.size() == 1 && messages.empty() && target != nullptr && takesASignal(*target)) {
+            // One signal onto a widget that reads one: that widget now reads it.
+            (void)bindWidget(target->id, entries.front());
+        } else {
+            QPoint cursor = where;
+
+            for (const std::string& message : messages) {
+                const std::string id = addTable(message, cursor);
+
+                if (const DashboardWidget* table = m_dashboard.find(id); table != nullptr) {
+                    cursor.ry() += static_cast<int>(table->height) + kGridGap;
+                }
+            }
+
+            (void)addSignals(entries, std::nullopt, cursor);
+        }
+
+        if (!unknown.isEmpty()) {
+            Q_EMIT reported(
+                tr("Not in any loaded database: %1. Import its .dbc in the DBC Explorer first.")
+                    .arg(unknown.join(QStringLiteral(", "))),
+                true);
+        }
+    } else {
+        const QStringList files = pictureFilesIn(mime);
+        const DashboardWidget* target = widgetAt(where);
+        QPoint cursor = where;
+
+        for (qsizetype i = 0; i < files.size(); ++i) {
+            // A picture onto a widget that has one of its own is that widget's new picture; more
+            // than one file, or anywhere else, makes Images.
+            if (i == 0 && files.size() == 1 && target != nullptr && traitsOf(target->kind).image) {
+                (void)setPicture(target->id, files.at(i));
+                continue;
+            }
+
+            const std::string id = addImage(files.at(i), cursor);
+
+            if (const DashboardWidget* image = m_dashboard.find(id); image != nullptr) {
+                cursor.rx() += static_cast<int>(image->width) + kGridGap;
+            }
+        }
+    }
+
+    event->acceptProposedAction();
+}
+
+// ---------------------------------------------------------------------------
+// Making widgets
+// ---------------------------------------------------------------------------
+
+std::string DashboardPanel::place(DashboardWidget widget)
+{
+    widget.id =
+        m_dashboard.uniqueId(widget.id.empty() ? std::string{nameOf(widget.kind)} : widget.id);
+
+    const std::string id = widget.id;
+    const bool behind = widget.kind == DashboardWidgetKind::Group;
+
     m_dashboard.add(std::move(widget));
+
+    // A group goes behind what it groups, and what is put on it afterwards goes in front.
+    if (behind) {
+        m_dashboard.sendToBack(id);
+    }
+
+    m_selected = id;
 
     Q_EMIT selectionChanged(QString::fromStdString(m_selected));
     Q_EMIT dashboardEdited();
 
     syncClusters();
     update();
+
+    return id;
+}
+
+void DashboardPanel::addWidget(DashboardWidgetKind kind, const QPoint& where)
+{
+    DashboardWidget widget = defaultWidgetOf(kind);
+    widget.x = where.x();
+    widget.y = where.y();
+
+    // Unbound, and validate() says so: a control needs a variable to write and a reader needs
+    // something to read, and neither is guessed.
+    (void)place(std::move(widget));
+}
+
+std::vector<std::string> DashboardPanel::addSignals(const std::vector<DictionaryEntry>& entries,
+                                                    std::optional<DashboardWidgetKind> kind,
+                                                    const QPoint& where)
+{
+    std::vector<std::string> ids;
+
+    // Left to right, then down: wrapped at the edge of what is on screen, or after a few when the
+    // panel has not been shown yet.
+    const int right = std::max(width(), where.x() + 3 * 220);
+
+    QPoint cursor = where;
+    int rowHeight = 0;
+
+    for (const DictionaryEntry& entry : entries) {
+        DashboardWidget widget = suggestWidget(entry, kind);
+
+        if (cursor.x() > where.x() && cursor.x() + static_cast<int>(widget.width) > right) {
+            cursor.setX(where.x());
+            cursor.ry() += rowHeight + kGridGap;
+            rowHeight = 0;
+        }
+
+        widget.x = cursor.x();
+        widget.y = cursor.y();
+
+        cursor.rx() += static_cast<int>(widget.width) + kGridGap;
+        rowHeight = std::max(rowHeight, static_cast<int>(widget.height));
+
+        ids.push_back(place(std::move(widget)));
+    }
+
+    return ids;
+}
+
+std::string DashboardPanel::addTable(std::string_view message, const QPoint& where)
+{
+    const std::size_t count = m_dictionary.signalsOf(message).size();
+
+    DashboardWidget table = suggestTable(message, count);
+    table.x = where.x();
+    table.y = where.y();
+
+    return place(std::move(table));
+}
+
+std::string DashboardPanel::addImage(const QString& file, const QPoint& where)
+{
+    const std::string utf8 = file.toStdString();
+
+    if (!isImagePath(utf8)) {
+        Q_EMIT reported(tr("%1 is not a picture this build can show (PNG, JPEG, BMP, GIF or SVG).")
+                            .arg(QDir::toNativeSeparators(file)),
+                        true);
+        return {};
+    }
+
+    DashboardWidget image = defaultWidgetOf(DashboardWidgetKind::Image);
+    image.id = idFor(QFileInfo{file}.completeBaseName().toStdString());
+    image.image = storableAsset(utf8, m_images.baseDirectory().toStdString());
+    image.x = where.x();
+    image.y = where.y();
+
+    // Sized to the picture's own proportions, with its longer side at the default widget's.
+    if (const QSize size = m_images.sizeOf(image.image); size.isValid() && !size.isEmpty()) {
+        const double longest = std::max(defaultSizeOf(DashboardWidgetKind::Image).width,
+                                        defaultSizeOf(DashboardWidgetKind::Image).height);
+        const double scale = longest / std::max(size.width(), size.height());
+
+        image.width = std::max(40.0, size.width() * scale);
+        image.height = std::max(30.0, size.height() * scale);
+    }
+
+    return place(std::move(image));
+}
+
+bool DashboardPanel::bindWidget(const std::string& id, const DictionaryEntry& entry)
+{
+    auto* widget = const_cast<DashboardWidget*>(m_dashboard.find(id));
+
+    if (widget == nullptr || !takesASignal(*widget)) {
+        return false;
+    }
+
+    applyEntry(*widget, entry);
+
+    // The form is showing this widget, and it just changed under it.
+    m_selected = id;
+
+    Q_EMIT selectionChanged(QString::fromStdString(id));
+    Q_EMIT dashboardEdited();
+
+    update();
+    return true;
+}
+
+bool DashboardPanel::setPicture(const std::string& id, const QString& file)
+{
+    auto* widget = const_cast<DashboardWidget*>(m_dashboard.find(id));
+
+    if (widget == nullptr || !traitsOf(widget->kind).image || !isImagePath(file.toStdString())) {
+        return false;
+    }
+
+    widget->image = storableAsset(file.toStdString(), m_images.baseDirectory().toStdString());
+
+    m_selected = id;
+
+    Q_EMIT selectionChanged(QString::fromStdString(id));
+    Q_EMIT dashboardEdited();
+
+    update();
+    return true;
+}
+
+std::string DashboardPanel::duplicateSelected()
+{
+    if (m_selected.empty()) {
+        return {};
+    }
+
+    const std::string id = m_dashboard.duplicate(m_selected);
+
+    if (id.empty()) {
+        return {};
+    }
+
+    m_selected = id;
+
+    Q_EMIT selectionChanged(QString::fromStdString(id));
+    Q_EMIT dashboardEdited();
+
+    syncClusters();
+    update();
+
+    return id;
 }
 
 void DashboardPanel::removeSelected()
@@ -608,6 +1179,259 @@ void DashboardPanel::removeSelected()
     update();
 }
 
+void DashboardPanel::addFromPicker(const QPoint& where)
+{
+    if (m_dictionary.empty()) {
+        Q_EMIT reported(tr("No database is loaded. Import a .dbc in the DBC Explorer, then add "
+                           "signals from it - or drag them here from there."),
+                        false);
+        return;
+    }
+
+    SignalPickerDialog dialog{m_dictionary, SignalPickerDialog::Mode::AddWidgets, this};
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    QPoint cursor = where;
+
+    for (const std::string& message : dialog.chosenMessages()) {
+        const std::string id = addTable(message, cursor);
+
+        if (const DashboardWidget* table = m_dashboard.find(id); table != nullptr) {
+            cursor.ry() += static_cast<int>(table->height) + kGridGap;
+        }
+    }
+
+    (void)addSignals(dialog.chosenSignals(), dialog.chosenKind(), cursor);
+}
+
+void DashboardPanel::addImageFromDialog(const QPoint& where)
+{
+    QStringList filters;
+    for (const std::string_view extension : imageExtensions()) {
+        filters << QStringLiteral("*.")
+                       + QString::fromLatin1(extension.data(),
+                                             static_cast<qsizetype>(extension.size()));
+    }
+
+    const QString file = QFileDialog::getOpenFileName(
+        this,
+        tr("Choose a picture"),
+        m_images.baseDirectory(),
+        tr("Pictures (%1);;All files (*)").arg(filters.join(QLatin1Char(' '))));
+
+    if (!file.isEmpty()) {
+        (void)addImage(file, where);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Asking
+// ---------------------------------------------------------------------------
+
+std::vector<TableRow> DashboardPanel::tableRowsOf(const std::string& widgetId) const
+{
+    std::vector<TableRow> rows;
+
+    const DashboardWidget* widget = m_dashboard.find(widgetId);
+
+    if (widget == nullptr || widget->binding.source != DashboardBinding::Source::Message) {
+        return rows;
+    }
+
+    for (const DictionaryEntry* entry : m_dictionary.signalsOf(widget->binding.message)) {
+        DashboardBinding binding;
+        binding.source = DashboardBinding::Source::Signal;
+        binding.message = entry->message;
+        binding.signal = entry->signal;
+
+        const Reading reading = readBinding(binding);
+
+        TableRow row;
+        row.name = QString::fromStdString(prettyName(entry->signal));
+        row.known = reading.known;
+        row.value = QStringLiteral("--");
+
+        if (reading.known) {
+            // The word the database has for the value, if it has one; otherwise the number, to as
+            // many places as the signal's resolution deserves.
+            const SignalValueName* named = nullptr;
+
+            for (const SignalValueName& value : entry->values) {
+                if (std::abs(entry->physical(value.value) - reading.value) <= 1e-9) {
+                    named = &value;
+                    break;
+                }
+            }
+
+            if (named != nullptr) {
+                row.value = QString::fromStdString(named->name);
+                row.tone = inferTone(named->name);
+            } else {
+                row.value = QString::number(reading.value, 'f', decimalsFor(entry->factor));
+
+                if (!entry->unit.empty()) {
+                    row.value += QLatin1Char(' ') + QString::fromStdString(entry->unit);
+                }
+            }
+        }
+
+        rows.push_back(std::move(row));
+    }
+
+    return rows;
+}
+
+std::uint64_t DashboardPanel::trendNewestNs(const DashboardWidget& widget) const
+{
+    if (widget.binding.source == DashboardBinding::Source::Variable) {
+        return m_trailsNowNs;
+    }
+
+    return m_plots != nullptr ? m_plots->newestTimestampNs() : 0;
+}
+
+void DashboardPanel::recordTrails(Clock::time_point now)
+{
+    m_trailsNowNs = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count());
+
+    std::unordered_set<std::string> kept;
+
+    for (const DashboardWidget& widget : m_dashboard.widgets()) {
+        if (widget.kind != DashboardWidgetKind::Trend
+            || widget.binding.source != DashboardBinding::Source::Variable) {
+            continue;
+        }
+
+        kept.insert(widget.id);
+
+        const Reading reading = readBinding(widget.binding);
+        std::deque<SignalSample>& trail = m_trails[widget.id];
+
+        if (reading.known) {
+            trail.push_back(SignalSample{m_trailsNowNs, reading.value});
+        }
+
+        const auto windowNs = static_cast<std::uint64_t>(widget.windowSeconds * 1e9);
+
+        while (!trail.empty() && m_trailsNowNs - trail.front().timestampNs > windowNs) {
+            trail.pop_front();
+        }
+    }
+
+    // A Trend that was deleted, or bound to something else, leaves no trail behind.
+    std::erase_if(m_trails, [&kept](const auto& item) { return !kept.contains(item.first); });
+}
+
+const SeriesWindow* DashboardPanel::trendWindowOf(const DashboardWidget& widget) const
+{
+    if (widget.binding.source == DashboardBinding::Source::Variable) {
+        const auto trail = m_trails.find(widget.id);
+
+        if (trail == m_trails.end() || trail->second.empty()) {
+            return nullptr;
+        }
+
+        m_windows.assign(1, SeriesWindow{});
+        m_windows.front().samples.assign(trail->second.begin(), trail->second.end());
+        return &m_windows.front();
+    }
+
+    if (m_plots == nullptr || widget.binding.source != DashboardBinding::Source::Signal) {
+        return nullptr;
+    }
+
+    const SeriesId id = m_plots->find(widget.binding.message + "." + widget.binding.signal);
+
+    if (id == kNoSeries) {
+        return nullptr;
+    }
+
+    const std::uint64_t newest = m_plots->newestTimestampNs();
+    const auto windowNs = static_cast<std::uint64_t>(widget.windowSeconds * 1e9);
+    const std::uint64_t since = newest > windowNs ? newest - windowNs : 0;
+
+    // More than the line has pixels for, and the newest kept if there are more than that.
+    constexpr std::size_t kMostSamples = 1500;
+
+    const std::array<SeriesId, 1> ids{id};
+    m_plots->readWindows(ids, since, kMostSamples, m_windows);
+
+    return m_windows.empty() ? nullptr : &m_windows.front();
+}
+
+QString DashboardPanel::detailsAt(const QPoint& point) const
+{
+    const DashboardWidget* widget = widgetAt(point);
+
+    if (widget == nullptr) {
+        return {};
+    }
+
+    QStringList lines;
+    lines << QStringLiteral("%1  ·  %2")
+                 .arg(displayNameOf(widget->kind), QString::fromStdString(widget->id));
+
+    const DashboardBinding& binding = widget->binding;
+
+    switch (binding.source) {
+    case DashboardBinding::Source::Signal:
+        lines << QString::fromStdString(binding.message + "." + binding.signal);
+        break;
+    case DashboardBinding::Source::Variable:
+        lines << tr("variable %1").arg(QString::fromStdString(binding.variable));
+        break;
+    case DashboardBinding::Source::Message:
+        lines << tr("every signal of %1").arg(QString::fromStdString(binding.message));
+        break;
+    case DashboardBinding::Source::None:
+        if (traitsOf(widget->kind).binding == BindingNeed::Required) {
+            lines << tr("(not bound)");
+        }
+        break;
+    }
+
+    // What it reads now: only for the kinds with a value of their own.
+    if (binding.source == DashboardBinding::Source::Signal
+        || binding.source == DashboardBinding::Source::Variable) {
+        const Reading reading = read(*widget);
+
+        if (reading.stale) {
+            lines << tr("No new sample for more than %1 ms").arg(widget->staleMs);
+        } else if (reading.known) {
+            lines << tr("Reads %1").arg(formatReading(*widget, reading));
+        } else {
+            lines << tr("No value yet");
+        }
+    }
+
+    if (binding.source == DashboardBinding::Source::Signal) {
+        if (const DictionaryEntry* entry = m_dictionary.find(binding.message, binding.signal);
+            entry != nullptr) {
+            lines << summaryOf(*entry);
+
+            if (!entry->comment.empty()) {
+                lines << QString::fromStdString(entry->comment);
+            }
+        }
+    }
+
+    if (const QString finding = findingFor(widget->id); !finding.isEmpty()) {
+        lines << finding;
+    }
+
+    if (!widget->image.empty()) {
+        if (const QString problem = m_images.problemWith(widget->image); !problem.isEmpty()) {
+            lines << problem;
+        }
+    }
+
+    return lines.join(QLatin1Char('\n'));
+}
+
 // ---------------------------------------------------------------------------
 // Painting
 // ---------------------------------------------------------------------------
@@ -623,12 +1447,20 @@ QString DashboardPanel::captionOf(const DashboardWidget& widget) const
         return QString::fromStdString(widget.binding.signal);
     case DashboardBinding::Source::Variable:
         return QString::fromStdString(widget.binding.variable);
+    case DashboardBinding::Source::Message:
+        return QString::fromStdString(widget.binding.message);
     case DashboardBinding::Source::None:
         break;
     }
 
-    // Unbound, and in edit mode that is the thing worth saying.
-    return tr("(not bound)");
+    // Unbound, and in edit mode that is the thing worth saying. An Image, a Group and a Label have
+    // nothing to be bound to, and say nothing.
+    if (traitsOf(widget.kind).binding == BindingNeed::Required
+        || traitsOf(widget.kind).binding == BindingNeed::Message) {
+        return tr("(not bound)");
+    }
+
+    return {};
 }
 
 void DashboardPanel::paintEvent(QPaintEvent* event)
@@ -664,7 +1496,8 @@ void DashboardPanel::paintEvent(QPaintEvent* event)
         painter.setPen(theme.textMuted);
         painter.drawText(rect(),
                          Qt::AlignCenter,
-                         m_editing ? tr("Right-click to add a gauge, a lamp or a slider.")
+                         m_editing ? tr("Right-click to add a widget, or drag signals here\n"
+                                        "from the DBC Explorer.")
                                    : tr("This project has no dashboard yet.\n"
                                         "Switch to Edit and right-click to build one."));
         return;
@@ -682,6 +1515,9 @@ void DashboardPanel::paintWidget(QPainter& painter, const DashboardWidget& widge
     const Reading reading = read(widget);
 
     painter.save();
+
+    const PaintContext context{
+        theme, widget, rect, reading, captionOf(widget), m_images, m_editing};
 
     switch (widget.kind) {
     case DashboardWidgetKind::Gauge:
@@ -709,6 +1545,40 @@ void DashboardPanel::paintWidget(QPainter& painter, const DashboardWidget& widge
     case DashboardWidgetKind::Cluster:
         paintCluster(painter, widget, rect);
         break;
+    case DashboardWidgetKind::Bar:
+        paintBar(painter, context);
+        break;
+    case DashboardWidgetKind::State:
+        paintState(painter, context);
+        break;
+    case DashboardWidgetKind::Image:
+        paintImage(painter, context);
+        break;
+    case DashboardWidgetKind::Trend:
+        paintTrend(painter, context, trendWindowOf(widget), trendNewestNs(widget));
+        break;
+    case DashboardWidgetKind::Table: {
+        QString hint;
+
+        if (widget.binding.message.empty()) {
+            hint = tr("Pick the message this table lists.");
+        } else if (!m_dictionary.hasMessage(widget.binding.message)) {
+            hint = tr("No loaded database describes %1.\nImport it in the DBC Explorer.")
+                       .arg(QString::fromStdString(widget.binding.message));
+        } else {
+            hint = tr("%1 has no signals.").arg(QString::fromStdString(widget.binding.message));
+        }
+
+        paintTable(painter, context, tableRowsOf(widget.id), hint);
+        break;
+    }
+    case DashboardWidgetKind::Group:
+        paintGroup(painter, context);
+        break;
+    }
+
+    if (reading.stale) {
+        paintStaleBadge(painter, context);
     }
 
     painter.restore();
@@ -719,19 +1589,37 @@ void DashboardPanel::paintWidget(QPainter& painter, const DashboardWidget& widge
 
     // --- Edit chrome -------------------------------------------------------
     const bool selected = widget.id == m_selected;
+    const bool dropTarget = widget.id == m_dropTarget;
 
-    QPen outline{selected ? theme.accent : theme.border};
-    outline.setWidthF(selected ? 2.0 : 1.0);
-    outline.setStyle(selected ? Qt::SolidLine : Qt::DashLine);
+    QPen outline{selected || dropTarget ? theme.accent : theme.border};
+    outline.setWidthF(selected || dropTarget ? 2.0 : 1.0);
+    outline.setStyle(selected || dropTarget ? Qt::SolidLine : Qt::DashLine);
 
     painter.setPen(outline);
-    painter.setBrush(Qt::NoBrush);
+    painter.setBrush(dropTarget ? QBrush{withAlpha(theme.accent, 40)} : QBrush{Qt::NoBrush});
     painter.drawRect(rect);
 
     if (selected) {
         painter.setPen(Qt::NoPen);
         painter.setBrush(theme.accent);
         painter.drawRect(handleOf(widget));
+    }
+
+    // A mark on a widget whose message or signal no loaded database has. Hover says which, and what
+    // is near it.
+    if (m_findings.contains(widget.id)) {
+        const QRectF mark{rect.left() + 3.0, rect.top() + 3.0, 16.0, 16.0};
+
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(theme.lampAmber);
+        painter.drawEllipse(mark);
+
+        QFont font = painter.font();
+        font.setBold(true);
+        font.setPointSizeF(9.0);
+        painter.setFont(font);
+        painter.setPen(theme.textInverted);
+        painter.drawText(mark, Qt::AlignCenter, QStringLiteral("!"));
     }
 }
 
@@ -757,10 +1645,14 @@ void DashboardPanel::paintGauge(QPainter& painter,
     painter.drawArc(
         face, static_cast<int>(kGaugeStartDegrees * 16), static_cast<int>(kGaugeSweepDegrees * 16));
 
-    if (reading.known) {
-        const double swept = fraction(reading.value, widget.minimum, widget.maximum);
+    // Past a limit the arc and the number take its colour; between them the gauge is what it was.
+    const DashboardTone tone =
+        reading.known ? widget.limits.toneOf(reading.value) : DashboardTone::Neutral;
 
-        QPen live{theme.accent};
+    if (reading.known) {
+        const double swept = fractionOf(reading.value, widget.minimum, widget.maximum);
+
+        QPen live{tone == DashboardTone::Neutral ? theme.accent : toneColor(theme, tone)};
         live.setWidthF(track.widthF());
         live.setCapStyle(Qt::FlatCap);
         painter.setPen(live);
@@ -785,9 +1677,35 @@ void DashboardPanel::paintGauge(QPainter& painter,
         painter.drawLine(centre, tip);
     }
 
+    // Where the limits are on the scale: a short mark across the track at the angle each is.
+    const auto mark = [&](const std::optional<double>& limit, DashboardTone meaning) {
+        if (!limit.has_value() || !(*limit > widget.minimum) || !(*limit < widget.maximum)) {
+            return;
+        }
+
+        const double at = fractionOf(*limit, widget.minimum, widget.maximum);
+        const double radians = (kGaugeStartDegrees + kGaugeSweepDegrees * at) * M_PI / 180.0;
+        const double outer = face.width() / 2.0 + track.widthF() * 0.8;
+        const double inner = face.width() / 2.0 - track.widthF() * 0.8;
+        const QPointF centre = face.center();
+
+        painter.setPen(QPen{toneColor(theme, meaning), 2.0, Qt::SolidLine, Qt::FlatCap});
+        painter.drawLine(
+            QPointF{centre.x() + std::cos(radians) * inner, centre.y() - std::sin(radians) * inner},
+            QPointF{centre.x() + std::cos(radians) * outer,
+                    centre.y() - std::sin(radians) * outer});
+    };
+
+    mark(widget.limits.warningBelow, DashboardTone::Warning);
+    mark(widget.limits.warningAbove, DashboardTone::Warning);
+    mark(widget.limits.criticalBelow, DashboardTone::Danger);
+    mark(widget.limits.criticalAbove, DashboardTone::Danger);
+
     // The number under the needle: a gauge is read for the shape of the change
     // and the number is read for the value, and both are wanted at once.
-    painter.setPen(reading.known ? theme.text : theme.textMuted);
+    painter.setPen(reading.known
+                       ? (tone == DashboardTone::Neutral ? theme.text : toneColor(theme, tone))
+                       : theme.textMuted);
 
     const QString value = reading.known
                               ? QStringLiteral("%1").arg(reading.value, 0, 'f', widget.decimals)
@@ -795,18 +1713,19 @@ void DashboardPanel::paintGauge(QPainter& painter,
 
     const QString unit = QString::fromStdString(widget.unit);
 
-    painter.drawText(QRectF{rect.left(),
-                            rect.center().y() + rect.height() * 0.18,
-                            rect.width(),
-                            rect.height() * 0.2},
-                     Qt::AlignCenter,
-                     unit.isEmpty() ? value : value + QStringLiteral(" ") + unit);
+    painter.drawText(
+        QRectF{rect.left(),
+               rect.center().y() + rect.height() * 0.18,
+               rect.width(),
+               rect.height() * 0.2},
+        Qt::AlignCenter,
+        fitted(painter, unit.isEmpty() ? value : value + QStringLiteral(" ") + unit, rect.width()));
 
     painter.setPen(theme.textMuted);
     painter.drawText(
         QRectF{rect.left(), rect.bottom() - rect.height() * 0.2, rect.width(), rect.height() * 0.2},
         Qt::AlignCenter,
-        captionOf(widget));
+        fitted(painter, captionOf(widget), rect.width()));
 }
 
 void DashboardPanel::paintNumeric(QPainter& painter,
@@ -820,26 +1739,47 @@ void DashboardPanel::paintNumeric(QPainter& painter,
     painter.setBrush(theme.panel);
     painter.drawRoundedRect(rect, 4.0, 4.0);
 
-    const QString value = reading.known
-                              ? QStringLiteral("%1").arg(reading.value, 0, 'f', widget.decimals)
-                              : QStringLiteral("--");
+    // The name of the state when the widget has been given names for its values, and the number
+    // with its unit when it has not or the value is one it has no name for.
+    const QString text = formatReading(widget, reading);
 
-    const QString unit = QString::fromStdString(widget.unit);
+    const DashboardState* state = reading.known ? widget.stateOf(reading.value) : nullptr;
+
+    DashboardTone tone = state != nullptr ? state->tone : DashboardTone::Neutral;
+
+    if (tone == DashboardTone::Neutral && reading.known) {
+        tone = widget.limits.toneOf(reading.value);
+    }
 
     QFont big = painter.font();
 
     // Scaled to the box rather than fixed: the whole point of a numeric readout
     // is that it can be read from across a workshop, which means it has to grow
     // when somebody makes the box bigger.
-    big.setPointSizeF(std::max(10.0, rect.height() * 0.35));
     big.setBold(true);
+
+    // Smaller before it is cut: "356 kPa" in a box that has room for "52 kPa" is a reading somebody
+    // needs to be able to read, and an ellipsis where its unit was is not that. Cut only when it
+    // cannot be made to fit.
+    const double room = rect.width() - 8.0;
+
+    for (double points = std::max(10.0, rect.height() * 0.35); points > 6.0; points *= 0.92) {
+        big.setPointSizeF(points);
+
+        if (QFontMetricsF{big}.horizontalAdvance(text) <= room) {
+            break;
+        }
+    }
+
     painter.setFont(big);
 
-    painter.setPen(reading.known ? theme.text : theme.textMuted);
+    painter.setPen(reading.known
+                       ? (tone == DashboardTone::Neutral ? theme.text : toneColor(theme, tone))
+                       : theme.textMuted);
     painter.drawText(
         QRectF{rect.left(), rect.top() + rect.height() * 0.1, rect.width(), rect.height() * 0.55},
         Qt::AlignCenter,
-        unit.isEmpty() ? value : value + QStringLiteral(" ") + unit);
+        painter.fontMetrics().elidedText(text, Qt::ElideRight, static_cast<int>(room)));
 
     QFont small = painter.font();
     small.setPointSizeF(std::max(8.0, rect.height() * 0.16));
@@ -851,7 +1791,7 @@ void DashboardPanel::paintNumeric(QPainter& painter,
         QRectF{
             rect.left(), rect.bottom() - rect.height() * 0.3, rect.width(), rect.height() * 0.25},
         Qt::AlignCenter,
-        captionOf(widget));
+        fitted(painter, captionOf(widget), rect.width()));
 }
 
 void DashboardPanel::paintLamp(QPainter& painter,
@@ -863,28 +1803,65 @@ void DashboardPanel::paintLamp(QPainter& painter,
 
     const bool on = reading.known && reading.value >= widget.threshold;
 
+    const DashboardState* state = reading.known ? widget.stateOf(reading.value) : nullptr;
+
+    // Its own picture for the state, if the widget has been given one; otherwise the widget's.
+    const std::string& picture =
+        state != nullptr && !state->image.empty() ? state->image : widget.image;
+
     const double diameter = std::min(rect.width(), rect.height() * 0.6) * 0.7;
     QRectF bulb{0.0, 0.0, diameter, diameter};
     bulb.moveCenter(QPointF{rect.center().x(), rect.top() + rect.height() * 0.4});
 
-    // Off is a dim outline rather than a different colour: a lamp that is off
-    // still has to look like the lamp that was on, or nobody believes it is the
-    // same one.
-    QColor fill = theme.warning;
-    if (!on) {
-        fill.setAlpha(40);
+    bool drewPicture = false;
+
+    if (!picture.empty()) {
+        // A picture in place of the bulb: lit it is as it is, and dark it is the same picture
+        // turned down, so that it still looks like the lamp that was on.
+        drewPicture = m_images.draw(
+            painter,
+            bulb.adjusted(-diameter * 0.15, -diameter * 0.15, diameter * 0.15, diameter * 0.15),
+            picture,
+            on ? 1.0 : 0.25);
     }
 
-    painter.setBrush(fill);
-    painter.setPen(QPen{on ? theme.warning : theme.border, 2.0});
-    painter.drawEllipse(bulb);
+    if (!drewPicture) {
+        // What the state means colours the bulb; a lamp with no opinion about it is the amber it
+        // always was.
+        QColor lit = theme.warning;
+
+        if (state != nullptr && state->tone != DashboardTone::Neutral
+            && state->tone != DashboardTone::Off) {
+            lit = toneColor(theme, state->tone);
+        }
+
+        // Off is a dim outline rather than a different colour: a lamp that is off
+        // still has to look like the lamp that was on, or nobody believes it is the
+        // same one.
+        QColor fill = lit;
+        if (!on) {
+            fill.setAlpha(40);
+        }
+
+        painter.setBrush(fill);
+        painter.setPen(QPen{on ? lit : theme.border, 2.0});
+        painter.drawEllipse(bulb);
+    }
+
+    // The name of the state it is in, with the title: "Door - Open".
+    QString caption = captionOf(widget);
+
+    if (state != nullptr && !state->label.empty()) {
+        caption += QStringLiteral(" – ") + QString::fromStdString(state->label);
+    }
 
     painter.setPen(theme.textMuted);
     painter.drawText(
         QRectF{
             rect.left(), rect.bottom() - rect.height() * 0.3, rect.width(), rect.height() * 0.25},
         Qt::AlignCenter,
-        captionOf(widget));
+        painter.fontMetrics().elidedText(
+            caption, Qt::ElideRight, static_cast<int>(rect.width() - 6.0)));
 }
 
 void DashboardPanel::paintSlider(QPainter& painter,
@@ -895,7 +1872,7 @@ void DashboardPanel::paintSlider(QPainter& painter,
     const Theme theme = currentTheme();
 
     const bool horizontal = rect.width() >= rect.height();
-    const double swept = fraction(reading.value, widget.minimum, widget.maximum);
+    const double swept = fractionOf(reading.value, widget.minimum, widget.maximum);
 
     QRectF groove = rect;
 
@@ -938,9 +1915,11 @@ void DashboardPanel::paintSlider(QPainter& painter,
         QRectF{
             rect.left(), rect.bottom() - rect.height() * 0.3, rect.width(), rect.height() * 0.28},
         Qt::AlignCenter,
-        QStringLiteral("%1  %2")
-            .arg(captionOf(widget))
-            .arg(reading.value, 0, 'f', widget.decimals));
+        fitted(painter,
+               QStringLiteral("%1  %2")
+                   .arg(captionOf(widget))
+                   .arg(reading.value, 0, 'f', widget.decimals),
+               rect.width()));
 }
 
 void DashboardPanel::paintKnob(QPainter& painter,
@@ -958,7 +1937,7 @@ void DashboardPanel::paintKnob(QPainter& painter,
     painter.setPen(QPen{theme.border, 2.0});
     painter.drawEllipse(body);
 
-    const double swept = fraction(reading.value, widget.minimum, widget.maximum);
+    const double swept = fractionOf(reading.value, widget.minimum, widget.maximum);
     const double degrees = kGaugeStartDegrees + kGaugeSweepDegrees * swept;
     const double radians = degrees * M_PI / 180.0;
 
@@ -974,9 +1953,11 @@ void DashboardPanel::paintKnob(QPainter& painter,
         QRectF{
             rect.left(), rect.bottom() - rect.height() * 0.26, rect.width(), rect.height() * 0.24},
         Qt::AlignCenter,
-        QStringLiteral("%1  %2")
-            .arg(captionOf(widget))
-            .arg(reading.value, 0, 'f', widget.decimals));
+        fitted(painter,
+               QStringLiteral("%1  %2")
+                   .arg(captionOf(widget))
+                   .arg(reading.value, 0, 'f', widget.decimals),
+               rect.width()));
 }
 
 void DashboardPanel::paintButton(QPainter& painter,
@@ -997,15 +1978,16 @@ void DashboardPanel::paintButton(QPainter& painter,
     painter.setPen(on ? theme.textInverted : theme.text);
     painter.drawText(face,
                      Qt::AlignCenter,
-                     widget.kind == DashboardWidgetKind::Switch ? (on ? tr("ON") : tr("OFF"))
-                                                                : captionOf(widget));
+                     widget.kind == DashboardWidgetKind::Switch
+                         ? (on ? tr("ON") : tr("OFF"))
+                         : fitted(painter, captionOf(widget), face.width()));
 
     painter.setPen(theme.textMuted);
     painter.drawText(
         QRectF{
             rect.left(), rect.bottom() - rect.height() * 0.28, rect.width(), rect.height() * 0.26},
         Qt::AlignCenter,
-        captionOf(widget));
+        fitted(painter, captionOf(widget), rect.width()));
 }
 
 void DashboardPanel::paintLabel(QPainter& painter,

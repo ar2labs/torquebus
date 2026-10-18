@@ -6,6 +6,7 @@
 #include "ui/database/DatabasePanel.h"
 
 #include "core/database/DbcParser.h"
+#include "ui/dashboard/SignalMime.h"
 #include "ui/theme/ThemeManager.h"
 
 #include <QAbstractItemView>
@@ -15,12 +16,15 @@
 #include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMimeData>
 #include <QStringList>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
 
+#include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace torquebus::ui {
 namespace {
@@ -41,6 +45,90 @@ constexpr int kPathRole = Qt::UserRole + 2;
 constexpr int kMessageRole = Qt::UserRole + 3;
 constexpr int kSignalRole = Qt::UserRole + 4;
 constexpr int kMultiplexRole = Qt::UserRole + 5;
+
+/// Where an item is in the tree: its row under each of its parents, from the top. Items sorted by
+/// it are items in the order the tree shows them.
+[[nodiscard]] std::vector<int> pathOf(QTreeWidgetItem* item)
+{
+    std::vector<int> path;
+
+    for (QTreeWidgetItem* at = item; at != nullptr; at = at->parent()) {
+        const QTreeWidgetItem* parent = at->parent();
+
+        path.push_back(parent != nullptr ? parent->indexOfChild(at)
+                                         : at->treeWidget()->indexOfTopLevelItem(at));
+    }
+
+    std::reverse(path.begin(), path.end());
+    return path;
+}
+
+/// What an item of the tree is when it is dragged: a signal, or a message as a whole. A database is
+/// a file, and the Dashboard has nothing to make of one.
+///
+/// In the order the tree shows them. The selection keeps its items in the order of its own ranges,
+/// which is not the order anybody sees, and widgets made from a drag are laid out in the order they
+/// are given: three signals picked from the top of a message should not come out as the third, the
+/// first and the second.
+[[nodiscard]] QList<SignalReference> referencesOf(const QList<QTreeWidgetItem*>& items)
+{
+    QList<QTreeWidgetItem*> inOrder = items;
+
+    std::stable_sort(inOrder.begin(), inOrder.end(), [](QTreeWidgetItem* a, QTreeWidgetItem* b) {
+        return pathOf(a) < pathOf(b);
+    });
+
+    QList<SignalReference> references;
+
+    for (const QTreeWidgetItem* item : inOrder) {
+        const int kind = item->data(0, kKindRole).toInt();
+
+        if (kind != KindSignal && kind != KindMessage) {
+            continue;
+        }
+
+        SignalReference reference;
+        reference.message = item->data(0, kMessageRole).toString();
+
+        if (kind == KindSignal) {
+            reference.signal = item->data(0, kSignalRole).toString();
+        }
+
+        if (!references.contains(reference)) {
+            references.append(reference);
+        }
+    }
+
+    return references;
+}
+
+/// The tree, which can be dragged from: onto the Dashboard, to make a widget of a signal or a
+/// table of a message. Nothing can be dropped on it; the explorer shows what a file says and does
+/// not edit it.
+class ExplorerTree final : public QTreeWidget {
+public:
+    explicit ExplorerTree(QWidget* parent)
+        : QTreeWidget{parent}
+    {
+        setDragEnabled(true);
+        setDragDropMode(QAbstractItemView::DragOnly);
+        setDefaultDropAction(Qt::CopyAction);
+    }
+
+protected:
+    [[nodiscard]] QStringList mimeTypes() const override
+    {
+        return {QString::fromLatin1(kSignalMimeType)};
+    }
+
+    [[nodiscard]] QMimeData* mimeData(const QList<QTreeWidgetItem*>& items) const override
+    {
+        const QList<SignalReference> references = referencesOf(items);
+
+        // Nothing a drop could use: a drag of only a file name starts no drag at all.
+        return references.isEmpty() ? nullptr : makeSignalMimeData(references);
+    }
+};
 
 /// The identifier in the form the rest of the application shows it: three hex
 /// digits for standard, eight for extended. A trace that writes 0x101 and a
@@ -143,13 +231,15 @@ void DatabasePanel::buildUi()
     m_filter->setClearButtonEnabled(true);
     m_filter->setPlaceholderText(tr("Filter messages and signals"));
 
-    m_tree = new QTreeWidget(this);
+    m_tree = new ExplorerTree(this);
     m_tree->setColumnCount(ColumnCount);
     m_tree->setHeaderLabels({tr("Name"), tr("Position"), tr("Range"), tr("Unit"), tr("Comment")});
     m_tree->setUniformRowHeights(true);
     m_tree->setAnimated(false);
     m_tree->setAlternatingRowColors(true);
-    m_tree->setSelectionMode(QAbstractItemView::SingleSelection);
+
+    // Several at once, so that the signals of one message can be dragged to the Dashboard together.
+    m_tree->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_tree->setFrameShape(QFrame::NoFrame);
     m_tree->header()->setStretchLastSection(true);
     m_tree->header()->setSectionResizeMode(ColumnName, QHeaderView::Interactive);

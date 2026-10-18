@@ -23,6 +23,35 @@ against what it does, which turned up more than expected.
 
 ### Added
 
+- **The Dashboard is built from the databases, and has six new kinds of widget.** A signal dragged out of
+  the DBC Explorer onto the Dashboard (Edit mode) becomes the widget it suits - a lamp for a two-state signal,
+  a state chip for a value table, a bar for a percentage, a gauge for a declared range, a numeric for the
+  rest - already bound, with its title in words, its unit, its range, the decimals its step deserves, the
+  names of its values (converted from the raw numbers of a value table to what the widget reads) and a
+  stale time-out of three of its message's cycles. A message dropped becomes a table of its signals; one
+  signal dropped on a widget that reads one re-binds it. **Add from Database...** searches every signal of
+  every loaded database (`ect` finds `EngineCoolantTemperature`) and adds several at once, as any kind.
+  The Widget form completes message and signal names from the databases, has **Browse...** and **Fill from
+  database**, and says under the fields what a binding is - or *EEC1 has no signal "EngineSped". Did you
+  mean EngineSpeed?* - and whether the signal is reaching the plot store, which is the commonest reason a
+  gauge shows dashes. A widget bound to a name no loaded database has wears a mark in Edit mode, and opening
+  a project lists them on the Output panel; nothing is refused, since a project is opened as often with its
+  `.dbc` on another machine as with it. The rules are in `SignalDictionary` (core, no Qt) so the drop, the
+  form, the picker and the tests cannot answer differently.
+  New widgets: **Bar** (a level), **State** (the name a value has), **Image**, **Trend** (the last seconds of
+  a signal, or of a variable), **Table** (every signal of a message) and **Group** (a titled frame behind
+  others); any widget that reads one value can be shown as any other (*Show as*). Reading widgets take
+  **alarm limits** - amber past a warning limit, red past a critical one - and a **stale time-out**: a signal
+  that stops arriving shows dashes and a *stale* badge instead of its last value. Widgets can be duplicated
+  (`Ctrl+D`) and layered; long titles are cut to their box and numbers shrink before they are cut.
+  **Pictures**: PNG, JPEG, GIF, BMP and SVG, on an Image, as the bulb of a Lamp or - one for each name of a
+  value - as the picture of the state a signal is in; drop a file on the Dashboard to make an Image, or on
+  one that has a picture to replace it. They are stored relative to the project when they are near it and
+  follow it through Save As; a picture that is not there is a placeholder and a line on the Output panel,
+  not a refused project. The project format is unchanged and every new key is written only when used (a kind
+  an older build lacks is refused, as before). Both example projects now show bars, trends, a table and a
+  picture for each AI regime beside the cluster, and `ExampleDashboardTests` runs each one to check that
+  every signal a widget reads is one its pipeline delivers. See `docs/development/dashboard.md`.
 - **The lamps of `j1939.dbc` have words.** The lamp fields of DM1 (`ProtectLamp`, `AmberWarningLamp`,
   `RedStopLamp`, `MalfunctionIndicatorLamp`), of EBC1 (`ABSAmberWarning`, `EBSRedWarning`) and of BAS
   (`SeatBeltWarningLamp`) carry a value table, `0` "Off" and `1` "On", so a row added from DM1 or EBC1 in the

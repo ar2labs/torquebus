@@ -726,6 +726,236 @@ TEST(ProjectFileTests, ADashboardSurvivesASaveAndALoadUnchanged)
     EXPECT_TRUE(reopened == original);
 }
 
+namespace {
+
+/// A project with nothing in it but the dashboard widgets given, as JSON.
+void writeDashboardProject(const QString& path, const QByteArray& widgetsJson)
+{
+    QFile file{path};
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Text));
+
+    file.write(R"({
+        "version": 3,
+        "pipeline": { "nodes": [], "edges": [] },
+        "transmit": [],
+        "dashboard": { "widgets": )");
+    file.write(widgetsJson);
+    file.write(" } }");
+    file.close();
+}
+
+} // namespace
+
+TEST(ProjectFileTests, TheFieldsOfTheNewerWidgetsSurviveASaveAndALoad)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+
+    DashboardDescription original;
+
+    // A state with names, tones, a picture for one of them, and a time after which it is stale.
+    DashboardWidget gear = defaultWidgetOf(DashboardWidgetKind::State);
+    gear.id = "gear";
+    gear.binding.source = DashboardBinding::Source::Signal;
+    gear.binding.message = "ETC2";
+    gear.binding.signal = "TransmissionCurrentGear";
+    gear.decimals = 0;
+    gear.staleMs = 300;
+
+    DashboardState reverse;
+    reverse.value = -1.0;
+    reverse.label = "Reverse";
+    reverse.tone = DashboardTone::Warning;
+    reverse.image = "pictures/reverse.png";
+
+    DashboardState neutral;
+    neutral.value = 0.0;
+    neutral.label = "Neutral";
+
+    gear.states = {reverse, neutral};
+    original.add(gear);
+
+    // A bar with all four limits.
+    DashboardWidget coolant = defaultWidgetOf(DashboardWidgetKind::Bar);
+    coolant.id = "coolant";
+    coolant.binding.source = DashboardBinding::Source::Signal;
+    coolant.binding.message = "ET1";
+    coolant.binding.signal = "EngineCoolantTemperature";
+    coolant.minimum = -40.0;
+    coolant.maximum = 210.0;
+    coolant.limits.warningBelow = 60.0;
+    coolant.limits.warningAbove = 100.0;
+    coolant.limits.criticalBelow = 40.0;
+    coolant.limits.criticalAbove = 110.5;
+    original.add(coolant);
+
+    // A trend that is not thirty seconds, and a table bound to a message and no signal.
+    DashboardWidget trend = defaultWidgetOf(DashboardWidgetKind::Trend);
+    trend.id = "rpm";
+    trend.binding.source = DashboardBinding::Source::Variable;
+    trend.binding.variable = "rpm";
+    trend.windowSeconds = 120.0;
+    original.add(trend);
+
+    DashboardWidget table = defaultWidgetOf(DashboardWidgetKind::Table);
+    table.id = "eec1";
+    table.binding.source = DashboardBinding::Source::Message;
+    table.binding.message = "EEC1";
+    table.title = "Engine";
+    original.add(table);
+
+    // A picture with a name that is not ASCII, a lamp with one, and a group.
+    DashboardWidget logo = defaultWidgetOf(DashboardWidgetKind::Image);
+    logo.id = "logo";
+    logo.image = "imagens/logotipo-ação.png";
+    original.add(logo);
+
+    DashboardWidget lamp = defaultWidgetOf(DashboardWidgetKind::Lamp);
+    lamp.id = "door";
+    lamp.binding.source = DashboardBinding::Source::Signal;
+    lamp.binding.message = "Doors";
+    lamp.binding.signal = "DoorState";
+    lamp.image = "../icons/door.png";
+    original.add(lamp);
+
+    DashboardWidget group = defaultWidgetOf(DashboardWidgetKind::Group);
+    group.id = "powertrain";
+    group.title = "Powertrain";
+    original.add(group);
+
+    ASSERT_TRUE(original.validate().succeeded());
+
+    GraphDescription pipeline;
+    const QString path = pathIn(directory, QStringLiteral("newer.tbsproj"));
+
+    ASSERT_TRUE(ProjectFile::save(path, pipeline, scratch(), original).succeeded());
+
+    GraphDescription reopenedPipeline;
+    DashboardDescription reopened;
+
+    const Result result = ProjectFile::load(path, reopenedPipeline, scratch(), reopened);
+
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    ASSERT_TRUE(result.succeeded());
+
+    EXPECT_TRUE(reopened == original);
+}
+
+TEST(ProjectFileTests, ADashboardThatUsesNothingNewIsWrittenAsItWasBefore)
+{
+    // The fields of the newer widgets are written only when they are used, so a project that has
+    // none is the file it always was - which an older build can still read without dropping
+    // anything on its next save.
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+
+    DashboardDescription dashboard;
+
+    DashboardWidget gauge = defaultWidgetOf(DashboardWidgetKind::Gauge);
+    gauge.id = "speed";
+    gauge.binding.source = DashboardBinding::Source::Signal;
+    gauge.binding.message = "Engine";
+    gauge.binding.signal = "EngineSpeed";
+    dashboard.add(gauge);
+
+    GraphDescription pipeline;
+    const QString path = pathIn(directory, QStringLiteral("plain.tbsproj"));
+    ASSERT_TRUE(ProjectFile::save(path, pipeline, scratch(), dashboard).succeeded());
+
+    QFile file{path};
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+
+    const QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+    const QJsonArray widgets = root.value(QStringLiteral("dashboard"))
+                                   .toObject()
+                                   .value(QStringLiteral("widgets"))
+                                   .toArray();
+    ASSERT_EQ(widgets.size(), 1);
+
+    const QJsonObject written = widgets.at(0).toObject();
+
+    for (const char* key : {"image", "states", "limits", "windowSeconds", "staleMs"}) {
+        EXPECT_FALSE(written.contains(QLatin1String{key})) << key;
+    }
+}
+
+TEST(ProjectFileTests, AToneThisBuildDoesNotKnowIsReadAsNoOpinionAndALimitMayStandAlone)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+
+    const QString path = pathIn(directory, QStringLiteral("tones.tbsproj"));
+
+    writeDashboardProject(path, R"([
+        { "id": "mode", "kind": "state",
+          "binding": { "source": "variable", "variable": "mode" },
+          "states": [ { "value": 0, "label": "Quiet", "tone": "sparkly" },
+                      { "value": 1, "label": "Loud", "tone": "danger" } ] },
+        { "id": "oil", "kind": "bar",
+          "binding": { "source": "variable", "variable": "oil" },
+          "minimum": 0, "maximum": 1000,
+          "limits": { "criticalBelow": 100 } }
+    ])");
+
+    GraphDescription pipeline;
+    DashboardDescription dashboard;
+
+    const Result result = ProjectFile::load(path, pipeline, scratch(), dashboard);
+
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    ASSERT_TRUE(result.succeeded());
+
+    const DashboardWidget* mode = dashboard.find("mode");
+    ASSERT_NE(mode, nullptr);
+    ASSERT_EQ(mode->states.size(), 2U);
+    EXPECT_EQ(mode->states[0].tone, DashboardTone::Neutral);
+    EXPECT_EQ(mode->states[1].tone, DashboardTone::Danger);
+
+    const DashboardWidget* oil = dashboard.find("oil");
+    ASSERT_NE(oil, nullptr);
+    EXPECT_FALSE(oil->limits.warningBelow.has_value());
+    EXPECT_FALSE(oil->limits.warningAbove.has_value());
+    ASSERT_TRUE(oil->limits.criticalBelow.has_value());
+    EXPECT_DOUBLE_EQ(*oil->limits.criticalBelow, 100.0);
+    EXPECT_FALSE(oil->limits.criticalAbove.has_value());
+}
+
+TEST(ProjectFileTests, ANewerWidgetThatCouldNotBeDrawnRefusesTheFileLikeAnyOther)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+
+    const QString path = pathIn(directory, QStringLiteral("refused.tbsproj"));
+
+    GraphDescription pipeline;
+
+    // A table of nothing, a gauge bound to a whole message, two names for one value, a stale time
+    // that does not fit in a count, and limits that contradict each other.
+    const char* const broken[] = {
+        R"([ { "id": "t", "kind": "table", "binding": {} } ])",
+        R"([ { "id": "g", "kind": "gauge", "minimum": 0, "maximum": 10,
+               "binding": { "source": "message", "message": "EEC1" } } ])",
+        R"([ { "id": "s", "kind": "state", "binding": { "source": "variable", "variable": "v" },
+               "states": [ { "value": 1, "label": "A" }, { "value": 1, "label": "B" } ] } ])",
+        R"([ { "id": "g", "kind": "gauge", "minimum": 0, "maximum": 10, "staleMs": 99999999999,
+               "binding": { "source": "variable", "variable": "v" } } ])",
+        R"([ { "id": "b", "kind": "bar", "minimum": 0, "maximum": 10,
+               "binding": { "source": "variable", "variable": "v" },
+               "limits": { "warningBelow": 8, "warningAbove": 2 } } ])",
+    };
+
+    for (const char* widgets : broken) {
+        writeDashboardProject(path, QByteArray{widgets});
+
+        DashboardDescription dashboard;
+        const Result result = ProjectFile::load(path, pipeline, scratch(), dashboard);
+
+        SCOPED_TRACE(widgets);
+        EXPECT_TRUE(result.failed());
+        EXPECT_TRUE(dashboard.empty());
+    }
+}
+
 TEST(ProjectFileTests, AProjectFromBeforeDashboardsOpensWithAnEmptyOne)
 {
     // Every project written before format 3. Refusing those would make the

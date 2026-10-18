@@ -173,6 +173,18 @@ private:
     /// Saves to `path`, reporting either way. Used by Save and Save As.
     bool writeProject(const QString& path);
 
+    /// Tells the Dashboard which folder the pictures of its widgets are relative to: the project's,
+    /// or none for a project that has not been saved. Called wherever the project's path changes.
+    void applyDashboardBase();
+
+    /// Says on the Output panel which widgets of the dashboard name a message or a signal that no
+    /// loaded database has, and which name a picture that is not there. Nothing is refused: this is
+    /// for the person who has just opened the project to read.
+    void reportDashboardProblems();
+
+    /// Gives the Dashboard and its form the databases that are loaded now.
+    void shareDatabasesWithDashboard();
+
     /// Marks the pipeline changed and refreshes the title bar.
     void markDirty();
 

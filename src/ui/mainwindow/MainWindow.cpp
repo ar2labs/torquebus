@@ -5,6 +5,7 @@
 
 #include "ui/mainwindow/MainWindow.h"
 
+#include "core/dashboard/DashboardAssets.h"
 #include "core/log/TraceExport.h"
 #include "core/pipeline/BusGrouping.h"
 #include "core/trace/TraceStore.h"
@@ -14,6 +15,7 @@
 #include "ui/canvas/CanvasPanel.h"
 #include "ui/common/AnimatedToolButton.h"
 #include "ui/dashboard/DashboardPanel.h"
+#include "ui/dashboard/DashboardText.h"
 #include "ui/dashboard/DashboardWidgetEditor.h"
 #include "ui/database/DatabasePanel.h"
 #include "ui/diagnostics/DiagnosticsPanel.h"
@@ -461,6 +463,10 @@ void MainWindow::createPanels()
                 if (m_scriptEditor != nullptr) {
                     m_scriptEditor->setDatabases(m_databasePanel->databases());
                 }
+
+                // The Dashboard completes signal names from it, and marks the widgets that name
+                // one it does not have.
+                shareDatabasesWithDashboard();
             });
 
     // Reported in the Output panel and not in a message box, because the
@@ -663,6 +669,8 @@ void MainWindow::createPanels()
     m_dashboardPanel->setVariables(&m_controller->engine().variables());
 
     m_dashboardEditor = new DashboardWidgetEditor(m_dashboard);
+    m_dashboardEditor->setPlotStore(&m_controller->engine().plotStore());
+    shareDatabasesWithDashboard();
 
     connect(m_dashboardPanel, &DashboardPanel::dashboardEdited, this, [this] {
         markDirty();
@@ -1988,6 +1996,9 @@ void MainWindow::onNewProject()
         m_scriptEditor->setVariables(&m_controller->engine().variables());
     }
 
+    // The explorer is empty now, and so is what the Dashboard completes from.
+    shareDatabasesWithDashboard();
+
     // Forgotten as the last project, so quitting from an empty canvas does not
     // reopen yesterday's work tomorrow. It stays on the recent list: New is a
     // statement about this session, not about the project's worth.
@@ -2027,6 +2038,8 @@ void MainWindow::onNewProject()
             m_graphPanel->setStore(&m_controller->engine().plotStore());
         }
     }
+
+    applyDashboardBase();
 
     updateWindowTitle();
     m_output->appendInfo(tr("New project."));
@@ -2245,6 +2258,8 @@ void MainWindow::openProject(const QString& path)
         m_scriptEditor->setVariables(&m_controller->engine().variables());
     }
 
+    shareDatabasesWithDashboard();
+
     const QDir projectDir = QFileInfo{path}.absoluteDir();
     QStringList missingDatabases;
 
@@ -2338,6 +2353,11 @@ void MainWindow::openProject(const QString& path)
         }
     }
 
+    // After the databases are loaded, so that the bindings are checked against them; and after the
+    // dashboard is replaced, so that what is checked is the one that was opened.
+    applyDashboardBase();
+    reportDashboardProblems();
+
     m_recentProjects.add(path);
     rebuildRecentMenu();
     m_settings.setValue(QString::fromLatin1(services::keys::kLastProject), m_projectPath);
@@ -2384,16 +2404,31 @@ bool MainWindow::writeProject(const QString& path)
         }
     }
 
+    // The pictures of the dashboard are named relative to the project's folder when they can be,
+    // and Save As moves the folder while the pictures stay where they are: each path is worked out
+    // again for the new one. On a copy, so that a save that fails leaves the dashboard as it was.
+    const std::string previousBase = m_projectPath.isEmpty()
+                                         ? std::string{}
+                                         : QFileInfo{m_projectPath}.absolutePath().toStdString();
+    const std::string newBase = QFileInfo{path}.absolutePath().toStdString();
+
+    DashboardDescription dashboardToSave = m_dashboard;
+    rebaseAssets(dashboardToSave, previousBase, newBase);
+
     if (const Result result = services::ProjectFile::save(
-            path, m_pipeline, m_transmitList, m_dashboard, databasesToSave);
+            path, m_pipeline, m_transmitList, dashboardToSave, databasesToSave);
         result.failed()) {
         m_output->appendError(tr("Could not save the project: %1")
                                   .arg(QString::fromStdString(std::string{result.message()})));
         return false;
     }
 
+    m_dashboard = std::move(dashboardToSave);
+
     m_projectPath = path;
     m_dirty = false;
+
+    applyDashboardBase();
 
     if (m_projectExplorer != nullptr) {
         m_projectExplorer->setProjectName(QFileInfo{path}.completeBaseName());
@@ -2418,6 +2453,67 @@ bool MainWindow::writeProject(const QString& path)
     m_output->appendInfo(tr("Saved %1.").arg(QFileInfo{path}.fileName()));
 
     return true;
+}
+
+void MainWindow::applyDashboardBase()
+{
+    const QString base =
+        m_projectPath.isEmpty() ? QString{} : QFileInfo{m_projectPath}.absolutePath();
+
+    if (m_dashboardPanel != nullptr) {
+        m_dashboardPanel->setAssetBase(base);
+    }
+
+    if (m_dashboardEditor != nullptr) {
+        m_dashboardEditor->setAssetBase(base);
+    }
+}
+
+void MainWindow::shareDatabasesWithDashboard()
+{
+    if (m_databasePanel == nullptr) {
+        return;
+    }
+
+    const std::vector<std::shared_ptr<const CanDatabase>> databases = m_databasePanel->databases();
+
+    if (m_dashboardPanel != nullptr) {
+        m_dashboardPanel->setDatabases(databases);
+    }
+
+    if (m_dashboardEditor != nullptr) {
+        m_dashboardEditor->setDatabases(databases);
+    }
+}
+
+void MainWindow::reportDashboardProblems()
+{
+    if (m_dashboardPanel == nullptr || m_output == nullptr) {
+        return;
+    }
+
+    for (const WidgetFinding& finding : m_dashboardPanel->dictionary().audit(m_dashboard)) {
+        const DashboardWidget* widget = m_dashboard.find(finding.widgetId);
+
+        if (widget == nullptr) {
+            continue;
+        }
+
+        m_output->appendWarning(tr("Dashboard widget '%1': %2")
+                                    .arg(QString::fromStdString(finding.widgetId),
+                                         describeFinding(finding.finding, widget->binding)));
+    }
+
+    const std::string base = m_projectPath.isEmpty()
+                                 ? std::string{}
+                                 : QFileInfo{m_projectPath}.absolutePath().toStdString();
+
+    for (const MissingAsset& missing : missingAssets(m_dashboard, base)) {
+        m_output->appendWarning(tr("Dashboard widget '%1': the picture %2 is not where the project "
+                                   "says it is.")
+                                    .arg(QString::fromStdString(missing.widgetId),
+                                         QString::fromStdString(missing.image)));
+    }
 }
 
 void MainWindow::onSaveProject()

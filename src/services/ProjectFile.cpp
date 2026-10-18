@@ -72,8 +72,28 @@ constexpr auto kUnit = "unit";
 constexpr auto kDecimals = "decimals";
 constexpr auto kProfile = "profile";
 
+// Written only when a widget uses them, so a dashboard that does not is byte for byte what it was
+// before they existed - and an older build, which would drop them on its next save, is not asked to
+// understand a file that has nothing in it for them.
+constexpr auto kImage = "image";
+constexpr auto kStates = "states";
+constexpr auto kValue = "value";
+constexpr auto kLabel = "label";
+constexpr auto kTone = "tone";
+constexpr auto kLimits = "limits";
+constexpr auto kWarningBelow = "warningBelow";
+constexpr auto kWarningAbove = "warningAbove";
+constexpr auto kCriticalBelow = "criticalBelow";
+constexpr auto kCriticalAbove = "criticalAbove";
+constexpr auto kWindowSeconds = "windowSeconds";
+constexpr auto kStaleMs = "staleMs";
+
 constexpr auto kSourceSignal = "signal";
 constexpr auto kSourceVariable = "variable";
+constexpr auto kSourceMessage = "message";
+
+/// What a Trend draws when the file does not say.
+constexpr double kDefaultWindowSeconds = 30.0;
 
 constexpr auto kFrom = "from";
 constexpr auto kFromPort = "fromPort";
@@ -308,6 +328,11 @@ void payloadFromJson(const QString& text, CanFrame& frame)
         binding[kVariable] = QString::fromStdString(widget.binding.variable);
         break;
 
+    case DashboardBinding::Source::Message:
+        binding[kSource] = QString::fromLatin1(kSourceMessage);
+        binding[kMessage] = QString::fromStdString(widget.binding.message);
+        break;
+
     case DashboardBinding::Source::None:
         // Written as an empty object rather than left out, so that a label and
         // a widget somebody has not bound yet look the same in the file - which
@@ -350,6 +375,60 @@ void payloadFromJson(const QString& text, CanFrame& frame)
         json[kProfile] = QString::fromStdString(widget.profile);
     }
 
+    if (!widget.image.empty()) {
+        json[kImage] = QString::fromStdString(widget.image);
+    }
+
+    if (!widget.states.empty()) {
+        QJsonArray states;
+
+        for (const DashboardState& state : widget.states) {
+            QJsonObject entry;
+            entry[kValue] = state.value;
+            entry[kLabel] = QString::fromStdString(state.label);
+
+            if (state.tone != DashboardTone::Neutral) {
+                const std::string_view tone = nameOf(state.tone);
+                entry[kTone] = QString::fromUtf8(tone.data(), static_cast<qsizetype>(tone.size()));
+            }
+
+            if (!state.image.empty()) {
+                entry[kImage] = QString::fromStdString(state.image);
+            }
+
+            states.append(entry);
+        }
+
+        json[kStates] = states;
+    }
+
+    if (widget.limits.any()) {
+        QJsonObject limits;
+
+        if (widget.limits.warningBelow.has_value()) {
+            limits[kWarningBelow] = *widget.limits.warningBelow;
+        }
+        if (widget.limits.warningAbove.has_value()) {
+            limits[kWarningAbove] = *widget.limits.warningAbove;
+        }
+        if (widget.limits.criticalBelow.has_value()) {
+            limits[kCriticalBelow] = *widget.limits.criticalBelow;
+        }
+        if (widget.limits.criticalAbove.has_value()) {
+            limits[kCriticalAbove] = *widget.limits.criticalAbove;
+        }
+
+        json[kLimits] = limits;
+    }
+
+    if (widget.windowSeconds != kDefaultWindowSeconds) {
+        json[kWindowSeconds] = widget.windowSeconds;
+    }
+
+    if (widget.staleMs != 0U) {
+        json[kStaleMs] = static_cast<double>(widget.staleMs);
+    }
+
     return json;
 }
 
@@ -376,6 +455,9 @@ void payloadFromJson(const QString& text, CanFrame& frame)
     } else if (source == QLatin1String{kSourceVariable}) {
         widget.binding.source = DashboardBinding::Source::Variable;
         widget.binding.variable = binding.value(kVariable).toString().toStdString();
+    } else if (source == QLatin1String{kSourceMessage}) {
+        widget.binding.source = DashboardBinding::Source::Message;
+        widget.binding.message = binding.value(kMessage).toString().toStdString();
     } else {
         widget.binding.source = DashboardBinding::Source::None;
     }
@@ -395,6 +477,47 @@ void payloadFromJson(const QString& text, CanFrame& frame)
     widget.threshold = json.value(kThreshold).toDouble(0.5);
     widget.decimals = json.value(kDecimals).toInt(1);
     widget.profile = json.value(kProfile).toString().toStdString();
+
+    widget.image = json.value(kImage).toString().toStdString();
+
+    // A state with a tone this build does not know is read as having no opinion: the name is what
+    // a person reads, and the colour is a hint that a newer build may have had more words for.
+    widget.states.clear();
+
+    for (const QJsonValue& entry : json.value(kStates).toArray()) {
+        const QJsonObject object = entry.toObject();
+
+        DashboardState state;
+        state.value = object.value(kValue).toDouble(0.0);
+        state.label = object.value(kLabel).toString().toStdString();
+        state.image = object.value(kImage).toString().toStdString();
+
+        DashboardTone tone = DashboardTone::Neutral;
+        if (toneFromName(object.value(kTone).toString().toStdString(), tone)) {
+            state.tone = tone;
+        }
+
+        widget.states.push_back(std::move(state));
+    }
+
+    const QJsonObject limits = json.value(kLimits).toObject();
+    const auto limitOf = [&limits](const char* key) -> std::optional<double> {
+        const QJsonValue value = limits.value(QLatin1String{key});
+        return value.isDouble() ? std::optional<double>{value.toDouble()} : std::nullopt;
+    };
+
+    widget.limits.warningBelow = limitOf(kWarningBelow);
+    widget.limits.warningAbove = limitOf(kWarningAbove);
+    widget.limits.criticalBelow = limitOf(kCriticalBelow);
+    widget.limits.criticalAbove = limitOf(kCriticalAbove);
+
+    widget.windowSeconds = json.value(kWindowSeconds).toDouble(kDefaultWindowSeconds);
+
+    // Clamped before it is a count: a number out of range is not a quiet wrap-around to something
+    // small, it is the largest the type holds, and validate() refuses that one.
+    constexpr double kLargestCount = static_cast<double>(std::numeric_limits<std::uint32_t>::max());
+    widget.staleMs = static_cast<std::uint32_t>(
+        std::clamp(json.value(kStaleMs).toDouble(0.0), 0.0, kLargestCount));
 
     return true;
 }

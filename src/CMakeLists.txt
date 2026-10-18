@@ -138,6 +138,10 @@ add_library(torquebus_core STATIC
     core/dashboard/SystemVariables.cpp
     core/dashboard/DashboardDescription.h
     core/dashboard/DashboardDescription.cpp
+    core/dashboard/DashboardAssets.h
+    core/dashboard/DashboardAssets.cpp
+    core/dashboard/SignalDictionary.h
+    core/dashboard/SignalDictionary.cpp
     core/dashboard/cluster/ClusterRole.h
     core/dashboard/cluster/ClusterRole.cpp
     core/dashboard/cluster/ClusterProfile.h
@@ -373,6 +377,16 @@ qt_add_library(torquebus_ui STATIC
     ui/dashboard/DashboardPanel.cpp
     ui/dashboard/DashboardWidgetEditor.h
     ui/dashboard/DashboardWidgetEditor.cpp
+    ui/dashboard/DashboardImages.h
+    ui/dashboard/DashboardImages.cpp
+    ui/dashboard/DashboardText.h
+    ui/dashboard/DashboardText.cpp
+    ui/dashboard/DashboardWidgetPainters.h
+    ui/dashboard/DashboardWidgetPainters.cpp
+    ui/dashboard/SignalMime.h
+    ui/dashboard/SignalMime.cpp
+    ui/dashboard/SignalPickerDialog.h
+    ui/dashboard/SignalPickerDialog.cpp
     ui/graph/PlotView.h
     ui/graph/PlotView.cpp
     ui/graph/PlotSettingsDialog.h
@@ -595,9 +609,13 @@ if(WIN32)
     )
 
     # plugin target -> the subdirectory Qt looks for it in
+    # PNG and BMP are built into Qt6Gui; a JPEG or a GIF on a Dashboard picture is read by these two,
+    # and without them the build tree would show a placeholder where the packaged program does not.
     set(TORQUEBUS_QT_PLUGINS
         "Qt6::QWindowsIntegrationPlugin"     platforms
         "Qt6::QSvgPlugin"                    imageformats
+        "Qt6::QJpegPlugin"                   imageformats
+        "Qt6::QGifPlugin"                    imageformats
         "Qt6::QSvgIconPlugin"                iconengines
         "Qt6::QModernWindowsStylePlugin"     styles
     )

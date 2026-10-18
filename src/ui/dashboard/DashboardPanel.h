@@ -37,31 +37,62 @@
 // Neither is polled per frame: the panel repaints at 20 Hz like every other,
 // because a needle that updates faster than a screen refreshes is work nobody
 // can see.
+//
+// --- What the databases add ----------------------------------------------------------------
+//
+// The panel is given the loaded databases (setDatabases) and builds a SignalDictionary from them,
+// and the dictionary is what makes a dashboard easy to build rather than only possible:
+//
+//   * **Drag a signal in.** The DBC Explorer's signals and messages (SignalMime.h) drop onto the
+//     panel in Edit mode and become the widget each wants - a lamp for a two-state signal, a bar
+//     for a percentage, a table for a message - already bound, with its unit, range, names and
+//     time-out filled in. Dropped on a widget that is already there, one signal re-binds it.
+//   * **Drag a picture in.** A PNG, JPEG or SVG file dropped on the panel becomes an Image; dropped
+//     on a widget that has a picture of its own, it becomes that widget's picture.
+//   * **Say what is wrong.** In Edit mode a widget whose message or signal is in no loaded database
+//     wears a mark, and hovering over it names the nearest thing that is. Nothing is refused: the
+//     dashboard opens as often with the database unloaded as with it loaded.
+//   * **Notice a silent signal.** A widget with a time-out stops showing a value that has not been
+//     refreshed within it, and says so.
 
 #pragma once
 
 #include "core/dashboard/DashboardDescription.h"
+#include "core/dashboard/SignalDictionary.h"
+#include "core/plot/SignalSeries.h"
+#include "ui/dashboard/DashboardImages.h"
+#include "ui/dashboard/DashboardWidgetPainters.h"
 
 #include <QPoint>
 #include <QRectF>
 #include <QString>
 #include <QWidget>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 class QContextMenuEvent;
+class QDragEnterEvent;
+class QDragLeaveEvent;
+class QDragMoveEvent;
+class QDropEvent;
+class QEvent;
 class QKeyEvent;
+class QMimeData;
 class QMouseEvent;
 class QPaintEvent;
 class QPainter;
 
 namespace torquebus {
-class SignalSeriesStore;
 class SystemVariables;
 } // namespace torquebus
 
@@ -85,11 +116,76 @@ public:
     /// Where variable bindings read and write. Not owned.
     void setVariables(SystemVariables* variables);
 
+    /// The loaded databases, as the DBC Explorer holds them. What a dropped signal is looked up in,
+    /// what a widget's binding is checked against, and what a Table lists. Empty is a dashboard
+    /// edited without one, which works exactly as it did before there was a dictionary.
+    void setDatabases(const std::vector<std::shared_ptr<const CanDatabase>>& databases);
+
+    [[nodiscard]] const SignalDictionary& dictionary() const noexcept { return m_dictionary; }
+
+    /// The project's folder, which the pictures of the widgets are relative to. Empty for a project
+    /// that has not been saved.
+    void setAssetBase(const QString& directory);
+
+    [[nodiscard]] const QString& assetBase() const noexcept { return m_images.baseDirectory(); }
+
     /// Rebuilds from the description - after a project is opened, or the
     /// dashboard is changed from outside.
     void reload();
 
     [[nodiscard]] bool isEditing() const noexcept { return m_editing; }
+
+    // --- Making widgets ---------------------------------------------------------------------
+    //
+    // Public because a drop, the picker, the menu and a test all make them the same way, and a way
+    // that is one function is a way that cannot be three slightly different ones.
+
+    /// A widget for each signal, in a grid starting at `where`: the kind each wants, or `kind` when
+    /// one was asked for. Returns the ids, selects the last and reports the edit.
+    std::vector<std::string> addSignals(const std::vector<DictionaryEntry>& entries,
+                                        std::optional<DashboardWidgetKind> kind,
+                                        const QPoint& where);
+
+    /// A table of every signal of `message`. Returns its id.
+    std::string addTable(std::string_view message, const QPoint& where);
+
+    /// An Image of the picture in `file`, as large as its own proportions make a sensible widget.
+    /// Empty, and a line on the Output panel, when `file` is not a picture.
+    std::string addImage(const QString& file, const QPoint& where);
+
+    /// Binds the widget `id` to a signal and fills in what the database knows (applyEntry). False
+    /// when the widget is not there or reads nothing a signal could be.
+    bool bindWidget(const std::string& id, const DictionaryEntry& entry);
+
+    /// Gives the widget `id` the picture in `file`. False when it has no use for one.
+    bool setPicture(const std::string& id, const QString& file);
+
+    /// Copies the selected widget. Returns the new id, which is then the selected one.
+    std::string duplicateSelected();
+
+    /// Selects a widget, as a click does. An id that is not there clears the selection.
+    void select(const std::string& id);
+
+    [[nodiscard]] const std::string& selectedId() const noexcept { return m_selected; }
+
+    // --- Asking ---------------------------------------------------------------------------------
+
+    /// What hovering at `point` says: the widget's name, what it is bound to, what it reads now,
+    /// what the database knows of it and what is wrong with it. Empty over nothing.
+    [[nodiscard]] QString detailsAt(const QPoint& point) const;
+
+    /// The rows a Table shows now: its message's signals, with what each reads.
+    [[nodiscard]] std::vector<TableRow> tableRowsOf(const std::string& widgetId) const;
+
+    /// What is wrong with a widget's binding, as a sentence, or empty. Refreshed as the dashboard
+    /// and the databases change.
+    [[nodiscard]] QString findingFor(const std::string& widgetId) const;
+
+    /// Whether a widget is showing nothing because its signal has gone quiet.
+    [[nodiscard]] bool isStale(const std::string& widgetId) const
+    {
+        return m_stale.contains(widgetId);
+    }
 
 public Q_SLOTS:
     void setEditing(bool editing);
@@ -114,22 +210,19 @@ protected:
     void mouseReleaseEvent(QMouseEvent* event) override;
     void contextMenuEvent(QContextMenuEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dragMoveEvent(QDragMoveEvent* event) override;
+    void dragLeaveEvent(QDragLeaveEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
+    bool event(QEvent* event) override;
 
 private Q_SLOTS:
     /// Repaints if anything a widget is bound to has moved. The panel's clock.
     void refresh();
 
 private:
-    /// What a widget is showing right now, and whether it is showing anything.
-    struct Reading final {
-        double value{0.0};
-        bool known{false};
-
-        /// For a CAN signal, the timestamp of the sample this is: which one it is, not when. The
-        /// cluster watches it for change, to tell a signal that stopped from one that is steady.
-        std::uint64_t stamp{0};
-        bool timed{false};
-    };
+    using Reading = DashboardReading;
+    using Clock = std::chrono::steady_clock;
 
     [[nodiscard]] Reading read(const DashboardWidget& widget) const;
 
@@ -147,6 +240,7 @@ private:
     /// The widget under a point, or nullptr. Topmost first: later widgets are
     /// drawn over earlier ones, so they are hit first too.
     [[nodiscard]] DashboardWidget* widgetAt(const QPoint& point);
+    [[nodiscard]] const DashboardWidget* widgetAt(const QPoint& point) const;
 
     /// Where a widget is on screen, in pixels.
     [[nodiscard]] QRectF rectOf(const DashboardWidget& widget) const;
@@ -197,6 +291,40 @@ private:
 
     void removeSelected();
 
+    /// Opens the signal picker and adds what it returns at `where`: widgets for signals, tables for
+    /// messages.
+    void addFromPicker(const QPoint& where);
+
+    /// Makes an Image of a file chosen with the file dialog.
+    void addImageFromDialog(const QPoint& where);
+
+    /// Puts `widget` into the description, selects it and reports the edit.
+    std::string place(DashboardWidget widget);
+
+    /// A drop in Edit mode that this panel can use: signals, or picture files.
+    [[nodiscard]] bool canAccept(const QMimeData* data) const;
+
+    /// The local picture files in a drop.
+    [[nodiscard]] static QStringList pictureFilesIn(const QMimeData* data);
+
+    /// Works out which widgets have gone silent, and forgets the ones that have been deleted.
+    void updateStale(Clock::time_point now);
+
+    /// Checks every binding against the dictionary again, if any binding has changed since the last
+    /// time.
+    void updateFindings();
+
+    /// The recent samples of a Trend's signal or variable, or nullptr.
+    [[nodiscard]] const SeriesWindow* trendWindowOf(const DashboardWidget& widget) const;
+
+    /// The time the right edge of a Trend is: the bus clock for a signal, the panel's own for a
+    /// variable.
+    [[nodiscard]] std::uint64_t trendNewestNs(const DashboardWidget& widget) const;
+
+    /// Adds this tick's value to the trail of every Trend bound to a variable, and drops what has
+    /// fallen out of its window.
+    void recordTrails(Clock::time_point now);
+
     DashboardDescription& m_dashboard;
 
     /// A member, not a child: it has to go before the QQuickWidgets it made, which are children.
@@ -205,6 +333,19 @@ private:
 
     const SignalSeriesStore* m_plots{nullptr};
     SystemVariables* m_variables{nullptr};
+
+    SignalDictionary m_dictionary;
+
+    /// Counts the times the dictionary was rebuilt, so that a binding is checked again when the
+    /// databases change under it and not only when the binding does.
+    std::uint64_t m_dictionaryRevision{0};
+
+    /// Mutable because asking whether a picture can be drawn is a read, and reading one may mean
+    /// loading it: a cache is not part of what the panel is.
+    mutable DashboardImages m_images;
+
+    /// Timer ticks, for the checks that need not happen twenty times a second.
+    unsigned m_ticks{0};
 
     bool m_editing{false};
 
@@ -223,9 +364,34 @@ private:
     /// momentary contact does.
     std::string m_pressed;
 
+    /// The widget a drop would land on, drawn highlighted while it is dragged over.
+    std::string m_dropTarget;
+
     /// The revisions the last repaint was drawn from, so a panel with nothing
     /// moving does not repaint twenty times a second.
     std::vector<std::uint64_t> m_lastRevisions;
+
+    /// For each widget with a time-out: the last sample it saw change, and since when it has not.
+    struct Seen final {
+        std::uint64_t stamp{0};
+        Clock::time_point since;
+    };
+
+    std::unordered_map<std::string, Seen> m_seen;
+    std::unordered_set<std::string> m_stale;
+
+    /// Widget id to what is wrong with its binding, and the bindings it was worked out from.
+    std::unordered_map<std::string, QString> m_findings;
+    std::string m_findingsFor;
+
+    /// A scratch buffer for a Trend's samples, so that a repaint does not allocate one.
+    mutable std::vector<SeriesWindow> m_windows;
+
+    /// What a Trend bound to a variable has seen. A signal's history is in the plot store; a
+    /// variable has none, so the panel keeps the last window of each - which means such a trend
+    /// starts empty when the dashboard is shown, and fills as it is watched.
+    std::unordered_map<std::string, std::deque<SignalSample>> m_trails;
+    std::uint64_t m_trailsNowNs{0};
 };
 
 } // namespace torquebus::ui
