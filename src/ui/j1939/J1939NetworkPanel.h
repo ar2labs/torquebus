@@ -14,7 +14,7 @@
 // that ECU right now. Sorted by address, because that is the order a person
 // scanning for a gap reads in.
 //
-// --- The three things this panel must not imply ------------------------------
+// --- The four things this panel must not imply --------------------------------
 //
 //   * **An empty table before Start is not an empty bus.** Nothing published
 //     and nobody transmitting look identical, so the panel says which one it is
@@ -24,6 +24,11 @@
 //     says what was observed since Start, and the tooltip says so in words.
 //   * **An ECU reporting no faults is not an ECU that has not answered.** The
 //     first is a diagnosis and the second is a question still open.
+//   * **What an ECU last said is not what the bus is reporting now.** The tree
+//     keeps each ECU's last DM1, which is what a panel is for after a
+//     measurement ends; an ECU that has gone quiet, or a measurement that has
+//     stopped, leaves those faults *last reported*, and the summary counts only
+//     what the block says is being reported now.
 //
 // It reads a J1939Network the block fills - see that header for why the
 // hand-over is a snapshot rather than a lock, and why this panel asks for a

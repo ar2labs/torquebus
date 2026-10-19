@@ -187,6 +187,66 @@ int tableRowCapacity(const QRectF& rect, int rowCount)
     return std::max(0, fits - 1);
 }
 
+namespace {
+
+/// The bulb of a lamp on a Faults widget.
+constexpr double kFaultsBulb = 12.0;
+
+/// A column of lamps narrower than this shows its bulb without a name.
+constexpr double kFaultsLabelledColumn = 56.0;
+
+/// The width of one of the four columns the lamps sit in.
+[[nodiscard]] double faultLampColumn(const QRectF& rect)
+{
+    return std::max(0.0, (rect.width() - 2.0 * kPad) / 4.0);
+}
+
+} // namespace
+
+QRectF faultLampRect(const QRectF& rect, int lamp)
+{
+    const double column = faultLampColumn(rect);
+    const double left = rect.left() + kPad + column * static_cast<double>(lamp);
+    const double top = rect.top() + kFaultsTitleHeight + (kFaultsLampsHeight - kFaultsBulb) / 2.0;
+
+    // A column with room for the name has the bulb at the start of it and the name after; one
+    // without is just a bulb, in the middle.
+    const double x =
+        column >= kFaultsLabelledColumn ? left + 2.0 : left + (column - kFaultsBulb) / 2.0;
+
+    return QRectF{x, top, kFaultsBulb, kFaultsBulb};
+}
+
+QRectF faultListRect(const QRectF& rect)
+{
+    const double top = rect.top() + kFaultsTitleHeight + kFaultsLampsHeight + 2.0;
+
+    return QRectF{rect.left(), top, rect.width(), std::max(0.0, rect.bottom() - top - 3.0)};
+}
+
+QRectF faultRowRect(const QRectF& rect, int index)
+{
+    const QRectF list = faultListRect(rect);
+
+    return QRectF{list.left() + 1.0,
+                  list.top() + kFaultsRowHeight * static_cast<double>(index),
+                  std::max(0.0, list.width() - 2.0),
+                  kFaultsRowHeight};
+}
+
+int faultRowCapacity(const QRectF& rect, int rowCount)
+{
+    const double room = faultListRect(rect).height();
+    const int fits = std::max(0, static_cast<int>(std::floor(room / kFaultsRowHeight)));
+
+    if (fits >= rowCount) {
+        return rowCount;
+    }
+
+    // Not all of them: what is left after the line that says how many are not shown.
+    return std::max(0, static_cast<int>(std::floor((room - kFaultsMoreHeight) / kFaultsRowHeight)));
+}
+
 // ---------------------------------------------------------------------------
 // Bar
 // ---------------------------------------------------------------------------
@@ -614,6 +674,187 @@ void paintTable(QPainter& painter,
             Qt::AlignLeft | Qt::AlignVCenter,
             QObject::tr("+ %n more", nullptr, static_cast<int>(rows.size()) - shown));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Faults
+// ---------------------------------------------------------------------------
+
+void paintFaults(QPainter& painter,
+                 const PaintContext& c,
+                 const FaultLamps& lamps,
+                 const std::vector<FaultRow>& rows)
+{
+    const Theme& theme = c.theme;
+    const QRectF rect = c.rect;
+
+    painter.save();
+
+    // Nothing of a list that is longer than its box is drawn outside it, whatever its font does.
+    painter.setClipRect(rect.adjusted(-1.0, -1.0, 1.0, 1.0));
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    painter.setPen(theme.border);
+    painter.setBrush(theme.panel);
+    painter.drawRoundedRect(rect, 4.0, 4.0);
+
+    // --- The title -----------------------------------------------------------------------------
+    const QRectF title{rect.left() + kPad,
+                       rect.top(),
+                       std::max(0.0, rect.width() - 2.0 * kPad),
+                       kFaultsTitleHeight};
+
+    painter.setFont(sized(painter.font(), 10.0, true));
+    painter.setPen(theme.text);
+    painter.drawText(
+        title, Qt::AlignLeft | Qt::AlignVCenter, elided(painter, c.caption, title.width()));
+
+    // --- The four lamps of the bus ---------------------------------------------------------------
+    //
+    // A bulb is lit in full and dark as an outline with a faint wash, like the Lamp widget's: a
+    // lamp that is off still has to look like the lamp that was on.
+    const bool lit[4] = {lamps.stop, lamps.warning, lamps.malfunction, lamps.protect};
+    const QString names[4] = {
+        QObject::tr("STOP"), QObject::tr("WARN"), QObject::tr("MIL"), QObject::tr("PROTECT")};
+
+    const double column = faultLampColumn(rect);
+    const bool labelled = column >= kFaultsLabelledColumn;
+
+    painter.setFont(sized(painter.font(), 8.0, true));
+
+    for (int lamp = 0; lamp < 4; ++lamp) {
+        const QRectF bulb = faultLampRect(rect, lamp);
+
+        // Stop is red and the rest are the amber of an attention lamp: the cluster draws them so.
+        const QColor colour = lamp == 0 ? theme.lampRed : theme.lampAmber;
+
+        painter.setPen(QPen{lit[lamp] ? colour : theme.border, 1.5});
+        painter.setBrush(lit[lamp] ? colour : withAlpha(colour, 40));
+        painter.drawEllipse(bulb);
+
+        if (labelled) {
+            const QRectF label{bulb.right() + 6.0,
+                               bulb.top() - 4.0,
+                               std::max(0.0, column - kFaultsBulb - 10.0),
+                               kFaultsBulb + 8.0};
+
+            painter.setPen(lit[lamp] ? colour : theme.textMuted);
+            painter.drawText(label,
+                             Qt::AlignLeft | Qt::AlignVCenter,
+                             elided(painter, names[lamp], label.width()));
+        }
+    }
+
+    painter.setPen(withAlpha(theme.border, 200));
+    painter.drawLine(QPointF{rect.left(), rect.top() + kFaultsTitleHeight + kFaultsLampsHeight},
+                     QPointF{rect.right(), rect.top() + kFaultsTitleHeight + kFaultsLampsHeight});
+
+    const QRectF list = faultListRect(rect);
+
+    // --- Nothing to list ---------------------------------------------------------------------
+    //
+    // The state of a bus that is healthy, of a measurement that is not running and of a graph with
+    // no J1939 block alike, and all three are the same picture: an empty list. None of them is an
+    // error.
+    if (rows.empty()) {
+        painter.setFont(sized(painter.font(), 9.5, false));
+        painter.setPen(theme.textMuted);
+        painter.drawText(list.adjusted(kPad, 0.0, -kPad, 0.0),
+                         Qt::AlignCenter | Qt::TextWordWrap,
+                         QObject::tr("No active faults"));
+
+        painter.restore();
+        return;
+    }
+
+    // --- The codes -------------------------------------------------------------------------------
+    const int total = static_cast<int>(rows.size());
+    const int shown = faultRowCapacity(rect, total);
+
+    for (int i = 0; i < shown; ++i) {
+        const FaultRow& row = rows[static_cast<std::size_t>(i)];
+        const QRectF line = faultRowRect(rect, i);
+        const bool tinted = row.tone != DashboardTone::Neutral;
+        const QColor ink = tinted ? toneColor(theme, row.tone) : theme.text;
+
+        // A tinted row has a wash of its colour and a bar at its edge; a plain one alternates, as a
+        // table does, so that a long list can be followed across.
+        if (tinted) {
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(withAlpha(ink, 34));
+            painter.drawRect(line);
+        } else if (i % 2 == 1) {
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(withAlpha(theme.panelAlternate, 160));
+            painter.drawRect(line);
+        }
+
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(tinted ? ink : theme.border);
+        painter.drawRect(QRectF{line.left() + 2.0, line.top() + 4.0, 3.0, line.height() - 8.0});
+
+        const double textLeft = line.left() + 12.0;
+        const double textRight = line.right() - kPad;
+
+        // The first line: the code, how often, and who reported it. The ECU keeps the right-hand
+        // end and the code keeps what it leaves, so that a narrow box cuts the words and not the
+        // number.
+        const QRectF first{textLeft, line.top() + 3.0, std::max(0.0, textRight - textLeft), 18.0};
+
+        painter.setFont(sized(painter.font(), 8.5, false));
+        const double ecuWidth = std::min(
+            first.width() * 0.45, QFontMetricsF{painter.font()}.horizontalAdvance(row.ecu) + 2.0);
+
+        painter.setPen(theme.textMuted);
+        painter.drawText(QRectF{first.right() - ecuWidth, first.top(), ecuWidth, first.height()},
+                         Qt::AlignRight | Qt::AlignVCenter,
+                         elided(painter, row.ecu, ecuWidth));
+
+        painter.setFont(sized(painter.font(), 9.5, true));
+        const double codeRoom = std::max(0.0, first.width() - ecuWidth - 8.0);
+        const QString code = elided(painter, row.code, codeRoom);
+
+        painter.setPen(ink);
+        painter.drawText(QRectF{first.left(), first.top(), codeRoom, first.height()},
+                         Qt::AlignLeft | Qt::AlignVCenter,
+                         code);
+
+        const double codeWidth = QFontMetricsF{painter.font()}.horizontalAdvance(code);
+        const QRectF count{first.left() + codeWidth + 8.0,
+                           first.top(),
+                           std::max(0.0, codeRoom - codeWidth - 8.0),
+                           first.height()};
+
+        if (!row.count.isEmpty() && count.width() > 12.0) {
+            painter.setFont(sized(painter.font(), 8.5, false));
+            painter.setPen(theme.textMuted);
+            painter.drawText(
+                count, Qt::AlignLeft | Qt::AlignVCenter, elided(painter, row.count, count.width()));
+        }
+
+        // The second line: what is wrong, in words.
+        const QRectF second{textLeft, line.top() + 21.0, std::max(0.0, textRight - textLeft), 15.0};
+
+        painter.setFont(sized(painter.font(), 8.0, false));
+        painter.setPen(theme.textMuted);
+        painter.drawText(
+            second, Qt::AlignLeft | Qt::AlignVCenter, elided(painter, row.meaning, second.width()));
+    }
+
+    if (shown < total) {
+        const double top = list.top() + kFaultsRowHeight * static_cast<double>(shown);
+
+        painter.setFont(sized(painter.font(), 8.5, false));
+        painter.setPen(theme.textMuted);
+        painter.drawText(QRectF{rect.left() + kPad,
+                                top,
+                                std::max(0.0, rect.width() - 2.0 * kPad),
+                                kFaultsMoreHeight},
+                         Qt::AlignLeft | Qt::AlignVCenter,
+                         QObject::tr("+ %n more", nullptr, total - shown));
+    }
+
+    painter.restore();
 }
 
 // ---------------------------------------------------------------------------

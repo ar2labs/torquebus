@@ -25,6 +25,7 @@
 #include "core/database/DbcParser.h"
 #include "core/isotp/IsoTpTypes.h"
 #include "core/j1939/J1939Id.h"
+#include "core/j1939/J1939Name.h"
 #include "core/pipeline/nodes/FrameNodes.h"
 #include "core/scripting/LuaEcuNode.h"
 #include "core/scripting/LuaTestNode.h"
@@ -40,6 +41,7 @@
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <span>
 #include <sstream>
@@ -76,6 +78,16 @@ CanChannelConfig quietConfig(const std::string& handle)
     config.deviceHandle = handle;
     config.timing.bitrate = 500'000;
     return config;
+}
+
+/// Whether `frame` is an Address Claimed (J1939-81): network management, which the J1939 block
+/// reads itself to learn who is on the bus. A database describes the messages an application sends,
+/// and does not carry this one.
+[[nodiscard]] bool isAddressClaim(const CanFrame& frame)
+{
+    const std::optional<J1939Id> id = j1939Decompose(frame);
+
+    return id.has_value() && id->pgn() == kPgnAddressClaimed;
 }
 
 /// The error lines as one string, for a failure message that names them.
@@ -396,7 +408,7 @@ TEST(ExampleScriptTests, TheExampleDatabasesDecodeWhatTheExampleScriptsSend)
         std::vector<std::uint32_t> undescribed;
 
         for (const CanFrame& frame : frames) {
-            if (frame.direction != CanDirection::Tx) {
+            if (frame.direction != CanDirection::Tx || isAddressClaim(frame)) {
                 continue;
             }
             if (database.find(frame) == nullptr) {
@@ -484,6 +496,12 @@ TEST(ExampleScriptTests, EveryJ1939ScriptSendsOnlyMessagesTheJ1939DatabaseDescri
             EXPECT_TRUE(frame.isExtended()) << "0x" << std::hex << frame.identifier;
             EXPECT_EQ(frame.length, 8U);
 
+            // The one message that is not the application's. EveryJ1939ScriptClaimsItsAddress...
+            // below is what holds it to account.
+            if (isAddressClaim(frame)) {
+                continue;
+            }
+
             const std::uint32_t pgn = j1939Decompose(frame.identifier).pgn();
             if (described.count(pgn) == 0) {
                 missing.insert(pgn);
@@ -499,6 +517,67 @@ TEST(ExampleScriptTests, EveryJ1939ScriptSendsOnlyMessagesTheJ1939DatabaseDescri
         SCOPED_TRACE("PGNs with no message in j1939.dbc:" + names);
         EXPECT_TRUE(missing.empty());
     }
+}
+
+TEST(ExampleScriptTests, EveryJ1939ScriptClaimsItsAddressOnceAtPowerUpWithANameOfItsOwn)
+{
+    // What the J1939 Network panel and the Dashboard's fault list put a word to an address from:
+    // an Address Claimed, sent when the ECU starts. Each of the six says who it is - the function
+    // is the number J1939-81 gives what it does - from the address it transmits from, and no two
+    // say the same NAME: a NAME is what is unique on a bus, and two ECUs with one would fight for
+    // an address for ever.
+    struct Expected final {
+        const char* script;
+        std::uint8_t address;
+        std::uint8_t function;
+    };
+
+    const Expected expected[] = {
+        {"ecu_engine.lua", 0x00U, 0U},
+        {"ecu_aftertreatment.lua", 0x3DU, 44U},
+        {"ecu_body.lua", 0x21U, 26U},
+        {"ecu_brakes.lua", 0x0BU, 9U},
+        {"ecu_switches.lua", 0x37U, 41U},
+        {"ecu_cluster_core.lua", 0x17U, 19U},
+    };
+
+    std::set<std::uint64_t> names;
+
+    for (const Expected& ecu : expected) {
+        SCOPED_TRACE(ecu.script);
+
+        Outcome outcome;
+        runEcu(ecu.script, 250ms, outcome);
+
+        std::vector<CanFrame> claims;
+
+        for (const CanFrame& frame : outcome.recorder.frames()) {
+            if (frame.direction == CanDirection::Tx && isAddressClaim(frame)) {
+                claims.push_back(frame);
+            }
+        }
+
+        // Once: a claim is a power-up and not a heartbeat, and nothing here asked for another.
+        ASSERT_EQ(claims.size(), 1U);
+
+        const CanFrame& claim = claims.front();
+        EXPECT_TRUE(claim.isExtended());
+        EXPECT_EQ(j1939Decompose(claim.identifier).sourceAddress, ecu.address);
+        EXPECT_EQ(j1939Decompose(claim.identifier).destinationAddress(), kJ1939GlobalAddress);
+
+        const std::optional<J1939Name> name = j1939NameFromClaim(claim);
+        ASSERT_TRUE(name.has_value());
+
+        EXPECT_EQ(name->function, ecu.function);
+        EXPECT_EQ(name->industryGroup, 1U); // on-highway equipment
+        EXPECT_EQ(name->manufacturerCode, 0U); // nobody's: a simulated ECU borrows no company's
+        EXPECT_EQ(name->identityNumber, ecu.address);
+        EXPECT_FALSE(name->arbitraryAddressCapable); // it has the address it is given, and keeps it
+
+        names.insert(name->value());
+    }
+
+    EXPECT_EQ(names.size(), std::size(expected));
 }
 
 TEST(ExampleScriptTests, EveryShippedExampleScriptIsCoveredHere)

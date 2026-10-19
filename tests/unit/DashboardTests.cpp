@@ -250,6 +250,7 @@ TEST(DashboardTests, WidgetKindsSurviveTheRoundTripThroughTheirNames)
         DashboardWidgetKind::Trend,
         DashboardWidgetKind::Table,
         DashboardWidgetKind::Group,
+        DashboardWidgetKind::Faults,
     };
 
     for (const DashboardWidgetKind kind : kAll) {
@@ -260,8 +261,22 @@ TEST(DashboardTests, WidgetKindsSurviveTheRoundTripThroughTheirNames)
         EXPECT_TRUE(parsed == kind);
     }
 
+    // Written into project files, so spelled out: a rename orphans every dashboard that has one.
+    EXPECT_EQ(nameOf(DashboardWidgetKind::Faults), "faults");
+
     DashboardWidgetKind unused{};
     EXPECT_FALSE(kindFromName("hologram", unused));
+}
+
+TEST(DashboardTests, ANewKindIsAppendedAndNeverInsertedBecauseTheNamesAreInProjectFiles)
+{
+    // The numbers are not in a project file, the names are - but a kind inserted in the middle
+    // moves every one after it, and anything that stores the number (a saved selection, a combo
+    // box's data) would then mean another widget. The last kind is the newest one.
+    EXPECT_EQ(static_cast<int>(DashboardWidgetKind::Faults),
+              static_cast<int>(DashboardWidgetKind::Group) + 1);
+    EXPECT_EQ(static_cast<int>(DashboardWidgetKind::Group),
+              static_cast<int>(DashboardWidgetKind::Table) + 1);
 }
 
 TEST(DashboardTests, ControlsAreTheKindsThatWrite)
@@ -284,6 +299,7 @@ TEST(DashboardTests, ControlsAreTheKindsThatWrite)
     EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Trend));
     EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Table));
     EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Group));
+    EXPECT_FALSE(writesItsBinding(DashboardWidgetKind::Faults));
 }
 
 // ---------------------------------------------------------------------------
@@ -372,10 +388,63 @@ TEST(DashboardTests, AWidgetStartsAsTheMenuHasAlwaysMadeIt)
                                            DashboardWidgetKind::Image,
                                            DashboardWidgetKind::Trend,
                                            DashboardWidgetKind::Table,
-                                           DashboardWidgetKind::Group}) {
+                                           DashboardWidgetKind::Group,
+                                           DashboardWidgetKind::Faults}) {
         EXPECT_GT(defaultWidgetOf(kind).width, 0.0) << nameOf(kind);
         EXPECT_GT(defaultWidgetOf(kind).height, 0.0) << nameOf(kind);
     }
+}
+
+TEST(DashboardTests, AFaultListReadsTheBusAndAsksForNoBinding)
+{
+    // It lists what the J1939 block says the bus is reporting. There is nothing to bind it to, no
+    // range to sweep and no unit to show - so the form has a title to offer and nothing else.
+    const DashboardKindTraits& traits = traitsOf(DashboardWidgetKind::Faults);
+
+    EXPECT_EQ(traits.binding, BindingNeed::None);
+    EXPECT_FALSE(traits.range || traits.unit || traits.decimals || traits.threshold);
+    EXPECT_FALSE(traits.limits || traits.states || traits.image || traits.window);
+
+    DashboardWidget faults = defaultWidgetOf(DashboardWidgetKind::Faults);
+    faults.id = "faults";
+
+    EXPECT_EQ(faults.kind, DashboardWidgetKind::Faults);
+    EXPECT_EQ(faults.title, "Faults");
+    EXPECT_EQ(faults.binding.source, DashboardBinding::Source::None);
+
+    // Room for the four lamps and a few two-line rows, and not a Group's or a Cluster's.
+    EXPECT_GE(faults.width, 240.0);
+    EXPECT_GE(faults.height, 200.0);
+
+    DashboardDescription dashboard;
+    dashboard.add(faults);
+
+    // As made, unbound, it is a dashboard that can be saved: not "a picture of a gauge".
+    SCOPED_TRACE(::testing::Message() << std::string{dashboard.validate().message()});
+    EXPECT_TRUE(dashboard.validate().succeeded());
+
+    // It is held to what any widget is held to: a size.
+    dashboard.widgets().front().width = 0.0;
+    EXPECT_TRUE(dashboard.validate().failed());
+}
+
+TEST(DashboardTests, AFaultListIsHeldToTheRulesOfBindingsLikeAnyOtherWidget)
+{
+    // It has no binding of its own, as a Label has none; one typed into a project file by hand is
+    // held to the rules as anywhere else, and a whole message is something only a table can show.
+    DashboardDescription dashboard;
+
+    DashboardWidget faults = defaultWidgetOf(DashboardWidgetKind::Faults);
+    faults.id = "faults";
+    faults.binding.source = DashboardBinding::Source::Message;
+    faults.binding.message = "DM1";
+    dashboard.add(faults);
+
+    const Result result = dashboard.validate();
+
+    ASSERT_TRUE(result.failed());
+    SCOPED_TRACE(::testing::Message() << std::string{result.message()});
+    EXPECT_NE(std::string{result.message()}.find("table"), std::string::npos);
 }
 
 // ---------------------------------------------------------------------------

@@ -46,6 +46,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <iterator>
 
 namespace torquebus::ui {
 namespace {
@@ -158,6 +159,20 @@ void DashboardPanel::setPlotStore(const SignalSeriesStore* store)
 void DashboardPanel::setVariables(SystemVariables* variables)
 {
     m_variables = variables;
+    update();
+}
+
+void DashboardPanel::setJ1939Network(const J1939Network* network)
+{
+    m_j1939 = network;
+    m_faultsFresh = false;
+    update();
+}
+
+void DashboardPanel::setJ1939Names(const J1939NameTables* names)
+{
+    m_j1939Names = names;
+    m_faultsFresh = false;
     update();
 }
 
@@ -439,6 +454,10 @@ void DashboardPanel::refresh()
         if (widget.kind == DashboardWidgetKind::Trend) {
             // Its line moves with the clock, whether or not its own signal changed.
             token = mix(token, trendNewestNs(widget));
+        } else if (widget.kind == DashboardWidgetKind::Faults) {
+            // It has no binding to read: what it draws is the bus's, and moves with a publication
+            // of the J1939 block or with a lamp.
+            token = mix(token, faultsToken());
         } else if (widget.kind == DashboardWidgetKind::Table) {
             for (const DictionaryEntry* entry : m_dictionary.signalsOf(widget.binding.message)) {
                 DashboardBinding row;
@@ -727,6 +746,7 @@ void DashboardPanel::contextMenuEvent(QContextMenuEvent* event)
     addKind(DashboardWidgetKind::State, tr("Add State"));
     addKind(DashboardWidgetKind::Trend, tr("Add Trend"));
     addKind(DashboardWidgetKind::Table, tr("Add Message Table"));
+    addKind(DashboardWidgetKind::Faults, tr("Add Faults"));
     menu.addSeparator();
     addKind(DashboardWidgetKind::Slider, tr("Add Slider"));
     addKind(DashboardWidgetKind::Knob, tr("Add Knob"));
@@ -1284,6 +1304,141 @@ std::vector<TableRow> DashboardPanel::tableRowsOf(const std::string& widgetId) c
     return rows;
 }
 
+void DashboardPanel::syncFaults() const
+{
+    if (m_j1939 == nullptr) {
+        // A graph with no J1939 block, or a panel not yet given the network: an empty list.
+        if (!m_faultsFresh) {
+            m_faults.clear();
+            m_faultRows.clear();
+            m_faultsRevision = 0;
+            m_faultsFresh = true;
+        }
+
+        return;
+    }
+
+    // The cheap question first: an atomic load. Copying what the block published to find out
+    // whether it differs would be the expensive half of the work to answer the cheap question.
+    const std::uint64_t revision = m_j1939->revision();
+
+    if (m_faultsFresh && revision == m_faultsRevision) {
+        return;
+    }
+
+    const J1939NetworkSnapshot snapshot = m_j1939->snapshot();
+
+    // The revision the copy reports, which is exactly the publication it is from: the network reads
+    // both under the one lock. A publication that lands after it is then a change the next tick
+    // sees.
+    m_faultsRevision = snapshot.revision;
+    m_faultsFresh = true;
+
+    m_faults = dashboardFaultsOf(snapshot, m_j1939Names);
+    m_faultRows.clear();
+    m_faultRows.reserve(m_faults.size());
+
+    for (const DashboardFault& fault : m_faults) {
+        FaultRow row;
+        row.code = faultCodeText(fault.code);
+        row.meaning = faultMeaningText(fault.code);
+        row.count = faultCountText(fault.code);
+        row.ecu = faultEcuText(fault);
+        row.tone = fault.tone;
+
+        m_faultRows.push_back(std::move(row));
+    }
+}
+
+std::vector<FaultRow> DashboardPanel::faultRows() const
+{
+    syncFaults();
+
+    return m_faultRows;
+}
+
+FaultLamps DashboardPanel::faultLamps() const
+{
+    FaultLamps lamps;
+
+    if (m_variables == nullptr) {
+        return lamps;
+    }
+
+    // The same variables the cluster reads. A variable nobody has written reads as zero, which is a
+    // dark lamp, so a bus with no J1939 block lights none.
+    const auto lit = [this](std::string_view name) {
+        return m_variables->value(std::string{name}) >= 0.5;
+    };
+
+    lamps.stop = lit(kFaultLampVariables[0]);
+    lamps.warning = lit(kFaultLampVariables[1]);
+    lamps.malfunction = lit(kFaultLampVariables[2]);
+    lamps.protect = lit(kFaultLampVariables[3]);
+
+    return lamps;
+}
+
+std::uint64_t DashboardPanel::faultsToken() const
+{
+    syncFaults();
+
+    const FaultLamps lamps = faultLamps();
+
+    std::uint64_t token = m_faultsRevision;
+    token = mix(token, lamps.stop ? 1U : 0U);
+    token = mix(token, lamps.warning ? 1U : 0U);
+    token = mix(token, lamps.malfunction ? 1U : 0U);
+    token = mix(token, lamps.protect ? 1U : 0U);
+
+    return token;
+}
+
+QStringList DashboardPanel::faultDetails() const
+{
+    syncFaults();
+
+    QStringList lines;
+    const FaultLamps lamps = faultLamps();
+
+    QStringList lit;
+    if (lamps.stop) {
+        lit << tr("stop");
+    }
+    if (lamps.warning) {
+        lit << tr("warning");
+    }
+    if (lamps.malfunction) {
+        lit << tr("malfunction indicator");
+    }
+    if (lamps.protect) {
+        lit << tr("protect");
+    }
+
+    lines << (lit.isEmpty() ? tr("No lamp is lit")
+                            : tr("Lamps lit: %1").arg(lit.join(QStringLiteral(", "))));
+
+    if (m_faults.empty()) {
+        lines << tr("No active faults");
+        return lines;
+    }
+
+    // A tooltip is not a report: the first few in full, and a count of the rest.
+    constexpr qsizetype kMostInFull = 6;
+
+    for (qsizetype i = 0; i < std::min<qsizetype>(kMostInFull, std::ssize(m_faults)); ++i) {
+        lines << QString{};
+        lines << faultDetailsText(m_faults[static_cast<std::size_t>(i)]);
+    }
+
+    if (std::ssize(m_faults) > kMostInFull) {
+        lines << QString{};
+        lines << tr("+ %n more", nullptr, static_cast<int>(std::ssize(m_faults) - kMostInFull));
+    }
+
+    return lines;
+}
+
 std::uint64_t DashboardPanel::trendNewestNs(const DashboardWidget& widget) const
 {
     if (widget.binding.source == DashboardBinding::Source::Variable) {
@@ -1392,6 +1547,11 @@ QString DashboardPanel::detailsAt(const QPoint& point) const
             lines << tr("(not bound)");
         }
         break;
+    }
+
+    // A fault list has no value of its own to read; it says what the bus is reporting.
+    if (widget->kind == DashboardWidgetKind::Faults) {
+        lines << faultDetails();
     }
 
     // What it reads now: only for the kinds with a value of their own.
@@ -1574,6 +1734,10 @@ void DashboardPanel::paintWidget(QPainter& painter, const DashboardWidget& widge
     }
     case DashboardWidgetKind::Group:
         paintGroup(painter, context);
+        break;
+    case DashboardWidgetKind::Faults:
+        syncFaults();
+        paintFaults(painter, context, faultLamps(), m_faultRows);
         break;
     }
 

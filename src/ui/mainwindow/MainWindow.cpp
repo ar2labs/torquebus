@@ -668,6 +668,12 @@ void MainWindow::createPanels()
     m_dashboardPanel->setPlotStore(&m_controller->engine().plotStore());
     m_dashboardPanel->setVariables(&m_controller->engine().variables());
 
+    // What a Faults widget lists: the same hand-over the J1939 Network panel reads, and the same
+    // name tables it names ECUs from. The panel gets const access to it and nothing else of the
+    // J1939 block's.
+    m_dashboardPanel->setJ1939Network(&m_controller->engine().j1939Network());
+    m_dashboardPanel->setJ1939Names(&m_j1939Names);
+
     m_dashboardEditor = new DashboardWidgetEditor(m_dashboard);
     m_dashboardEditor->setPlotStore(&m_controller->engine().plotStore());
     shareDatabasesWithDashboard();

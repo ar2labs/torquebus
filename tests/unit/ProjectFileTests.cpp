@@ -823,6 +823,14 @@ TEST(ProjectFileTests, TheFieldsOfTheNewerWidgetsSurviveASaveAndALoad)
     group.title = "Powertrain";
     original.add(group);
 
+    // A fault list reads the bus and is bound to nothing.
+    DashboardWidget faults = defaultWidgetOf(DashboardWidgetKind::Faults);
+    faults.id = "faults";
+    faults.title = "Active faults";
+    faults.x = 752.0;
+    faults.y = 540.0;
+    original.add(faults);
+
     ASSERT_TRUE(original.validate().succeeded());
 
     GraphDescription pipeline;
@@ -877,6 +885,62 @@ TEST(ProjectFileTests, ADashboardThatUsesNothingNewIsWrittenAsItWasBefore)
     for (const char* key : {"image", "states", "limits", "windowSeconds", "staleMs"}) {
         EXPECT_FALSE(written.contains(QLatin1String{key})) << key;
     }
+}
+
+TEST(ProjectFileTests, AFaultListIsWrittenAsItsKindAndItsPlaceAndNothingElse)
+{
+    // Additive and only when used: a fault list holds no binding, no range and no names, so the
+    // file says that it is one, where it is and what it is called - and the format stays at 3.
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+
+    DashboardDescription dashboard;
+
+    DashboardWidget faults = defaultWidgetOf(DashboardWidgetKind::Faults);
+    faults.id = "faults";
+    faults.x = 20.0;
+    faults.y = 540.0;
+    dashboard.add(faults);
+
+    GraphDescription pipeline;
+    const QString path = pathIn(directory, QStringLiteral("faults.tbsproj"));
+    ASSERT_TRUE(ProjectFile::save(path, pipeline, scratch(), dashboard).succeeded());
+
+    QFile file{path};
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+
+    const QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+    EXPECT_EQ(root.value(QStringLiteral("version")).toInt(), 3);
+
+    const QJsonArray widgets = root.value(QStringLiteral("dashboard"))
+                                   .toObject()
+                                   .value(QStringLiteral("widgets"))
+                                   .toArray();
+    ASSERT_EQ(widgets.size(), 1);
+
+    const QJsonObject written = widgets.at(0).toObject();
+
+    EXPECT_EQ(written.value(QStringLiteral("kind")).toString(), QStringLiteral("faults"));
+    EXPECT_TRUE(written.value(QStringLiteral("binding")).toObject().isEmpty());
+    EXPECT_EQ(written.value(QStringLiteral("title")).toString(), QStringLiteral("Faults"));
+
+    for (const char* key : {"image",
+                            "states",
+                            "limits",
+                            "windowSeconds",
+                            "staleMs",
+                            "unit",
+                            "profile",
+                            "threshold"}) {
+        EXPECT_FALSE(written.contains(QLatin1String{key})) << key;
+    }
+
+    // And it comes back as the same widget.
+    GraphDescription reopenedPipeline;
+    DashboardDescription reopened;
+
+    ASSERT_TRUE(ProjectFile::load(path, reopenedPipeline, scratch(), reopened).succeeded());
+    EXPECT_TRUE(reopened == dashboard);
 }
 
 TEST(ProjectFileTests, AToneThisBuildDoesNotKnowIsReadAsNoOpinionAndALimitMayStandAlone)

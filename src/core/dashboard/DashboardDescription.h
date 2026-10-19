@@ -121,6 +121,13 @@ enum class DashboardWidgetKind : std::uint8_t {
     /// A titled frame behind other widgets. It shows no value; it keeps a group of them looking
     /// like one.
     Group,
+
+    /// The J1939 trouble codes of the whole bus: the four DM1 lamps and, under them, one row for
+    /// each active code - the SPN, the failure mode in words, how many times it has occurred and
+    /// which ECU reports it. It reads no signal and no variable of its own (the J1939 block says
+    /// what the bus is reporting, and DashboardFaults.h turns that into rows), so it has no
+    /// binding; with no J1939 block, or no measurement, it is an empty list and not an error.
+    Faults,
 };
 
 [[nodiscard]] std::string_view nameOf(DashboardWidgetKind kind);

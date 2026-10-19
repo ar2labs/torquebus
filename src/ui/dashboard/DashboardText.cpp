@@ -57,6 +57,8 @@ QString displayNameOf(DashboardWidgetKind kind)
         return tr("Table");
     case DashboardWidgetKind::Group:
         return tr("Group");
+    case DashboardWidgetKind::Faults:
+        return tr("Faults");
     }
 
     return QString::fromLatin1(nameOf(kind).data(), static_cast<qsizetype>(nameOf(kind).size()));
@@ -234,6 +236,68 @@ QString describeFinding(const BindingFinding& finding, const DashboardBinding& b
     }
 
     return {};
+}
+
+// ---------------------------------------------------------------------------
+// The Faults widget
+// ---------------------------------------------------------------------------
+
+QString faultCodeText(const J1939Dtc& code)
+{
+    const QString spn = code.spnAssembled ? QString::number(code.spn) : QStringLiteral("?");
+
+    return tr("SPN %1 / FMI %2").arg(spn).arg(code.fmi);
+}
+
+QString faultMeaningText(const J1939Dtc& code)
+{
+    const std::string_view meaning = j1939FmiName(code.fmi);
+
+    return QString::fromUtf8(meaning.data(), static_cast<qsizetype>(meaning.size()));
+}
+
+QString faultCountText(const J1939Dtc& code)
+{
+    // 127 is the largest the seven bits hold, and means "at least" (J1939Dtc::occurrenceCount).
+    const QString times = code.occurrenceCount >= 127U ? QStringLiteral("127+")
+                                                       : QString::number(code.occurrenceCount);
+
+    return QStringLiteral("×") + times;
+}
+
+QString faultEcuText(const DashboardFault& fault)
+{
+    const QString address = tr("SA %1").arg(fault.sourceAddress);
+
+    if (!fault.ecu.has_value()) {
+        return address;
+    }
+
+    return address + QStringLiteral(" · ") + QString::fromStdString(*fault.ecu);
+}
+
+QString faultDetailsText(const DashboardFault& fault)
+{
+    QStringList lines;
+    lines << faultCodeText(fault.code) + QStringLiteral("   ") + faultCountText(fault.code);
+    lines << faultMeaningText(fault.code);
+    lines << faultEcuText(fault);
+
+    if (!fault.code.spnAssembled) {
+        // The honest answer for a code whose packing nobody declared: the four bytes, which
+        // somebody who knows the ECU reads in a second.
+        lines
+            << tr("Bytes %1: the SPN is not assembled, because this code uses a packing older than "
+                  "the current one. Declare it in the J1939 block's SPN reading to read it.")
+                   .arg(QStringLiteral("%1 %2 %3 %4")
+                            .arg(fault.code.raw[0], 2, 16, QLatin1Char('0'))
+                            .arg(fault.code.raw[1], 2, 16, QLatin1Char('0'))
+                            .arg(fault.code.raw[2], 2, 16, QLatin1Char('0'))
+                            .arg(fault.code.raw[3], 2, 16, QLatin1Char('0'))
+                            .toUpper());
+    }
+
+    return lines.join(QLatin1Char('\n'));
 }
 
 } // namespace torquebus::ui

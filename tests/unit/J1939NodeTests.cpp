@@ -11,8 +11,10 @@
 // packet decoded as though it were a message.
 
 #include "core/can/CanFilter.h"
+#include "core/dashboard/DashboardFaults.h"
 #include "core/dashboard/SystemVariables.h"
 #include "core/database/DbcParser.h"
+#include "core/j1939/J1939NameTables.h"
 #include "core/j1939/J1939Node.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
@@ -20,9 +22,12 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
+#include <thread>
 #include <vector>
 
 using namespace torquebus;
@@ -761,6 +766,657 @@ TEST(J1939NodeTests, ABlockWithNoVariablesStillDecodesTroubleCodes)
     driver.run(frames);
 
     ASSERT_EQ(node.diagnostics().size(), 1U);
+}
+
+// ---------------------------------------------------------------------------
+// The trouble codes of the whole bus
+// ---------------------------------------------------------------------------
+//
+// The lamps above say that something is wrong; this is the list of what. The block works it out on
+// every pass against the clock of the bus, because a reader of the published diagnostics cannot:
+// those are published when their content changes, so the timestamp in one is when it *changed*, and
+// says nothing about whether its ECU is still repeating it.
+
+namespace {
+
+/// A DM1 from `source` carrying one code: its SPN, its FMI and how many times it has occurred.
+[[nodiscard]] CanFrame faultFrom(std::uint8_t source,
+                                 std::uint8_t lamps,
+                                 std::uint32_t spn,
+                                 std::uint8_t fmi,
+                                 std::uint8_t occurrences,
+                                 std::uint64_t atNs)
+{
+    CanFrame frame =
+        frameOf(j1939Identifier(kPgnDm1, source),
+                {lamps,
+                 0xFFU,
+                 static_cast<std::uint8_t>(spn & 0xFFU),
+                 static_cast<std::uint8_t>((spn >> 8U) & 0xFFU),
+                 static_cast<std::uint8_t>((((spn >> 16U) & 0x07U) << 5U) | (fmi & 0x1FU)),
+                 occurrences,
+                 0xFFU,
+                 0xFFU});
+    frame.timestampNs = atNs;
+    return frame;
+}
+
+/// A block wired to a network, as the engine wires it.
+struct NetworkBench final {
+    NetworkBench()
+        : node{nullptr, "J1939"}
+    {
+        node.setNetwork(&network);
+        EXPECT_TRUE(node.prepare(64U).succeeded());
+    }
+
+    J1939Network network;
+    J1939Node node;
+};
+
+} // namespace
+
+TEST(J1939NodeTests, TheCodesTheBusIsReportingAreHandedOverWithTheLampsTheyCameUnder)
+{
+    NetworkBench bench;
+    Driver driver{bench.node};
+
+    const std::array<CanFrame, 2> frames{faultFrom(kBody, kAmberWarning, 4096U, 4U, 1U, kSecond),
+                                         faultFrom(kEngine, kRedStop, 100U, 1U, 3U, kSecond)};
+    driver.run(frames);
+
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    ASSERT_EQ(snapshot.activeFaults.size(), 2U);
+
+    // ECU by ECU in address order, however they arrived.
+    EXPECT_EQ(snapshot.activeFaults[0].sourceAddress, kEngine);
+    EXPECT_EQ(snapshot.activeFaults[0].code.spn, 100U);
+    EXPECT_EQ(snapshot.activeFaults[0].code.fmi, 1U);
+    EXPECT_EQ(snapshot.activeFaults[0].code.occurrenceCount, 3U);
+    EXPECT_TRUE(snapshot.activeFaults[0].lamps.redStop == J1939LampState::On);
+
+    EXPECT_EQ(snapshot.activeFaults[1].sourceAddress, kBody);
+    EXPECT_EQ(snapshot.activeFaults[1].code.spn, 4096U);
+    EXPECT_TRUE(snapshot.activeFaults[1].lamps.amberWarning == J1939LampState::On);
+    EXPECT_TRUE(snapshot.activeFaults[1].lamps.redStop != J1939LampState::On);
+
+    // Handed over with the ECUs they name, from the same pass.
+    EXPECT_EQ(snapshot.nodes.size(), 2U);
+}
+
+TEST(J1939NodeTests, AnEcuThatReportsNothingHasNothingOnTheList)
+{
+    // The placeholder a healthy ECU sends is already filtered out of its DM1; what is left of an
+    // ECU with nothing wrong is an empty list, not a code numbered zero.
+    NetworkBench bench;
+    Driver driver{bench.node};
+
+    const std::array<CanFrame, 1> frames{diagnosticFrom(kPgnDm1, kEngine, 0x00U, kSecond)};
+    driver.run(frames);
+
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    EXPECT_TRUE(snapshot.published);
+    EXPECT_EQ(snapshot.diagnostics.size(), 1U);
+    EXPECT_TRUE(snapshot.activeFaults.empty());
+}
+
+TEST(J1939NodeTests, WhatWasWrongIsNotOnTheListOfWhatIsWrong)
+{
+    NetworkBench bench;
+    Driver driver{bench.node};
+
+    CanFrame history = faultFrom(kEngine, kRedStop, 100U, 1U, 3U, kSecond);
+    history.identifier = j1939Identifier(kPgnDm2, kEngine);
+
+    const std::array<CanFrame, 1> frames{history};
+    driver.run(frames);
+
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    EXPECT_EQ(snapshot.diagnostics.size(), 1U);
+    EXPECT_TRUE(snapshot.activeFaults.empty());
+}
+
+TEST(J1939NodeTests, AnEcuThatFallsSilentTakesItsCodesOffTheListAndTheLampsGoOutWithThem)
+{
+    // Lamps and codes are the same statement about the bus, and are aged by the same rule against
+    // the same clock: a list that kept a code after its lamp had gone out would be a dashboard that
+    // disagrees with its own cluster.
+    SystemVariables variables;
+    J1939Network network;
+
+    J1939Node node{nullptr, "J1939"};
+    node.setNetwork(&network);
+    node.setSystemVariables(&variables);
+    ASSERT_TRUE(node.prepare(64U).succeeded());
+
+    Driver driver{node};
+
+    const std::array<CanFrame, 1> lit{faultFrom(kEngine, kRedStop, 100U, 1U, 3U, kSecond)};
+    driver.run(lit);
+    ASSERT_EQ(network.snapshot().activeFaults.size(), 1U);
+    ASSERT_GT(variables.value(std::string{kJ1939LampStopVariable}), 0.5);
+
+    // Two seconds on, the body controller is still talking and the engine has not repeated itself:
+    // still current.
+    const std::array<CanFrame, 1> soon{diagnosticFrom(kPgnDm1, kBody, 0x00U, 3U * kSecond)};
+    driver.run(soon);
+    EXPECT_EQ(network.snapshot().activeFaults.size(), 1U);
+
+    const std::uint64_t before = network.revision();
+
+    const std::array<CanFrame, 1> late{diagnosticFrom(kPgnDm1, kBody, 0x00U, 5U * kSecond)};
+    driver.run(late);
+
+    // Gone from the list, and the change was published: a panel is told, not left to find out.
+    const J1939NetworkSnapshot snapshot = network.snapshot();
+    EXPECT_TRUE(snapshot.activeFaults.empty());
+    EXPECT_GT(network.revision(), before);
+    EXPECT_LT(variables.value(std::string{kJ1939LampStopVariable}), 0.5);
+
+    // What the engine last said is still what a panel that reads the ECUs finds.
+    ASSERT_EQ(snapshot.diagnostics.size(), 2U);
+    EXPECT_EQ(snapshot.diagnostics[0].faults.size(), 1U);
+}
+
+TEST(J1939NodeTests, AnEcuThatComesBackPutsItsCodeBackOnTheList)
+{
+    // The same DM1 as before, byte for byte: nothing in the message is a change, and the list is.
+    NetworkBench bench;
+    Driver driver{bench.node};
+
+    const std::array<CanFrame, 1> first{faultFrom(kEngine, kRedStop, 100U, 1U, 3U, kSecond)};
+    driver.run(first);
+
+    const std::array<CanFrame, 1> elsewhere{diagnosticFrom(kPgnDm1, kBody, 0x00U, 6U * kSecond)};
+    driver.run(elsewhere);
+    ASSERT_TRUE(bench.network.snapshot().activeFaults.empty());
+
+    const std::array<CanFrame, 1> back{faultFrom(kEngine, kRedStop, 100U, 1U, 3U, 7U * kSecond)};
+    driver.run(back);
+
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    ASSERT_EQ(snapshot.activeFaults.size(), 1U);
+    EXPECT_EQ(snapshot.activeFaults[0].code.spn, 100U);
+}
+
+TEST(J1939NodeTests, AFaultRepeatedEverySecondIsHandedOverOnceAndNotEveryPass)
+{
+    // The cost the design is built around: the same ECUs saying the same things for an hour change
+    // nothing after the first second, and the list is worked out every pass without being
+    // published.
+    NetworkBench bench;
+    Driver driver{bench.node};
+
+    const std::array<CanFrame, 1> first{faultFrom(kEngine, kRedStop, 100U, 1U, 3U, kSecond)};
+    driver.run(first);
+    const std::uint64_t settled = bench.network.revision();
+
+    for (std::uint64_t second = 2U; second < 8U; ++second) {
+        const std::array<CanFrame, 1> again{
+            faultFrom(kEngine, kRedStop, 100U, 1U, 3U, second * kSecond)};
+        driver.run(again);
+    }
+
+    EXPECT_EQ(bench.network.revision(), settled);
+    EXPECT_EQ(bench.network.snapshot().activeFaults.size(), 1U);
+
+    // A different code from the same ECU is a change: its new message replaces the old.
+    const std::array<CanFrame, 1> another{faultFrom(kEngine, kRedStop, 110U, 0U, 1U, 8U * kSecond)};
+    driver.run(another);
+
+    EXPECT_GT(bench.network.revision(), settled);
+
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    ASSERT_EQ(snapshot.activeFaults.size(), 1U);
+    EXPECT_EQ(snapshot.activeFaults[0].code.spn, 110U);
+}
+
+TEST(J1939NodeTests, StoppingTheMeasurementEmptiesTheListAndKeepsWhatTheEcusSaid)
+{
+    NetworkBench bench;
+    Driver driver{bench.node};
+
+    const std::array<CanFrame, 1> lit{faultFrom(kEngine, kRedStop, 100U, 1U, 3U, kSecond)};
+    driver.run(lit);
+    ASSERT_EQ(bench.network.snapshot().activeFaults.size(), 1U);
+
+    const std::uint64_t running = bench.network.revision();
+    bench.node.finish();
+
+    // A stopped measurement reports no fault, the same as its lamps - and a panel is told.
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    EXPECT_TRUE(snapshot.activeFaults.empty());
+    EXPECT_GT(bench.network.revision(), running);
+
+    // What the J1939 panel reads afterwards is still there, with the ECUs.
+    EXPECT_TRUE(snapshot.published);
+    ASSERT_EQ(snapshot.diagnostics.size(), 1U);
+    EXPECT_EQ(snapshot.diagnostics[0].faults.size(), 1U);
+    EXPECT_EQ(snapshot.nodes.size(), 1U);
+
+    // Stopping a block that had nothing to report publishes nothing.
+    NetworkBench quiet;
+    quiet.node.finish();
+    EXPECT_EQ(quiet.network.revision(), 0U);
+}
+
+TEST(J1939NodeTests, AMeasurementStartsWithAnEmptyList)
+{
+    NetworkBench bench;
+    Driver driver{bench.node};
+
+    const std::array<CanFrame, 1> lit{faultFrom(kEngine, kRedStop, 100U, 1U, 3U, kSecond)};
+    driver.run(lit);
+    ASSERT_FALSE(bench.network.snapshot().activeFaults.empty());
+
+    // What the engine does at Start, and the block does at prepare: nothing from the last run.
+    bench.network.clear();
+    EXPECT_TRUE(bench.network.snapshot().activeFaults.empty());
+
+    ASSERT_TRUE(bench.node.prepare(64U).succeeded());
+    const std::array<CanFrame, 1> healthy{diagnosticFrom(kPgnDm1, kEngine, 0x00U, kSecond)};
+    driver.run(healthy);
+
+    EXPECT_TRUE(bench.network.snapshot().activeFaults.empty());
+}
+
+TEST(J1939NodeTests, AnEcuThatClaimedItsAddressIsNamedOnTheFaultListByTheShippedFunctionTable)
+{
+    // The whole path a name takes: an Address Claimed on the wire, the address table, the
+    // hand-over, and the table of functions that ships with the program.
+    J1939NameTables tables;
+    ASSERT_TRUE(
+        tables.loadFile(std::filesystem::path{TORQUEBUS_DATA_DIR} / "j1939-names-functions.csv")
+            .succeeded());
+
+    J1939Name name;
+    name.industryGroup = 1U;
+    name.function = 0U;
+    name.manufacturerCode = 33U;
+    name.identityNumber = 1U;
+
+    std::vector<std::uint8_t> bytes;
+    for (std::uint8_t index = 0U; index < kJ1939NameBytes; ++index) {
+        bytes.push_back(static_cast<std::uint8_t>((name.value() >> (index * 8U)) & 0xFFU));
+    }
+
+    CanFrame claim = frameOf(j1939Identifier(kPgnAddressClaimed, kEngine), bytes);
+    claim.timestampNs = kSecond;
+
+    NetworkBench bench;
+    Driver driver{bench.node};
+
+    // The engine claimed its address and then reported a fault; the body controller reported one
+    // and was never heard claiming anything.
+    const std::array<CanFrame, 3> frames{claim,
+                                         faultFrom(kEngine, kRedStop, 100U, 1U, 1U, kSecond),
+                                         faultFrom(kBody, kAmberWarning, 4096U, 4U, 1U, kSecond)};
+    driver.run(frames);
+
+    const std::vector<DashboardFault> faults = dashboardFaultsOf(bench.network.snapshot(), &tables);
+    ASSERT_EQ(faults.size(), 2U);
+
+    EXPECT_EQ(faults[0].sourceAddress, kEngine);
+    ASSERT_TRUE(faults[0].ecu.has_value());
+    EXPECT_EQ(*faults[0].ecu, "Engine");
+
+    EXPECT_EQ(faults[1].sourceAddress, kBody);
+    EXPECT_FALSE(faults[1].ecu.has_value());
+}
+
+TEST(J1939NodeTests, AReaderOfTheHandOverNeverSeesHalfOfAPublication)
+{
+    // The panel reads on the GUI thread what the executor thread publishes. The codes are published
+    // with the ECUs they name in one step, under one lock; a reader that could see the codes of one
+    // publication and the ECUs of another would list a fault for an address nobody was seen at.
+    J1939Network network;
+    std::atomic<bool> finished{false};
+
+    std::thread writer{[&network, &finished] {
+        for (std::uint32_t round = 1U; round <= 20'000U; ++round) {
+            const std::size_t count = round % 6U;
+
+            std::vector<J1939NetworkNode> nodes(count);
+            std::vector<J1939ActiveFault> faults(count);
+
+            network.publish(std::move(nodes), {}, {}, std::move(faults));
+        }
+
+        finished.store(true, std::memory_order_release);
+    }};
+
+    std::size_t torn = 0U;
+    std::size_t reads = 0U;
+
+    while (!finished.load(std::memory_order_acquire)) {
+        const J1939NetworkSnapshot snapshot = network.snapshot();
+        ++reads;
+
+        if (snapshot.nodes.size() != snapshot.activeFaults.size()) {
+            ++torn;
+        }
+    }
+
+    writer.join();
+
+    EXPECT_GT(reads, 0U);
+    EXPECT_EQ(torn, 0U);
+}
+
+TEST(J1939NodeTests, ASnapshotCarriesTheRevisionItsContentsAreFrom)
+{
+    // A panel remembers the revision of the copy it took and asks again when revision() says
+    // another. A copy that reported a revision newer than its contents would be taken for the newer
+    // publication, and the panel would not ask again - showing one publication behind until
+    // something else moved. The window for that is a few nanoseconds wide, so this is a net more
+    // than a proof; what makes it hold is that the revision and the contents are read under the one
+    // lock a publication is made under.
+    J1939Network network;
+    std::atomic<bool> finished{false};
+
+    std::thread writer{[&network, &finished] {
+        for (std::uint32_t round = 1U; round <= 50'000U; ++round) {
+            // The round the contents are from. From a network nobody has published to, the
+            // revision that publication gets is that same number.
+            J1939NetworkNode node;
+            node.framesSeen = round;
+
+            network.publish({node}, {}, {});
+        }
+
+        finished.store(true, std::memory_order_release);
+    }};
+
+    std::size_t wrong = 0U;
+    std::size_t reads = 0U;
+
+    while (!finished.load(std::memory_order_acquire)) {
+        const J1939NetworkSnapshot snapshot = network.snapshot();
+        ++reads;
+
+        if (!snapshot.nodes.empty() && snapshot.revision != snapshot.nodes.front().framesSeen) {
+            ++wrong;
+        }
+    }
+
+    writer.join();
+
+    EXPECT_GT(reads, 0U);
+    EXPECT_EQ(wrong, 0U);
+
+    // And what is left at the end is the last publication, and says so.
+    const J1939NetworkSnapshot last = network.snapshot();
+    ASSERT_EQ(last.nodes.size(), 1U);
+    EXPECT_EQ(last.revision, 50'000U);
+    EXPECT_EQ(last.nodes.front().framesSeen, 50'000U);
+}
+
+// ---------------------------------------------------------------------------
+// A bus that falls silent altogether
+// ---------------------------------------------------------------------------
+//
+// An ECU that stops repeating its DM1 is aged against the newest frame on the bus. That cannot see
+// a bus on which nothing arrives at all - every ECU at once, an adapter unplugged - because the
+// clock of the bus is its frames and it stopped with them. What the machine's clock is asked is how
+// long that has gone on, and never what time it is.
+
+namespace {
+
+/// A block with the machine's clock in the test's hand, wired to a network and to variables.
+struct SilenceBench final {
+    SilenceBench()
+        : node{nullptr, "J1939"}
+        , driver{node}
+    {
+        node.setNetwork(&network);
+        node.setSystemVariables(&variables);
+        node.setHostClock([this] {
+            ++asked;
+            return hostNs;
+        });
+
+        EXPECT_TRUE(node.prepare(64U).succeeded());
+    }
+
+    /// A pass in which nothing arrived.
+    void idle() { driver.run(std::span<const CanFrame>{}); }
+
+    /// The engine reports one fault under the red stop lamp, at bus time `seconds`.
+    void engineFaultAt(std::uint64_t seconds)
+    {
+        const std::array<CanFrame, 1> frame{
+            faultFrom(kEngine, kRedStop, 100U, 1U, 3U, seconds * kSecond)};
+        driver.run(frame);
+    }
+
+    [[nodiscard]] bool stopLamp() const
+    {
+        return variables.value(std::string{kJ1939LampStopVariable}) > 0.5;
+    }
+
+    [[nodiscard]] std::size_t listed() const { return network.snapshot().activeFaults.size(); }
+
+    J1939Network network;
+    SystemVariables variables;
+    J1939Node node;
+    Driver driver;
+
+    /// The machine's time, from an arbitrary start, and how often it was asked.
+    std::uint64_t hostNs{500U * kSecond};
+    int asked{0};
+};
+
+} // namespace
+
+TEST(J1939NodeTests, ABusThatFallsSilentAllAtOnceLetsGoOfItsCodesAndItsLampsAfterThreeSeconds)
+{
+    SilenceBench bench;
+
+    bench.engineFaultAt(1U);
+    ASSERT_EQ(bench.listed(), 1U);
+    ASSERT_TRUE(bench.stopLamp());
+
+    // The first pass without a frame starts the count: nothing has been quiet for any time yet.
+    bench.idle();
+    EXPECT_EQ(bench.listed(), 1U);
+
+    // Just short of three seconds of silence: still what the engine last said, and still current.
+    bench.hostNs += 2'900'000'000ULL;
+    bench.idle();
+
+    EXPECT_EQ(bench.listed(), 1U);
+    EXPECT_TRUE(bench.stopLamp());
+
+    const std::uint64_t before = bench.network.revision();
+
+    // Past it: the engine has not repeated its DM1 for longer than the rule allows, and no other
+    // ECU is talking either - which is what used to keep the lamp lit until Stop.
+    bench.hostNs += 200'000'000ULL;
+    bench.idle();
+
+    EXPECT_EQ(bench.listed(), 0U);
+    EXPECT_FALSE(bench.stopLamp());
+
+    // A panel is told, and what the engine last said is still what a panel that reads it finds.
+    EXPECT_GT(bench.network.revision(), before);
+    EXPECT_EQ(bench.network.snapshot().diagnostics.size(), 1U);
+}
+
+TEST(J1939NodeTests,
+     SilenceThatEndsBeforeTheRuleDoesIsNotAnEmptyBusAndTheCountStartsOverWithEveryFrame)
+{
+    SilenceBench bench;
+
+    bench.engineFaultAt(1U);
+    bench.idle();
+
+    bench.hostNs += 2'000'000'000ULL;
+    bench.idle();
+    ASSERT_EQ(bench.listed(), 1U);
+
+    // The engine repeats itself, and the count of how long the bus has been quiet starts over with
+    // it. Four seconds after the first silence began is not four seconds of silence.
+    bench.engineFaultAt(3U);
+    bench.idle();
+
+    bench.hostNs += 2'000'000'000ULL;
+    bench.idle();
+
+    EXPECT_EQ(bench.listed(), 1U);
+    EXPECT_TRUE(bench.stopLamp());
+}
+
+TEST(J1939NodeTests, AnEcuThatSpeaksAgainAfterTheBusWentSilentIsListedAgain)
+{
+    SilenceBench bench;
+
+    bench.engineFaultAt(1U);
+    bench.idle();
+
+    bench.hostNs += 5'000'000'000ULL;
+    bench.idle();
+    ASSERT_EQ(bench.listed(), 0U);
+    ASSERT_FALSE(bench.stopLamp());
+
+    // The bus's own clock kept running while nobody spoke, and the engine's DM1 - the same bytes as
+    // before - comes back on it.
+    bench.engineFaultAt(6U);
+
+    EXPECT_EQ(bench.listed(), 1U);
+    EXPECT_TRUE(bench.stopLamp());
+}
+
+TEST(J1939NodeTests, ABusThatIsSparseButNotSilentLosesNothingBetweenItsMessages)
+{
+    // A DM1 a second, and the passes between them idle: the ordinary look of a quiet bus. What is
+    // asked of the machine's clock between them is a second at most, and a second is not three.
+    SilenceBench bench;
+
+    for (std::uint64_t second = 1U; second <= 12U; ++second) {
+        bench.engineFaultAt(second);
+
+        bench.idle();
+        bench.hostNs += 500'000'000ULL;
+        bench.idle();
+        bench.hostNs += 500'000'000ULL;
+        bench.idle();
+
+        ASSERT_EQ(bench.listed(), 1U) << "second " << second;
+        ASSERT_TRUE(bench.stopLamp()) << "second " << second;
+    }
+}
+
+TEST(J1939NodeTests, TheActiveFaultsTheBlockCountsAreTheOnesTheBusIsReportingNow)
+{
+    // The Statistics panel shows this number next to the frame counts. An ECU that has gone quiet,
+    // or a measurement that has stopped, has stopped reporting its faults, and a counter that went
+    // on saying "1" would say that the machine has a fault that nothing is reporting.
+    SilenceBench bench;
+
+    const auto counted = [&bench] {
+        for (const NodeStatistic& statistic : bench.node.statistics()) {
+            if (statistic.label == "Active faults") {
+                return statistic.value;
+            }
+        }
+
+        return std::uint64_t{9999U};
+    };
+
+    EXPECT_EQ(counted(), 0U);
+
+    bench.engineFaultAt(1U);
+    EXPECT_EQ(counted(), 1U);
+
+    // The bus falls silent: nothing is being reported.
+    bench.idle();
+    bench.hostNs += 4'000'000'000ULL;
+    bench.idle();
+    EXPECT_EQ(counted(), 0U);
+
+    // And again, to the end of the measurement.
+    bench.engineFaultAt(10U);
+    EXPECT_EQ(counted(), 1U);
+
+    bench.node.finish();
+    EXPECT_EQ(counted(), 0U);
+}
+
+TEST(J1939NodeTests, TheMachinesClockIsAskedOnlyOnAPassWithNoFrameAndSomethingToAge)
+{
+    SilenceBench bench;
+
+    // Nothing heard, so nothing to go out of date: the clock is not asked.
+    bench.idle();
+    bench.idle();
+    EXPECT_EQ(bench.asked, 0);
+
+    // A pass with frames in it never asks - the contract of a pass is that it does not wait for
+    // anything it does not need.
+    bench.engineFaultAt(1U);
+    EXPECT_EQ(bench.asked, 0);
+
+    bench.idle();
+    EXPECT_EQ(bench.asked, 1);
+
+    bench.engineFaultAt(2U);
+    EXPECT_EQ(bench.asked, 1);
+}
+
+TEST(J1939NodeTests, ABusThatCarriesOnlyErrorFramesIsASilentOne)
+{
+    // A shorted or bus-off network delivers a batch of error frames every pass. None of them says
+    // anything a DM1 could be repeated by, and a lamp that stayed lit through it would be lit for a
+    // bus that carries no data at all.
+    SilenceBench bench;
+
+    bench.engineFaultAt(1U);
+    ASSERT_EQ(bench.listed(), 1U);
+
+    CanFrame error;
+    error.error = true;
+    error.timestampNs = 2U * kSecond;
+    const std::array<CanFrame, 1> storm{error};
+
+    bench.driver.run(storm);
+    bench.hostNs += 4'000'000'000ULL;
+    bench.driver.run(storm);
+
+    EXPECT_EQ(bench.listed(), 0U);
+    EXPECT_FALSE(bench.stopLamp());
+}
+
+TEST(J1939NodeTests, TheMachinesClockIsNotAskedOfABusWithNothingToReport)
+{
+    // Six healthy ECUs and a bus between their messages: nothing is reported, no lamp is lit, and
+    // ageing only ever takes away - so there is nothing to age and no reason to read a clock.
+    SilenceBench bench;
+
+    const std::array<CanFrame, 1> healthy{diagnosticFrom(kPgnDm1, kEngine, 0x00U, kSecond)};
+    bench.driver.run(healthy);
+
+    for (int pass = 0; pass < 5; ++pass) {
+        bench.idle();
+    }
+
+    EXPECT_EQ(bench.asked, 0);
+}
+
+TEST(J1939NodeTests, WithNoClockOfItsOwnTheBlockUsesTheMachinesSteadyClock)
+{
+    // The default, which is what the application runs with: a fault is listed, the bus goes quiet
+    // for a moment, and a moment is not three seconds.
+    NetworkBench bench;
+    Driver driver{bench.node};
+
+    const std::array<CanFrame, 1> frame{faultFrom(kEngine, kRedStop, 100U, 1U, 3U, kSecond)};
+    driver.run(frame);
+
+    for (int pass = 0; pass < 50; ++pass) {
+        driver.run(std::span<const CanFrame>{});
+    }
+
+    EXPECT_EQ(bench.network.snapshot().activeFaults.size(), 1U);
 }
 
 // ---------------------------------------------------------------------------

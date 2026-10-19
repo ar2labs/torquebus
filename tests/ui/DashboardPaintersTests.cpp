@@ -129,6 +129,7 @@ void writePicture(const QDir& directory, const QString& name, const QColor& colo
 struct Scene final {
     Theme theme{Theme::dark()};
     DashboardImages images;
+    QSize size{kWidth, kHeight};
     QImage image{canvasFor(theme)};
     QRectF rect{0.0, 0.0, 220.0, 64.0};
 
@@ -136,7 +137,7 @@ struct Scene final {
     template<typename Painter>
     void draw(const DashboardWidget& widget, const DashboardReading& reading, Painter&& paint)
     {
-        image = canvasFor(theme);
+        image = canvasFor(theme, size.width(), size.height());
 
         QPainter painter{&image};
         const PaintContext context{
@@ -864,4 +865,313 @@ TEST(DashboardPaintersTests, AStaleBadgeIsDrawnInTheCornerOfAWidgetAndNowhereEls
 
     EXPECT_GT(countOf(scene.image, QRect{120, 20, 62, 16}, scene.theme.lampAmber, 60), 0);
     EXPECT_EQ(countOf(scene.image, QRect{20, 60, 100, 50}, scene.theme.lampAmber, 60), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Faults
+// ---------------------------------------------------------------------------
+
+namespace {
+
+[[nodiscard]] FaultRow faultRow(const char* code, DashboardTone tone)
+{
+    FaultRow row;
+    row.code = QString::fromLatin1(code);
+    row.meaning =
+        QStringLiteral("Data valid but below normal operational range - most severe level");
+    row.count = QStringLiteral("×1");
+    row.ecu = QStringLiteral("SA 0");
+    row.tone = tone;
+    return row;
+}
+
+[[nodiscard]] DashboardWidget faultsWidget()
+{
+    DashboardWidget widget = defaultWidgetOf(DashboardWidgetKind::Faults);
+    widget.id = "faults";
+    return widget;
+}
+
+/// Draws a fault list in a box of the size a person gives one, on a canvas with room around it.
+void drawFaults(Scene& scene,
+                const FaultLamps& lamps,
+                const std::vector<FaultRow>& rows,
+                const QRectF& rect = QRectF{20.0, 10.0, 320.0, 260.0})
+{
+    scene.size = QSize{static_cast<int>(rect.right()) + 20, static_cast<int>(rect.bottom()) + 20};
+    scene.rect = rect;
+
+    scene.draw(
+        faultsWidget(), DashboardReading{}, [&](QPainter& painter, const PaintContext& context) {
+            paintFaults(painter, context, lamps, rows);
+        });
+}
+
+/// A point on the bar at the left edge of row `index`, which is as wide as the tint is strong.
+[[nodiscard]] QPointF barOf(const QRectF& rect, int index)
+{
+    const QRectF line = faultRowRect(rect, index);
+
+    return QPointF{line.left() + 3.5, line.center().y()};
+}
+
+/// A point of row `index` where nothing but its wash is drawn: the corner below the text, past the
+/// end of the ECU's name.
+[[nodiscard]] QPointF washOf(const QRectF& rect, int index)
+{
+    const QRectF line = faultRowRect(rect, index);
+
+    return QPointF{line.right() - 4.0, line.bottom() - 3.0};
+}
+
+} // namespace
+
+TEST(DashboardPaintersTests, AFaultListLightsTheLampsOfTheBusInFullAndLeavesTheOthersDark)
+{
+    Scene scene;
+
+    FaultLamps lamps;
+    lamps.stop = true;
+    lamps.protect = true;
+
+    drawFaults(scene, lamps, {});
+
+    const auto centre = [&](int lamp) { return faultLampRect(scene.rect, lamp).center(); };
+
+    // Stop is red and the others are the amber of an attention lamp, lit all the way through.
+    EXPECT_TRUE(isColour(scene.image, centre(0).x(), centre(0).y(), scene.theme.lampRed, 1));
+    EXPECT_TRUE(isColour(scene.image, centre(3).x(), centre(3).y(), scene.theme.lampAmber, 1));
+
+    // A lamp that is off is still there: the outline and a faint wash of its own colour, and not
+    // the colour. It has to look like the lamp that was on.
+    const QColor dimRed = blended(scene.theme.panel, scene.theme.lampRed, 40);
+    const QColor dimAmber = blended(scene.theme.panel, scene.theme.lampAmber, 40);
+
+    EXPECT_TRUE(isColour(scene.image, centre(1).x(), centre(1).y(), dimAmber, 3));
+    EXPECT_TRUE(isColour(scene.image, centre(2).x(), centre(2).y(), dimAmber, 3));
+    EXPECT_FALSE(isColour(scene.image, centre(1).x(), centre(1).y(), scene.theme.lampAmber, 20));
+
+    // And with the other two lit instead, the picture is the opposite one.
+    FaultLamps other;
+    other.warning = true;
+    other.malfunction = true;
+
+    drawFaults(scene, other, {});
+
+    EXPECT_TRUE(isColour(scene.image, centre(1).x(), centre(1).y(), scene.theme.lampAmber, 1));
+    EXPECT_TRUE(isColour(scene.image, centre(2).x(), centre(2).y(), scene.theme.lampAmber, 1));
+    EXPECT_TRUE(isColour(scene.image, centre(0).x(), centre(0).y(), dimRed, 3));
+    EXPECT_TRUE(isColour(scene.image, centre(3).x(), centre(3).y(), dimAmber, 3));
+}
+
+TEST(DashboardPaintersTests, AFaultListWithNothingToListSaysSoAndIsNotAnError)
+{
+    Scene scene;
+
+    // A healthy bus, a measurement that is not running and a graph with no J1939 block are all this
+    // picture: dark lamps and an empty list.
+    drawFaults(scene, FaultLamps{}, {});
+
+    const QRect list = faultListRect(scene.rect).toRect();
+
+    // Words, in the quiet colour; and not one pixel of the colours of alarm anywhere in the list.
+    EXPECT_GT(countOf(scene.image, list, scene.theme.textMuted, 40), 0);
+    EXPECT_EQ(countOf(scene.image, list, scene.theme.lampRed, 30), 0);
+    EXPECT_EQ(countOf(scene.image, list, scene.theme.lampAmber, 30), 0);
+    EXPECT_EQ(countOf(scene.image, QRect{20, 10, 320, 60}, scene.theme.lampRed, 4), 0);
+
+    // The same when a lamp is lit and there is no code to go with it: a lamp is not a row.
+    FaultLamps lit;
+    lit.stop = true;
+
+    drawFaults(scene, lit, {});
+
+    EXPECT_EQ(countOf(scene.image, list, scene.theme.lampRed, 4), 0);
+    EXPECT_GT(countOf(scene.image, list, scene.theme.textMuted, 40), 0);
+}
+
+TEST(DashboardPaintersTests, ARowIsTintedByTheLampThatGoesWithItAndOnlyByThat)
+{
+    Scene scene;
+
+    const std::vector<FaultRow> rows{faultRow("SPN 100 / FMI 1", DashboardTone::Danger),
+                                     faultRow("SPN 110 / FMI 0", DashboardTone::Warning),
+                                     faultRow("SPN 168 / FMI 4", DashboardTone::Neutral)};
+
+    drawFaults(scene, FaultLamps{}, rows);
+
+    // The bar at the edge: the colour of the lamp in full, and the quiet outline colour for a code
+    // whose message lit no lamp.
+    const auto bar = [&](int row) { return barOf(scene.rect, row); };
+
+    EXPECT_TRUE(isColour(scene.image, bar(0).x(), bar(0).y(), scene.theme.lampRed, 2));
+    EXPECT_TRUE(isColour(scene.image, bar(1).x(), bar(1).y(), scene.theme.lampAmber, 2));
+    EXPECT_TRUE(isColour(scene.image, bar(2).x(), bar(2).y(), scene.theme.border, 2));
+
+    // And a faint wash over the row, so that a tinted row reads as one from across a room.
+    const auto wash = [&](int row) { return washOf(scene.rect, row); };
+
+    EXPECT_TRUE(isColour(scene.image,
+                         wash(0).x(),
+                         wash(0).y(),
+                         blended(scene.theme.panel, scene.theme.lampRed, 34),
+                         3));
+    EXPECT_TRUE(isColour(scene.image,
+                         wash(1).x(),
+                         wash(1).y(),
+                         blended(scene.theme.panel, scene.theme.lampAmber, 34),
+                         3));
+
+    // The one with no opinion is the panel itself: the first row of a plain list is not striped.
+    EXPECT_TRUE(isColour(scene.image, wash(2).x(), wash(2).y(), scene.theme.panel, 2));
+
+    // Each row's code is in its colour too, in the text: the first line of a red row has red in it
+    // and the first line of a plain one has none.
+    const auto firstLine = [&](int row) {
+        const QRectF line = faultRowRect(scene.rect, row);
+        return QRect{static_cast<int>(line.left()) + 12, static_cast<int>(line.top()) + 3, 120, 18};
+    };
+
+    EXPECT_GT(countOf(scene.image, firstLine(0), scene.theme.lampRed, 40), 0);
+    EXPECT_GT(countOf(scene.image, firstLine(1), scene.theme.lampAmber, 40), 0);
+    EXPECT_EQ(countOf(scene.image, firstLine(2), scene.theme.lampRed, 40), 0);
+    EXPECT_EQ(countOf(scene.image, firstLine(2), scene.theme.lampAmber, 40), 0);
+}
+
+TEST(DashboardPaintersTests, MoreRowsThanFitShowOnlyWhatFitsAndSayHowManyAreLeft)
+{
+    Scene scene;
+    const QRectF rect{20.0, 10.0, 320.0, 260.0};
+
+    // Room for four rows: the list is 197 pixels high and a row is 40.
+    EXPECT_EQ(faultRowCapacity(rect, 0), 0);
+    EXPECT_EQ(faultRowCapacity(rect, 3), 3);
+    EXPECT_EQ(faultRowCapacity(rect, 4), 4);
+
+    // A fifth does not fit - and it is not given the place of the line that says so.
+    EXPECT_EQ(faultRowCapacity(rect, 5), 4);
+    EXPECT_EQ(faultRowCapacity(rect, 100), 4);
+
+    // The line takes some of the room: where three rows fit exactly, four leave two and the line.
+    EXPECT_EQ(faultRowCapacity(QRectF{0.0, 0.0, 320.0, 183.0}, 3), 3);
+    EXPECT_EQ(faultRowCapacity(QRectF{0.0, 0.0, 320.0, 183.0}, 4), 2);
+
+    // A box too short for a row shows none, and does not go negative.
+    EXPECT_EQ(faultRowCapacity(QRectF{0.0, 0.0, 320.0, 70.0}, 3), 0);
+
+    // Ten rows, all red: four are drawn, and under the fourth is the line that counts the rest.
+    std::vector<FaultRow> rows;
+
+    for (int i = 0; i < 10; ++i) {
+        rows.push_back(faultRow("SPN 100 / FMI 1", DashboardTone::Danger));
+    }
+
+    drawFaults(scene, FaultLamps{}, rows, rect);
+
+    for (int row = 0; row < 4; ++row) {
+        const QPointF bar = barOf(rect, row);
+        EXPECT_TRUE(isColour(scene.image, bar.x(), bar.y(), scene.theme.lampRed, 2)) << row;
+    }
+
+    // The fifth place is not a row: no bar there, and no wash. A line of words is.
+    const QPointF fifth = barOf(rect, 4);
+    EXPECT_FALSE(isColour(scene.image, fifth.x(), fifth.y(), scene.theme.lampRed, 30));
+
+    const QRectF moreLine{
+        rect.left() + 8.0, faultRowRect(rect, 4).top(), rect.width() - 16.0, kFaultsMoreHeight};
+
+    EXPECT_GT(countOf(scene.image, moreLine.toRect(), scene.theme.textMuted, 40), 0);
+
+    // With exactly as many rows as fit there is no such line: the place is blank.
+    rows.resize(4);
+    drawFaults(scene, FaultLamps{}, rows, rect);
+
+    EXPECT_EQ(countOf(scene.image, moreLine.toRect(), scene.theme.textMuted, 40), 0);
+}
+
+TEST(DashboardPaintersTests, NothingOfAFaultListIsDrawnOutsideItsBoxHoweverManyRowsOrHowSmall)
+{
+    Scene scene;
+
+    std::vector<FaultRow> rows;
+
+    for (int i = 0; i < 40; ++i) {
+        FaultRow row = faultRow("SPN 524287 / FMI 31",
+                                i % 3 == 0 ? DashboardTone::Danger : DashboardTone::Warning);
+        row.meaning = QStringLiteral("A reason so long that it cannot possibly fit in any box a "
+                                     "person would make for this widget, however wide it is");
+        row.ecu = QStringLiteral("SA 253 · An ECU with a long name indeed");
+        rows.push_back(row);
+    }
+
+    FaultLamps lamps;
+    lamps.stop = lamps.warning = lamps.malfunction = lamps.protect = true;
+
+    for (const QRectF rect : {QRectF{20.0, 10.0, 320.0, 260.0},
+                              QRectF{20.0, 10.0, 120.0, 90.0},
+                              QRectF{20.0, 10.0, 40.0, 30.0},
+                              QRectF{20.0, 10.0, 700.0, 70.0}}) {
+        SCOPED_TRACE(::testing::Message() << rect.width() << " x " << rect.height());
+
+        drawFaults(scene, lamps, rows, rect);
+
+        const QImage blank = canvasFor(scene.theme, scene.image.width(), scene.image.height());
+        bool outside = false;
+
+        for (int y = 0; y < scene.image.height() && !outside; ++y) {
+            for (int x = 0; x < scene.image.width(); ++x) {
+                const bool inside = rect.adjusted(-1.0, -1.0, 1.0, 1.0).contains(x, y);
+
+                if (!inside && scene.image.pixel(x, y) != blank.pixel(x, y)) {
+                    outside = true;
+                    break;
+                }
+            }
+        }
+
+        EXPECT_FALSE(outside);
+    }
+}
+
+TEST(DashboardPaintersTests, TheLampsOfAFaultListFitInItAndApartAtEveryWidthAPersonWouldMakeIt)
+{
+    for (const double width : {120.0, 160.0, 200.0, 248.0, 320.0, 720.0, 980.0}) {
+        SCOPED_TRACE(::testing::Message() << "width " << width);
+
+        const QRectF rect{10.0, 10.0, width, 200.0};
+        QRectF previous;
+
+        for (int lamp = 0; lamp < 4; ++lamp) {
+            const QRectF bulb = faultLampRect(rect, lamp);
+
+            EXPECT_TRUE(rect.contains(bulb)) << "lamp " << lamp;
+            EXPECT_FALSE(bulb.intersects(previous)) << "lamp " << lamp;
+
+            // In a line, above the list.
+            EXPECT_LT(bulb.bottom(), faultListRect(rect).top());
+
+            previous = bulb;
+        }
+    }
+}
+
+TEST(DashboardPaintersTests, AFaultListReadsTheSameInTheLightTheme)
+{
+    // Colour comes from the theme and nowhere else: the same widget on the light theme is the
+    // light theme's red and amber, and its panel.
+    Scene scene;
+    scene.theme = Theme::light();
+
+    FaultLamps lamps;
+    lamps.stop = true;
+
+    const std::vector<FaultRow> rows{faultRow("SPN 100 / FMI 1", DashboardTone::Danger)};
+
+    drawFaults(scene, lamps, rows);
+
+    const QPointF lamp = faultLampRect(scene.rect, 0).center();
+    const QPointF bar = barOf(scene.rect, 0);
+
+    EXPECT_TRUE(isColour(scene.image, lamp.x(), lamp.y(), scene.theme.lampRed, 1));
+    EXPECT_TRUE(isColour(scene.image, bar.x(), bar.y(), scene.theme.lampRed, 2));
 }

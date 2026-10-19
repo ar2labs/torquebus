@@ -63,6 +63,36 @@ struct TableRow final {
     bool known{false};
 };
 
+/// A row of a Faults widget: one trouble code, as words. The tone is what the lamps of the message
+/// it came from say about it (DashboardFaults.h), and the theme decides what that looks like.
+struct FaultRow final {
+    /// "SPN 100 / FMI 1".
+    QString code;
+
+    /// The failure mode in words.
+    QString meaning;
+
+    /// How many times the ECU says it has occurred, with a multiplication sign in front of it.
+    /// Empty when the row has no count to show.
+    QString count;
+
+    /// Which ECU reported it: its source address, and the name of its function after it when the
+    /// name tables know one.
+    QString ecu;
+
+    DashboardTone tone{DashboardTone::Neutral};
+};
+
+/// The four lamps of a DM1 as the whole bus lights them: the OR of every ECU's.
+struct FaultLamps final {
+    bool stop{false};
+    bool warning{false};
+    bool malfunction{false};
+    bool protect{false};
+
+    [[nodiscard]] friend bool operator==(const FaultLamps&, const FaultLamps&) = default;
+};
+
 /// Everything a painter is given about the widget it draws.
 struct PaintContext final {
     const Theme& theme;
@@ -111,6 +141,30 @@ inline constexpr double kTableRowHeight = 22.0;
 /// How many rows of a Table fit in `rect`, with room left for a "more" line when they do not all.
 [[nodiscard]] int tableRowCapacity(const QRectF& rect, int rowCount);
 
+// A Faults widget, top to bottom: a title, the four lamps, and the list.
+inline constexpr double kFaultsTitleHeight = 28.0;
+inline constexpr double kFaultsLampsHeight = 30.0;
+
+/// A code takes two lines: what it is, and what is wrong in words.
+inline constexpr double kFaultsRowHeight = 40.0;
+
+/// The line that says how many rows there was no room for.
+inline constexpr double kFaultsMoreHeight = 20.0;
+
+/// The bulb of one lamp, 0 to 3 in the order the widget draws them: stop, warning, malfunction
+/// indicator, protect.
+[[nodiscard]] QRectF faultLampRect(const QRectF& rect, int lamp);
+
+/// Where the list starts and how much room it has.
+[[nodiscard]] QRectF faultListRect(const QRectF& rect);
+
+/// Where row `index` of the list is drawn.
+[[nodiscard]] QRectF faultRowRect(const QRectF& rect, int index);
+
+/// How many rows of a Faults widget fit in `rect`, with room left for a "more" line when they do
+/// not all.
+[[nodiscard]] int faultRowCapacity(const QRectF& rect, int rowCount);
+
 // --- Painters ---------------------------------------------------------------------------------
 
 void paintBar(QPainter& painter, const PaintContext& context);
@@ -129,6 +183,13 @@ void paintTable(QPainter& painter,
                 const PaintContext& context,
                 const std::vector<TableRow>& rows,
                 const QString& emptyHint);
+
+/// The four lamps of the bus, and under them one row to each trouble code in `rows`, worst first.
+/// No rows is a list that says so, and is what a stopped measurement looks like - never an error.
+void paintFaults(QPainter& painter,
+                 const PaintContext& context,
+                 const FaultLamps& lamps,
+                 const std::vector<FaultRow>& rows);
 
 void paintGroup(QPainter& painter, const PaintContext& context);
 

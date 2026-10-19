@@ -705,6 +705,14 @@ void DashboardWidgetEditor::applyVisibility(const DashboardWidget& widget)
         }
     }
 
+    // A fault list has a title and nothing else to set, and a form with one field leaves the
+    // question that matters unanswered: where do its codes come from.
+    if (widget.kind == DashboardWidgetKind::Faults) {
+        hint = tr("Lists the trouble codes the J1939 block says the bus is reporting, worst first, "
+                  "under the four DM1 lamps of the whole bus. It needs a J1939 block in the "
+                  "pipeline; without one, or with no measurement running, it is an empty list.");
+    }
+
     m_hint->setText(hint);
     showRow(m_hint, !hint.isEmpty());
 }

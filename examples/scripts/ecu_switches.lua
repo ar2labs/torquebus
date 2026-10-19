@@ -26,6 +26,9 @@ local kSa = parameters.sa or 0x37
 local kTickMs = parameters.tick_ms or 50
 local kScenario = parameters.scenario or ""
 
+-- What this ECU is, as J1939-81 numbers it: function 41 is the operator's lighting controls.
+local kFunction = 41
+
 local kOelIntervalUs = (parameters.oel_interval_ms or 200)  * 1000
 local kDm1IntervalUs = (parameters.dm1_interval_ms or 1000) * 1000
 
@@ -43,6 +46,10 @@ local scenario_start_us = 0
 
 function on_enable()
     log_message(string.format("J1939 Switch Panel (SA 0x%02X) active", kSa))
+
+    -- Power-up: say who this is (see ecu_engine.lua).
+    j1939_claim(kSa, kFunction, 0, nil, 1, false)
+
     scenario_start_us = get_time_us()
     set_timer(kTickMs)
 end

@@ -8,6 +8,7 @@
 #include "core/j1939/J1939Id.h"
 
 #include <algorithm>
+#include <chrono>
 #include <format>
 #include <limits>
 #include <string>
@@ -58,7 +59,10 @@ Result J1939Node::prepare(std::size_t maximumBatchSize)
     m_transport.reset();
     m_addresses.reset();
     m_diagnostics.clear();
+    m_activeFaults.clear();
+    m_scratchFaults.clear();
     m_newestNs = 0;
+    m_idleSinceNs.reset();
 
     // Before the database is looked at: the lamps of the bus come from the diagnostic messages,
     // which need no database, and a block that has not been given one yet must still publish them.
@@ -172,10 +176,8 @@ std::size_t J1939Node::decodeInto(std::uint32_t pgn,
 void J1939Node::process(NodeContext& context)
 {
     const std::span<const CanFrame> incoming = context.in<CanFrame>(0);
-    if (incoming.empty()) {
-        return;
-    }
 
+    const std::uint64_t framesBefore = m_frames;
     std::size_t count = 0;
     std::uint64_t latestNs = 0;
 
@@ -237,6 +239,18 @@ void J1939Node::process(NodeContext& context)
                             count);
     }
 
+    if (m_frames == framesBefore) {
+        // Nothing to read in this pass: an idle bus, or one that carries only error and remote
+        // frames, which say nothing a DM1 could be repeated by. An idle bus is the normal state of
+        // one between its messages and the state of one that has fallen silent altogether; the two
+        // look alike from here, and the difference is how long it goes on.
+        ageOnAnIdlePass();
+        return;
+    }
+
+    // Frames again: the bus has a clock of its own once more, and it is theirs.
+    m_idleSinceNs.reset();
+
     // Anything the reassembler finished during this batch, plus the sessions
     // whose clock ran out while these frames were arriving.
     m_transport.poll(latestNs);
@@ -282,18 +296,9 @@ void J1939Node::process(NodeContext& context)
     m_transport.clearEvents();
     m_addresses.clearEvents();
 
-    if (m_networkDirty && m_network != nullptr) {
-        // One lock and one set of copies per pass, never per frame. See
-        // J1939Network.h for why that distinction is the whole design.
-        m_network->publish({m_addresses.nodes().begin(), m_addresses.nodes().end()},
-                           {m_addresses.defeated().begin(), m_addresses.defeated().end()},
-                           m_diagnostics);
-        m_networkDirty = false;
-    }
-
-    // Every pass, and not only when a DM1 came: a lamp goes out when its ECU falls silent, which is
-    // the one change that arrives as the absence of a frame.
-    publishLamps(m_newestNs);
+    // Every pass, and not only when a DM1 came: a lamp goes out and a code leaves the list when its
+    // ECU falls silent, which is the one change that arrives as the absence of a frame.
+    settle(m_newestNs);
 
     if (count == 0) {
         return;
@@ -301,6 +306,67 @@ void J1939Node::process(NodeContext& context)
 
     m_emitted += count;
     context.publish<DecodedSignal>(0, std::span<const DecodedSignal>{m_buffer.data(), count});
+}
+
+void J1939Node::settle(std::uint64_t busNowNs)
+{
+    // What the bus is reporting now, into a list that keeps its capacity: a bus with a fault on it
+    // costs no allocation per pass, and a steady one no publication at all.
+    j1939CollectActiveFaults(m_diagnostics, busNowNs, m_scratchFaults);
+
+    if (m_scratchFaults != m_activeFaults) {
+        m_activeFaults.swap(m_scratchFaults);
+        m_networkDirty = true;
+    }
+
+    if (m_networkDirty && m_network != nullptr) {
+        // One lock and one set of copies per pass, never per frame. See
+        // J1939Network.h for why that distinction is the whole design.
+        m_network->publish({m_addresses.nodes().begin(), m_addresses.nodes().end()},
+                           {m_addresses.defeated().begin(), m_addresses.defeated().end()},
+                           m_diagnostics,
+                           m_activeFaults);
+        m_networkDirty = false;
+    }
+
+    publishLamps(busNowNs);
+}
+
+void J1939Node::ageOnAnIdlePass()
+{
+    // Nothing is being reported and no lamp is lit - a healthy bus, which is the usual one - so
+    // nothing can go out of date: ageing only ever takes away.
+    if (m_activeFaults.empty()
+        && std::all_of(m_publishedLamps.begin(), m_publishedLamps.end(), [](std::int8_t lit) {
+               return lit <= 0;
+           })) {
+        return;
+    }
+
+    const std::uint64_t hostNowNs = m_hostClock();
+
+    if (!m_idleSinceNs.has_value()) {
+        // The first pass without a frame: the bus has been quiet for no time at all yet.
+        m_idleSinceNs = hostNowNs;
+        return;
+    }
+
+    // The clock of the bus is the newest frame it carried, and it stopped when the frames did. The
+    // machine's did not: a bus that has been silent for three seconds is silent in the way an ECU
+    // that stopped repeating its DM1 is, and is aged by the same rule - from where its clock stood.
+    // Only how long it has been quiet is taken from the machine, never what time it is, so the two
+    // clocks are not compared: a replayed log, or a device that stamps its own, has a bus time of
+    // its own.
+    const std::uint64_t quietNs = hostNowNs > *m_idleSinceNs ? hostNowNs - *m_idleSinceNs : 0U;
+
+    settle(m_newestNs + quietNs);
+}
+
+std::uint64_t J1939Node::steadyNanoseconds()
+{
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                          std::chrono::steady_clock::now().time_since_epoch())
+                                          .count());
 }
 
 bool J1939Node::recordDiagnostic(J1939Diagnostic message)
@@ -348,15 +414,9 @@ void J1939Node::publishLamps(std::uint64_t nowNs) noexcept
     std::array<std::int8_t, 4> lit{0, 0, 0, 0};
 
     for (const J1939Diagnostic& message : m_diagnostics) {
-        // A DM2 is what *was* wrong, and a lamp lit by it would be a repaired fault on the dash.
-        if (!message.active) {
-            continue;
-        }
-
-        // Not current: its ECU has gone quiet. A timestamp from the future, which a replay that
-        // looped makes, is as current as it gets.
-        if (nowNs > message.timestampNs
-            && nowNs - message.timestampNs > kJ1939DiagnosticCurrentNs) {
+        // A DM2 is what *was* wrong, and a lamp lit by it would be a repaired fault on the dash;
+        // and a DM1 whose ECU has gone quiet is not still lighting anything.
+        if (!j1939DiagnosticIsCurrent(message, nowNs)) {
             continue;
         }
 
@@ -396,17 +456,24 @@ void J1939Node::finish()
             m_variables->set(m_lampVariables[lamp], 0.0);
         }
     }
+
+    // And for the same reason the codes: a stopped measurement is not reporting any. Published
+    // empty, with everything else as it was, so that the panel that reads what the ECUs last said
+    // still can while a dashboard that lists what the bus is saying goes quiet with the lamps.
+    if (!m_activeFaults.empty()) {
+        m_activeFaults.clear();
+
+        if (m_network != nullptr) {
+            m_network->publish({m_addresses.nodes().begin(), m_addresses.nodes().end()},
+                               {m_addresses.defeated().begin(), m_addresses.defeated().end()},
+                               m_diagnostics,
+                               {});
+        }
+    }
 }
 
 std::vector<NodeStatistic> J1939Node::statistics() const
 {
-    std::size_t activeFaults = 0;
-    for (const J1939Diagnostic& message : m_diagnostics) {
-        if (message.active) {
-            activeFaults += message.faults.size();
-        }
-    }
-
     return {
         NodeStatistic{"Frames", m_frames},
         NodeStatistic{"Messages decoded", m_decodedMessages},
@@ -424,7 +491,10 @@ std::vector<NodeStatistic> J1939Node::statistics() const
         NodeStatistic{"Transport failures", m_transportFailures},
 
         NodeStatistic{"ECUs seen", m_addresses.nodes().size()},
-        NodeStatistic{"Active faults", activeFaults},
+
+        // What the bus is reporting now: the codes of every DM1 that is still being repeated, which
+        // is not what an ECU last said - one that has gone quiet has stopped reporting its faults.
+        NodeStatistic{"Active faults", m_activeFaults.size()},
     };
 }
 

@@ -197,6 +197,57 @@ inline constexpr std::string_view kJ1939LampProtectVariable = "j1939.lamp_protec
 /// lamp.
 inline constexpr std::uint64_t kJ1939DiagnosticCurrentNs = 3'000'000'000ULL;
 
+/// True when `message` is a DM1 whose ECU is still repeating it at `nowNs`.
+///
+/// One rule for everything that is a statement about the bus *now*: the lamps above, and the list
+/// of trouble codes below. A DM2 is never current. It is the answer to a request and is not
+/// repeated, so "still being repeated" is a question it cannot answer, and a repaired fault must
+/// not be reported as an active one.
+///
+/// `nowNs` is the newest time seen on the bus, not the clock of the machine: a log being replayed
+/// has a bus time of its own.
+[[nodiscard]] constexpr bool j1939DiagnosticIsCurrent(const J1939Diagnostic& message,
+                                                      std::uint64_t nowNs) noexcept
+{
+    // A timestamp from the future, which a replay that looped makes, is as current as it gets.
+    return message.active
+           && !(nowNs > message.timestampNs
+                && nowNs - message.timestampNs > kJ1939DiagnosticCurrentNs);
+}
+
+// --- The trouble codes of the whole bus ----------------------------------------
+//
+// The same thing for the codes that the lamps are for the lamps: what the bus is reporting now,
+// whichever ECU is reporting it. The J1939 block works it out on every pass and hands it over with
+// the rest of its view of the bus (J1939Network.h), because that is where the clock of the bus is.
+// A reader cannot do it from the diagnostics alone: those are published when their content changes,
+// so the timestamp in one is the time it *changed* and says nothing about whether the ECU still
+// repeats it.
+
+/// One trouble code that is active on the bus, taken out of the DM1 that carried it.
+struct J1939ActiveFault final {
+    std::uint8_t sourceAddress{0U};
+
+    J1939Dtc code;
+
+    /// The lamps of the DM1 it arrived in: what its ECU says that code lights. A lamp belongs to a
+    /// message and not to a single code, so two codes of one DM1 carry the same ones.
+    J1939Lamps lamps;
+
+    friend constexpr bool operator==(const J1939ActiveFault&,
+                                     const J1939ActiveFault&) noexcept = default;
+};
+
+/// Replaces the contents of `out` with every code of every DM1 that is current at `nowNs`: ECU by
+/// ECU in the order `diagnostics` holds them, and within one ECU in the order it sent them. `out`
+/// keeps its capacity, so a block calling this on every pass allocates only when the list grows.
+void j1939CollectActiveFaults(std::span<const J1939Diagnostic> diagnostics,
+                              std::uint64_t nowNs,
+                              std::vector<J1939ActiveFault>& out);
+
+[[nodiscard]] std::vector<J1939ActiveFault>
+j1939ActiveFaults(std::span<const J1939Diagnostic> diagnostics, std::uint64_t nowNs);
+
 /// True when `pgn` is DM1 or DM2.
 [[nodiscard]] constexpr bool j1939IsDiagnosticPgn(std::uint32_t pgn) noexcept
 {

@@ -46,7 +46,10 @@ and a Switch or Button also have a *threshold*, a Trend a *window*, and every ki
 | **Switch**, **Button** | one of two values, held or momentary | ✓ | | | | |
 | **Label** | fixed text | | | | | |
 | **Group** | a titled frame behind other widgets | | | | | |
+| **Faults** | the J1939 trouble codes of the whole bus: the four DM1 lamps and a row for each active code (see *The fault list*) | | | | | |
 | **Cluster** | the QML instrument cluster, fed by a profile | | | | | |
+
+A **Faults** widget is bound to nothing: it reads the J1939 block, and has a title and nothing else to set.
 
 Any widget that reads one value can be **shown as** any other that does - *Show as* in the form - and the
 signal, unit, range and names stay: a level as a dial, a dial as a trend. If the signal is in a database
@@ -263,6 +266,85 @@ eight widgets by hand. A box too small for the rows says *+ N more*.
 
 ---
 
+## The fault list
+
+The cluster says that something is wrong; a technician wants to know what. A **Faults** widget (*Add Faults* in
+the menu) is the answer next to it: the four DM1 lamps of the whole bus - **STOP**, **WARN**, **MIL**,
+**PROTECT** - and under them one row for every trouble code the bus is reporting *now*, whichever ECU reports
+it:
+
+```
+ Active faults
+ ● STOP     ● WARN     ○ MIL      ○ PROTECT
+┃ SPN 100 / FMI 1  ×1                                          SA 0 · Engine
+┃ Data valid but below normal operational range - most severe level
+┃ SPN 1043 / FMI 12  ×127+                                          SA 11
+┃ Bad intelligent device or component
+  + 2 more
+```
+
+* A **row** is `SPN n / FMI m`, the failure mode in words (J1939-73, Table 2), how many times the ECU says the
+  fault has occurred (127 is the most the field holds, so it is written `×127+`), and which ECU: its source
+  address and, after a dot, the name of its function when the ECU was seen claiming its address *and* the name
+  tables know it (`SA 0 · Engine`). An ECU that never claimed one is an address and nothing more - the
+  example's six Lua ECUs claim theirs when they start, and its TinyML ECU does not, so its rows say
+  `SA 128` - because a number known to be right beats a name that is a guess. An SPN the J1939 block did not assemble (a legacy packing nobody declared, see
+  `J1939Diagnostics.h`) is `SPN ?` and not a number that would look like one; hovering gives the four bytes.
+* **The tint is the lamp's.** A lamp belongs to a DM1 and not to one code in it, so a row is as bad as the
+  lamps of the message it arrived in: the red stop lamp makes it red, any other lit lamp (amber warning,
+  malfunction indicator, protect) amber, and a message whose lamps are all dark leaves its codes plain -
+  a logged fault that is not yet worth telling the driver is not drawn as an alarm. The list is **worst
+  first**, and within a rank in the order of the bus (ECU by ECU, address ascending), so it does not shuffle.
+  A box too small for the rows says *+ N more* and keeps the worst on show.
+* **No fault is an empty list**, and so is everything that looks like it: a healthy bus, a measurement that
+  is not running, a graph with no J1939 block. The widget says *No active faults* in the quiet colour. It
+  is never an error, and a measurement that has stopped shows no code.
+* **Hovering** says which lamps are lit and gives the first few codes in full, with the ECU and what is wrong.
+* The **lamps** are the ones the instrument cluster reads, the system variables `j1939.lamp_stop`, `_warning`,
+  `_mil` and `_protect` that the J1939 block writes (`databases.md`, *Fields that are not one signal*) - the
+  lamp on the cluster and the lamp on the list are one variable and cannot disagree.
+
+### Where the codes come from, and the thread they cross
+
+```
+ engine thread                                               GUI thread, every 50 ms
+ J1939Node.process ── every pass ──► the codes being reported now
+                         │                      │ published only when the list changed
+                         ▼                      ▼
+              j1939.lamp_* variables     J1939Network  ◄── revision()  (an atomic load, every tick)
+                         │                      │          snapshot()  (a copy, when it moved)
+                         └──────────────►  DashboardPanel ──► the rows, and the four lamps
+```
+
+The panel is given a `const J1939Network*` and nothing else of the block's, and asks it two things: its
+revision, which is an atomic load, every tick, and - only when that moved - a copy of what it holds, which is
+taken under the lock the block takes to publish. It never reads a table the executor thread is writing, and a
+steady bus, which publishes nothing after its first second, costs the panel one load per tick. The ECUs a row
+names and the codes it lists are published together and so are from the same pass.
+
+**The block ages the list, not the panel.** What `J1939Network` keeps for the J1939 panel is what each ECU
+*last said*, published when its content changes - so the time stamped on a steady DM1 is when it *changed*, and
+says nothing about whether the ECU is still repeating it. Only the block sees every frame. On every pass it
+works out the codes of every DM1 that is still being repeated - one that has not come for three seconds of
+**bus** time is an ECU that is switched off or unplugged, the rule the lamps already use
+(`j1939DiagnosticIsCurrent`) - and publishes the list when it differs from the last one. So an ECU that falls
+silent takes its rows off the list at the moment it takes its lamp out, an ECU that comes back puts them back
+with a DM1 that is byte for byte the one before, and at **Stop** the block publishes the list empty - while
+the J1939 panel still shows what every ECU last said, which is what it is for afterwards. Time is the bus's, so
+a log being replayed ages the same way.
+
+**A bus that falls silent altogether** - every ECU at once, an adapter unplugged - has no newest frame to
+age against, because the clock of the bus is its frames and it stopped with them. On a pass in which nothing
+arrived (or only error and remote frames, which say nothing a DM1 is repeated by) the block asks the machine's
+clock how long that has gone on, and ages from where the bus's own stood: three seconds of silence is the
+same as an ECU that stopped repeating itself, and the list and the lamps let go together, not at Stop. Only
+the *length* of the silence is taken from the machine and never what time it is - the two clocks are not
+compared, so a replayed log or a device that stamps its own frames is not confused - and the clock is not
+asked at all while nothing is reported and no lamp is lit, which is a healthy bus between its messages. A
+replay that is paused, or has ended, is a silent bus and ages the same way.
+
+---
+
 ## Arranging
 
 * **Group** is a titled frame. It is sent to the back when it is made, and what is put on it afterwards is in
@@ -285,13 +367,16 @@ understand a file that has nothing in it for them. The format version is unchang
 
 | Key of a widget | Holds |
 |---|---|
-| `kind` | `gauge`, `numeric`, `lamp`, `button`, `switch`, `slider`, `knob`, `label`, `cluster`, `bar`, `state`, `image`, `trend`, `table`, `group`. A kind this build does not have is **refused**, not drawn wrongly |
+| `kind` | `gauge`, `numeric`, `lamp`, `button`, `switch`, `slider`, `knob`, `label`, `cluster`, `bar`, `state`, `image`, `trend`, `table`, `group`, `faults`. A kind this build does not have is **refused**, not drawn wrongly - which is also what an older build does with a project that has a fault list |
 | `binding.source` | `signal` (`message` + `signal`), `variable` (`variable`), `message` (`message`, for a table) |
 | `image` | the picture, as *Pictures* says |
 | `states` | `[{ "value", "label", "tone", "image" }]` - `value` is the **physical** value; `tone` is one of `ok`, `info`, `warning`, `danger`, `off` (a tone this build does not know reads as none) |
 | `limits` | `warningBelow`, `warningAbove`, `criticalBelow`, `criticalAbove` - each only when set |
 | `windowSeconds` | a Trend's window, when it is not 30 |
 | `staleMs` | the time-out, when there is one |
+
+A fault list adds nothing to this: it is a `kind`, a place, a size and a title, with an empty `binding` - its
+codes are not in the project, they are on the bus.
 
 `validate()` refuses what can be refused without a database, a measurement or a screen: duplicate ids, a
 widget bound to nothing that needs a binding, a range that cannot be swept, a control bound to a signal it
@@ -310,13 +395,18 @@ the project.
   **numerics** that turn amber and red (try the `low_oil_pressure` scenario of the engine ECU and watch the oil
   pressure go red with the cluster's lamp), the AI regime as an **image with a picture per state** next to its
   **state** chip, **trends** of engine speed and coolant temperature with their limits, and a **table** of the
-  model's message, all in a **group** where they belong together.
+  model's message, all in a **group** where they belong together; and under the trends an **Active faults**
+  list - dark and empty for a healthy vehicle, and with the engine ECU on `low_oil_pressure` the stop lamp
+  lit and one red row, `SPN 100 / FMI 1`, from `SA 0 · Engine`.
 * `virtual-vehicle.tbsproj` - the same for the 11-bit vehicle's TinyML telemetry.
 
 `ExampleDashboardTests` keeps them honest: every widget names a signal its database has, every picture is
 where the project says (and `DashboardPaintersTests` that each one loads), and every signal a widget reads
 is delivered to the plot store by running the project's own pipeline - a widget bound correctly to a signal
-nothing carries is a widget that shows dashes for ever.
+nothing carries is a widget that shows dashes for ever. The fault list is bound to nothing, so nothing there
+could notice it showing an empty list for ever: the test runs the J1939 example with the engine on
+`low_oil_pressure` and expects SPN 100 on the list under a red stop lamp, a healthy run to leave the list
+empty and the lamps dark, and Stop to empty it.
 
 ---
 
@@ -327,11 +417,15 @@ src/core/dashboard/                      no Qt
     DashboardDescription   kinds, traits, states, limits, validate()
     SignalDictionary       the databases as a flat list; suggest, search, audit
     DashboardAssets        where a picture is, and moving it with the project
+    DashboardFaults        the fault list as data: which code is worst, which ECU, what it is called
+src/core/j1939/                          no Qt
+    J1939Diagnostics       ... and the codes being reported now (j1939ActiveFaults), aged by the bus's clock
+    J1939Network           the hand-over the block publishes to and a panel copies from
 src/ui/dashboard/
-    DashboardPanel         the widget: modes, drag and drop, hover, stale, trails
+    DashboardPanel         the widget: modes, drag and drop, hover, stale, trails, the fault list's rows
     DashboardWidgetPainters  the newer kinds, as free functions that take a painter
     DashboardImages        the pictures, cached, re-read when the file changes
-    DashboardText          the sentences: summaries, findings
+    DashboardText          the sentences: summaries, findings, the words of a trouble code
     SignalMime             what a dragged signal is
     SignalPickerDialog     Add from Database... / Browse...
     DashboardWidgetEditor  the form
@@ -348,15 +442,17 @@ image, which would break on every font.
 
 | Suite | What it pins |
 |---|---|
-| `DashboardTests` | the description, `validate()`, the file format round trip |
+| `DashboardTests` | the description, `validate()`, the file format round trip, the kinds and what each asks for |
+| `DashboardFaultsTests` | the fault list as data: what a lamp says about a code, worst first, an ECU named only when the NAME and the tables say so, and the lamps the cluster reads |
+| `J1939NodeTests`, `J1939DiagnosticsTests` | what the block hands over: the codes being reported now with their lamps, an ECU that falls silent leaving the list and coming back to it, Stop emptying it while what the ECUs said stays, a steady bus publishing once, and a reader never seeing half a publication |
 | `SignalDictionaryTests` | search and ranking, `suggestKind`, `applyEntry`, raw to physical, tones, time-outs, the audit and its did-you-mean |
 | `DashboardAssetsTests` | relative and absolute, `..`, Windows paths, moving a project |
-| `ExampleDashboardTests` | the two example dashboards, against their databases, their files and their pipelines |
-| `DashboardPaintersTests` | the painters by pixel: how full a bar is, what a state is tinted, which picture appears, a line that breaks at a gap |
-| `DashboardPanelTests` | drops sent as a drop is sent, re-binding, pictures, duplicate and delete, the mark on a wrong binding, hover, stale, tables, trails |
+| `ExampleDashboardTests` | the two example dashboards, against their databases, their files and their pipelines - and the J1939 example's fault list on a run of the engine's `low_oil_pressure` |
+| `DashboardPaintersTests` | the painters by pixel: how full a bar is, what a state is tinted, which picture appears, a line that breaks at a gap, the fault list's lamps, tints, empty list and *+ N more* |
+| `DashboardPanelTests` | drops sent as a drop is sent, re-binding, pictures, duplicate and delete, the mark on a wrong binding, hover, stale, tables, trails; the fault list against a network of its own, repainting by itself, the menu entry, and the J1939 example run all the way to the screen |
 | `DashboardWidgetEditorTests` | which fields each kind shows, completion, what a choice fills in and typing does not, limits, named values |
 | `SignalPickerDialogTests` | what the dialog lists, chooses and says; the DBC Explorer's drag at the model, where Qt asks for it |
-| `MainWindowDashboardTests` | the window's wiring, with the whole window built: the databases a project loads reach the Dashboard and its form, the project's folder is where its pictures are, and the Output panel says what a dashboard names that is not there |
+| `MainWindowDashboardTests` | the window's wiring, with the whole window built: the databases a project loads reach the Dashboard and its form, the project's folder is where its pictures are, the Output panel says what a dashboard names that is not there, and the engine's J1939 network and the window's name tables reach the fault list |
 
 The panel is driven the way a person drives it - a drop event sent to the widget, a clock the panel reads for
 itself - and not through the methods the drop calls, because a drop that is accepted and does nothing is the
@@ -364,8 +460,9 @@ failure this has to catch.
 
 ## Not done
 
-* A **Faults** widget - the J1939 DM1 list, with each lamp and the active codes - which needs the J1939
-  network wired to the Dashboard the way the plot store is.
+* The **fault list** shows the whole bus: it cannot be limited to one ECU, it does not show the codes that
+  were active (DM2) and it cannot clear them (DM11, which is a request on the bus and so a transmit entry).
+  The example's TinyML ECU does not claim an address, so a code of its own says only `SA 128`.
 * **Copy and paste** between projects, a **snap to grid**, and moving several widgets at once: a widget moves
   one at a time and a drop of many lays them out for you.
 * A CAN signal cannot be *written* from a widget, on purpose (see *What it is made of*).

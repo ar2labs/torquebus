@@ -3,7 +3,7 @@
 add_executable(torquebus_ui_tests DockingTests.cpp TransmitPanelTests.cpp CanvasPanelTests.cpp CanvasBusTests.cpp
     CanvasRobustnessTests.cpp NodePropertiesRangeTests.cpp CanvasArrangeTests.cpp TracePanelTests.cpp GraphPanelTests.cpp ScriptEditorPanelTests.cpp IconImageProviderTests.cpp ClusterThemeSyncTests.cpp ClusterViewTests.cpp ClusterHostTests.cpp EngineControllerTests.cpp DiagnosticsPanelTests.cpp
     DashboardPaintersTests.cpp DashboardPanelTests.cpp DashboardWidgetEditorTests.cpp SignalPickerDialogTests.cpp
-    MainWindowDashboardTests.cpp)
+    MainWindowDashboardTests.cpp J1939NetworkPanelTests.cpp)
 target_link_libraries(torquebus_ui_tests
     PRIVATE torquebus::ui torquebus_clusterplugin torquebus::warnings GTest::gtest
 )
@@ -23,6 +23,10 @@ target_compile_definitions(torquebus_ui_tests PRIVATE
     # file people are pointed at is the file that has to work.
     TORQUEBUS_EXAMPLE_PROJECT_DIR="${CMAKE_SOURCE_DIR}/examples/projects"
     TORQUEBUS_QT_QML_DIR="${QT6_INSTALL_PREFIX}/${QT6_INSTALL_QML}"
+
+    # The table of function names that ships, from the source tree: the fault list names an ECU from
+    # it, and the J1939 example is what proves that it does.
+    TORQUEBUS_DATA_DIR="${CMAKE_SOURCE_DIR}/data"
 )
 
 get_target_property(TORQUEBUS_OFFSCREEN_PLUGIN Qt6::QOffscreenIntegrationPlugin LOCATION)

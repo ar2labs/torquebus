@@ -387,3 +387,136 @@ TEST(J1939DiagnosticsTests, FmiNumbersMapToSaeJ1939Table2Descriptions)
     EXPECT_EQ(j1939FmiName(25U), "Reserved for SAE assignment");
     EXPECT_EQ(j1939FmiName(31U), "Condition exists");
 }
+
+// ---------------------------------------------------------------------------
+// The codes of the whole bus
+// ---------------------------------------------------------------------------
+
+namespace {
+
+constexpr std::uint8_t kBrakes = 0x0BU;
+constexpr std::uint8_t kBody = 0x21U;
+constexpr std::uint64_t kSecond = 1'000'000'000ULL;
+
+// Byte 1 of a DM1: protect 1-2, amber warning 3-4, red stop 5-6, malfunction 7-8, and 01 is on.
+constexpr std::uint8_t kRedStop = 0x10U;
+constexpr std::uint8_t kAmberWarning = 0x04U;
+
+/// A decoded DM1 (or DM2) from `source` at `atNs`, carrying the given codes under the given lamps.
+[[nodiscard]] J1939Diagnostic messageFrom(std::uint32_t pgn,
+                                          std::uint8_t source,
+                                          std::uint8_t lamps,
+                                          const std::vector<std::vector<std::uint8_t>>& codes,
+                                          std::uint64_t atNs)
+{
+    const std::optional<J1939Diagnostic> message = j1939DecodeDiagnostic(
+        pgn, source, payloadOf(lamps, 0xFFU, codes), J1939SpnReading::Version4, atNs);
+
+    EXPECT_TRUE(message.has_value());
+
+    return message.value_or(J1939Diagnostic{});
+}
+
+} // namespace
+
+TEST(J1939DiagnosticsTests, ADm1IsCurrentUntilItsEcuHasBeenSilentForThreeRepeats)
+{
+    const J1939Diagnostic dm1 = messageFrom(kPgnDm1, kEngine, kRedStop, {}, 10U * kSecond);
+
+    EXPECT_TRUE(j1939DiagnosticIsCurrent(dm1, 10U * kSecond));
+    EXPECT_TRUE(j1939DiagnosticIsCurrent(dm1, 12U * kSecond));
+
+    // Exactly three seconds is not yet past them; anything more is.
+    EXPECT_TRUE(j1939DiagnosticIsCurrent(dm1, 10U * kSecond + kJ1939DiagnosticCurrentNs));
+    EXPECT_FALSE(j1939DiagnosticIsCurrent(dm1, 10U * kSecond + kJ1939DiagnosticCurrentNs + 1U));
+
+    // A bus time before the message, which a log that looped round to its start makes, is as
+    // current as it gets.
+    EXPECT_TRUE(j1939DiagnosticIsCurrent(dm1, 1U * kSecond));
+}
+
+TEST(J1939DiagnosticsTests, ADm2IsNeverCurrentBecauseItIsNotRepeated)
+{
+    // An answer to a request. A repaired fault reported as an active one is what this prevents.
+    const J1939Diagnostic dm2 =
+        messageFrom(kPgnDm2, kEngine, kRedStop, {dtcBytes(100U, 1U, 3U)}, 10U * kSecond);
+
+    EXPECT_FALSE(j1939DiagnosticIsCurrent(dm2, 10U * kSecond));
+    EXPECT_FALSE(j1939DiagnosticIsCurrent(dm2, 11U * kSecond));
+}
+
+TEST(J1939DiagnosticsTests, TheActiveFaultsOfTheBusAreEveryCodeOfEveryCurrentDm1)
+{
+    // The engine reports two codes, the body none, and the brakes one - in address order, as the
+    // block holds them, and each code carries the lamps of the message it arrived in.
+    const std::vector<J1939Diagnostic> diagnostics{
+        messageFrom(
+            kPgnDm1, kEngine, kRedStop, {dtcBytes(100U, 1U, 3U), dtcBytes(110U, 0U, 1U)}, kSecond),
+        messageFrom(kPgnDm1, kBrakes, kAmberWarning, {dtcBytes(1043U, 12U, 127U)}, kSecond),
+        messageFrom(kPgnDm1, kBody, 0x00U, {noFaultCode()}, kSecond),
+    };
+
+    const std::vector<J1939ActiveFault> faults = j1939ActiveFaults(diagnostics, kSecond);
+
+    ASSERT_EQ(faults.size(), 3U);
+
+    EXPECT_EQ(faults[0].sourceAddress, kEngine);
+    EXPECT_EQ(faults[0].code.spn, 100U);
+    EXPECT_EQ(faults[0].code.fmi, 1U);
+    EXPECT_EQ(faults[0].code.occurrenceCount, 3U);
+    EXPECT_TRUE(faults[0].lamps.redStop == J1939LampState::On);
+
+    // Within an ECU, the order it sent them in; both share the lamps of their message.
+    EXPECT_EQ(faults[1].sourceAddress, kEngine);
+    EXPECT_EQ(faults[1].code.spn, 110U);
+    EXPECT_TRUE(faults[1].lamps == faults[0].lamps);
+
+    EXPECT_EQ(faults[2].sourceAddress, kBrakes);
+    EXPECT_EQ(faults[2].code.spn, 1043U);
+    EXPECT_EQ(faults[2].code.occurrenceCount, 127U);
+    EXPECT_TRUE(faults[2].lamps.amberWarning == J1939LampState::On);
+    EXPECT_TRUE(faults[2].lamps.redStop != J1939LampState::On);
+}
+
+TEST(J1939DiagnosticsTests, AnEcuThatHasGoneQuietAndAnswersToARequestAreNotOnTheList)
+{
+    const std::vector<J1939Diagnostic> diagnostics{
+        messageFrom(kPgnDm1, kEngine, kRedStop, {dtcBytes(100U, 1U, 3U)}, kSecond),
+        messageFrom(kPgnDm2, kEngine, kRedStop, {dtcBytes(111U, 2U, 1U)}, 9U * kSecond),
+        messageFrom(kPgnDm1, kBrakes, kAmberWarning, {dtcBytes(1043U, 12U, 1U)}, 9U * kSecond),
+    };
+
+    // Nine seconds in: the engine has not repeated its DM1 since the first second, the DM2 is
+    // history and not news, and the brakes are still talking.
+    const std::vector<J1939ActiveFault> faults = j1939ActiveFaults(diagnostics, 9U * kSecond);
+
+    ASSERT_EQ(faults.size(), 1U);
+    EXPECT_EQ(faults[0].sourceAddress, kBrakes);
+    EXPECT_EQ(faults[0].code.spn, 1043U);
+}
+
+TEST(J1939DiagnosticsTests, NothingReportedIsAnEmptyListAndCollectingKeepsItsRoom)
+{
+    EXPECT_TRUE(j1939ActiveFaults({}, 0U).empty());
+
+    // Collected into a list that is reused: it is replaced and not appended to, and the capacity it
+    // grew stays, which is what lets the block do this on every pass without allocating.
+    const std::vector<J1939Diagnostic> diagnostics{
+        messageFrom(
+            kPgnDm1, kEngine, kRedStop, {dtcBytes(100U, 1U, 3U), dtcBytes(110U, 0U, 1U)}, kSecond),
+    };
+
+    std::vector<J1939ActiveFault> faults;
+    j1939CollectActiveFaults(diagnostics, kSecond, faults);
+    ASSERT_EQ(faults.size(), 2U);
+
+    const std::size_t capacity = faults.capacity();
+    j1939CollectActiveFaults(diagnostics, kSecond, faults);
+
+    EXPECT_EQ(faults.size(), 2U);
+    EXPECT_EQ(faults.capacity(), capacity);
+
+    j1939CollectActiveFaults({}, kSecond, faults);
+    EXPECT_TRUE(faults.empty());
+    EXPECT_EQ(faults.capacity(), capacity);
+}
