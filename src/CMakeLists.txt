@@ -142,6 +142,8 @@ add_library(torquebus_core STATIC
     core/dashboard/DashboardAssets.cpp
     core/dashboard/SignalDictionary.h
     core/dashboard/SignalDictionary.cpp
+    core/dashboard/DashboardFaults.h
+    core/dashboard/DashboardFaults.cpp
     core/dashboard/cluster/ClusterRole.h
     core/dashboard/cluster/ClusterRole.cpp
     core/dashboard/cluster/ClusterProfile.h

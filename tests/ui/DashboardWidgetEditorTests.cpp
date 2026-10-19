@@ -254,6 +254,61 @@ TEST(DashboardWidgetEditorTests, EachKindShowsTheFieldsItUsesAndNoOthers)
     EXPECT_FALSE(shown(form.editor, "showAs"));
 }
 
+TEST(DashboardWidgetEditorTests, AFaultListShowsATitleAndASentenceAboutWhereItsCodesComeFrom)
+{
+    Form form;
+
+    DashboardWidget faults = defaultWidgetOf(DashboardWidgetKind::Faults);
+    faults.id = "faults";
+    (void)form.show(faults);
+
+    // Nothing to bind and nothing to sweep: it has a title, and a line that says what it lists and
+    // what it needs - because a form with one field leaves the question that matters unanswered.
+    EXPECT_TRUE(shown(form.editor, "title"));
+    EXPECT_TRUE(shown(form.editor, "hint"));
+
+    for (const char* name : {"showAs",
+                             "source",
+                             "message",
+                             "signal",
+                             "variable",
+                             "unit",
+                             "minimum",
+                             "maximum",
+                             "decimals",
+                             "threshold",
+                             "window",
+                             "picture",
+                             "states",
+                             "stale.on",
+                             "profile"}) {
+        EXPECT_FALSE(shown(form.editor, name)) << name;
+    }
+
+    EXPECT_FALSE(form.editor.findChild<QWidget*>(QStringLiteral("limit.warningAbove"))
+                     ->isVisibleTo(&form.editor));
+
+    const auto* hint = control<QLabel>(form.editor, "hint");
+    ASSERT_NE(hint, nullptr);
+    EXPECT_TRUE(hint->text().contains(QStringLiteral("J1939 block"))) << hint->text().toStdString();
+
+    // The title is the one setting, and it is written back like any other.
+    auto* title = control<QLineEdit>(form.editor, "title");
+    ASSERT_NE(title, nullptr);
+    EXPECT_EQ(title->text(), QStringLiteral("Faults"));
+
+    typeInto(title, QStringLiteral("Active faults"));
+    EXPECT_EQ(form.dashboard.find("faults")->title, "Active faults");
+    EXPECT_GT(form.edits, 0);
+
+    // And the sentence goes with the kind: another widget on the form does not keep it.
+    DashboardWidget label = defaultWidgetOf(DashboardWidgetKind::Label);
+    label.id = "heading";
+    (void)form.show(label);
+
+    EXPECT_FALSE(shown(form.editor, "hint"));
+}
+
 TEST(DashboardWidgetEditorTests, NothingOnTheFormIsWrittenBackWhileItIsBeingFilledIn)
 {
     Form form;

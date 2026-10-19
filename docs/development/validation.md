@@ -1071,6 +1071,38 @@ Building one from the databases (`docs/development/dashboard.md`):
     it. `Ctrl+D` copies the selected widget (`engine_speed_2`), `Delete` removes it, and the
     context menu has *Bring to Front* and *Send to Back*.
 
+The fault list (`docs/development/dashboard.md`, *The fault list*):
+
+34. With **Edit Dashboard** on, right-click and choose **Add Faults**. A box appears with four
+    lamps - **STOP**, **WARN**, **MIL**, **PROTECT** - all dark, and under them *No active faults*.
+    That is what a measurement that is not running looks like, and it is not an error. Select it:
+    the **Widget** form has a title and a sentence about where the codes come from, and nothing to
+    bind.
+35. Open `examples/projects/j1939-vehicle.tbsproj` and press **Start**. **Active faults**, under
+    the trends, shows the same: a healthy truck lists nothing and every lamp is dark. (A row
+    numbered `SPN 0 / FMI 0` would mean that the all-zero code a healthy ECU sends is no longer
+    filtered out.)
+36. Stop, set `ecu_engine` to `low_oil_pressure` and press **Start**. Within a couple of seconds
+    the **STOP** lamp lights and one row appears on a red wash: **SPN 100 / FMI 1**, `×1`, `SA 0 · Engine`,
+    and under it *Data valid but below normal operational range - most severe level*. The oil
+    pressure above it is red, and so is the cluster's stop lamp - they are one variable. Hover
+    over the list: it names the lamps that are lit and the code in full.
+37. Stop, set `ecu_body` to `alternator_failure` as well and press **Start**: a second row, amber,
+    under the red one - worst first, whichever ECU sent which - and the **WARN** lamp lit too.
+38. Press **Stop**. The list empties and the lamps go out, as the cluster's do - while the **J1939
+    Network** panel still shows what each ECU last said, which is what it is for afterwards.
+39. The name beside the address is there because the engine claimed its address when it started:
+    the six Lua ECUs of the example each send an Address Claimed at power-up (*Engine*, *Body
+    Control*, *System Control Brakes*, ...), and the **J1939 Network** panel shows them as *claimed*,
+    not *transmitting*. An ECU that has not been seen claiming its address is only its number: the
+    TinyML ECU does not claim, so a code of its own reads `SA 128`.
+    **A bus that goes silent.** With real hardware, or a replay that ends, take the traffic away
+    while the engine is on `low_oil_pressure`: three seconds later the list empties and the lamps go
+    out - not at **Stop**. The **J1939 Network** panel then labels the engine's faults *last
+    reported* and says *no active faults, 1 reported earlier*.
+40. Drag the fault list's corner until it is too small for its rows. The worst stay on show and
+    the last line says **+ N more**.
+
 **Watch for:** a gauge that shows dashes with a correctly spelled signal. The line under the
 fields in the Widget form says whether the signal is reaching the plot store - *No samples
 yet. A Signal Plot block has to receive this signal* - which is the commonest reason and

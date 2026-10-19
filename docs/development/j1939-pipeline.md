@@ -36,6 +36,7 @@ The decoder and the multi-packet transport follow these rules, each covered by a
 * **Special values (SAE J1939-71 §5.1.4):** the top of every signal's range is reserved. For 8/16/24/32-bit fields `0xFB..` is reserved, `0xFE..` is *error* and `0xFF..` is *not available*; for 3-bit fields `6` is error and `7` is not available; for 64-bit fields anything `>= 0xFE00000000000000` is special. Such raw values decode to `NaN` rather than to a plausible number. Unsigned 64-bit signals are scaled without passing through a signed integer.
 * **Transport (SAE J1939-21 §5.10, ISO 11783-3 §5.11):** `TP.DT`/`ETP.DT` sequence numbers are `1..255` (`0` abandons the session); `BAM` must be broadcast and `RTS` point-to-point; `ETP.CM_DPO` windows may not exceed the announced packet count; an `Abort` or `CTS` sent by the *responder* (addresses reversed) is matched to its session, and a `CTS` refreshes the `T3` handshake timeout. Sessions are keyed by source, destination **and CAN channel**.
 * **DM1 broadcasts:** a steady 1 Hz `DM1` with unchanged faults does not rebuild the J1939 Network panel; expanded ECU rows survive rebuilds and ECUs with active faults expand automatically.
+* **What the bus is reporting now:** the block works out, on every pass, the trouble codes of every `DM1` that is still being repeated - one not repeated for three seconds of bus time is an ECU that has gone quiet, and takes its codes and its lamp with it - and hands the list over with the rest of its view of the bus. It is empty after Stop and after the bus has been silent for three seconds, while the J1939 Network panel keeps what each ECU last said (and labels it *last reported*). Each of the six Lua ECUs of the example also sends an Address Claimed when it starts, so the panel shows them *claimed* and the fault list names them. The Dashboard's **Faults** widget lists it (see [the Dashboard](dashboard.md#the-fault-list)).
 
 ---
 
@@ -72,7 +73,7 @@ To run it:
 1. Open **TorqueBus Studio**.
 2. Select **File → Open Project...** and choose `j1939-vehicle.tbsproj`.
 3. Press **Start** on the toolbar.
-4. Switch to the **Dashboard** panel to watch the digital speedometer, tachometer, temperature gauges, and telltale lamps react in real time.
+4. Switch to the **Dashboard** panel to watch the digital speedometer, tachometer, temperature gauges, and telltale lamps react in real time. The **Active faults** list under the trends shows the `DM1` trouble codes of the whole bus: set `ecu_engine` to `low_oil_pressure` and a red row, `SPN 100 / FMI 1`, appears under the lit stop lamp.
 
 ---
 

@@ -70,6 +70,8 @@ std::string_view nameOf(DashboardWidgetKind kind)
         return "table";
     case DashboardWidgetKind::Group:
         return "group";
+    case DashboardWidgetKind::Faults:
+        return "faults";
     }
 
     return "numeric";
@@ -93,6 +95,7 @@ bool kindFromName(std::string_view name, DashboardWidgetKind& kind)
         DashboardWidgetKind::Trend,
         DashboardWidgetKind::Table,
         DashboardWidgetKind::Group,
+        DashboardWidgetKind::Faults,
     };
 
     for (const DashboardWidgetKind candidate : kAll) {
@@ -125,6 +128,7 @@ bool writesItsBinding(DashboardWidgetKind kind)
     case DashboardWidgetKind::Trend:
     case DashboardWidgetKind::Table:
     case DashboardWidgetKind::Group:
+    case DashboardWidgetKind::Faults:
         return false;
     }
 
@@ -195,9 +199,13 @@ const DashboardKindTraits& traitsOf(DashboardWidgetKind kind)
     case DashboardWidgetKind::Slider:
     case DashboardWidgetKind::Knob:
         return kSlider;
+    // A fault list reads the J1939 block and nothing a person could configure but its title: no
+    // binding, no range, no unit. The form shows it a title and a sentence about where it gets its
+    // codes.
     case DashboardWidgetKind::Label:
     case DashboardWidgetKind::Cluster:
     case DashboardWidgetKind::Group:
+    case DashboardWidgetKind::Faults:
         return kNothing;
     case DashboardWidgetKind::Bar:
         return kBar;
@@ -323,6 +331,10 @@ DashboardSize defaultSizeOf(DashboardWidgetKind kind)
     case DashboardWidgetKind::Group:
         return {360.0, 240.0};
 
+    // The lamps, and room for four codes of two lines each.
+    case DashboardWidgetKind::Faults:
+        return {320.0, 260.0};
+
     case DashboardWidgetKind::Gauge:
     case DashboardWidgetKind::Numeric:
         break;
@@ -358,6 +370,10 @@ DashboardWidget defaultWidgetOf(DashboardWidgetKind kind)
 
     case DashboardWidgetKind::Group:
         widget.title = "Group";
+        break;
+
+    case DashboardWidgetKind::Faults:
+        widget.title = "Faults";
         break;
 
     case DashboardWidgetKind::Cluster:

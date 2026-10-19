@@ -18,6 +18,7 @@
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
+#include <algorithm>
 #include <optional>
 #include <string_view>
 
@@ -126,6 +127,15 @@ enum Column : int {
     // Said rather than left blank: an ECU that does not drive a lamp is making
     // a statement, and a blank cell reads as a decode that failed.
     return QObject::tr("not fitted");
+}
+
+/// Whether `address` has a code on the list of what the bus is reporting now.
+[[nodiscard]] bool isReportingNow(const J1939NetworkSnapshot& snapshot, std::uint8_t address)
+{
+    return std::any_of(
+        snapshot.activeFaults.begin(),
+        snapshot.activeFaults.end(),
+        [address](const J1939ActiveFault& fault) { return fault.sourceAddress == address; });
 }
 
 [[nodiscard]] QString faultText(const J1939Dtc& fault)
@@ -308,9 +318,28 @@ void J1939NetworkPanel::rebuild(const J1939NetworkSnapshot& snapshot)
                 continue;
             }
 
+            // A DM1 is what an ECU is saying only while it goes on saying it. One that carries
+            // faults and is not on the list of what the bus is reporting now is the last thing the
+            // ECU said: it has gone quiet, or the measurement has stopped. Its faults are still
+            // worth reading - that is why the panel keeps them - and are not what is wrong with the
+            // machine now.
+            const bool lastReported = message.active && !message.faults.empty()
+                                      && !isReportingNow(snapshot, node.address);
+
             auto* group = new QTreeWidgetItem(row);
             group->setText(ColumnAddress,
-                           message.active ? tr("active faults") : tr("previously active"));
+                           !message.active
+                               ? tr("previously active")
+                               : (lastReported ? tr("last reported") : tr("active faults")));
+
+            if (lastReported) {
+                group->setToolTip(
+                    ColumnAddress,
+                    tr("The last DM1 this ECU sent, and it has not sent another: it has gone "
+                       "quiet, "
+                       "or the measurement has stopped. These faults are not being reported now."));
+            }
+
             group->setText(ColumnName,
                            tr("MIL %1, red stop %2, amber %3, protect %4")
                                .arg(lampText(message.lamps.malfunction),
@@ -327,7 +356,8 @@ void J1939NetworkPanel::rebuild(const J1939NetworkSnapshot& snapshot)
             }
 
             group->setText(ColumnState, QString::number(message.faults.size()));
-            group->setForeground(ColumnState, message.active ? theme.error : theme.warning);
+            group->setForeground(ColumnState,
+                                 message.active && !lastReported ? theme.error : theme.warning);
 
             for (const J1939Dtc& fault : message.faults) {
                 auto* item = new QTreeWidgetItem(group);
@@ -379,16 +409,30 @@ void J1939NetworkPanel::updateSummary(const J1939NetworkSnapshot& snapshot)
         return;
     }
 
+    // What the bus is reporting now, and not what each ECU last said: after a measurement ends, or
+    // for an ECU that has gone quiet, the second is still in the tree and the first is nothing.
     std::size_t withFaults = 0;
-    std::size_t faults = 0;
+    const std::size_t faults = snapshot.activeFaults.size();
     std::size_t unclaimed = 0;
 
-    for (const J1939Diagnostic& message : snapshot.diagnostics) {
-        if (message.active && !message.faults.empty()) {
+    // In address order, so an ECU's codes are together.
+    for (std::size_t i = 0; i < snapshot.activeFaults.size(); ++i) {
+        if (i == 0
+            || snapshot.activeFaults[i].sourceAddress
+                   != snapshot.activeFaults[i - 1].sourceAddress) {
             ++withFaults;
-            faults += message.faults.size();
         }
     }
+
+    std::size_t reportedEarlier = 0;
+
+    for (const J1939Diagnostic& message : snapshot.diagnostics) {
+        if (message.active) {
+            reportedEarlier += message.faults.size();
+        }
+    }
+
+    reportedEarlier -= std::min(reportedEarlier, faults);
 
     for (const J1939NetworkNode& node : snapshot.nodes) {
         if (!node.claimSeen) {
@@ -408,6 +452,10 @@ void J1939NetworkPanel::updateSummary(const J1939NetworkSnapshot& snapshot)
 
     text += faults > 0 ? tr(" - %1 active fault(s) on %2").arg(faults).arg(withFaults)
                        : tr(" - no active faults");
+
+    if (reportedEarlier > 0) {
+        text += tr(", %n reported earlier", nullptr, static_cast<int>(reportedEarlier));
+    }
 
     m_summary->setText(text);
     m_summary->setStyleSheet(

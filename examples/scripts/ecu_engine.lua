@@ -17,6 +17,10 @@
 --   * HOURS  (PGN 65253 / 0xFEE5, 1 s, P6)   - Engine Hours (SPN 247), Engine Revolutions (SPN 249)
 --   * DM1    (PGN 65226 / 0xFECA, 1 s, P6)   - Active Diagnostic Trouble Codes
 --
+-- And once, at power-up, an Address Claimed (PGN 60928 / 0xEE00) with a NAME whose function is
+-- Engine, as a J1939 ECU does: it is what puts a name to this address in the J1939 Network panel
+-- and on the Dashboard's fault list.
+--
 -- Block parameters (all optional):
 --   sa, tick_ms                          source address (0), timer period (10 ms)
 --   *_interval_ms                        cycle time of each message above (eec1, eec2, etc2, ccvs1, ...)
@@ -34,6 +38,9 @@
 local kSa = parameters.sa or 0x00
 local kTickMs = parameters.tick_ms or 10
 local kScenario = parameters.scenario or ""
+
+-- What this ECU is, as J1939-81 numbers it: function 0 is the engine.
+local kFunction = 0
 
 -- Timing intervals in microseconds
 local kEec1IntervalUs  = (parameters.eec1_interval_ms  or 20)   * 1000
@@ -162,6 +169,12 @@ end
 function on_enable()
     log_message(string.format("J1939 Engine ECU (SA 0x%02X) active%s", kSa,
         kScenario ~= "" and (", scenario " .. kScenario) or ""))
+
+    -- Power-up: say who this is. An Address Claimed carries a NAME, and its function is what the
+    -- J1939 Network panel and the Dashboard's fault list turn into a word - "Engine" - beside the
+    -- address. No manufacturer code: a simulated ECU should not borrow a real company's.
+    j1939_claim(kSa, kFunction, 0, nil, 1, false)
+
     cycle_start_us = get_time_us()
     last_tick_us = nil
 

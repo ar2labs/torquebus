@@ -25,6 +25,9 @@
 local kSa = parameters.sa or 0x17
 local kTickMs = parameters.tick_ms or 50
 
+-- What this ECU is, as J1939-81 numbers it: function 19 is the instrument cluster.
+local kFunction = 19
+
 local kVdhrIntervalUs = (parameters.vdhr_interval_ms or 1000) * 1000
 local kTdIntervalUs   = (parameters.td_interval_ms   or 1000) * 1000
 local kDm1IntervalUs  = (parameters.dm1_interval_ms  or 1000) * 1000
@@ -60,6 +63,10 @@ end
 
 function on_enable()
     log_message(string.format("J1939 Cluster Core ECU (SA 0x%02X) active", kSa))
+
+    -- Power-up: say who this is (see ecu_engine.lua).
+    j1939_claim(kSa, kFunction, 0, nil, 1, false)
+
     last_tick_us = nil
 
     -- Restore the odometer from where the last run left it, if there was one: a variable nobody has

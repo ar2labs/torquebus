@@ -3,7 +3,7 @@
 **Open Automotive Network & Diagnostics Workbench**
 
 [![CI](https://github.com/ar2labs/torquebus/actions/workflows/ci.yml/badge.svg)](https://github.com/ar2labs/torquebus/actions/workflows/ci.yml)
-[![Google Test](https://img.shields.io/badge/Google_Test-1259_tests-2ea44f?logo=google)](https://github.com/ar2labs/torquebus/actions)
+[![Google Test](https://img.shields.io/badge/Google_Test-1325_tests-2ea44f?logo=google)](https://github.com/ar2labs/torquebus/actions)
 [![Tests Passing](https://img.shields.io/badge/tests-100%25_passing-brightgreen)](https://github.com/ar2labs/torquebus/actions)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
@@ -60,7 +60,9 @@ visual identity, an open architecture and a GPLv3 licence.
   the names of its values and a time-out filled in. Alarm limits turn a reading amber and
   red, a PNG, JPEG or SVG can stand for each state of a value, a signal that goes quiet says
   so instead of holding its last number, and a misspelled one is marked and corrected:
-  *Did you mean EngineSpeed?* See [`docs/development/dashboard.md`](docs/development/dashboard.md).
+  *Did you mean EngineSpeed?* A **fault list** shows the J1939 trouble codes of the whole bus beside the
+  cluster - SPN, the failure mode in words, how often, which ECU - worst first under the four DM1 lamps.
+  See [`docs/development/dashboard.md`](docs/development/dashboard.md).
 - **Recording outlives the UI.** Close the Trace panel; the log keeps writing.
 - **Protocols above the frame.** ISO-TP and UDS, and J1939/ISOBUS with address
   claiming, transport (BAM, RTS/CTS, ETP) and DM1/DM2 — checked line by line
@@ -147,11 +149,11 @@ acceptance pass, ordered so the cheapest failures surface first.
 
 ## Testing & Quality Assurance (Google Test)
 
-TorqueBus enforces a **100% automated test pass contract**. Every pull request and build runs **1259 automated tests** powered by [Google Test](https://github.com/google/googletest) (v1.15.2) and CTest across four architectural layers:
+TorqueBus enforces a **100% automated test pass contract**. Every pull request and build runs **1325 automated tests** powered by [Google Test](https://github.com/google/googletest) (v1.15.2) and CTest across four architectural layers:
 
-* **Unit Tests (907 tests):** CAN engine core, DBC parser, J1939 codecs, ISO-TP, UDS, TinyML inference, the Lua runtime and its limits, and a seeded fuzz of every reader.
-* **UI Tests (274 tests):** QML Instrument Cluster, the Dashboard's widgets, form and signal picker, the Pipeline canvas and its CAN Bus, docking layouts, widgets, and property bindings.
-* **Integration Tests (67 tests):** Multi-node virtual CAN bus, Lua ECU lifecycles, every block of the catalog built and run on an engine, and dataflow throughput (asserting 150,000 frames/s with zero loss).
+* **Unit Tests (947 tests):** CAN engine core, DBC parser, J1939 codecs, ISO-TP, UDS, TinyML inference, the Lua runtime and its limits, and a seeded fuzz of every reader.
+* **UI Tests (299 tests):** QML Instrument Cluster, the Dashboard's widgets, form and signal picker, the Pipeline canvas and its CAN Bus, docking layouts, widgets, and property bindings.
+* **Integration Tests (68 tests):** Multi-node virtual CAN bus, Lua ECU lifecycles, every block of the catalog built and run on an engine, and dataflow throughput (asserting 150,000 frames/s with zero loss).
 * **Hardware Loopback Tests (11 tests):** Physical PEAK and Kvaser adapter validation (cleanly skipped via `GTEST_SKIP()` when hardware is detached).
 
 Run the full Google Test suite locally:
@@ -198,7 +200,7 @@ sandbox, error handling, and measured execution cost — is in
 [`examples/projects/j1939-vehicle.tbsproj`](examples/projects) is the same idea on a J1939 truck: six Lua ECUs
 (engine, aftertreatment, body, brakes, a switch panel and the cluster's own core), the TinyML Virtual ECU, a J1939
 block and, on the Dashboard, the instrument cluster with bars, trends, a table and a picture for each AI regime
-beside it. Each ECU takes a `scenario` parameter - `low_oil_pressure`,
+beside it, and a list of the faults on the bus. Each ECU takes a `scenario` parameter - `low_oil_pressure`,
 `overheating`, `abs_fault`, `hazard`... - and the cluster answers with the lamp it would light on a vehicle; see
 [`docs/development/j1939-pipeline.md`](docs/development/j1939-pipeline.md) and
 [`docs/development/cluster.md`](docs/development/cluster.md#the-j1939-example).

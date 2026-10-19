@@ -293,6 +293,21 @@
                 },
                 "title": "AI telemetry",
                 "width": 248
+            },
+            {
+                "binding": {
+                },
+                "height": 200,
+                "id": "faults",
+                "kind": "faults",
+                "maximum": 100,
+                "minimum": 0,
+                "position": {
+                    "x": 20,
+                    "y": 532
+                },
+                "title": "Active faults",
+                "width": 720
             }
         ]
     },

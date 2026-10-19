@@ -53,7 +53,18 @@ struct J1939NetworkSnapshot final {
     std::vector<J1939Defeated> defeated;
 
     /// The latest DM1 and DM2 from each ECU, in address order.
+    ///
+    /// What each ECU last *said*, and so kept after a measurement ends: it is what the J1939 panel
+    /// reads afterwards. Nothing here says whether it is still being said - see `activeFaults`.
     std::vector<J1939Diagnostic> diagnostics;
+
+    /// The trouble codes the bus is reporting **now**, from every ECU whose DM1 is still being
+    /// repeated (j1939DiagnosticIsCurrent). Empty after a measurement ends and for a bus whose ECUs
+    /// have gone quiet - which `diagnostics` is not. What a dashboard lists.
+    ///
+    /// Published with the rest, so that this list and the ECUs it names (`nodes`) are always from
+    /// the same pass.
+    std::vector<J1939ActiveFault> activeFaults;
 
     /// Which publication this came from. Zero means nothing has been published
     /// yet, which is a measurement that has not started rather than a bus with
@@ -75,9 +86,12 @@ public:
     /// only when something actually changed.
     void publish(std::vector<J1939NetworkNode> nodes,
                  std::vector<J1939Defeated> defeated,
-                 std::vector<J1939Diagnostic> diagnostics);
+                 std::vector<J1939Diagnostic> diagnostics,
+                 std::vector<J1939ActiveFault> activeFaults = {});
 
-    /// A copy of the latest publication.
+    /// A copy of the latest publication. Its `revision` is exactly the one its
+    /// contents are from: both are read under the lock a publication is made
+    /// under.
     [[nodiscard]] J1939NetworkSnapshot snapshot() const;
 
     /// How many publications have happened. A plain atomic load: a panel asks
@@ -99,9 +113,12 @@ private:
     std::vector<J1939NetworkNode> m_nodes;
     std::vector<J1939Defeated> m_defeated;
     std::vector<J1939Diagnostic> m_diagnostics;
+    std::vector<J1939ActiveFault> m_activeFaults;
     bool m_published{false};
 
-    /// Outside the mutex on purpose: it is the thing read without taking it.
+    /// Moved under the mutex, with the contents it counts, and read both ways:
+    /// without the lock by revision(), which is the thing a panel asks every
+    /// tick, and under it by snapshot().
     std::atomic<std::uint64_t> m_revision{0U};
 };
 

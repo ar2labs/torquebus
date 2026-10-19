@@ -20,9 +20,13 @@
 #include "core/can/CanEngine.h"
 #include "core/dashboard/DashboardAssets.h"
 #include "core/dashboard/DashboardDescription.h"
+#include "core/dashboard/DashboardFaults.h"
 #include "core/dashboard/SignalDictionary.h"
 #include "core/database/CanMessage.h"
 #include "core/database/DbcParser.h"
+#include "core/j1939/J1939Diagnostics.h"
+#include "core/j1939/J1939NameTables.h"
+#include "core/j1939/J1939Network.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "core/plot/SignalSeries.h"
@@ -34,16 +38,21 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QRectF>
 #include <QString>
 #include <QStringList>
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
+#include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -111,7 +120,11 @@ struct Delivered final {
 };
 
 /// Runs the project on the virtual bus for `duration`: as many channels as its CAN blocks name.
-[[nodiscard]] Delivered run(const Example& example, std::chrono::milliseconds duration)
+/// `whileRunning`, when there is one, is called with the engine at the end of it and before it is
+/// stopped - which puts some lamps out and empties the list of faults, so it is the moment to look.
+[[nodiscard]] Delivered run(const Example& example,
+                            std::chrono::milliseconds duration,
+                            const std::function<void(CanEngine&)>& whileRunning = {})
 {
     Delivered delivered;
 
@@ -158,9 +171,44 @@ struct Delivered final {
         }
     }
 
+    if (whileRunning) {
+        whileRunning(engine);
+    }
+
     engine.stop();
 
     return delivered;
+}
+
+/// Sets the scenario of one block of the example's pipeline, the way the Block panel would.
+void setScenario(Example& example, const std::string& block, const char* scenario)
+{
+    for (NodeDescription& node : example.pipeline.nodes()) {
+        if (node.id == block) {
+            node.parameters.set("scenario", ParameterValue::fromText(scenario));
+            return;
+        }
+    }
+
+    ADD_FAILURE() << "the example has no block called " << block;
+}
+
+/// The table of function names that ships with the program, from the source tree - the file that
+/// goes into the package, and not a copy beside the executable.
+[[nodiscard]] std::filesystem::path shippedFunctionTable()
+{
+    return std::filesystem::path{TORQUEBUS_DATA_DIR} / "j1939-names-functions.csv";
+}
+
+[[nodiscard]] const DashboardWidget* faultListOf(const Example& example)
+{
+    for (const DashboardWidget& widget : example.dashboard.widgets()) {
+        if (widget.kind == DashboardWidgetKind::Faults) {
+            return &widget;
+        }
+    }
+
+    return nullptr;
 }
 
 } // namespace
@@ -308,4 +356,181 @@ TEST(ExampleDashboardTests, EverySignalAnExampleDashboardReadsIsDeliveredByItsPi
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// The fault list
+// ---------------------------------------------------------------------------
+//
+// A Faults widget is bound to nothing, so nothing above would notice it showing an empty list for
+// ever: the audit has no binding to check and the plot store has no series to be missing. What the
+// J1939 example has to prove is that a fault on its bus is a row on its dashboard - which is the
+// engine's own "low oil pressure" scenario, run through the pipeline the project ships.
+
+TEST(ExampleDashboardTests, TheJ1939ExampleHasAFaultListBesideItsClusterAndAGraphThatFeedsIt)
+{
+    Example example;
+    ASSERT_TRUE(open("j1939-vehicle.tbsproj", example));
+
+    const DashboardWidget* faults = faultListOf(example);
+    ASSERT_NE(faults, nullptr);
+
+    // It sits in plain view and not on top of anything: it may be on a Group, which is a frame
+    // behind what it holds, and on nothing else.
+    const QRectF rect{faults->x, faults->y, faults->width, faults->height};
+
+    for (const DashboardWidget& other : example.dashboard.widgets()) {
+        if (&other == faults || other.kind == DashboardWidgetKind::Group) {
+            continue;
+        }
+
+        const QRectF theirs{other.x, other.y, other.width, other.height};
+        EXPECT_FALSE(rect.intersects(theirs)) << "the fault list overlaps " << other.id;
+    }
+
+    // And the graph has the block that says what the bus is reporting.
+    bool hasJ1939Block = false;
+
+    for (const NodeDescription& node : example.pipeline.nodes()) {
+        hasJ1939Block = hasJ1939Block || node.typeName == "j1939.decoder";
+    }
+
+    EXPECT_TRUE(hasJ1939Block);
+    EXPECT_TRUE(example.dashboard.validate().succeeded());
+}
+
+TEST(ExampleDashboardTests, TheOilPressureFaultOfTheEnginesLowOilScenarioIsOnTheFaultList)
+{
+    Example example;
+    ASSERT_TRUE(open("j1939-vehicle.tbsproj", example));
+    ASSERT_NE(faultListOf(example), nullptr);
+
+    setScenario(example, "ecu_engine", "low_oil_pressure");
+
+    J1939NetworkSnapshot running;
+    J1939NetworkSnapshot stopped;
+    double stopLamp = 0.0;
+
+    const Delivered delivered =
+        run(example, std::chrono::milliseconds{2500}, [&](CanEngine& engine) {
+            running = engine.j1939Network().snapshot();
+            stopLamp = engine.variables().value(std::string{kJ1939LampStopVariable});
+
+            engine.stop();
+            stopped = engine.j1939Network().snapshot();
+        });
+
+    ASSERT_TRUE(delivered.started.succeeded()) << std::string{delivered.started.message()};
+
+    // What the widget lists is built from the snapshot by the same function the panel calls, with
+    // the function table that ships with the program.
+    J1939NameTables names;
+    ASSERT_TRUE(names.loadFile(shippedFunctionTable()).succeeded());
+
+    const std::vector<DashboardFault> faults = dashboardFaultsOf(running, &names);
+
+    const auto oil = std::find_if(faults.begin(), faults.end(), [](const DashboardFault& fault) {
+        return fault.sourceAddress == 0U && fault.code.spn == 100U;
+    });
+
+    ASSERT_TRUE(oil != faults.end())
+        << "SPN 100 of the engine is not on the list: the engine reports it in a DM1 once a "
+           "second, and the widget would show an empty list for a bus with a red lamp lit";
+
+    // The engine's own words for it: SPN 100 (engine oil pressure), FMI 1 (below normal, most
+    // severe), once, under the red stop lamp.
+    EXPECT_TRUE(oil->code.spnAssembled);
+    EXPECT_EQ(oil->code.fmi, 1U);
+    EXPECT_EQ(oil->code.occurrenceCount, 1U);
+    EXPECT_EQ(oil->tone, DashboardTone::Danger);
+
+    // From an ECU the list can name: the engine claimed its address when it started, and function 0
+    // is what the table calls the engine.
+    ASSERT_TRUE(oil->ecu.has_value());
+    EXPECT_EQ(*oil->ecu, "Engine");
+
+    // The lamp of the widget is the lamp of the cluster, and it is lit.
+    EXPECT_GT(stopLamp, 0.5);
+
+    // Worst first: nothing that is not as bad is above it.
+    EXPECT_EQ(faults.front().tone, DashboardTone::Danger);
+
+    // The measurement ended, and so did its faults: an empty list - while what each ECU last said
+    // is still there for the J1939 panel to read.
+    EXPECT_TRUE(dashboardFaultsOf(stopped, nullptr).empty());
+    EXPECT_FALSE(stopped.diagnostics.empty());
+}
+
+TEST(ExampleDashboardTests, EveryEcuOfTheJ1939ExampleClaimsItsAddressAndIsNamedByTheShippedTable)
+{
+    // The rows of the fault list say "Engine" and not only an address because the ECU claimed one
+    // when it started and the function table that ships knows what its NAME says it is. Nothing
+    // between the script and the table is allowed to lose that: not the claim, not the address
+    // table, not the spelling of the function.
+    Example example;
+    ASSERT_TRUE(open("j1939-vehicle.tbsproj", example));
+
+    J1939NetworkSnapshot snapshot;
+
+    const Delivered delivered =
+        run(example, std::chrono::milliseconds{2500}, [&](CanEngine& engine) {
+            snapshot = engine.j1939Network().snapshot();
+        });
+
+    ASSERT_TRUE(delivered.started.succeeded()) << std::string{delivered.started.message()};
+
+    J1939NameTables names;
+    ASSERT_TRUE(names.loadFile(shippedFunctionTable()).succeeded());
+
+    const std::map<int, std::string> expected{{0x00, "Engine"},
+                                              {0x0B, "System Control Brakes"},
+                                              {0x17, "Instrument Cluster"},
+                                              {0x21, "Body Control"},
+                                              {0x37, "Operator Controls Lighting"},
+                                              {0x3D, "Exhaust Emission Control"}};
+
+    for (const auto& [address, word] : expected) {
+        SCOPED_TRACE(word);
+
+        const auto node = std::find_if(
+            snapshot.nodes.begin(),
+            snapshot.nodes.end(),
+            [address = address](const auto& candidate) { return candidate.address == address; });
+
+        ASSERT_TRUE(node != snapshot.nodes.end()) << "nothing was heard from address " << address;
+        EXPECT_TRUE(node->claimSeen);
+        ASSERT_TRUE(node->name.has_value());
+
+        const std::optional<std::string_view> function = names.function(*node->name);
+        ASSERT_TRUE(function.has_value());
+        EXPECT_EQ(std::string{*function}, word);
+    }
+}
+
+TEST(ExampleDashboardTests, AHealthyVehicleLeavesTheFaultListEmptyAndEveryLampDark)
+{
+    Example example;
+    ASSERT_TRUE(open("j1939-vehicle.tbsproj", example));
+
+    J1939NetworkSnapshot snapshot;
+    double lamps = 0.0;
+
+    const Delivered delivered =
+        run(example, std::chrono::milliseconds{2500}, [&](CanEngine& engine) {
+            snapshot = engine.j1939Network().snapshot();
+
+            for (const std::string_view lamp : kFaultLampVariables) {
+                lamps += engine.variables().value(std::string{lamp});
+            }
+        });
+
+    ASSERT_TRUE(delivered.started.succeeded()) << std::string{delivered.started.message()};
+
+    // Six ECUs send a DM1 a second, every one of them saying that all is well: a code numbered
+    // zero on each would be what a tool that did not know about the placeholder shows.
+    EXPECT_TRUE(snapshot.published);
+    EXPECT_GE(snapshot.diagnostics.size(), 5U);
+    EXPECT_TRUE(snapshot.activeFaults.empty());
+    EXPECT_TRUE(dashboardFaultsOf(snapshot, nullptr).empty());
+    EXPECT_DOUBLE_EQ(lamps, 0.0);
 }

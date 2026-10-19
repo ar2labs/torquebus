@@ -43,7 +43,9 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <unordered_map>
@@ -89,6 +91,15 @@ public:
     /// siblings, see J1939Diagnostics.h), or nullptr in a headless build, where the block simply
     /// does not. Borrowed; it outlives this node.
     void setSystemVariables(SystemVariables* variables) noexcept { m_variables = variables; }
+
+    /// The time of the machine, in nanoseconds, from any starting point. Asked only on a pass in
+    /// which no frame arrived and something is being reported that could go out of date, and only
+    /// ever *differenced*: it measures how long a bus has been silent and never what time it is,
+    /// because the frames carry a time of their own (a device's, or a replayed log's) that it must
+    /// not be compared with. A steady clock unless a test moves one by hand.
+    using HostClock = std::function<std::uint64_t()>;
+
+    void setHostClock(HostClock clock) { m_hostClock = std::move(clock); }
 
     /// How the SPN field of a trouble code should be read. See
     /// J1939Diagnostics.h - the wrong convention produces a number that looks
@@ -146,6 +157,17 @@ private:
     /// four lock-free stores only when something moved.
     void publishLamps(std::uint64_t nowNs) noexcept;
 
+    /// Brings everything the block hands over up to date as of bus time `busNowNs`: the codes the
+    /// bus is reporting, the view a panel reads (when it changed) and the lamps.
+    void settle(std::uint64_t busNowNs);
+
+    /// A pass with no frame in it. Ages what the bus said by how long it has been silent, so that a
+    /// bus that falls silent altogether - every ECU at once, an adapter unplugged - lets go of its
+    /// lamps and its codes as an ECU that stops repeating its DM1 does, and not at Stop.
+    void ageOnAnIdlePass();
+
+    [[nodiscard]] static std::uint64_t steadyNanoseconds();
+
     std::shared_ptr<const CanDatabase> m_database;
     std::string m_label;
 
@@ -167,6 +189,11 @@ private:
     /// Latest per ECU, in address order. DM1 and DM2 are kept apart.
     std::vector<J1939Diagnostic> m_diagnostics;
 
+    /// What was last handed over as the codes the bus is reporting now, and the list the next pass
+    /// is worked out into before it is compared. Both keep their capacity.
+    std::vector<J1939ActiveFault> m_activeFaults;
+    std::vector<J1939ActiveFault> m_scratchFaults;
+
     /// Where the lamps of the whole bus go, and the handles resolved for them in prepare().
     SystemVariables* m_variables{nullptr};
     std::array<SystemVariables::Handle, 4> m_lampVariables{SystemVariables::kUnknown,
@@ -181,6 +208,11 @@ private:
     /// The newest bus time seen, which is what "current" is measured against: the clock of a
     /// measurement is the bus's, and says nothing about the present when a log is being replayed.
     std::uint64_t m_newestNs{0};
+
+    /// What the machine's clock said on the first pass of the silence that is going on, or nothing
+    /// while frames are arriving. See ageOnAnIdlePass().
+    std::optional<std::uint64_t> m_idleSinceNs;
+    HostClock m_hostClock{&J1939Node::steadyNanoseconds};
 
     /// Reused every pass; the published span points into here, so process()
     /// never resizes it.

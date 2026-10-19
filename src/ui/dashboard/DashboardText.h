@@ -13,6 +13,7 @@
 #pragma once
 
 #include "core/dashboard/DashboardDescription.h"
+#include "core/dashboard/DashboardFaults.h"
 #include "core/dashboard/SignalDictionary.h"
 
 #include <QString>
@@ -38,5 +39,27 @@ namespace torquebus::ui {
 /// finding that is not a problem.
 [[nodiscard]] QString describeFinding(const BindingFinding& finding,
                                       const DashboardBinding& binding);
+
+// --- The Faults widget ----------------------------------------------------------------------
+
+/// A trouble code, as a technician writes one: "SPN 100 / FMI 1". An SPN that the J1939 block did
+/// not assemble (a legacy packing nobody declared, see J1939Diagnostics.h) is a question mark and
+/// not a number - a number read under the wrong packing still looks like an SPN - and the raw bytes
+/// are in faultDetailsText.
+[[nodiscard]] QString faultCodeText(const J1939Dtc& code);
+
+/// The failure mode in words: "Data valid but below normal operational range - most severe level".
+[[nodiscard]] QString faultMeaningText(const J1939Dtc& code);
+
+/// How many times the ECU says the fault has occurred, with a multiplication sign in front: "x3".
+/// 127 is the most the field holds and means "at least", so it is written "x127+".
+[[nodiscard]] QString faultCountText(const J1939Dtc& code);
+
+/// Which ECU: "SA 0", and after it - a middle dot and the name of its function - when the name
+/// tables know one.
+[[nodiscard]] QString faultEcuText(const DashboardFault& fault);
+
+/// Everything the widget knows of one code, over a few lines, for a tooltip.
+[[nodiscard]] QString faultDetailsText(const DashboardFault& fault);
 
 } // namespace torquebus::ui

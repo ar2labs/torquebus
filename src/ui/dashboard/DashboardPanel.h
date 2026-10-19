@@ -33,8 +33,12 @@
 //     already accumulate for the Plot Viewer. No second decode path, and a
 //     dashboard shows exactly what the Plot Viewer shows.
 //   * a **variable** binding reads and writes SystemVariables, lock-free.
+//   * a **Faults** widget has no binding. It lists the trouble codes the J1939 block says the
+//     bus is reporting - a snapshot the engine's thread publishes and this one copies when its
+//     revision moves (J1939Network.h), never the block's own tables - and lights the four lamps
+//     from the system variables the instrument cluster reads, so the two cannot disagree.
 //
-// Neither is polled per frame: the panel repaints at 20 Hz like every other,
+// None is polled per frame: the panel repaints at 20 Hz like every other,
 // because a needle that updates faster than a screen refreshes is work nobody
 // can see.
 //
@@ -58,6 +62,7 @@
 #pragma once
 
 #include "core/dashboard/DashboardDescription.h"
+#include "core/dashboard/DashboardFaults.h"
 #include "core/dashboard/SignalDictionary.h"
 #include "core/plot/SignalSeries.h"
 #include "ui/dashboard/DashboardImages.h"
@@ -93,6 +98,8 @@ class QPaintEvent;
 class QPainter;
 
 namespace torquebus {
+class J1939NameTables;
+class J1939Network;
 class SystemVariables;
 } // namespace torquebus
 
@@ -115,6 +122,20 @@ public:
 
     /// Where variable bindings read and write. Not owned.
     void setVariables(SystemVariables* variables);
+
+    /// Where a Faults widget reads the trouble codes of the bus: the hand-over the engine's thread
+    /// publishes to and a panel reads from (J1939Network.h). Not owned; null, or a bus that has
+    /// published nothing, shows every Faults widget as an empty list, which is what a measurement
+    /// with no J1939 block is.
+    ///
+    /// The panel only ever asks it for its revision - an atomic load, every tick - and, when that
+    /// has moved, for a copy of what it holds. Nothing the executor thread is working on is reached
+    /// any other way, and a pointer to const is how that is kept true.
+    void setJ1939Network(const J1939Network* network);
+
+    /// The words behind the numbers of an ECU's NAME, so that a row can say "Engine" and not only
+    /// an address. Null is addresses only. Not owned.
+    void setJ1939Names(const J1939NameTables* names);
 
     /// The loaded databases, as the DBC Explorer holds them. What a dropped signal is looked up in,
     /// what a widget's binding is checked against, and what a Table lists. Empty is a dashboard
@@ -176,6 +197,16 @@ public:
 
     /// The rows a Table shows now: its message's signals, with what each reads.
     [[nodiscard]] std::vector<TableRow> tableRowsOf(const std::string& widgetId) const;
+
+    /// The rows every Faults widget lists now: one for each trouble code the bus is reporting,
+    /// worst first. The bus's and not a widget's - a Faults widget is bound to nothing - so there
+    /// is no widget to ask for. Empty when nothing is reported, which includes a measurement that
+    /// is not running and a graph with no J1939 block.
+    [[nodiscard]] std::vector<FaultRow> faultRows() const;
+
+    /// The four lamps of the bus, as the J1939 block writes them to the system variables the
+    /// cluster reads. All dark when there are no variables.
+    [[nodiscard]] FaultLamps faultLamps() const;
 
     /// What is wrong with a widget's binding, as a sentence, or empty. Refreshed as the dashboard
     /// and the databases change.
@@ -325,6 +356,18 @@ private:
     /// fallen out of its window.
     void recordTrails(Clock::time_point now);
 
+    /// Brings the codes of the bus up to date: nothing but an atomic load when the J1939 block has
+    /// published nothing since the last time, a copy and a rebuild when it has. Const because
+    /// painting and asking both need it and a cache is not part of what the panel is.
+    void syncFaults() const;
+
+    /// What hovering over a Faults widget adds: the lamps that are lit and each code in full.
+    [[nodiscard]] QStringList faultDetails() const;
+
+    /// The value the panel repaints a Faults widget for: the publication its rows are from and the
+    /// lamps, either of which moving is a different picture.
+    [[nodiscard]] std::uint64_t faultsToken() const;
+
     DashboardDescription& m_dashboard;
 
     /// A member, not a child: it has to go before the QQuickWidgets it made, which are children.
@@ -333,6 +376,20 @@ private:
 
     const SignalSeriesStore* m_plots{nullptr};
     SystemVariables* m_variables{nullptr};
+
+    const J1939Network* m_j1939{nullptr};
+    const J1939NameTables* m_j1939Names{nullptr};
+
+    /// The codes of the bus as the last publication had them, and as rows. Rebuilt by syncFaults()
+    /// when the publication moves, so that a repaint twenty times a second does not copy a table.
+    mutable std::vector<DashboardFault> m_faults;
+    mutable std::vector<FaultRow> m_faultRows;
+
+    /// The publication they are from, as the copy reported it.
+    mutable std::uint64_t m_faultsRevision{0};
+
+    /// False until they have been worked out for the network and the names now set.
+    mutable bool m_faultsFresh{false};
 
     SignalDictionary m_dictionary;
 

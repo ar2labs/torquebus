@@ -129,6 +129,32 @@ std::optional<J1939Diagnostic> j1939DecodeDiagnostic(std::uint32_t pgn,
     return result;
 }
 
+void j1939CollectActiveFaults(std::span<const J1939Diagnostic> diagnostics,
+                              std::uint64_t nowNs,
+                              std::vector<J1939ActiveFault>& out)
+{
+    out.clear();
+
+    for (const J1939Diagnostic& message : diagnostics) {
+        if (!j1939DiagnosticIsCurrent(message, nowNs)) {
+            continue;
+        }
+
+        for (const J1939Dtc& code : message.faults) {
+            out.push_back(J1939ActiveFault{message.sourceAddress, code, message.lamps});
+        }
+    }
+}
+
+std::vector<J1939ActiveFault> j1939ActiveFaults(std::span<const J1939Diagnostic> diagnostics,
+                                                std::uint64_t nowNs)
+{
+    std::vector<J1939ActiveFault> faults;
+    j1939CollectActiveFaults(diagnostics, nowNs, faults);
+
+    return faults;
+}
+
 std::string_view j1939FmiName(std::uint8_t fmi) noexcept
 {
     switch (fmi & 0x1FU) {

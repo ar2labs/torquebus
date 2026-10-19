@@ -13,7 +13,9 @@
 // the window is built whole, as the application builds it, and a project is opened the way a person
 // opens one.
 
+#include "core/can/CanEngine.h"
 #include "core/j1939/J1939NameTables.h"
+#include "core/j1939/J1939Network.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "core/transmit/TransmitList.h"
@@ -23,6 +25,8 @@
 #include "services/SettingsStore.h"
 #include "ui/dashboard/DashboardPanel.h"
 #include "ui/dashboard/DashboardWidgetEditor.h"
+#include "ui/dashboard/DashboardWidgetPainters.h"
+#include "ui/engine/CanEngineController.h"
 #include "ui/mainwindow/Docking.h"
 #include "ui/mainwindow/MainWindow.h"
 #include "ui/output/OutputPanel.h"
@@ -296,4 +300,61 @@ TEST_F(MainWindowDashboardTests, ThePicturesOfAProjectAreFoundRelativeToItAndAMi
     EXPECT_TRUE(said.contains(QStringLiteral("Dashboard widget 'gone'"))) << said.toStdString();
     EXPECT_TRUE(said.contains(QStringLiteral("pictures/gone.png")));
     EXPECT_FALSE(said.contains(QStringLiteral("Dashboard widget 'there'")));
+}
+
+TEST_F(MainWindowDashboardTests,
+       TheDashboardIsGivenTheBusItsEngineReportsOnAndTheNamesTheWindowKnows)
+{
+    // The wiring a panel's own tests cannot see: a fault list that lists what it is given is a
+    // fault list that lists nothing if the window never gives it the engine's network.
+    ProjectFolder folder;
+
+    DashboardDescription dashboard;
+    DashboardWidget faults = defaultWidgetOf(DashboardWidgetKind::Faults);
+    faults.id = "faults";
+    dashboard.add(faults);
+
+    (void)app().open(folder.write(dashboard, false));
+    app().showDashboard();
+
+    auto* controller = app().window->findChild<CanEngineController*>();
+    ASSERT_NE(controller, nullptr);
+
+    J1939Network& bus = controller->engine().j1939Network();
+    bus.clear();
+
+    EXPECT_TRUE(app().panel().faultRows().empty());
+
+    // The tables the window was built with, which name an ECU by the function of its NAME.
+    ASSERT_TRUE(app().names.load("function,0,Engine\n").succeeded());
+
+    J1939NetworkNode node;
+    node.address = 0U;
+    node.claimSeen = true;
+    node.name = J1939Name{};
+    node.name->function = 0U;
+
+    J1939ActiveFault fault;
+    fault.sourceAddress = 0U;
+    fault.code.spn = 100U;
+    fault.code.spnAssembled = true;
+    fault.code.fmi = 1U;
+    fault.code.occurrenceCount = 1U;
+    fault.lamps.redStop = J1939LampState::On;
+
+    // What the J1939 block publishes while a measurement runs, by the door it uses.
+    bus.publish({node}, {}, {}, {fault});
+
+    const std::vector<FaultRow> rows = app().panel().faultRows();
+
+    ASSERT_EQ(rows.size(), 1U);
+    EXPECT_EQ(rows[0].code.toStdString(), "SPN 100 / FMI 1");
+    EXPECT_EQ(rows[0].tone, DashboardTone::Danger);
+    EXPECT_EQ(rows[0].ecu.toStdString(), QStringLiteral("SA 0 · Engine").toStdString());
+
+    // The next Start clears the hand-over, and the list follows.
+    bus.clear();
+    app().names.clear();
+
+    EXPECT_TRUE(app().panel().faultRows().empty());
 }

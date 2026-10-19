@@ -36,6 +36,9 @@ local kSa = parameters.sa or 0x21
 local kTickMs = parameters.tick_ms or 50
 local kScenario = parameters.scenario or ""
 
+-- What this ECU is, as J1939-81 numbers it: function 26 is body control.
+local kFunction = 26
+
 local kDd1IntervalUs  = (parameters.dd1_interval_ms  or 1000) * 1000
 local kVep1IntervalUs = (parameters.vep1_interval_ms or 1000) * 1000
 local kLdIntervalUs   = (parameters.ld_interval_ms   or 1000) * 1000
@@ -92,6 +95,10 @@ end
 
 function on_enable()
     log_message(string.format("J1939 Body ECU (SA 0x%02X) active", kSa))
+
+    -- Power-up: say who this is (see ecu_engine.lua).
+    j1939_claim(kSa, kFunction, 0, nil, 1, false)
+
     last_tick_us = nil
     set_timer(kTickMs)
 end

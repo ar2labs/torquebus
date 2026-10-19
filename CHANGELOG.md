@@ -23,6 +23,32 @@ against what it does, which turned up more than expected.
 
 ### Added
 
+- **A fault list for the Dashboard.** A new **Faults** widget (*Add Faults*) lists the J1939 trouble codes of
+  the whole bus beside the instrument cluster: the four DM1 lamps - stop, warning, malfunction indicator,
+  protect - and under them one row for every active code, `SPN 100 / FMI 1`, with the failure mode in
+  words, how many times the ECU says it has occurred and which ECU reports it (its source address, and the
+  name of its function when the ECU claimed its address and the name tables know it). A row is tinted by the
+  lamps of the DM1 it arrived in - red for the stop lamp, amber for any other, plain for a message that
+  lit none - and the list is worst first, with *+ N more* when the box is too small. A healthy bus, a
+  stopped measurement and a graph with no J1939 block are one picture, an empty list that says *No active
+  faults*, and never an error. The lamps are the variables the cluster reads, so the two cannot disagree. The
+  codes cross from the engine's thread in the `J1939Network` hand-over the J1939 panel already reads: the
+  Dashboard is given a pointer to const, asks for its revision (an atomic load) every 50 ms and copies it only
+  when it moved. For that list to mean *now*, the J1939 block ages it as it ages the lamps - a DM1 that has
+  not been repeated for three seconds of bus time takes its codes off the list with its lamp, an ECU that
+  comes back puts them back, and Stop publishes the list empty while the J1939 panel still shows what each
+  ECU last said. The project format is unchanged: a `faults` widget is a kind, a place, a size and a title (an
+  older build refuses it, as it refuses any kind it lacks). `j1939-vehicle.tbsproj` has an *Active faults*
+  list under its trends; with `ecu_engine` on `low_oil_pressure` it shows `SPN 100 / FMI 1` from
+  `SA 0 · Engine` on a red row under the lit stop lamp, and `ExampleDashboardTests` runs exactly that. See
+  `docs/development/dashboard.md`.
+- **The J1939 example's Lua ECUs claim their addresses.** Engine, aftertreatment, body, brakes, switch panel
+  and cluster core each send an Address Claimed when they start, with a NAME whose function is what the
+  function table that ships calls them, so the J1939 Network panel shows them *claimed* and the fault list
+  says `SA 0 · Engine`. (The TinyML ECU does not, and says only its address.) The scripts' check against
+  `j1939.dbc` leaves Address Claimed - network management, not an application message - out of the PGNs a
+  database must describe, and a new test holds each script to claiming once, from its own address, with a NAME
+  of its own.
 - **The Dashboard is built from the databases, and has six new kinds of widget.** A signal dragged out of
   the DBC Explorer onto the Dashboard (Edit mode) becomes the widget it suits - a lamp for a two-state signal,
   a state chip for a value table, a bar for a percentage, a gauge for a declared range, a numeric for the
@@ -123,6 +149,24 @@ against what it does, which turned up more than expected.
   AddressSanitizer that is the useful way to run it.
 
 ### Fixed
+
+- **A J1939 bus that falls silent lets go of its lamps and its codes.** The block aged a DM1 against the
+  newest frame on the bus, which cannot see a bus on which nothing arrives at all - every ECU at once, an
+  adapter unplugged - so the instrument cluster's stop lamp and the fault list stayed lit until Stop. On a
+  pass with no frame (or only error and remote frames) it now asks the machine's clock how long the silence
+  has gone on, and nothing else: three seconds of it ages the bus as an ECU that stopped repeating its DM1
+  is aged, from where the bus's own clock stood. The two clocks are never compared, so a replayed log or a
+  device that stamps its own frames is not confused, and the clock is not read while nothing is reported.
+  The block's *Active faults* statistic counts what the bus is reporting now, not what each ECU last said.
+
+- **The J1939 Network panel says what is old.** The tree keeps each ECU's last DM1, which is what it is for
+  after a measurement ends - and went on calling it *active faults* and counting it. A DM1 whose ECU is not
+  reporting any more (it went quiet, or the measurement stopped) is now *last reported*, with a tooltip, and
+  the summary counts only what the bus is reporting now: *no active faults, 2 reported earlier*.
+
+- **`J1939Network::snapshot()` reports the revision its contents are from.** The revision was read after the
+  lock was released, so a copy could carry a newer revision than its contents and a panel that remembered it
+  would not ask again; the revision is now moved and read under the one lock a publication is made under.
 
 - **The Transmit panel's Send button looked dead.** With no measurement running, Send queued the frame
   silently and the queue was dropped at the next Start; and even while running, a manual send never

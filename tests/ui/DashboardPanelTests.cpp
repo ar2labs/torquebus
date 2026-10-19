@@ -10,6 +10,7 @@
 // panel reads for itself - and not through the methods the drop calls, because a drop that is
 // accepted and does nothing is the failure this has to catch.
 
+#include "core/can/CanEngine.h"
 #include "core/dashboard/DashboardAssets.h"
 #include "core/dashboard/DashboardDescription.h"
 #include "core/dashboard/SignalDictionary.h"
@@ -17,25 +18,40 @@
 #include "core/database/CanMessage.h"
 #include "core/database/DbcParser.h"
 #include "core/database/DecodedSignal.h"
+#include "core/j1939/J1939NameTables.h"
+#include "core/j1939/J1939Network.h"
+#include "core/pipeline/GraphDescription.h"
+#include "core/pipeline/NodeCatalog.h"
 #include "core/plot/SignalSeries.h"
+#include "core/transmit/TransmitList.h"
+#include "drivers/virtual/VirtualCanBackend.h"
+#include "services/ProjectFile.h"
 #include "ui/dashboard/DashboardPanel.h"
+#include "ui/dashboard/DashboardWidgetPainters.h"
 #include "ui/dashboard/SignalMime.h"
 #include "ui/theme/Theme.h"
 #include "ui/theme/ThemeManager.h"
 
 #include <gtest/gtest.h>
 
+#include <QAction>
 #include <QApplication>
+#include <QContextMenuEvent>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QElapsedTimer>
+#include <QFileInfo>
 #include <QImage>
 #include <QKeyEvent>
+#include <QMenu>
 #include <QMimeData>
 #include <QSignalBlocker>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QUrl>
 
+#include <cmath>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
@@ -913,7 +929,8 @@ TEST(DashboardPanelTests, EveryKindOfWidgetPaintsInBothModesWithAndWithoutAValue
                                            DashboardWidgetKind::Image,
                                            DashboardWidgetKind::Trend,
                                            DashboardWidgetKind::Table,
-                                           DashboardWidgetKind::Group}) {
+                                           DashboardWidgetKind::Group,
+                                           DashboardWidgetKind::Faults}) {
         DashboardWidget widget = defaultWidgetOf(kind);
         widget.id = std::string{nameOf(kind)};
         widget.x = 10.0 + 130.0 * (row % 6);
@@ -1000,4 +1017,549 @@ TEST(DashboardPanelTests, AnEmptyDashboardSaysHowToStartInEachMode)
 
     EXPECT_FALSE(run.isNull());
     EXPECT_NE(run, edit);
+}
+
+// ---------------------------------------------------------------------------
+// A fault list
+// ---------------------------------------------------------------------------
+//
+// A Faults widget is bound to nothing: it lists what the J1939 block says the bus is reporting.
+// These tests give the panel a network of their own and publish into it what the block would - a
+// fake snapshot, but through the one door the engine's thread uses - and look at the rows, the
+// lamps and the picture.
+
+namespace {
+
+constexpr J1939LampState kOff = J1939LampState::Off;
+constexpr J1939LampState kOn = J1939LampState::On;
+
+[[nodiscard]] J1939ActiveFault activeFault(std::uint8_t source,
+                                           std::uint32_t spn,
+                                           std::uint8_t fmi,
+                                           std::uint8_t count,
+                                           J1939LampState stop,
+                                           J1939LampState warning = kOff)
+{
+    J1939ActiveFault fault;
+    fault.sourceAddress = source;
+    fault.code.spn = spn;
+    fault.code.spnAssembled = true;
+    fault.code.fmi = fmi;
+    fault.code.occurrenceCount = count;
+    fault.lamps.redStop = stop;
+    fault.lamps.amberWarning = warning;
+    return fault;
+}
+
+/// An ECU that claimed `address` with a NAME whose function is `function`.
+[[nodiscard]] J1939NetworkNode claimedNode(std::uint8_t address, std::uint8_t function)
+{
+    J1939NetworkNode node;
+    node.address = address;
+    node.claimSeen = true;
+    node.trafficSeen = true;
+    node.name = J1939Name{};
+    node.name->function = function;
+    return node;
+}
+
+constexpr const char* kLampStop = "j1939.lamp_stop";
+constexpr const char* kLampWarning = "j1939.lamp_warning";
+constexpr const char* kLampMil = "j1939.lamp_mil";
+constexpr const char* kLampProtect = "j1939.lamp_protect";
+
+/// A panel with one fault list on it, wired to a network and to variables of its own.
+struct FaultBench final {
+    DashboardDescription dashboard;
+    J1939Network network;
+    J1939NameTables names;
+    SystemVariables variables;
+    DashboardPanel panel{dashboard};
+
+    static constexpr QRectF kBox{10.0, 10.0, 320.0, 260.0};
+
+    FaultBench()
+    {
+        DashboardWidget faults = defaultWidgetOf(DashboardWidgetKind::Faults);
+        faults.id = "faults";
+        faults.x = kBox.x();
+        faults.y = kBox.y();
+        faults.width = kBox.width();
+        faults.height = kBox.height();
+        dashboard.add(faults);
+
+        panel.setJ1939Network(&network);
+        panel.setJ1939Names(&names);
+        panel.setVariables(&variables);
+        panel.resize(360, 300);
+    }
+
+    /// The panel as it is drawn now.
+    [[nodiscard]] QImage drawn()
+    {
+        settle();
+        return panel.grab().toImage();
+    }
+
+    /// Whether the pixel at `point` of what is drawn is `colour`, give or take a little.
+    [[nodiscard]] bool isDrawnAs(const QPointF& point, const QColor& colour, int tolerance = 3)
+    {
+        const QColor actual = drawn().pixelColor(point.toPoint());
+
+        return std::abs(actual.red() - colour.red()) <= tolerance
+               && std::abs(actual.green() - colour.green()) <= tolerance
+               && std::abs(actual.blue() - colour.blue()) <= tolerance;
+    }
+
+    [[nodiscard]] QPointF barOfRow(int row) const
+    {
+        const QRectF line = faultRowRect(kBox, row);
+        return QPointF{line.left() + 3.5, line.center().y()};
+    }
+
+    [[nodiscard]] QPointF lampBulb(int lamp) const { return faultLampRect(kBox, lamp).center(); }
+};
+
+} // namespace
+
+TEST(DashboardPanelTests, AFaultListShowsWhatTheBusReportsWorstFirstInTheWordsOfATechnician)
+{
+    FaultBench bench;
+    ASSERT_TRUE(bench.names.load("function,0,Engine\n").succeeded());
+
+    // The engine claimed its address and the tables know what that NAME is; the gearbox's ECU
+    // never claimed one. The amber code is the engine's, and it arrives first.
+    bench.network.publish(
+        {claimedNode(0U, 0U)},
+        {},
+        {},
+        {activeFault(0U, 100U, 1U, 3U, kOff, kOn), activeFault(3U, 4096U, 4U, 1U, kOn)});
+
+    const std::vector<FaultRow> rows = bench.panel.faultRows();
+    ASSERT_EQ(rows.size(), 2U);
+
+    // Worst first: the code under the red stop lamp, whichever ECU it came from.
+    EXPECT_EQ(rows[0].code.toStdString(), "SPN 4096 / FMI 4");
+    EXPECT_EQ(rows[0].meaning.toStdString(), "Voltage below normal, or shorted to low source");
+    EXPECT_EQ(rows[0].count.toStdString(), QStringLiteral("×1").toStdString());
+    EXPECT_EQ(rows[0].ecu.toStdString(), "SA 3");
+    EXPECT_EQ(rows[0].tone, DashboardTone::Danger);
+
+    // Then the amber one, with the engine's name after its address.
+    EXPECT_EQ(rows[1].code.toStdString(), "SPN 100 / FMI 1");
+    EXPECT_EQ(rows[1].meaning.toStdString(),
+              "Data valid but below normal operational range - most severe level");
+    EXPECT_EQ(rows[1].count.toStdString(), QStringLiteral("×3").toStdString());
+    EXPECT_EQ(rows[1].ecu.toStdString(), QStringLiteral("SA 0 · Engine").toStdString());
+    EXPECT_EQ(rows[1].tone, DashboardTone::Warning);
+}
+
+TEST(DashboardPanelTests, ACodeWhoseSpnWasNotAssembledIsAQuestionMarkAndTheBytesAreOnHover)
+{
+    FaultBench bench;
+
+    // A legacy packing nobody declared: the block did not guess a number that would look like an
+    // SPN.
+    J1939ActiveFault legacy = activeFault(0U, 0U, 3U, 5U, kOn);
+    legacy.code.spnAssembled = false;
+    legacy.code.conversionMethod = true;
+    legacy.code.raw = {0x64U, 0x00U, 0x23U, 0x85U};
+
+    bench.network.publish({}, {}, {}, {legacy});
+
+    const std::vector<FaultRow> rows = bench.panel.faultRows();
+    ASSERT_EQ(rows.size(), 1U);
+    EXPECT_EQ(rows[0].code.toStdString(), "SPN ? / FMI 3");
+
+    // Hovering gives the four bytes that were on the wire, which somebody who knows the ECU reads.
+    const QString hover = bench.panel.detailsAt(QPoint{40, 40});
+    EXPECT_TRUE(hover.contains(QStringLiteral("64 00 23 85"))) << hover.toStdString();
+}
+
+TEST(DashboardPanelTests, AnOccurrenceCountAtTheTopOfItsFieldMeansAtLeastThatMany)
+{
+    FaultBench bench;
+
+    bench.network.publish({}, {}, {}, {activeFault(0U, 100U, 1U, 127U, kOn)});
+
+    const std::vector<FaultRow> rows = bench.panel.faultRows();
+
+    ASSERT_EQ(rows.size(), 1U);
+    EXPECT_EQ(rows[0].count.toStdString(), QStringLiteral("×127+").toStdString());
+}
+
+TEST(DashboardPanelTests, WithNoMeasurementNoBlockOrAStoppedBusTheListIsEmptyAndNothingIsAnError)
+{
+    FaultBench bench;
+
+    // Nothing published yet: a measurement that has not started.
+    EXPECT_TRUE(bench.panel.faultRows().empty());
+    EXPECT_EQ(bench.panel.faultLamps(), FaultLamps{});
+    EXPECT_FALSE(bench.drawn().isNull());
+
+    // A bus with a fault on it...
+    bench.network.publish({}, {}, {}, {activeFault(0U, 100U, 1U, 1U, kOn)});
+    ASSERT_EQ(bench.panel.faultRows().size(), 1U);
+
+    // ... until the measurement ends: the block publishes an empty list, and the panel follows.
+    bench.network.publish({}, {}, {}, {});
+    EXPECT_TRUE(bench.panel.faultRows().empty());
+
+    // And the next Start clears the hand-over before anything is published into it.
+    bench.network.publish({}, {}, {}, {activeFault(0U, 100U, 1U, 1U, kOn)});
+    ASSERT_EQ(bench.panel.faultRows().size(), 1U);
+
+    bench.network.clear();
+    EXPECT_TRUE(bench.panel.faultRows().empty());
+
+    // A graph with no J1939 block, or a panel that was never given a network: the same picture.
+    bench.network.publish({}, {}, {}, {activeFault(0U, 100U, 1U, 1U, kOn)});
+    bench.panel.setJ1939Network(nullptr);
+
+    EXPECT_TRUE(bench.panel.faultRows().empty());
+    EXPECT_FALSE(bench.drawn().isNull());
+
+    // Given it again, the panel catches up with what is there.
+    bench.panel.setJ1939Network(&bench.network);
+    EXPECT_EQ(bench.panel.faultRows().size(), 1U);
+
+    // Hovering over an empty list says what it is.
+    bench.network.publish({}, {}, {}, {});
+    EXPECT_TRUE(bench.panel.detailsAt(QPoint{40, 40}).contains(QStringLiteral("No active faults")));
+}
+
+TEST(DashboardPanelTests, TheLampsOfAFaultListAreTheVariablesTheClusterReads)
+{
+    FaultBench bench;
+
+    EXPECT_EQ(bench.panel.faultLamps(), FaultLamps{});
+
+    bench.variables.set(kLampStop, 1.0);
+    EXPECT_TRUE(bench.panel.faultLamps().stop);
+    EXPECT_FALSE(bench.panel.faultLamps().warning);
+
+    bench.variables.set(kLampWarning, 1.0);
+    bench.variables.set(kLampMil, 1.0);
+    bench.variables.set(kLampProtect, 1.0);
+
+    const FaultLamps all = bench.panel.faultLamps();
+    EXPECT_TRUE(all.stop && all.warning && all.malfunction && all.protect);
+
+    // The J1939 block writes one or zero. Anything under a half is dark, and "not a number" is not
+    // a lit lamp.
+    bench.variables.set(kLampStop, 0.0);
+    bench.variables.set(kLampWarning, std::nan(""));
+    bench.variables.set(kLampMil, 0.49);
+
+    const FaultLamps off = bench.panel.faultLamps();
+    EXPECT_FALSE(off.stop || off.warning || off.malfunction);
+    EXPECT_TRUE(off.protect);
+
+    // A panel with no variables at all has four dark lamps.
+    bench.panel.setVariables(nullptr);
+    EXPECT_EQ(bench.panel.faultLamps(), FaultLamps{});
+}
+
+TEST(DashboardPanelTests, AFaultListIsDrawnFromWhatIsPublishedAndFromTheLamps)
+{
+    FaultBench bench;
+    const Theme theme = panelTheme();
+
+    // The box is on the canvas, and with nothing reported its lamps are the dark ones.
+    EXPECT_FALSE(bench.isDrawnAs(bench.lampBulb(0), theme.lampRed, 1));
+    EXPECT_FALSE(bench.isDrawnAs(bench.barOfRow(0), theme.lampRed, 2));
+
+    // A code, and the lamp that goes with it.
+    bench.network.publish({}, {}, {}, {activeFault(0U, 100U, 1U, 1U, kOn)});
+    bench.variables.set(kLampStop, 1.0);
+
+    EXPECT_TRUE(bench.isDrawnAs(bench.barOfRow(0), theme.lampRed, 2));
+    EXPECT_TRUE(bench.isDrawnAs(bench.lampBulb(0), theme.lampRed, 1));
+
+    // Its amber neighbour is not lit.
+    EXPECT_FALSE(bench.isDrawnAs(bench.lampBulb(1), theme.lampAmber, 10));
+
+    // The bus quietens: the row goes, and so does the lamp.
+    bench.network.publish({}, {}, {}, {});
+    bench.variables.set(kLampStop, 0.0);
+
+    EXPECT_FALSE(bench.isDrawnAs(bench.barOfRow(0), theme.lampRed, 2));
+    EXPECT_FALSE(bench.isDrawnAs(bench.lampBulb(0), theme.lampRed, 1));
+}
+
+namespace {
+
+/// Counts the paint events a widget gets.
+class PaintCounter final : public QObject {
+public:
+    explicit PaintCounter(QObject* watched) { watched->installEventFilter(this); }
+
+    [[nodiscard]] int count() const noexcept { return m_count; }
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override
+    {
+        if (event->type() == QEvent::Paint) {
+            ++m_count;
+        }
+
+        return QObject::eventFilter(watched, event);
+    }
+
+private:
+    int m_count{0};
+};
+
+} // namespace
+
+TEST(DashboardPanelTests, AFaultListIsRepaintedWhenTheBusPublishesOrALampMovesAndOtherwiseLeftAlone)
+{
+    // grab() paints whatever is asked, so it cannot say whether the panel noticed a change by
+    // itself. The paint events a shown panel receives can: it repaints from its own timer, when the
+    // revision of the network or a lamp has moved, and not twenty times a second for a bus that is
+    // steady.
+    FaultBench bench;
+    bench.panel.show();
+    settle();
+
+    PaintCounter paints{&bench.panel};
+
+    const auto letItSettle = [](int milliseconds) {
+        QElapsedTimer clock;
+        clock.start();
+
+        while (clock.elapsed() < milliseconds) {
+            QApplication::processEvents(QEventLoop::AllEvents, 20);
+        }
+    };
+
+    // Let the first repaints that showing it causes go by, then watch a steady bus.
+    letItSettle(300);
+    int baseline = paints.count();
+
+    letItSettle(400);
+
+    // At most one stray - a window system may still owe the first show a paint on a loaded machine
+    // - where repainting at the timer's 20 Hz would be eight in this time.
+    EXPECT_LE(paints.count() - baseline, 1) << "a steady bus is repainted";
+
+    // A publication, and the panel repaints by itself. The baseline is taken again so that a stray
+    // above cannot be what the wait is satisfied by.
+    baseline = paints.count();
+    bench.network.publish({}, {}, {}, {activeFault(0U, 100U, 1U, 1U, kOn)});
+    ASSERT_TRUE(waitFor([&] { return paints.count() > baseline; }));
+
+    // And a lamp moving on its own, with the network untouched.
+    letItSettle(300);
+    baseline = paints.count();
+
+    bench.variables.set(kLampProtect, 1.0);
+    ASSERT_TRUE(waitFor([&] { return paints.count() > baseline; }));
+}
+
+TEST(DashboardPanelTests, HoveringAFaultListNamesTheLampsThatAreLitAndEveryCodeInFull)
+{
+    FaultBench bench;
+
+    std::vector<J1939ActiveFault> faults;
+
+    for (std::uint32_t spn = 100U; spn < 110U; ++spn) {
+        faults.push_back(activeFault(0U, spn, 2U, 1U, kOn));
+    }
+
+    bench.network.publish({}, {}, {}, faults);
+    bench.variables.set(kLampStop, 1.0);
+    bench.variables.set(kLampMil, 1.0);
+
+    const QString hover = bench.panel.detailsAt(QPoint{40, 40});
+
+    EXPECT_TRUE(hover.contains(QStringLiteral("Faults"))) << hover.toStdString();
+    EXPECT_TRUE(hover.contains(QStringLiteral("Lamps lit: stop, malfunction indicator")))
+        << hover.toStdString();
+
+    // The first few in full, with what is wrong in words; the rest counted. A tooltip is not a
+    // report.
+    EXPECT_TRUE(hover.contains(QStringLiteral("SPN 100 / FMI 2")));
+    EXPECT_TRUE(hover.contains(QStringLiteral("Data erratic, intermittent or incorrect")));
+    EXPECT_FALSE(hover.contains(QStringLiteral("SPN 109 / FMI 2")));
+    EXPECT_TRUE(hover.contains(QStringLiteral("+ 4 more"))) << hover.toStdString();
+
+    // Over nothing there is nothing to say.
+    EXPECT_TRUE(bench.panel.detailsAt(QPoint{600, 290}).isEmpty());
+}
+
+TEST(DashboardPanelTests, TheContextMenuOffersAFaultListAndAddsOneWhereItWasAsked)
+{
+    DashboardDescription dashboard;
+    DashboardPanel panel{dashboard};
+    panel.resize(600, 400);
+    panel.setEditing(true);
+    panel.show();
+    settle();
+
+    bool offered = false;
+
+    // The menu runs an event loop of its own, so it is found and answered from inside it - the way
+    // a hand would - and a watchdog closes it if it is never found, so that a failure fails and
+    // does not hang.
+    std::function<void()> choose;
+    int attempts = 0;
+
+    choose = [&] {
+        auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+
+        if (menu == nullptr) {
+            if (++attempts < 100) {
+                QTimer::singleShot(20, choose);
+            }
+
+            return;
+        }
+
+        for (QAction* action : menu->actions()) {
+            if (action->text() == QStringLiteral("Add Faults")) {
+                offered = true;
+                action->trigger();
+                break;
+            }
+        }
+
+        menu->close();
+    };
+
+    QTimer::singleShot(20, choose);
+    QTimer::singleShot(4000, [] {
+        if (QWidget* popup = QApplication::activePopupWidget(); popup != nullptr) {
+            popup->close();
+        }
+    });
+
+    QContextMenuEvent event{
+        QContextMenuEvent::Mouse, QPoint{100, 80}, panel.mapToGlobal(QPoint{100, 80})};
+    QApplication::sendEvent(&panel, &event);
+
+    ASSERT_TRUE(offered);
+    ASSERT_EQ(dashboard.widgets().size(), 1U);
+
+    const DashboardWidget& added = dashboard.widgets().front();
+
+    EXPECT_EQ(added.kind, DashboardWidgetKind::Faults);
+    EXPECT_EQ(added.id, "faults");
+    EXPECT_DOUBLE_EQ(added.x, 100.0);
+    EXPECT_DOUBLE_EQ(added.y, 80.0);
+    EXPECT_EQ(added.title, "Faults");
+    EXPECT_EQ(panel.selectedId(), "faults");
+    EXPECT_TRUE(dashboard.validate().succeeded());
+}
+
+TEST(DashboardPanelTests, TheJ1939ExampleListsItsEnginesOilPressureFaultAndEmptiesAtStop)
+{
+    // All the way: the project's own pipeline on the engine, the project's own dashboard on the
+    // panel, and a panel that is given the engine's network and variables as the window gives them.
+    // Nothing between them is replaced.
+    const QString path = QStringLiteral(TORQUEBUS_EXAMPLE_PROJECT_DIR "/j1939-vehicle.tbsproj");
+
+    GraphDescription pipeline;
+    TransmitList transmit;
+    DashboardDescription dashboard;
+
+    const Result opened = services::ProjectFile::load(path, pipeline, transmit, dashboard);
+    ASSERT_TRUE(opened.succeeded()) << std::string{opened.message()};
+
+    // Without the cluster, which is QML and has tests of its own.
+    dashboard.remove("cluster");
+
+    const DashboardWidget* list = nullptr;
+
+    for (const DashboardWidget& widget : dashboard.widgets()) {
+        if (widget.kind == DashboardWidgetKind::Faults) {
+            list = &widget;
+        }
+    }
+
+    ASSERT_NE(list, nullptr);
+    const QRectF box{list->x, list->y, list->width, list->height};
+
+    for (NodeDescription& node : pipeline.nodes()) {
+        if (node.id == "ecu_engine") {
+            node.parameters.set("scenario", ParameterValue::fromText("low_oil_pressure"));
+        }
+    }
+
+    CanEngine engine;
+    CanChannelConfig config;
+    config.deviceHandle = "virtual:0";
+    config.timing.bitrate = 500'000;
+    ASSERT_TRUE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
+
+    engine.setGraphDescription(
+        pipeline, NodeCatalog::withBuiltinTypes(), QFileInfo{path}.absolutePath().toStdString());
+    ASSERT_TRUE(engine.start().succeeded());
+
+    // The function table that ships with the program: the ECUs of the example claim their addresses
+    // when they start, and this is what turns a NAME into a word.
+    J1939NameTables names;
+    ASSERT_TRUE(
+        names.loadFile(std::filesystem::path{TORQUEBUS_DATA_DIR} / "j1939-names-functions.csv")
+            .succeeded());
+
+    DashboardPanel panel{dashboard};
+    panel.setPlotStore(&engine.plotStore());
+    panel.setVariables(&engine.variables());
+    panel.setJ1939Network(&engine.j1939Network());
+    panel.setJ1939Names(&names);
+    panel.resize(1100, 800);
+    panel.show();
+
+    // The engine sends its DM1 once a second, and the block hands it over when it arrives.
+    const bool listed = waitFor(
+        [&] {
+            const std::vector<FaultRow> rows = panel.faultRows();
+            return !rows.empty() && rows.front().code == QStringLiteral("SPN 100 / FMI 1");
+        },
+        8000);
+
+    EXPECT_TRUE(listed);
+
+    if (listed) {
+        const std::vector<FaultRow> rows = panel.faultRows();
+
+        EXPECT_EQ(rows.front().meaning.toStdString(),
+                  "Data valid but below normal operational range - most severe level");
+        EXPECT_EQ(rows.front().tone, DashboardTone::Danger);
+
+        // From the engine, which claimed its address when it started: its function is what the
+        // table calls "Engine".
+        EXPECT_EQ(rows.front().ecu.toStdString(), QStringLiteral("SA 0 · Engine").toStdString());
+
+        // The red stop lamp is the cluster's, and it is lit on the list too.
+        EXPECT_TRUE(panel.faultLamps().stop);
+
+        // On the screen: the row's bar in the colour of the lamp, and the lamp itself.
+        const Theme theme = panelTheme();
+
+        ASSERT_TRUE(waitFor(
+            [&] {
+                settle();
+                const QImage image = panel.grab().toImage();
+                const QRectF line = faultRowRect(box, 0);
+                const QPointF bar{line.left() + 3.5, line.center().y()};
+                const QPointF lamp = faultLampRect(box, 0).center();
+
+                const auto is = [&](const QPointF& point, const QColor& colour) {
+                    const QColor actual = image.pixelColor(point.toPoint());
+                    return std::abs(actual.red() - colour.red()) <= 3
+                           && std::abs(actual.green() - colour.green()) <= 3
+                           && std::abs(actual.blue() - colour.blue()) <= 3;
+                };
+
+                return is(bar, theme.lampRed) && is(lamp, theme.lampRed);
+            },
+            4000));
+    }
+
+    // The measurement stops: the list empties, and the lamp goes out with it.
+    engine.stop();
+
+    EXPECT_TRUE(waitFor([&] { return panel.faultRows().empty() && !panel.faultLamps().stop; }));
 }

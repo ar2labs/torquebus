@@ -121,7 +121,9 @@ Four of those are decisions, and each is the answer to something that did not wo
   series `DM1.RedStopLamp` - and a red lamp showed for the few milliseconds each second between the engine's
   message and the next one. The J1939 block knows which ECU said what, and writes the OR of the lamps of
   every ECU whose DM1 is still current (three seconds) to the four variables above. A DM2 is what *was*
-  wrong and lights nothing; Stop puts them out. The variables are the bus's, not a block's: a pipeline with
+  wrong and lights nothing; Stop puts them out. The Dashboard's **Faults** widget lists the codes behind
+  these lamps and reads the same four variables, so the two cannot disagree (`dashboard.md`, *The fault
+  list*). The variables are the bus's, not a block's: a pipeline with
   J1939 blocks on two channels has two writers for one lamp, and the last to run wins - one block per
   cluster.
 - **The engine lamp has no source of its own.** It is the DM1's malfunction indicator, which is `dmMil`, and
