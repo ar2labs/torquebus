@@ -56,7 +56,8 @@ namespace torquebus::ui {
 [[nodiscard]] QString faultCountText(const J1939Dtc& code);
 
 /// Which ECU: "SA 0", and after it - a middle dot and the name of its function - when the name
-/// tables know one.
+/// tables know one; and in front of it the bus, "CAN 2 · SA 0 · Engine", when the measurement has
+/// more than one J1939 bus.
 [[nodiscard]] QString faultEcuText(const DashboardFault& fault);
 
 /// Everything the widget knows of one code, over a few lines, for a tooltip.

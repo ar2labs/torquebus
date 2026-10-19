@@ -80,6 +80,15 @@ fault(std::uint8_t source, std::uint32_t spn, std::uint8_t fmi, const J1939Lamps
 
 constexpr int kNoClaim = -1;
 
+/// What one J1939 block hands over: the one bus it reads.
+[[nodiscard]] J1939NetworkSnapshot oneBus(J1939BusView bus)
+{
+    J1939NetworkSnapshot snapshot;
+    snapshot.published = true;
+    snapshot.buses.push_back(std::move(bus));
+    return snapshot;
+}
+
 } // namespace
 
 TEST(DashboardFaultsTests, TheStopLampMakesItsCodesDangerAndAnyOtherLitLampAttention)
@@ -112,10 +121,10 @@ TEST(DashboardFaultsTests, ACodeUnderDarkLampsHasNoOpinionAndIsNotDrawnAsAlarm)
 
 TEST(DashboardFaultsTests, TheWorstCodesComeFirstAndTheRestKeepTheOrderTheBusGaveThem)
 {
-    J1939NetworkSnapshot snapshot;
+    J1939BusView bus;
 
     // As the block hands them over: address ascending.
-    snapshot.activeFaults = {
+    bus.activeFaults = {
         fault(0x00U, 1U, 1U, lamps(kOff, kOn)),
         fault(0x03U, 2U, 2U, lamps(kOff)),
         fault(0x0BU, 3U, 3U, lamps(kOn)),
@@ -124,7 +133,7 @@ TEST(DashboardFaultsTests, TheWorstCodesComeFirstAndTheRestKeepTheOrderTheBusGav
         fault(0x21U, 6U, 6U, J1939Lamps{}),
     };
 
-    const std::vector<DashboardFault> faults = dashboardFaultsOf(snapshot, nullptr);
+    const std::vector<DashboardFault> faults = dashboardFaultsOf(oneBus(bus), nullptr);
 
     ASSERT_EQ(faults.size(), 6U);
 
@@ -143,19 +152,19 @@ TEST(DashboardFaultsTests, TheWorstCodesComeFirstAndTheRestKeepTheOrderTheBusGav
     EXPECT_EQ(faults[4].tone, DashboardTone::Neutral);
     EXPECT_EQ(faults[5].tone, DashboardTone::Neutral);
 
-    // Where each came from goes with it.
+    // Where each came from goes with it - and with one bus, which bus is not said.
     EXPECT_EQ(faults[0].sourceAddress, 0x0BU);
     EXPECT_EQ(faults[1].sourceAddress, 0x17U);
+    EXPECT_FALSE(faults[0].channel.has_value());
 }
 
 TEST(DashboardFaultsTests, TwoCodesOfOneMessageAreAsBadAsEachOtherBecauseALampBelongsToTheMessage)
 {
     // The standard has no way to say that one of the two is the reason the lamp is lit.
-    J1939NetworkSnapshot snapshot;
-    snapshot.activeFaults = {fault(0x00U, 100U, 1U, lamps(kOn)),
-                             fault(0x00U, 110U, 0U, lamps(kOn))};
+    J1939BusView bus;
+    bus.activeFaults = {fault(0x00U, 100U, 1U, lamps(kOn)), fault(0x00U, 110U, 0U, lamps(kOn))};
 
-    const std::vector<DashboardFault> faults = dashboardFaultsOf(snapshot, nullptr);
+    const std::vector<DashboardFault> faults = dashboardFaultsOf(oneBus(bus), nullptr);
 
     ASSERT_EQ(faults.size(), 2U);
     EXPECT_EQ(faults[0].tone, faults[1].tone);
@@ -168,22 +177,22 @@ TEST(DashboardFaultsTests, AnEcuIsNamedByTheFunctionOfTheNameItClaimedWhenTheTab
     J1939NameTables tables;
     ASSERT_TRUE(tables.load("function,0,Engine\nfunction,3,Transmission\n").succeeded());
 
-    J1939NetworkSnapshot snapshot;
+    J1939BusView bus;
 
     // The engine and the gearbox claimed their addresses and the tables know what they are. The
     // brakes claimed one with a function the tables do not list, and the body controller did not
     // claim at all - it is an address, and an address is all that is known.
-    snapshot.nodes = {
-        nodeAt(0x00U, 0U), nodeAt(0x03U, 3U), nodeAt(0x0BU, 99U), nodeAt(0x21U, kNoClaim)};
+    bus.nodes = {nodeAt(0x00U, 0U), nodeAt(0x03U, 3U), nodeAt(0x0BU, 99U), nodeAt(0x21U, kNoClaim)};
 
-    snapshot.activeFaults = {fault(0x00U, 1U, 1U, lamps(kOn)),
-                             fault(0x03U, 2U, 1U, lamps(kOn)),
-                             fault(0x0BU, 3U, 1U, lamps(kOn)),
-                             fault(0x21U, 4U, 1U, lamps(kOn)),
+    bus.activeFaults = {fault(0x00U, 1U, 1U, lamps(kOn)),
+                        fault(0x03U, 2U, 1U, lamps(kOn)),
+                        fault(0x0BU, 3U, 1U, lamps(kOn)),
+                        fault(0x21U, 4U, 1U, lamps(kOn)),
 
-                             // An address no node was seen at at all.
-                             fault(0x37U, 5U, 1U, lamps(kOn))};
+                        // An address no node was seen at at all.
+                        fault(0x37U, 5U, 1U, lamps(kOn))};
 
+    const J1939NetworkSnapshot snapshot = oneBus(bus);
     const std::vector<DashboardFault> faults = dashboardFaultsOf(snapshot, &tables);
 
     ASSERT_EQ(faults.size(), 5U);
@@ -219,19 +228,87 @@ TEST(DashboardFaultsTests, TheDiagnosticsAnEcuLastSaidAreNotTheCodesTheBusIsRepo
     // The snapshot keeps what each ECU last said, for the panel that reads them afterwards. The
     // list is built from what is being reported now, which is not the same thing: a stopped
     // measurement has the first and not the second.
-    J1939NetworkSnapshot snapshot;
-    snapshot.published = true;
-    snapshot.nodes = {nodeAt(0x00U, 0U)};
+    J1939BusView bus;
+    bus.nodes = {nodeAt(0x00U, 0U)};
 
     J1939Diagnostic said;
     said.active = true;
     said.sourceAddress = 0x00U;
     said.lamps = lamps(kOn);
     said.faults = {fault(0x00U, 100U, 1U, lamps(kOn)).code};
-    snapshot.diagnostics = {said};
+    bus.diagnostics = {said};
 
-    EXPECT_TRUE(dashboardFaultsOf(snapshot, nullptr).empty());
+    EXPECT_TRUE(dashboardFaultsOf(oneBus(bus), nullptr).empty());
     EXPECT_TRUE(dashboardFaultsOf(J1939NetworkSnapshot{}, nullptr).empty());
+}
+
+TEST(DashboardFaultsTests, WithTwoBusesTheListIsBothAndEachRowSaysWhichBusItIsOn)
+{
+    // A truck's powertrain on CAN 1 and its body on CAN 2, a J1939 block on each. Address 0 is the
+    // engine on one and something else entirely on the other: an address is a seat on one bus, and
+    // each ECU is named from the claims of its own.
+    J1939NameTables tables;
+    ASSERT_TRUE(tables.load("function,0,Engine\nfunction,26,Body Control\n").succeeded());
+
+    J1939BusView powertrain;
+    powertrain.channel = 0U;
+    powertrain.nodes = {nodeAt(0x00U, 0U)};
+    powertrain.activeFaults = {fault(0x00U, 100U, 1U, lamps(kOff, kOn))};
+
+    J1939BusView body;
+    body.channel = 1U;
+    body.nodes = {nodeAt(0x00U, 26U), nodeAt(0x21U, kNoClaim)};
+    body.activeFaults = {fault(0x00U, 3509U, 4U, lamps(kOff)), fault(0x21U, 168U, 1U, lamps(kOn))};
+
+    J1939NetworkSnapshot snapshot;
+    snapshot.published = true;
+    snapshot.buses = {powertrain, body};
+
+    const std::vector<DashboardFault> faults = dashboardFaultsOf(snapshot, &tables);
+    ASSERT_EQ(faults.size(), 3U);
+
+    // Worst first across both buses: the body's red stop lamp, the engine's amber, the body's dark.
+    EXPECT_EQ(faults[0].code.spn, 168U);
+    ASSERT_TRUE(faults[0].channel.has_value());
+    EXPECT_EQ(*faults[0].channel, 1U);
+    EXPECT_FALSE(faults[0].ecu.has_value());
+
+    EXPECT_EQ(faults[1].code.spn, 100U);
+    ASSERT_TRUE(faults[1].channel.has_value());
+    EXPECT_EQ(*faults[1].channel, 0U);
+    ASSERT_TRUE(faults[1].ecu.has_value());
+    EXPECT_EQ(*faults[1].ecu, "Engine");
+
+    // The same address on the other bus, and the name its own bus gave it.
+    EXPECT_EQ(faults[2].code.spn, 3509U);
+    EXPECT_EQ(faults[2].sourceAddress, 0x00U);
+    ASSERT_TRUE(faults[2].channel.has_value());
+    EXPECT_EQ(*faults[2].channel, 1U);
+    ASSERT_TRUE(faults[2].ecu.has_value());
+    EXPECT_EQ(*faults[2].ecu, "Body Control");
+}
+
+TEST(DashboardFaultsTests, CodesOfOneRankKeepTheOrderOfTheBusesTheyCameFrom)
+{
+    // Bus by bus in channel order, and within a bus in address order: the list does not shuffle.
+    J1939BusView first;
+    first.channel = 0U;
+    first.activeFaults = {fault(0x05U, 1U, 1U, lamps(kOn)), fault(0x07U, 2U, 1U, lamps(kOn))};
+
+    J1939BusView second;
+    second.channel = 2U;
+    second.activeFaults = {fault(0x01U, 3U, 1U, lamps(kOn))};
+
+    J1939NetworkSnapshot snapshot;
+    snapshot.buses = {first, second};
+
+    const std::vector<DashboardFault> faults = dashboardFaultsOf(snapshot, nullptr);
+    ASSERT_EQ(faults.size(), 3U);
+    EXPECT_EQ(faults[0].code.spn, 1U);
+    EXPECT_EQ(faults[1].code.spn, 2U);
+    EXPECT_EQ(faults[2].code.spn, 3U);
+    ASSERT_TRUE(faults[2].channel.has_value());
+    EXPECT_EQ(*faults[2].channel, 2U);
 }
 
 TEST(DashboardFaultsTests, TheLampsOfTheWidgetAreTheVariablesTheClusterReadsInTheOrderItDrawsThem)

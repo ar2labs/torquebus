@@ -30,6 +30,13 @@
 // The four lamps at the top of the widget are the lamps of the whole bus, which the J1939 block
 // writes to system variables (J1939Diagnostics.h) and the instrument cluster reads. The widget
 // reads the same variables, so the lamp on the cluster and the lamp on the list cannot disagree.
+//
+// --- More than one bus ------------------------------------------------------------------------
+//
+// With a J1939 block on each of two buses the list is both buses' codes, and an address says which
+// ECU only together with the bus it is on: SA 0 on CAN 1 and SA 0 on CAN 2 are two ECUs, and each
+// is named from the claims of its own bus. So a row says its bus when there is more than one, and
+// does not when there is one - which is the usual case, and needs no saying.
 
 #pragma once
 
@@ -63,6 +70,10 @@ inline constexpr std::array<std::string_view, 4> kFaultLampVariables{
 struct DashboardFault final {
     std::uint8_t sourceAddress{0U};
 
+    /// The application channel of the bus it was reported on (0 is CAN 1), when the measurement
+    /// has more than one J1939 bus. Absent when it has one. See the note at the top of this file.
+    std::optional<std::uint8_t> channel;
+
     /// What the J1939 name tables call the ECU's function - "Engine" - when the ECU has been seen
     /// claiming its address and the machine has a table that names the function. Absent otherwise,
     /// and the address is then all there is to say: a number that is known to be right is better
@@ -77,10 +88,11 @@ struct DashboardFault final {
     [[nodiscard]] friend bool operator==(const DashboardFault&, const DashboardFault&) = default;
 };
 
-/// The codes the bus is reporting in `snapshot`, worst first: the codes of a message that lights
+/// The codes every bus is reporting in `snapshot`, worst first: the codes of a message that lights
 /// the stop lamp, then those of one that lights any other lamp, then the rest. Within one of those
-/// the order is the snapshot's - ECU by ECU, address ascending, and within an ECU the order it sent
-/// them in - so the list does not shuffle from one pass to the next.
+/// the order is the snapshot's - bus by bus in channel order, ECU by ECU in address order, and
+/// within an ECU the order it sent them in - so the list does not shuffle from one pass to the
+/// next.
 ///
 /// `names` may be null, for a machine with no name tables: every ECU is then a number.
 [[nodiscard]] std::vector<DashboardFault> dashboardFaultsOf(const J1939NetworkSnapshot& snapshot,

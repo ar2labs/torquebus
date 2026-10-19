@@ -14,7 +14,7 @@
 // that ECU right now. Sorted by address, because that is the order a person
 // scanning for a gap reads in.
 //
-// --- The four things this panel must not imply --------------------------------
+// --- The five things this panel must not imply --------------------------------
 //
 //   * **An empty table before Start is not an empty bus.** Nothing published
 //     and nobody transmitting look identical, so the panel says which one it is
@@ -29,6 +29,10 @@
 //     measurement ends; an ECU that has gone quiet, or a measurement that has
 //     stopped, leaves that DM1 *last reported* - its faults, or its "none" - and
 //     the summary counts only what the block says is being reported now.
+//   * **An address is a seat on one bus.** With a J1939 block on more than one
+//     bus the ECUs are listed under the bus they are on - "CAN 2" - because the
+//     same number on another bus is another ECU. With one bus the tree is what
+//     it always was.
 //
 // It reads a J1939Network the block fills - see that header for why the
 // hand-over is a snapshot rather than a lock, and why this panel asks for a
@@ -36,16 +40,20 @@
 
 #pragma once
 
+#include <QSet>
+#include <QString>
 #include <QWidget>
 
 #include <cstdint>
 
 class QLabel;
 class QTreeWidget;
+class QTreeWidgetItem;
 
 namespace torquebus {
 class J1939Network;
 class J1939NameTables;
+struct J1939BusView;
 struct J1939NetworkSnapshot;
 } // namespace torquebus
 
@@ -79,6 +87,11 @@ private:
     void buildUi();
 
     void rebuild(const J1939NetworkSnapshot& snapshot);
+
+    /// The ECUs of one bus, under `heading` - or at the top of the tree when it is null, which is
+    /// a measurement with one bus. A row whose key is in `expandedRows` is opened again.
+    void
+    addBus(QTreeWidgetItem* heading, const J1939BusView& bus, const QSet<QString>& expandedRows);
 
     void updateSummary(const J1939NetworkSnapshot& snapshot);
 
