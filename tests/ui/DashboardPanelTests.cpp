@@ -1154,6 +1154,36 @@ TEST(DashboardPanelTests, AFaultListShowsWhatTheBusReportsWorstFirstInTheWordsOf
     EXPECT_EQ(rows[1].tone, DashboardTone::Warning);
 }
 
+TEST(DashboardPanelTests, WithTwoBusesEachRowOfTheFaultListSaysWhichBusItIsOn)
+{
+    // A J1939 block on each of two buses. Address 0 is the engine on CAN 1 and the body controller
+    // on CAN 2 - two ECUs - and each row says which, named from the claims of its own bus.
+    FaultBench bench;
+    ASSERT_TRUE(bench.names.load("function,0,Engine\nfunction,26,Body Control\n").succeeded());
+
+    bench.network.publish(
+        {claimedNode(0U, 0U)}, {}, {}, {activeFault(0U, 100U, 1U, 1U, kOn)}, {0U}, 0U);
+    bench.network.publish(
+        {claimedNode(0U, 26U)}, {}, {}, {activeFault(0U, 3509U, 4U, 1U, kOff, kOn)}, {0U}, 1U);
+
+    const std::vector<FaultRow> rows = bench.panel.faultRows();
+    ASSERT_EQ(rows.size(), 2U);
+
+    EXPECT_EQ(rows[0].code.toStdString(), "SPN 100 / FMI 1");
+    EXPECT_EQ(rows[0].ecu.toStdString(), QStringLiteral("CAN 1 · SA 0 · Engine").toStdString());
+    EXPECT_EQ(rows[1].code.toStdString(), "SPN 3509 / FMI 4");
+    EXPECT_EQ(rows[1].ecu.toStdString(),
+              QStringLiteral("CAN 2 · SA 0 · Body Control").toStdString());
+
+    // A new measurement with one J1939 block: one bus, and the bus is not said.
+    bench.network.clear();
+    bench.network.publish({claimedNode(0U, 0U)}, {}, {}, {activeFault(0U, 100U, 1U, 1U, kOn)});
+
+    const std::vector<FaultRow> one = bench.panel.faultRows();
+    ASSERT_EQ(one.size(), 1U);
+    EXPECT_EQ(one[0].ecu.toStdString(), QStringLiteral("SA 0 · Engine").toStdString());
+}
+
 TEST(DashboardPanelTests, ACodeWhoseSpnWasNotAssembledIsAQuestionMarkAndTheBytesAreOnHover)
 {
     FaultBench bench;

@@ -305,6 +305,11 @@ it:
 * The **lamps** are the ones the instrument cluster reads, the system variables `j1939.lamp_stop`, `_warning`,
   `_mil` and `_protect` that the J1939 block writes (`databases.md`, *Fields that are not one signal*) - the
   lamp on the cluster and the lamp on the list are one variable and cannot disagree.
+* **More than one bus.** A graph with a J1939 block on each of two buses - a truck's powertrain and its body,
+  a tractor and its implement - lists both buses' codes in one list, worst first, and each row then says its
+  bus in front: `CAN 2 · SA 0 · Body Control`. An address is a seat on one bus, so the same number on two of
+  them is two ECUs, each named from the claims of its own bus. With one bus nothing is said, as before. The
+  lamps are the whole vehicle's: lit while any bus asks for them.
 
 ### Where the codes come from, and the thread they cross
 
@@ -323,6 +328,14 @@ revision, which is an atomic load, every tick, and - only when that moved - a co
 taken under the lock the block takes to publish. It never reads a table the executor thread is writing, and a
 steady bus, which publishes nothing after its first second, costs the panel one load per tick. The ECUs a row
 names and the codes it lists are published together and so are from the same pass.
+
+**One view per bus.** Every J1939 block of a graph is given the same network, and each files what its bus is
+saying there under the channel its frames arrive on: a publication replaces the last view of that bus and of
+no other, and a snapshot is every bus in channel order (`J1939NetworkSnapshot::buses`). It used to be one
+view for the whole graph, so with two buses the panels showed whichever had changed last and a lamp could go
+out while the other bus still asked for it. Two blocks that read one channel - two databases on the same wire -
+read one bus. The lamps go through the network too (`J1939Network::combineLamps`): each block files what its
+own bus lights and writes the OR of all of them, where the variable says something else.
 
 **The block ages the list, not the panel.** What `J1939Network` keeps for the J1939 panel is what each ECU
 *last said*, published when its content changes - so the time stamped on a steady DM1 is when it *changed*, and
@@ -416,7 +429,10 @@ is delivered to the plot store by running the project's own pipeline - a widget 
 nothing carries is a widget that shows dashes for ever. The fault list is bound to nothing, so nothing there
 could notice it showing an empty list for ever: the test runs the J1939 example with the engine on
 `low_oil_pressure` and expects SPN 100 on the list under a red stop lamp, a healthy run to leave the list
-empty and the lamps dark, and Stop to empty it.
+empty and the lamps dark, and Stop to empty it. Each run waits for what it checks - every widget's signal,
+the fault, every ECU's claim - and looks as soon as it is there, with fifteen seconds of patience: the six
+runs take under a second together, where runs of a fixed length took sixteen seconds and would have been too
+short, one day, on a slow machine.
 
 ---
 
@@ -430,7 +446,7 @@ src/core/dashboard/                      no Qt
     DashboardFaults        the fault list as data: which code is worst, which ECU, what it is called
 src/core/j1939/                          no Qt
     J1939Diagnostics       ... and the codes being reported now (j1939ActiveFaults), aged by the bus's clock
-    J1939Network           the hand-over the block publishes to and a panel copies from
+    J1939Network           the hand-over the blocks publish to - one view per bus - and a panel copies from
 src/ui/dashboard/
     DashboardPanel         the widget: modes, drag and drop, hover, stale, trails, the fault list's rows
     DashboardWidgetPainters  the newer kinds, as free functions that take a painter
@@ -453,15 +469,15 @@ image, which would break on every font.
 | Suite | What it pins |
 |---|---|
 | `DashboardTests` | the description, `validate()`, the file format round trip, the kinds and what each asks for |
-| `DashboardFaultsTests` | the fault list as data: what a lamp says about a code, worst first, an ECU named only when the NAME and the tables say so, and the lamps the cluster reads |
-| `J1939NodeTests`, `J1939DiagnosticsTests` | what the block hands over: the codes being reported now with their lamps, and the ECUs still repeating a DM1 - the healthy ones too - an ECU that falls silent leaving the list and coming back to it, a bus that falls silent altogether, Stop emptying both while what the ECUs said stays, a steady bus publishing once, and a reader never seeing half a publication |
-| `J1939NetworkPanelTests` | what the J1939 panel calls what an ECU last said: *active faults* while it is repeating it, *last reported* when it is not - for a list of faults and for a healthy ECU's *none* - and the example run on the engine, all the way to the tree |
-| `TinyMlEcuTests` | the TinyML block on a J1939 bus claims its address before it says anything, once per measurement, from the address of its telemetry, and does not take its own claim for the bus's |
+| `DashboardFaultsTests` | the fault list as data: what a lamp says about a code, worst first, an ECU named only when the NAME and the tables say so, the bus of each row when there are two, and the lamps the cluster reads |
+| `J1939NodeTests`, `J1939DiagnosticsTests` | what the block hands over: the codes being reported now with their lamps, and the ECUs still repeating a DM1 - the healthy ones too - an ECU that falls silent leaving the list and coming back to it, a bus that falls silent altogether, Stop emptying both while what the ECUs said stays, a steady bus publishing once, a reader never seeing half a publication; and two blocks on two buses - each bus its own view, the lamps both buses' at once, one bus going silent, Stop, and the two through the engine |
+| `J1939NetworkPanelTests` | what the J1939 panel calls what an ECU last said: *active faults* while it is repeating it, *last reported* when it is not - for a list of faults and for a healthy ECU's *none* - the example run on the engine, all the way to the tree, and two buses each under its heading |
+| `TinyMlEcuTests` | the TinyML block on a J1939 bus claims its address before it says anything, once per measurement, from the address of its telemetry, does not take its own claim for the bus's, answers a request for the claims of the bus, defends its address against a higher NAME and gives it up - and falls silent - to a lower one |
 | `SignalDictionaryTests` | search and ranking, `suggestKind`, `applyEntry`, raw to physical, tones, time-outs, the audit and its did-you-mean |
 | `DashboardAssetsTests` | relative and absolute, `..`, Windows paths, moving a project |
-| `ExampleDashboardTests` | the two example dashboards, against their databases, their files and their pipelines - and the J1939 example's fault list on a run of the engine's `low_oil_pressure` |
+| `ExampleDashboardTests` | the two example dashboards, against their databases, their files and their pipelines - and the J1939 example's fault list on a run of the engine's `low_oil_pressure`; every run waits for what it checks |
 | `DashboardPaintersTests` | the painters by pixel: how full a bar is, what a state is tinted, which picture appears, a line that breaks at a gap, the fault list's lamps, tints, empty list and *+ N more* |
-| `DashboardPanelTests` | drops sent as a drop is sent, re-binding, pictures, duplicate and delete, the mark on a wrong binding, hover, stale, tables, trails; the fault list against a network of its own, repainting by itself, the menu entry, and the J1939 example run all the way to the screen |
+| `DashboardPanelTests` | drops sent as a drop is sent, re-binding, pictures, duplicate and delete, the mark on a wrong binding, hover, stale, tables, trails; the fault list against a network of its own, repainting by itself, the menu entry, the bus said on each row when there are two, and the J1939 example run all the way to the screen |
 | `DashboardWidgetEditorTests` | which fields each kind shows, completion, what a choice fills in and typing does not, limits, named values |
 | `SignalPickerDialogTests` | what the dialog lists, chooses and says; the DBC Explorer's drag at the model, where Qt asks for it |
 | `MainWindowDashboardTests` | the window's wiring, with the whole window built: the databases a project loads reach the Dashboard and its form, the project's folder is where its pictures are, the Output panel says what a dashboard names that is not there, and the engine's J1939 network and the window's name tables reach the fault list |

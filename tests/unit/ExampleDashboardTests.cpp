@@ -117,14 +117,41 @@ struct Delivered final {
     std::map<std::string, double> series;
 
     Result started{Result::ok()};
+
+    /// Whether what the run was waiting for came before kPatience ran out.
+    bool arrived{false};
 };
 
-/// Runs the project on the virtual bus for `duration`: as many channels as its CAN blocks name.
-/// `whileRunning`, when there is one, is called with the engine at the end of it and before it is
-/// stopped - which puts some lamps out and empties the list of faults, so it is the moment to look.
-/// `afterStart` is called as soon as the engine is running, for what a person would do to it then.
+/// How long a run waits for what it came to see. The ECUs of the examples repeat every message at
+/// least once a second, so this is many times what any of it takes: a slow machine waits longer and
+/// a fast one hardly at all - where a run of a fixed length was too long on one and, one day, would
+/// have been too short on the other.
+constexpr std::chrono::seconds kPatience{15};
+
+/// What the plot store holds now: "Message.Signal" -> its newest value.
+[[nodiscard]] std::map<std::string, double> seriesOf(CanEngine& engine)
+{
+    std::map<std::string, double> series;
+
+    for (const SeriesInfo& info : engine.plotStore().listSeries()) {
+        double value = 0.0;
+        std::uint64_t when = 0;
+
+        if (engine.plotStore().latest(info.id, value, when)) {
+            series[info.name] = value;
+        }
+    }
+
+    return series;
+}
+
+/// Runs the project on the virtual bus until `arrived` says the engine shows what the test came to
+/// see, or kPatience has passed: as many channels as its CAN blocks name. `whileRunning`, when
+/// there is one, is called with the engine then and before it is stopped - which puts some lamps
+/// out and empties the list of faults, so it is the moment to look. `afterStart` is called as soon
+/// as the engine is running, for what a person would do to it then.
 [[nodiscard]] Delivered run(const Example& example,
-                            std::chrono::milliseconds duration,
+                            const std::function<bool(CanEngine&)>& arrived,
                             const std::function<void(CanEngine&)>& whileRunning = {},
                             const std::function<void(CanEngine&)>& afterStart = {})
 {
@@ -165,17 +192,20 @@ struct Delivered final {
         afterStart(engine);
     }
 
-    std::this_thread::sleep_for(duration);
+    const auto deadline = std::chrono::steady_clock::now() + kPatience;
+
+    for (;;) {
+        delivered.arrived = arrived(engine);
+
+        if (delivered.arrived || std::chrono::steady_clock::now() >= deadline) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds{20});
+    }
 
     // Read while it is running: stopping puts some lamps out.
-    for (const SeriesInfo& info : engine.plotStore().listSeries()) {
-        double value = 0.0;
-        std::uint64_t when = 0;
-
-        if (engine.plotStore().latest(info.id, value, when)) {
-            delivered.series[info.name] = value;
-        }
-    }
+    delivered.series = seriesOf(engine);
 
     if (whileRunning) {
         whileRunning(engine);
@@ -215,6 +245,67 @@ void setScenario(Example& example, const std::string& block, const char* scenari
     }
 
     return nullptr;
+}
+
+/// The bus the J1939 example's one J1939 block reads, or an empty one when it published nothing.
+[[nodiscard]] const J1939BusView& busOf(const J1939NetworkSnapshot& snapshot)
+{
+    static const J1939BusView kNothingPublished{};
+
+    EXPECT_LE(snapshot.buses.size(), 1U) << "the example has one J1939 block, on one bus";
+    return snapshot.buses.empty() ? kNothingPublished : snapshot.buses.front();
+}
+
+/// Whether every widget of the example that reads the plot store has something in it to show: its
+/// signal, with a value, or for a table at least one signal of its message.
+[[nodiscard]] bool everyWidgetHasItsSignals(const Example& example,
+                                            const std::map<std::string, double>& series)
+{
+    for (const DashboardWidget& widget : example.dashboard.widgets()) {
+        if (widget.binding.source == DashboardBinding::Source::Signal) {
+            const auto found = series.find(widget.binding.message + "." + widget.binding.signal);
+
+            if (found == series.end() || !std::isfinite(found->second)) {
+                return false;
+            }
+        } else if (widget.binding.source == DashboardBinding::Source::Message) {
+            bool any = false;
+
+            for (const DictionaryEntry* entry :
+                 example.dictionary.signalsOf(widget.binding.message)) {
+                const auto found = series.find(entry->qualified());
+                any = any || (found != series.end() && std::isfinite(found->second));
+            }
+
+            if (!any) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+/// Whether the J1939 example's bus is reporting `spn` from `address` now.
+[[nodiscard]] bool
+isReporting(const J1939NetworkSnapshot& snapshot, std::uint8_t address, std::uint32_t spn)
+{
+    const J1939BusView& bus = busOf(snapshot);
+
+    return std::any_of(
+        bus.activeFaults.begin(), bus.activeFaults.end(), [&](const J1939ActiveFault& fault) {
+            return fault.sourceAddress == address && fault.code.spn == spn;
+        });
+}
+
+/// Whether the ECU at `address` has been seen claiming it, with a NAME.
+[[nodiscard]] bool hasClaimed(const J1939NetworkSnapshot& snapshot, int address)
+{
+    const J1939BusView& bus = busOf(snapshot);
+
+    return std::any_of(bus.nodes.begin(), bus.nodes.end(), [address](const J1939NetworkNode& node) {
+        return node.address == address && node.name.has_value();
+    });
 }
 
 } // namespace
@@ -323,9 +414,15 @@ TEST(ExampleDashboardTests, EverySignalAnExampleDashboardReadsIsDeliveredByItsPi
         Example example;
         ASSERT_TRUE(open(file, example));
 
-        const Delivered delivered = run(example, std::chrono::milliseconds{3000});
+        // Until every widget has something to show, which is the answer - or until the patience
+        // runs out, and the loop below says which widget is still waiting.
+        const Delivered delivered = run(example, [&example](CanEngine& engine) {
+            return everyWidgetHasItsSignals(example, seriesOf(engine));
+        });
 
         ASSERT_TRUE(delivered.started.succeeded()) << std::string{delivered.started.message()};
+        EXPECT_TRUE(delivered.arrived)
+            << "not every widget had its signal after " << kPatience.count() << " s";
 
         for (const DashboardWidget& widget : example.dashboard.widgets()) {
             SCOPED_TRACE(widget.id);
@@ -417,8 +514,16 @@ TEST(ExampleDashboardTests, TheOilPressureFaultOfTheEnginesLowOilScenarioIsOnThe
     J1939NetworkSnapshot stopped;
     double stopLamp = 0.0;
 
-    const Delivered delivered =
-        run(example, std::chrono::milliseconds{2500}, [&](CanEngine& engine) {
+    // The engine claims its address when it starts and reports its oil pressure in a DM1 once a
+    // second, under the red stop lamp: waited for, and looked at as soon as it is there.
+    const Delivered delivered = run(
+        example,
+        [](CanEngine& engine) {
+            const J1939NetworkSnapshot now = engine.j1939Network().snapshot();
+            return isReporting(now, 0x00U, 100U) && hasClaimed(now, 0x00)
+                   && engine.variables().value(std::string{kJ1939LampStopVariable}) > 0.5;
+        },
+        [&](CanEngine& engine) {
             running = engine.j1939Network().snapshot();
             stopLamp = engine.variables().value(std::string{kJ1939LampStopVariable});
 
@@ -427,6 +532,7 @@ TEST(ExampleDashboardTests, TheOilPressureFaultOfTheEnginesLowOilScenarioIsOnThe
         });
 
     ASSERT_TRUE(delivered.started.succeeded()) << std::string{delivered.started.message()};
+    EXPECT_TRUE(delivered.arrived) << "the engine's oil pressure fault did not arrive";
 
     // What the widget lists is built from the snapshot by the same function the panel calls, with
     // the function table that ships with the program.
@@ -465,9 +571,9 @@ TEST(ExampleDashboardTests, TheOilPressureFaultOfTheEnginesLowOilScenarioIsOnThe
     // is still there for the J1939 panel to read, and said to be the last thing, because no ECU is
     // repeating it any more.
     EXPECT_TRUE(dashboardFaultsOf(stopped, nullptr).empty());
-    EXPECT_FALSE(stopped.diagnostics.empty());
-    EXPECT_FALSE(running.reporting.empty());
-    EXPECT_TRUE(stopped.reporting.empty());
+    EXPECT_FALSE(busOf(stopped).diagnostics.empty());
+    EXPECT_FALSE(busOf(running).reporting.empty());
+    EXPECT_TRUE(busOf(stopped).reporting.empty());
 }
 
 TEST(ExampleDashboardTests, EveryEcuOfTheJ1939ExampleClaimsItsAddressAndIsNamedByTheShippedTable)
@@ -480,18 +586,6 @@ TEST(ExampleDashboardTests, EveryEcuOfTheJ1939ExampleClaimsItsAddressAndIsNamedB
     Example example;
     ASSERT_TRUE(open("j1939-vehicle.tbsproj", example));
 
-    J1939NetworkSnapshot snapshot;
-
-    const Delivered delivered =
-        run(example, std::chrono::milliseconds{2500}, [&](CanEngine& engine) {
-            snapshot = engine.j1939Network().snapshot();
-        });
-
-    ASSERT_TRUE(delivered.started.succeeded()) << std::string{delivered.started.message()};
-
-    J1939NameTables names;
-    ASSERT_TRUE(names.loadFile(shippedFunctionTable()).succeeded());
-
     const std::map<int, std::string> expected{{0x00, "Engine"},
                                               {0x0B, "System Control Brakes"},
                                               {0x17, "Instrument Cluster"},
@@ -500,15 +594,36 @@ TEST(ExampleDashboardTests, EveryEcuOfTheJ1939ExampleClaimsItsAddressAndIsNamedB
                                               {0x3D, "Exhaust Emission Control"},
                                               {0x80, "System Monitor"}};
 
+    J1939NetworkSnapshot snapshot;
+
+    // Until every one of them has claimed: the scripted ECUs do it as they start, and the TinyML
+    // ECU the first time it hears the bus.
+    const Delivered delivered = run(
+        example,
+        [&expected](CanEngine& engine) {
+            const J1939NetworkSnapshot now = engine.j1939Network().snapshot();
+            return std::all_of(expected.begin(), expected.end(), [&now](const auto& entry) {
+                return hasClaimed(now, entry.first);
+            });
+        },
+        [&](CanEngine& engine) { snapshot = engine.j1939Network().snapshot(); });
+
+    ASSERT_TRUE(delivered.started.succeeded()) << std::string{delivered.started.message()};
+    EXPECT_TRUE(delivered.arrived) << "not every ECU of the example was seen claiming";
+
+    J1939NameTables names;
+    ASSERT_TRUE(names.loadFile(shippedFunctionTable()).succeeded());
+
     for (const auto& [address, word] : expected) {
         SCOPED_TRACE(word);
 
         const auto node = std::find_if(
-            snapshot.nodes.begin(),
-            snapshot.nodes.end(),
+            busOf(snapshot).nodes.begin(),
+            busOf(snapshot).nodes.end(),
             [address = address](const auto& candidate) { return candidate.address == address; });
 
-        ASSERT_TRUE(node != snapshot.nodes.end()) << "nothing was heard from address " << address;
+        ASSERT_TRUE(node != busOf(snapshot).nodes.end())
+            << "nothing was heard from address " << address;
         EXPECT_TRUE(node->claimSeen);
         ASSERT_TRUE(node->name.has_value());
 
@@ -530,11 +645,15 @@ TEST(ExampleDashboardTests, TheTinyMlEcusPredictiveCodeIsOnTheFaultListUnderItsO
 
     const Delivered delivered = run(
         example,
-        std::chrono::milliseconds{2500},
+        [](CanEngine& engine) {
+            const J1939NetworkSnapshot now = engine.j1939Network().snapshot();
+            return isReporting(now, 0x80U, 110U) && hasClaimed(now, 0x80);
+        },
         [&](CanEngine& engine) { snapshot = engine.j1939Network().snapshot(); },
         [](CanEngine& engine) { engine.variables().set("tinyml.inject_fault", 1.5); });
 
     ASSERT_TRUE(delivered.started.succeeded()) << std::string{delivered.started.message()};
+    EXPECT_TRUE(delivered.arrived) << "the TinyML ECU's predictive code did not arrive";
 
     J1939NameTables names;
     ASSERT_TRUE(names.loadFile(shippedFunctionTable()).succeeded());
@@ -562,8 +681,15 @@ TEST(ExampleDashboardTests, AHealthyVehicleLeavesTheFaultListEmptyAndEveryLampDa
     J1939NetworkSnapshot snapshot;
     double lamps = 0.0;
 
-    const Delivered delivered =
-        run(example, std::chrono::milliseconds{2500}, [&](CanEngine& engine) {
+    // Until every ECU has said what it has to say - each of them a DM1 - which is when an empty
+    // list means a healthy truck and not one that has not been heard from yet.
+    const Delivered delivered = run(
+        example,
+        [](CanEngine& engine) {
+            const J1939NetworkSnapshot now = engine.j1939Network().snapshot();
+            return busOf(now).diagnostics.size() >= 5U && busOf(now).reporting.size() >= 5U;
+        },
+        [&](CanEngine& engine) {
             snapshot = engine.j1939Network().snapshot();
 
             for (const std::string_view lamp : kFaultLampVariables) {
@@ -572,25 +698,26 @@ TEST(ExampleDashboardTests, AHealthyVehicleLeavesTheFaultListEmptyAndEveryLampDa
         });
 
     ASSERT_TRUE(delivered.started.succeeded()) << std::string{delivered.started.message()};
+    EXPECT_TRUE(delivered.arrived) << "not every ECU of the example sent its DM1";
 
     // Six ECUs send a DM1 a second, every one of them saying that all is well: a code numbered
     // zero on each would be what a tool that did not know about the placeholder shows.
     EXPECT_TRUE(snapshot.published);
-    EXPECT_GE(snapshot.diagnostics.size(), 5U);
-    EXPECT_TRUE(snapshot.activeFaults.empty());
+    EXPECT_GE(busOf(snapshot).diagnostics.size(), 5U);
+    EXPECT_TRUE(busOf(snapshot).activeFaults.empty());
     EXPECT_TRUE(dashboardFaultsOf(snapshot, nullptr).empty());
     EXPECT_DOUBLE_EQ(lamps, 0.0);
 
     // And all of them are still saying it: the empty list cannot tell a healthy ECU from one that
     // has gone quiet, and the ECUs that are repeating their DM1 are what can.
-    EXPECT_GE(snapshot.reporting.size(), 5U);
+    EXPECT_GE(busOf(snapshot).reporting.size(), 5U);
 
-    for (const J1939Diagnostic& message : snapshot.diagnostics) {
+    for (const J1939Diagnostic& message : busOf(snapshot).diagnostics) {
         if (message.active) {
-            EXPECT_TRUE(std::find(snapshot.reporting.begin(),
-                                  snapshot.reporting.end(),
+            EXPECT_TRUE(std::find(busOf(snapshot).reporting.begin(),
+                                  busOf(snapshot).reporting.end(),
                                   message.sourceAddress)
-                        != snapshot.reporting.end())
+                        != busOf(snapshot).reporting.end())
                 << "address " << static_cast<int>(message.sourceAddress);
         }
     }

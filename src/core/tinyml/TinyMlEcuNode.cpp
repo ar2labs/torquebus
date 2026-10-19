@@ -228,6 +228,7 @@ Result TinyMlEcuNode::prepare(std::size_t maximumBatchSize)
     m_dm1Identifier = j1939Identifier(kPgnDm1, address);
     m_claimIdentifier = j1939Identifier(kPgnAddressClaimed, address);
     m_addressClaimed = false;
+    m_addressLost = false;
 
     m_ambientAllowanceDegC = 0.0F;
     m_j1939MessageCounter = 0;
@@ -276,12 +277,16 @@ void TinyMlEcuNode::process(NodeContext& context)
     }
 
     for (const CanFrame& frame : incoming) {
-        // Its own telemetry, its own trouble code and its own claim come back to it off the bus,
-        // and a model that took its own output for the vehicle would be listening to itself.
+        // A claim or a request is the bus talking about who is on it, not something the model
+        // reads - and this ECU has its own part in that to play.
+        if (m_config.j1939Mode && onNetworkManagement(frame)) {
+            continue;
+        }
+
+        // Its own telemetry and its own trouble code come back to it off the bus, and a model that
+        // took its own output for the vehicle would be listening to itself.
         if (frame.identifier == m_config.outputCanId
-            || (m_config.j1939Mode
-                && (frame.identifier == m_dm1Identifier
-                    || frame.identifier == m_claimIdentifier))) {
+            || (m_config.j1939Mode && frame.identifier == m_dm1Identifier)) {
             continue;
         }
 
@@ -362,15 +367,85 @@ void TinyMlEcuNode::infer(const CanFrame& cause)
     }
 
     if (m_outgoingFrames.size() < m_outgoingFrames.capacity()) {
-        if (m_config.j1939Mode) {
-            appendJ1939Telemetry(cause, result, inferenceUs);
-        } else {
+        if (!m_config.j1939Mode) {
             appendLegacyTelemetry(cause, result, inferenceUs);
+        } else if (!m_addressLost) {
+            // An ECU that has lost its address says nothing more on the bus. The model goes on
+            // running, and what it finds still reaches the signals and the variables.
+            appendJ1939Telemetry(cause, result, inferenceUs);
         }
     }
 
     appendDecodedSignals(cause.timestampNs, result, inferenceUs);
     publishToSystemVariables(result, inferenceUs);
+}
+
+J1939Name TinyMlEcuNode::ownName() const noexcept
+{
+    J1939Name name;
+    name.industryGroup = kClaimIndustryGroup;
+    name.function = kClaimFunction;
+    name.identityNumber = m_claimIdentifier & 0xFFU;
+    return name;
+}
+
+bool TinyMlEcuNode::onNetworkManagement(const CanFrame& frame)
+{
+    if (!frame.isExtended() && frame.identifier <= kMaxStandardIdentifier) {
+        return false;
+    }
+
+    const J1939Id id = j1939Decompose(frame.identifier);
+    const auto address = static_cast<std::uint8_t>(m_claimIdentifier & 0xFFU);
+
+    if (id.pgn() == kPgnRequest) {
+        // A request for the claims of the bus, to every ECU or to this one, is answered with who it
+        // is - or, once it has lost its address, with the news that it has none (J1939-81).
+        const std::uint32_t requested =
+            frame.length >= 3U ? static_cast<std::uint32_t>(frame.data[0])
+                                     | (static_cast<std::uint32_t>(frame.data[1]) << 8U)
+                                     | (static_cast<std::uint32_t>(frame.data[2]) << 16U)
+                               : 0U;
+        const bool toThisEcu =
+            id.destinationAddress() == kJ1939GlobalAddress || id.destinationAddress() == address;
+
+        if (toThisEcu && requested == kPgnAddressClaimed) {
+            appendClaimFrom(m_addressLost ? kJ1939NullAddress : address, frame.timestampNs);
+        }
+
+        return true;
+    }
+
+    if (id.pgn() != kPgnAddressClaimed) {
+        return false;
+    }
+
+    // A claim of another address, or an ECU announcing it has none, is not this ECU's business -
+    // and nor is anything after it has given its own up.
+    if (id.sourceAddress != address || m_addressLost) {
+        return true;
+    }
+
+    const std::optional<J1939Name> theirs = j1939NameFromClaim(frame);
+    const J1939Name ours = ownName();
+
+    if (!theirs.has_value() || theirs->value() == ours.value()) {
+        // Its own claim, coming back off the bus.
+        return true;
+    }
+
+    // Another ECU claims the address this one speaks from, and the lower NAME keeps it. This one
+    // cannot move to another address, so when it loses it does what such an ECU does: it says that
+    // it cannot claim one, and is silent from then on. When it wins it says so again, so the other
+    // one knows to move.
+    if (theirs->winsAgainst(ours)) {
+        m_addressLost = true;
+        appendClaimFrom(kJ1939NullAddress, frame.timestampNs);
+    } else {
+        appendClaimFrom(address, frame.timestampNs);
+    }
+
+    return true;
 }
 
 void TinyMlEcuNode::appendLegacyTelemetry(const CanFrame& cause,
@@ -590,21 +665,22 @@ bool TinyMlEcuNode::observeJ1939(const CanFrame& frame) noexcept
 
 void TinyMlEcuNode::appendAddressClaim(std::uint64_t timestampNs)
 {
+    // Not claimed yet - no room left in this pass's output - means asked again with the next frame.
+    if (appendClaimFrom(static_cast<std::uint8_t>(m_claimIdentifier & 0xFFU), timestampNs)) {
+        m_addressClaimed = true;
+    }
+}
+
+bool TinyMlEcuNode::appendClaimFrom(std::uint8_t source, std::uint64_t timestampNs)
+{
     // Like everything this block puts on the output, only where there is room for it: a pass never
-    // grows the buffer. Not claimed yet means asked again with the next frame.
+    // grows the buffer.
     if (m_outgoingFrames.size() >= m_outgoingFrames.capacity()) {
-        return;
+        return false;
     }
 
-    m_addressClaimed = true;
-
-    J1939Name name;
-    name.industryGroup = kClaimIndustryGroup;
-    name.function = kClaimFunction;
-    name.identityNumber = m_claimIdentifier & 0xFFU;
-
     CanFrame claim{};
-    claim.identifier = m_claimIdentifier;
+    claim.identifier = j1939Identifier(kPgnAddressClaimed, source);
     claim.channel = m_config.transmitChannel;
     claim.direction = CanDirection::Tx;
     claim.format = CanFrameFormat::Extended;
@@ -612,13 +688,15 @@ void TinyMlEcuNode::appendAddressClaim(std::uint64_t timestampNs)
     claim.length = kJ1939NameBytes;
     claim.timestampNs = timestampNs;
 
-    // The NAME as it goes on the wire, the least significant byte first.
-    const std::uint64_t bits = name.value();
+    // The NAME as it goes on the wire, the least significant byte first: from the address it
+    // claims, or from the null address when it is saying that it has none.
+    const std::uint64_t bits = ownName().value();
     for (std::size_t byte = 0; byte < kJ1939NameBytes; ++byte) {
         claim.data[byte] = static_cast<std::uint8_t>((bits >> (8U * byte)) & 0xFFU);
     }
 
     m_outgoingFrames.push_back(claim);
+    return true;
 }
 
 void TinyMlEcuNode::appendJ1939Telemetry(const CanFrame& cause,
@@ -856,6 +934,10 @@ std::vector<NodeStatistic> TinyMlEcuNode::statistics() const
          static_cast<std::uint64_t>(std::lround(m_lastResult.thermalHealthPercent))},
         {"Last inference (us)", m_lastInferenceUs},
         {"Arena bytes used", m_arena.highWaterMarkBytes()},
+
+        // 1 when another ECU took the address with a lower NAME, and this one has been silent on
+        // the bus since. Its NAME is then on the J1939 Network panel as an ECU with no address.
+        {"J1939 address lost", m_addressLost ? 1U : 0U},
     };
 }
 

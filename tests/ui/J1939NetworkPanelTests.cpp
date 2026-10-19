@@ -418,3 +418,117 @@ TEST(J1939NetworkPanelTests, TheJ1939ExampleIsReportingWhileItRunsAndLastReporte
     EXPECT_TRUE(waitFor([&] { return groups(last) >= 5 && groups(active) == 0; }))
         << groups(active) << " reporting, " << groups(last) << " last reported";
 }
+
+namespace {
+
+/// Two buses as two J1939 blocks hand them over: on CAN 1 the engine at address 0, reporting a
+/// fault; on CAN 2 another ECU at address 0 - another ECU, at the same address - and one at 33,
+/// both healthy.
+void publishTwoBuses(J1939Network& network, std::vector<J1939NetworkNode> body = {})
+{
+    const std::vector<J1939Diagnostic> powertrain{dm1From(0U, {code(100U, 1U)})};
+    const std::vector<J1939Diagnostic> bodyDm1{dm1From(0U, {}), dm1From(33U, {})};
+
+    if (body.empty()) {
+        body = {nodeAt(0U), nodeAt(33U)};
+    }
+
+    network.publish({nodeAt(0U)},
+                    {},
+                    powertrain,
+                    j1939ActiveFaults(powertrain, 0U),
+                    j1939Reporting(powertrain, 0U),
+                    0U);
+    network.publish(std::move(body), {}, bodyDm1, {}, j1939Reporting(bodyDm1, 0U), 1U);
+}
+
+} // namespace
+
+TEST(J1939NetworkPanelTests, WithTwoBusesEachEcuIsListedUnderTheBusItIsOn)
+{
+    Bench bench;
+    publishTwoBuses(bench.network);
+
+    ASSERT_TRUE(bench.waitForSummary(QStringLiteral("on 2 buses")))
+        << bench.summary().toStdString();
+
+    // One heading per bus, in channel order, open, and the ECUs under the bus they are on.
+    QTreeWidget* tree = bench.tree();
+    ASSERT_EQ(tree->topLevelItemCount(), 2);
+
+    const QTreeWidgetItem* can1 = tree->topLevelItem(0);
+    const QTreeWidgetItem* can2 = tree->topLevelItem(1);
+    EXPECT_EQ(can1->text(0).toStdString(), "CAN 1");
+    EXPECT_EQ(can2->text(0).toStdString(), "CAN 2");
+    EXPECT_TRUE(can1->isExpanded());
+    EXPECT_TRUE(can2->isExpanded());
+
+    ASSERT_EQ(can1->childCount(), 1);
+    ASSERT_EQ(can2->childCount(), 2);
+    EXPECT_TRUE(can1->child(0)->text(0).startsWith(QStringLiteral("0 ")));
+    EXPECT_TRUE(can2->child(0)->text(0).startsWith(QStringLiteral("0 ")));
+    EXPECT_TRUE(can2->child(1)->text(0).startsWith(QStringLiteral("33 ")));
+
+    // What each bus is reporting, on its heading.
+    EXPECT_EQ(can1->text(1).toStdString(), "1 ECU(s)");
+    EXPECT_EQ(can1->text(2).toStdString(), "1 active fault(s)");
+    EXPECT_EQ(can2->text(1).toStdString(), "2 ECU(s)");
+    EXPECT_EQ(can2->text(2).toStdString(), "no active faults");
+
+    // Each DM1 is what its own bus says of its ECU: address 0 is reporting a fault on CAN 1, and
+    // address 0 on CAN 2 says it is fine.
+    ASSERT_EQ(can1->child(0)->childCount(), 1);
+    EXPECT_EQ(can1->child(0)->child(0)->text(0).toStdString(), "active faults");
+    EXPECT_EQ(can1->child(0)->child(0)->text(2).toStdString(), "1");
+    ASSERT_EQ(can2->child(0)->childCount(), 1);
+    EXPECT_EQ(can2->child(0)->child(0)->text(0).toStdString(), "active faults");
+    EXPECT_EQ(can2->child(0)->child(0)->text(2).toStdString(), "none");
+
+    // And the summary counts both.
+    EXPECT_TRUE(bench.summary().startsWith(QStringLiteral("3 ECU(s) on 2 buses")))
+        << bench.summary().toStdString();
+    EXPECT_TRUE(bench.summary().contains(QStringLiteral("1 active fault(s) on 1")))
+        << bench.summary().toStdString();
+}
+
+TEST(J1939NetworkPanelTests, WhatWasOpenedAndClosedUnderTwoBusesStaysSoWhenOneOfThemChanges)
+{
+    Bench bench;
+    publishTwoBuses(bench.network);
+    ASSERT_TRUE(bench.waitForSummary(QStringLiteral("on 2 buses")));
+
+    QTreeWidget* tree = bench.tree();
+    ASSERT_EQ(tree->topLevelItemCount(), 2);
+
+    // CAN 1 closed by hand, and on CAN 2 the healthy ECU at 33 opened by hand.
+    tree->topLevelItem(0)->setExpanded(false);
+    ASSERT_EQ(tree->topLevelItem(1)->childCount(), 2);
+    tree->topLevelItem(1)->child(1)->setExpanded(true);
+
+    // CAN 2 changes - an ECU is heard at 40 - and the tree is built again.
+    publishTwoBuses(bench.network, {nodeAt(0U), nodeAt(33U), nodeAt(40U)});
+    ASSERT_TRUE(waitFor([tree] {
+        return tree->topLevelItemCount() == 2 && tree->topLevelItem(1)->childCount() == 3;
+    }));
+
+    EXPECT_FALSE(tree->topLevelItem(0)->isExpanded());
+    EXPECT_TRUE(tree->topLevelItem(1)->isExpanded());
+    EXPECT_TRUE(tree->topLevelItem(1)->child(1)->isExpanded());
+    EXPECT_FALSE(tree->topLevelItem(1)->child(2)->isExpanded());
+}
+
+TEST(J1939NetworkPanelTests, WithOneBusThereIsNoHeadingAndTheEcusAreAtTheTopAsBefore)
+{
+    // The usual case is shown as it always was.
+    Bench bench;
+
+    const std::vector<J1939Diagnostic> messages{dm1From(0U, {})};
+    bench.network.publish(
+        {nodeAt(0U)}, {}, messages, {}, j1939Reporting(messages, 0U), 1U); // on CAN 2, alone
+
+    ASSERT_TRUE(bench.waitForSummary(QStringLiteral("1 ECU(s)"))) << bench.summary().toStdString();
+
+    EXPECT_FALSE(bench.summary().contains(QStringLiteral("buses")));
+    ASSERT_EQ(bench.tree()->topLevelItemCount(), 1);
+    EXPECT_TRUE(bench.tree()->topLevelItem(0)->text(0).startsWith(QStringLiteral("0 ")));
+}

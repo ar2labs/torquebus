@@ -129,13 +129,33 @@ enum Column : int {
     return QObject::tr("not fitted");
 }
 
-/// Whether the ECU at `address` is still repeating its DM1, which is what makes the last one it
-/// sent what it is saying now. The ones with nothing to report count: a healthy ECU is on the list
-/// the block hands over, and has no code on the list of faults to be found by.
-[[nodiscard]] bool isReportingNow(const J1939NetworkSnapshot& snapshot, std::uint8_t address)
+/// Whether the ECU at `address` on `bus` is still repeating its DM1, which is what makes the last
+/// one it sent what it is saying now. The ones with nothing to report count: a healthy ECU is on
+/// the list the block hands over, and has no code on the list of faults to be found by.
+[[nodiscard]] bool isReportingNow(const J1939BusView& bus, std::uint8_t address)
 {
-    return std::find(snapshot.reporting.begin(), snapshot.reporting.end(), address)
-           != snapshot.reporting.end();
+    return std::find(bus.reporting.begin(), bus.reporting.end(), address) != bus.reporting.end();
+}
+
+/// A bus as a person names it: "CAN 2". Counted from one, as the channels are everywhere else.
+[[nodiscard]] QString busText(std::uint8_t channel)
+{
+    return QObject::tr("CAN %1").arg(static_cast<int>(channel) + 1);
+}
+
+/// What a row is remembered by from one rebuild to the next - its bus, and for an ECU its address
+/// on that bus - and whether it is the heading of a bus.
+constexpr int kRowKeyRole = Qt::UserRole;
+constexpr int kBusHeadingRole = Qt::UserRole + 1;
+
+[[nodiscard]] QString busKey(std::uint8_t channel)
+{
+    return QStringLiteral("bus %1").arg(channel);
+}
+
+[[nodiscard]] QString ecuKey(std::uint8_t channel, std::uint8_t address)
+{
+    return QStringLiteral("%1/%2").arg(channel).arg(address);
 }
 
 [[nodiscard]] QString faultText(const J1939Dtc& fault)
@@ -271,21 +291,86 @@ void J1939NetworkPanel::rebuild(const J1939NetworkSnapshot& snapshot)
 {
     const Theme theme = currentTheme();
 
+    // What was open stays open and what was closed stays closed: an ECU row is remembered by its
+    // bus and its address, and the heading of a bus by its bus.
     QSet<QString> expandedRows;
+    QSet<QString> collapsedBuses;
+
     for (int i = 0; i < m_nodes->topLevelItemCount(); ++i) {
-        if (const QTreeWidgetItem* existing = m_nodes->topLevelItem(i);
-            existing != nullptr && existing->isExpanded()) {
-            expandedRows.insert(existing->text(ColumnAddress));
+        const QTreeWidgetItem* top = m_nodes->topLevelItem(i);
+
+        if (!top->data(ColumnAddress, kBusHeadingRole).toBool()) {
+            if (top->isExpanded()) {
+                expandedRows.insert(top->data(ColumnAddress, kRowKeyRole).toString());
+            }
+            continue;
+        }
+
+        if (!top->isExpanded()) {
+            collapsedBuses.insert(top->data(ColumnAddress, kRowKeyRole).toString());
+        }
+
+        for (int child = 0; child < top->childCount(); ++child) {
+            if (const QTreeWidgetItem* ecu = top->child(child); ecu->isExpanded()) {
+                expandedRows.insert(ecu->data(ColumnAddress, kRowKeyRole).toString());
+            }
         }
     }
 
     m_nodes->setUpdatesEnabled(false);
     m_nodes->clear();
 
-    for (const J1939NetworkNode& node : snapshot.nodes) {
-        auto* row = new QTreeWidgetItem(m_nodes);
-        const QString addrLabel = addressText(node.address);
-        row->setText(ColumnAddress, addrLabel);
+    const bool severalBuses = snapshot.buses.size() > 1U;
+
+    for (const J1939BusView& bus : snapshot.buses) {
+        QTreeWidgetItem* heading = nullptr;
+
+        if (severalBuses) {
+            // An address is a seat on one bus, so with more than one the ECUs are listed under the
+            // bus they are on: the same number on another bus is another ECU.
+            heading = new QTreeWidgetItem(m_nodes);
+            heading->setData(ColumnAddress, kRowKeyRole, busKey(bus.channel));
+            heading->setData(ColumnAddress, kBusHeadingRole, true);
+            heading->setText(ColumnAddress, busText(bus.channel));
+            heading->setText(ColumnName,
+                             tr("%n ECU(s)", nullptr, static_cast<int>(bus.nodes.size())));
+            heading->setText(
+                ColumnState,
+                bus.activeFaults.empty()
+                    ? tr("no active faults")
+                    : tr("%n active fault(s)", nullptr, static_cast<int>(bus.activeFaults.size())));
+            heading->setForeground(ColumnState,
+                                   bus.activeFaults.empty() ? theme.textMuted : theme.error);
+        }
+
+        addBus(heading, bus, expandedRows);
+
+        if (heading != nullptr) {
+            // Open unless somebody closed it: a heading that is closed hides what the panel is for.
+            heading->setExpanded(!collapsedBuses.contains(busKey(bus.channel)));
+        }
+    }
+
+    m_nodes->setUpdatesEnabled(true);
+}
+
+void J1939NetworkPanel::addBus(QTreeWidgetItem* heading,
+                               const J1939BusView& bus,
+                               const QSet<QString>& expandedRows)
+{
+    const Theme theme = currentTheme();
+
+    // Under the heading of the bus when there is one, and at the top of the tree when the
+    // measurement has one bus - which is the usual case, and is shown as it always was.
+    const auto newRow = [this, heading] {
+        return heading != nullptr ? new QTreeWidgetItem(heading) : new QTreeWidgetItem(m_nodes);
+    };
+
+    for (const J1939NetworkNode& node : bus.nodes) {
+        QTreeWidgetItem* row = newRow();
+        const QString key = ecuKey(bus.channel, node.address);
+        row->setData(ColumnAddress, kRowKeyRole, key);
+        row->setText(ColumnAddress, addressText(node.address));
         row->setText(ColumnFrames, QString::number(node.framesSeen));
 
         row->setText(ColumnDetail,
@@ -313,7 +398,7 @@ void J1939NetworkPanel::rebuild(const J1939NetworkSnapshot& snapshot)
         bool hasActiveFaults = false;
 
         // What is wrong with this ECU, under it.
-        for (const J1939Diagnostic& message : snapshot.diagnostics) {
+        for (const J1939Diagnostic& message : bus.diagnostics) {
             if (message.sourceAddress != node.address) {
                 continue;
             }
@@ -324,7 +409,7 @@ void J1939NetworkPanel::rebuild(const J1939NetworkSnapshot& snapshot)
             // keeps them - and are not what is wrong with the machine now. Nor is "none" a
             // diagnosis any more: an ECU that said it had no faults, and has not said so since, is
             // not saying it.
-            const bool lastReported = message.active && !isReportingNow(snapshot, node.address);
+            const bool lastReported = message.active && !isReportingNow(bus, node.address);
 
             auto* group = new QTreeWidgetItem(row);
             group->setText(ColumnAddress,
@@ -377,15 +462,15 @@ void J1939NetworkPanel::rebuild(const J1939NetworkSnapshot& snapshot)
             }
         }
 
-        if (hasActiveFaults || expandedRows.contains(addrLabel)) {
+        if (hasActiveFaults || expandedRows.contains(key)) {
             row->setExpanded(true);
         }
     }
 
     // The ECUs that could not get an address at all, kept apart because 254 is
     // not a seat and listing them among the occupants would invent one.
-    for (const J1939Defeated& entry : snapshot.defeated) {
-        auto* row = new QTreeWidgetItem(m_nodes);
+    for (const J1939Defeated& entry : bus.defeated) {
+        QTreeWidgetItem* row = newRow();
         row->setText(ColumnAddress, tr("none"));
         row->setText(ColumnName, nameText(entry.name, m_names));
         row->setText(ColumnState, tr("no address"));
@@ -395,8 +480,6 @@ void J1939NetworkPanel::rebuild(const J1939NetworkSnapshot& snapshot)
                         "cannot be addressed")
                          .arg(entry.announcements));
     }
-
-    m_nodes->setUpdatesEnabled(true);
 }
 
 void J1939NetworkPanel::updateSummary(const J1939NetworkSnapshot& snapshot)
@@ -415,45 +498,57 @@ void J1939NetworkPanel::updateSummary(const J1939NetworkSnapshot& snapshot)
         return;
     }
 
-    // What the bus is reporting now, and not what each ECU last said: after a measurement ends, or
-    // for an ECU that has gone quiet, the second is still in the tree and the first is nothing.
+    // What the buses are reporting now, and not what each ECU last said: after a measurement ends,
+    // or for an ECU that has gone quiet, the second is still in the tree and the first is nothing.
+    std::size_t ecus = 0;
     std::size_t withFaults = 0;
-    const std::size_t faults = snapshot.activeFaults.size();
+    std::size_t faults = 0;
     std::size_t unclaimed = 0;
-
-    // In address order, so an ECU's codes are together.
-    for (std::size_t i = 0; i < snapshot.activeFaults.size(); ++i) {
-        if (i == 0
-            || snapshot.activeFaults[i].sourceAddress
-                   != snapshot.activeFaults[i - 1].sourceAddress) {
-            ++withFaults;
-        }
-    }
-
+    std::size_t defeated = 0;
     std::size_t reportedEarlier = 0;
 
-    for (const J1939Diagnostic& message : snapshot.diagnostics) {
-        if (message.active) {
-            reportedEarlier += message.faults.size();
+    for (const J1939BusView& bus : snapshot.buses) {
+        ecus += bus.nodes.size();
+        defeated += bus.defeated.size();
+        faults += bus.activeFaults.size();
+
+        // In address order, so an ECU's codes are together - and an ECU is an address on its bus.
+        for (std::size_t i = 0; i < bus.activeFaults.size(); ++i) {
+            if (i == 0
+                || bus.activeFaults[i].sourceAddress != bus.activeFaults[i - 1].sourceAddress) {
+                ++withFaults;
+            }
+        }
+
+        std::size_t said = 0;
+
+        for (const J1939Diagnostic& message : bus.diagnostics) {
+            if (message.active) {
+                said += message.faults.size();
+            }
+        }
+
+        reportedEarlier += said - std::min(said, bus.activeFaults.size());
+
+        for (const J1939NetworkNode& node : bus.nodes) {
+            if (!node.claimSeen) {
+                ++unclaimed;
+            }
         }
     }
 
-    reportedEarlier -= std::min(reportedEarlier, faults);
+    QString text = tr("%n ECU(s)", nullptr, static_cast<int>(ecus));
 
-    for (const J1939NetworkNode& node : snapshot.nodes) {
-        if (!node.claimSeen) {
-            ++unclaimed;
-        }
+    if (snapshot.buses.size() > 1U) {
+        text += tr(" on %n buses", nullptr, static_cast<int>(snapshot.buses.size()));
     }
-
-    QString text = tr("%n ECU(s)", nullptr, static_cast<int>(snapshot.nodes.size()));
 
     if (unclaimed > 0) {
         text += tr(", %n not seen claiming", nullptr, static_cast<int>(unclaimed));
     }
 
-    if (!snapshot.defeated.empty()) {
-        text += tr(", %n with no address", nullptr, static_cast<int>(snapshot.defeated.size()));
+    if (defeated > 0) {
+        text += tr(", %n with no address", nullptr, static_cast<int>(defeated));
     }
 
     text += faults > 0 ? tr(" - %1 active fault(s) on %2").arg(faults).arg(withFaults)

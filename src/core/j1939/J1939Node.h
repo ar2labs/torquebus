@@ -84,7 +84,9 @@ public:
 
     /// Where to hand the view of the bus a panel reads, or nullptr in a
     /// headless build - in which case the block keeps everything to itself and
-    /// nothing is copied. Borrowed; it outlives this node.
+    /// nothing is copied. Borrowed; it outlives this node. Every J1939 block of a
+    /// graph is given the same one, and files its bus there under the channel its
+    /// frames arrive on, beside the others (J1939Network.h, *More than one bus*).
     void setNetwork(J1939Network* network) noexcept { m_network = network; }
 
     /// Where to publish the lamps of the whole bus (kJ1939LampStopVariable and its three
@@ -152,10 +154,18 @@ private:
     /// Returns true when the fault list or lamps changed.
     bool recordDiagnostic(J1939Diagnostic message);
 
-    /// Writes the OR of the lamps of every ECU whose DM1 is current at `nowNs` to the system
-    /// variables, when that is a change. Cheap enough to call every pass: a handful of ECUs, and
-    /// four lock-free stores only when something moved.
-    void publishLamps(std::uint64_t nowNs) noexcept;
+    /// Works out the OR of the lamps of every ECU whose DM1 is current at `nowNs` and shows it.
+    /// Cheap enough to call every pass: a handful of ECUs, and nothing more unless something moved.
+    void publishLamps(std::uint64_t nowNs);
+
+    /// Shows what this bus lights, when that changed: with a network, the OR of every J1939
+    /// block's bus (J1939Network::combineLamps); the variables are written where they differ.
+    void showLamps(const std::array<std::int8_t, 4>& lit);
+
+    /// Hands the view of this bus over, under its channel, with these lists as what it is
+    /// reporting now. Only called with a network.
+    void publishView(const std::vector<J1939ActiveFault>& activeFaults,
+                     const std::vector<std::uint8_t>& reporting);
 
     /// Brings everything the block hands over up to date as of bus time `busNowNs`: the codes the
     /// bus is reporting and the ECUs that are repeating a DM1, the view a panel reads (when either
@@ -208,9 +218,13 @@ private:
                                                            SystemVariables::kUnknown,
                                                            SystemVariables::kUnknown};
 
-    /// What was last written, stop / warning / malfunction / protect, so an unchanged bus costs
-    /// nothing. Starts as a value no lamp can have, so the first pass always writes.
-    std::array<std::int8_t, 4> m_publishedLamps{-1, -1, -1, -1};
+    /// What this bus was last seen to light, stop / warning / malfunction / protect, so an
+    /// unchanged bus costs nothing. Starts as a value no lamp can have, so the first pass shows.
+    std::array<std::int8_t, 4> m_busLamps{-1, -1, -1, -1};
+
+    /// The channel this block's frames arrive on, which is the bus it files its view under. Learnt
+    /// from the first frame of a measurement.
+    std::optional<std::uint8_t> m_channel;
 
     /// The newest bus time seen, which is what "current" is measured against: the clock of a
     /// measurement is the bus's, and says nothing about the present when a log is being replayed.

@@ -65,10 +65,11 @@ Result J1939Node::prepare(std::size_t maximumBatchSize)
     m_scratchReporting.clear();
     m_newestNs = 0;
     m_idleSinceNs.reset();
+    m_channel.reset();
 
     // Before the database is looked at: the lamps of the bus come from the diagnostic messages,
     // which need no database, and a block that has not been given one yet must still publish them.
-    m_publishedLamps = {-1, -1, -1, -1};
+    m_busLamps = {-1, -1, -1, -1};
     if (m_variables != nullptr) {
         const std::array<std::string_view, 4> names{kJ1939LampStopVariable,
                                                     kJ1939LampWarningVariable,
@@ -193,6 +194,12 @@ void J1939Node::process(NodeContext& context)
         ++m_frames;
         latestNs = frame.timestampNs;
         m_newestNs = std::max(m_newestNs, frame.timestampNs);
+
+        // The bus this block reads is the channel its frames arrive on, and the panels file what it
+        // says under that channel. A block wired to two buses reads them as one, under the first.
+        if (!m_channel.has_value()) {
+            m_channel = frame.channel;
+        }
 
         const std::optional<J1939Id> id = j1939Decompose(frame);
         if (!id.has_value()) {
@@ -333,15 +340,25 @@ void J1939Node::settle(std::uint64_t busNowNs)
     if (m_networkDirty && m_network != nullptr) {
         // One lock and one set of copies per pass, never per frame. See
         // J1939Network.h for why that distinction is the whole design.
-        m_network->publish({m_addresses.nodes().begin(), m_addresses.nodes().end()},
-                           {m_addresses.defeated().begin(), m_addresses.defeated().end()},
-                           m_diagnostics,
-                           m_activeFaults,
-                           m_reporting);
+        publishView(m_activeFaults, m_reporting);
         m_networkDirty = false;
     }
 
     publishLamps(busNowNs);
+}
+
+void J1939Node::publishView(const std::vector<J1939ActiveFault>& activeFaults,
+                            const std::vector<std::uint8_t>& reporting)
+{
+    J1939BusView view;
+    view.channel = m_channel.value_or(0U);
+    view.nodes.assign(m_addresses.nodes().begin(), m_addresses.nodes().end());
+    view.defeated.assign(m_addresses.defeated().begin(), m_addresses.defeated().end());
+    view.diagnostics = m_diagnostics;
+    view.activeFaults = activeFaults;
+    view.reporting = reporting;
+
+    m_network->publish(std::move(view));
 }
 
 void J1939Node::ageOnAnIdlePass()
@@ -415,7 +432,7 @@ bool J1939Node::recordDiagnostic(J1939Diagnostic message)
     return true;
 }
 
-void J1939Node::publishLamps(std::uint64_t nowNs) noexcept
+void J1939Node::publishLamps(std::uint64_t nowNs)
 {
     if (m_variables == nullptr) {
         return;
@@ -441,13 +458,33 @@ void J1939Node::publishLamps(std::uint64_t nowNs) noexcept
         lit[3] = std::max(lit[3], on(message.lamps.protect));
     }
 
-    for (std::size_t lamp = 0; lamp < lit.size(); ++lamp) {
-        if (lit[lamp] == m_publishedLamps[lamp]) {
-            continue;
-        }
+    showLamps(lit);
+}
 
-        m_publishedLamps[lamp] = lit[lamp];
-        m_variables->set(m_lampVariables[lamp], static_cast<double>(lit[lamp]));
+void J1939Node::showLamps(const std::array<std::int8_t, 4>& lit)
+{
+    // Nothing moved on this bus, so nothing this block shows moved either: a steady bus writes no
+    // variable and takes no lock.
+    if (lit == m_busLamps) {
+        return;
+    }
+
+    m_busLamps = lit;
+
+    // With a network to share them through, the lamps are the whole vehicle's: what every J1939
+    // block says its own bus lights, together. A cluster has one stop lamp, and another bus's fault
+    // must not go dark because this bus's went out. Without one, they are this bus's.
+    const std::array<std::int8_t, 4> shown =
+        m_network != nullptr ? m_network->combineLamps(this, lit) : lit;
+
+    for (std::size_t lamp = 0; lamp < shown.size(); ++lamp) {
+        // Against what the variable says, and not against what this block wrote last: another
+        // block may have written it since, and a copy of its own would be out of date.
+        const auto value = static_cast<double>(shown[lamp]);
+
+        if (m_variables->value(m_lampVariables[lamp]) != value) {
+            m_variables->set(m_lampVariables[lamp], value);
+        }
     }
 }
 
@@ -460,12 +497,10 @@ void J1939Node::finish()
     // The lamps are a statement about a bus that is no longer there. The cluster's signals go to
     // dashes after Stop; a variable would otherwise hold its last value for ever, and a stopped
     // measurement would show a red lamp for a fault nobody can still be reporting. The diagnostics
-    // themselves stay: they are what a panel reads afterwards.
+    // themselves stay: they are what a panel reads afterwards. Put out through the door they are
+    // lit through: a J1939 block still to finish keeps the lamps of its bus lit until it does.
     if (m_variables != nullptr) {
-        for (std::size_t lamp = 0; lamp < m_lampVariables.size(); ++lamp) {
-            m_publishedLamps[lamp] = 0;
-            m_variables->set(m_lampVariables[lamp], 0.0);
-        }
+        showLamps({0, 0, 0, 0});
     }
 
     // And for the same reason the codes, and the ECUs that were repeating a DM1: a stopped
@@ -477,11 +512,7 @@ void J1939Node::finish()
         m_reporting.clear();
 
         if (m_network != nullptr) {
-            m_network->publish({m_addresses.nodes().begin(), m_addresses.nodes().end()},
-                               {m_addresses.defeated().begin(), m_addresses.defeated().end()},
-                               m_diagnostics,
-                               {},
-                               {});
+            publishView(m_activeFaults, m_reporting);
         }
     }
 }

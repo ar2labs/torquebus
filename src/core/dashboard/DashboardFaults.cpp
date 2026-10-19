@@ -50,32 +50,42 @@ std::vector<DashboardFault> dashboardFaultsOf(const J1939NetworkSnapshot& snapsh
                                               const J1939NameTables* names)
 {
     std::vector<DashboardFault> faults;
-    faults.reserve(snapshot.activeFaults.size());
 
-    for (const J1939ActiveFault& active : snapshot.activeFaults) {
-        DashboardFault fault;
-        fault.sourceAddress = active.sourceAddress;
-        fault.code = active.code;
-        fault.tone = toneOfLamps(active.lamps);
+    // A bus is said only when there is another to tell it from.
+    const bool severalBuses = snapshot.buses.size() > 1U;
 
-        // The NAME that claimed the address, if one was seen to: it is the only thing that says
-        // what the ECU is, and an ECU that never claimed one in this measurement is an address.
-        if (names != nullptr) {
-            const auto node = std::find_if(snapshot.nodes.begin(),
-                                           snapshot.nodes.end(),
-                                           [&active](const J1939NetworkNode& candidate) {
-                                               return candidate.address == active.sourceAddress;
-                                           });
+    for (const J1939BusView& bus : snapshot.buses) {
+        for (const J1939ActiveFault& active : bus.activeFaults) {
+            DashboardFault fault;
+            fault.sourceAddress = active.sourceAddress;
+            fault.code = active.code;
+            fault.tone = toneOfLamps(active.lamps);
 
-            if (node != snapshot.nodes.end() && node->name.has_value()) {
-                if (const std::optional<std::string_view> function = names->function(*node->name);
-                    function.has_value()) {
-                    fault.ecu = std::string{*function};
+            if (severalBuses) {
+                fault.channel = bus.channel;
+            }
+
+            // The NAME that claimed the address on this bus, if one was seen to: it is the only
+            // thing that says what the ECU is, and an ECU that never claimed one in this
+            // measurement is an address. The same address on another bus is another ECU.
+            if (names != nullptr) {
+                const auto node = std::find_if(bus.nodes.begin(),
+                                               bus.nodes.end(),
+                                               [&active](const J1939NetworkNode& candidate) {
+                                                   return candidate.address == active.sourceAddress;
+                                               });
+
+                if (node != bus.nodes.end() && node->name.has_value()) {
+                    if (const std::optional<std::string_view> function =
+                            names->function(*node->name);
+                        function.has_value()) {
+                        fault.ecu = std::string{*function};
+                    }
                 }
             }
-        }
 
-        faults.push_back(std::move(fault));
+            faults.push_back(std::move(fault));
+        }
     }
 
     // Stable, so that two codes of one rank keep the order the snapshot gave them.

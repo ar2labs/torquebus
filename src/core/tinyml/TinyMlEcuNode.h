@@ -26,6 +26,11 @@
 // (Address Claimed, J1939-81), under a NAME that says what it is - an on-highway
 // System Monitor - and only then sends its telemetry and its predictive DM1 from
 // that address. That is what lets a panel name it, rather than show a number.
+// It answers a Request for Address Claimed with its claim, and keeps the rules
+// of a contest: another ECU claiming the same address with a lower NAME takes
+// it, and this one - which cannot move to another - says it cannot claim one and
+// is silent on the bus for the rest of the measurement; one with a higher NAME
+// is told again that the address is taken.
 
 #pragma once
 
@@ -34,6 +39,7 @@
 #include "core/database/CanMessage.h"
 #include "core/database/CanSignal.h"
 #include "core/database/DecodedSignal.h"
+#include "core/j1939/J1939Name.h"
 #include "core/pipeline/PipelineNode.h"
 #include "core/tinyml/TinyMlModel.h"
 
@@ -140,6 +146,18 @@ private:
     /// clock of its own takes the bus's.
     void appendAddressClaim(std::uint64_t timestampNs);
 
+    /// An Address Claimed carrying this ECU's NAME from `source`: its own address, or the null
+    /// address when it is saying that it cannot claim one. False when there was no room for it.
+    bool appendClaimFrom(std::uint8_t source, std::uint64_t timestampNs);
+
+    /// What this ECU is: on-highway, a System Monitor, its address as its serial number.
+    [[nodiscard]] J1939Name ownName() const noexcept;
+
+    /// A claim or a request seen on a J1939 bus, and what this ECU does about it: answers a request
+    /// for the claims of the bus, defends its address against a higher NAME, and gives it up to a
+    /// lower one. True when the frame was one of those, which the model does not read.
+    bool onNetworkManagement(const CanFrame& frame);
+
     /// The telemetry frame of a J1939 bus (Proprietary B), and the predictive DM1 that follows it
     /// while the model thinks the engine is in trouble, appended to the output.
     void appendJ1939Telemetry(const CanFrame& cause,
@@ -229,6 +247,11 @@ private:
     /// again.
     std::uint32_t m_claimIdentifier{0};
     bool m_addressClaimed{false};
+
+    /// Another ECU took the address with a lower NAME. Nothing more goes on the bus from this one
+    /// until the next measurement, but a request for the claims of the bus is answered with the
+    /// news that it has no address.
+    bool m_addressLost{false};
 
     /// Bus time the engine has been (or has stopped being) in trouble since, and what was last said
     /// about it on the bus. Optionals because bus time zero is a time, and a sentinel that equals

@@ -1108,6 +1108,19 @@ The fault list (`docs/development/dashboard.md`, *The fault list*):
     fault to list, go from *active faults: none* to *last reported: none* in the same three seconds.
 40. Drag the fault list's corner until it is too small for its rows. The worst stay on show and
     the last line says **+ N more**.
+41. **Two buses.** Add a second CAN Bus on CAN 2 with a J1939 block of its own, and from the
+    Transmit panel send a DM1 on CAN 2 once a second - `0x18FECA21`, lamp byte `04` and a code.
+    The **J1939 Network** panel now lists *CAN 1* and *CAN 2*, each with its own ECUs under it and
+    what it is reporting on its heading; the fault list has both buses' codes, each row with its
+    bus in front (`CAN 2 · SA 33`); and the cluster's amber lamp is lit for CAN 2 while CAN 1 stays
+    as it was. Untick the DM1: three seconds later its code leaves the list and the amber lamp goes
+    out, and nothing on CAN 1 moves.
+42. **A contest for the TinyML ECU's address.** With the J1939 example running, send one Address
+    Claimed for address 128 under a lower NAME: `0x18EEFF80`, data `07 00 00 00 00 00 00 00`. The
+    TinyML ECU answers *cannot claim* (`0x18EEFFFE` in the CAN Trace) and its telemetry,
+    `0x18FF0080`, stops; its block's statistics say *J1939 address lost* 1, and the J1939 Network
+    panel lists its NAME as an ECU with no address. A Request for Address Claimed (`0x18EAFFF9`,
+    data `00 EE 00`) is answered with *cannot claim* again. Stop and Start: it claims 128 again.
 
 **Watch for:** a gauge that shows dashes with a correctly spelled signal. The line under the
 fields in the Widget form says whether the signal is reaching the plot store - *No samples

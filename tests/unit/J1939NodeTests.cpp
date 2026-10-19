@@ -10,6 +10,7 @@
 // arriving from an address the database did not anticipate, and a transport
 // packet decoded as though it were a message.
 
+#include "core/can/CanEngine.h"
 #include "core/can/CanFilter.h"
 #include "core/dashboard/DashboardFaults.h"
 #include "core/dashboard/SystemVariables.h"
@@ -18,15 +19,20 @@
 #include "core/j1939/J1939Node.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
+#include "drivers/virtual/VirtualCanBackend.h"
 
 #include <gtest/gtest.h>
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -130,6 +136,23 @@ private:
     std::array<PortBatch, 1> m_inputs{};
     std::array<PortBatch, 1> m_outputs{};
 };
+
+/// The one bus a single J1939 block publishes, or an empty one before it has published anything.
+/// Most of what is asked here is about one block, and so about one bus.
+[[nodiscard]] const J1939BusView& busOf(const J1939NetworkSnapshot& snapshot)
+{
+    static const J1939BusView kNothingPublished{};
+
+    EXPECT_LE(snapshot.buses.size(), 1U) << "one J1939 block publishes one bus";
+    return snapshot.buses.empty() ? kNothingPublished : snapshot.buses.front();
+}
+
+/// The same for a snapshot nobody keeps, as a copy: a reference would outlive it.
+[[nodiscard]] J1939BusView busOf(J1939NetworkSnapshot&& snapshot)
+{
+    EXPECT_LE(snapshot.buses.size(), 1U) << "one J1939 block publishes one bus";
+    return snapshot.buses.empty() ? J1939BusView{} : std::move(snapshot.buses.front());
+}
 
 } // namespace
 
@@ -411,7 +434,7 @@ TEST(J1939NodeTests, NothingPublishedIsNotTheSameAsNobodyOnTheBus)
     J1939Network network;
 
     EXPECT_TRUE(network.revision() == 0U);
-    EXPECT_TRUE(network.snapshot().nodes.empty());
+    EXPECT_TRUE(busOf(network.snapshot()).nodes.empty());
     EXPECT_TRUE(network.snapshot().revision == 0U);
 }
 
@@ -433,8 +456,8 @@ TEST(J1939NodeTests, TheBlockHandsItsViewOverWhenTheBusChanges)
     EXPECT_TRUE(afterFirst > 0U);
 
     const J1939NetworkSnapshot snapshot = network.snapshot();
-    ASSERT_TRUE(snapshot.nodes.size() == 1U);
-    EXPECT_TRUE(snapshot.nodes[0].address == kEngine);
+    ASSERT_TRUE(busOf(snapshot).nodes.size() == 1U);
+    EXPECT_TRUE(busOf(snapshot).nodes[0].address == kEngine);
     EXPECT_TRUE(snapshot.revision == afterFirst);
 
     // A second ECU is a change, so it is handed over.
@@ -443,7 +466,7 @@ TEST(J1939NodeTests, TheBlockHandsItsViewOverWhenTheBusChanges)
     driver.run(second);
 
     EXPECT_TRUE(network.revision() > afterFirst);
-    EXPECT_TRUE(network.snapshot().nodes.size() == 2U);
+    EXPECT_TRUE(busOf(network.snapshot()).nodes.size() == 2U);
 }
 
 TEST(J1939NodeTests, ASteadyBusIsNotCopiedOverAndOver)
@@ -486,9 +509,9 @@ TEST(J1939NodeTests, AFaultReachesThePanelSideOfTheHandOver)
     driver.run(frames);
 
     const J1939NetworkSnapshot snapshot = network.snapshot();
-    ASSERT_TRUE(snapshot.diagnostics.size() == 1U);
-    ASSERT_TRUE(snapshot.diagnostics[0].faults.size() == 1U);
-    EXPECT_TRUE(snapshot.diagnostics[0].faults[0].spn == 100U);
+    ASSERT_TRUE(busOf(snapshot).diagnostics.size() == 1U);
+    ASSERT_TRUE(busOf(snapshot).diagnostics[0].faults.size() == 1U);
+    EXPECT_TRUE(busOf(snapshot).diagnostics[0].faults[0].spn == 100U);
 }
 
 TEST(J1939NodeTests, ClearingForANewMeasurementIsAChangeAPanelNotices)
@@ -498,18 +521,18 @@ TEST(J1939NodeTests, ClearingForANewMeasurementIsAChangeAPanelNotices)
     // previous run's bus.
     J1939Network network;
     network.publish({J1939NetworkNode{}}, {}, {}, {J1939ActiveFault{}}, {kEngine});
-    ASSERT_EQ(network.snapshot().reporting.size(), 1U);
+    ASSERT_EQ(busOf(network.snapshot()).reporting.size(), 1U);
 
     const std::uint64_t before = network.revision();
     network.clear();
 
     EXPECT_TRUE(network.revision() > before);
-    EXPECT_TRUE(network.snapshot().nodes.empty());
+    EXPECT_TRUE(busOf(network.snapshot()).nodes.empty());
 
     // What the last run's bus was saying is not what this one's is: neither the codes, nor the ECUs
     // that were repeating a DM1.
-    EXPECT_TRUE(network.snapshot().activeFaults.empty());
-    EXPECT_TRUE(network.snapshot().reporting.empty());
+    EXPECT_TRUE(busOf(network.snapshot()).activeFaults.empty());
+    EXPECT_TRUE(busOf(network.snapshot()).reporting.empty());
 }
 
 TEST(J1939NodeTests, SpecialValuesForNotAvailableAndErrorDecodeToNan)
@@ -832,22 +855,22 @@ TEST(J1939NodeTests, TheCodesTheBusIsReportingAreHandedOverWithTheLampsTheyCameU
     driver.run(frames);
 
     const J1939NetworkSnapshot snapshot = bench.network.snapshot();
-    ASSERT_EQ(snapshot.activeFaults.size(), 2U);
+    ASSERT_EQ(busOf(snapshot).activeFaults.size(), 2U);
 
     // ECU by ECU in address order, however they arrived.
-    EXPECT_EQ(snapshot.activeFaults[0].sourceAddress, kEngine);
-    EXPECT_EQ(snapshot.activeFaults[0].code.spn, 100U);
-    EXPECT_EQ(snapshot.activeFaults[0].code.fmi, 1U);
-    EXPECT_EQ(snapshot.activeFaults[0].code.occurrenceCount, 3U);
-    EXPECT_TRUE(snapshot.activeFaults[0].lamps.redStop == J1939LampState::On);
+    EXPECT_EQ(busOf(snapshot).activeFaults[0].sourceAddress, kEngine);
+    EXPECT_EQ(busOf(snapshot).activeFaults[0].code.spn, 100U);
+    EXPECT_EQ(busOf(snapshot).activeFaults[0].code.fmi, 1U);
+    EXPECT_EQ(busOf(snapshot).activeFaults[0].code.occurrenceCount, 3U);
+    EXPECT_TRUE(busOf(snapshot).activeFaults[0].lamps.redStop == J1939LampState::On);
 
-    EXPECT_EQ(snapshot.activeFaults[1].sourceAddress, kBody);
-    EXPECT_EQ(snapshot.activeFaults[1].code.spn, 4096U);
-    EXPECT_TRUE(snapshot.activeFaults[1].lamps.amberWarning == J1939LampState::On);
-    EXPECT_TRUE(snapshot.activeFaults[1].lamps.redStop != J1939LampState::On);
+    EXPECT_EQ(busOf(snapshot).activeFaults[1].sourceAddress, kBody);
+    EXPECT_EQ(busOf(snapshot).activeFaults[1].code.spn, 4096U);
+    EXPECT_TRUE(busOf(snapshot).activeFaults[1].lamps.amberWarning == J1939LampState::On);
+    EXPECT_TRUE(busOf(snapshot).activeFaults[1].lamps.redStop != J1939LampState::On);
 
     // Handed over with the ECUs they name, from the same pass.
-    EXPECT_EQ(snapshot.nodes.size(), 2U);
+    EXPECT_EQ(busOf(snapshot).nodes.size(), 2U);
 }
 
 TEST(J1939NodeTests, AnEcuThatReportsNothingHasNothingOnTheList)
@@ -862,8 +885,8 @@ TEST(J1939NodeTests, AnEcuThatReportsNothingHasNothingOnTheList)
 
     const J1939NetworkSnapshot snapshot = bench.network.snapshot();
     EXPECT_TRUE(snapshot.published);
-    EXPECT_EQ(snapshot.diagnostics.size(), 1U);
-    EXPECT_TRUE(snapshot.activeFaults.empty());
+    EXPECT_EQ(busOf(snapshot).diagnostics.size(), 1U);
+    EXPECT_TRUE(busOf(snapshot).activeFaults.empty());
 }
 
 TEST(J1939NodeTests, WhatWasWrongIsNotOnTheListOfWhatIsWrong)
@@ -878,8 +901,8 @@ TEST(J1939NodeTests, WhatWasWrongIsNotOnTheListOfWhatIsWrong)
     driver.run(frames);
 
     const J1939NetworkSnapshot snapshot = bench.network.snapshot();
-    EXPECT_EQ(snapshot.diagnostics.size(), 1U);
-    EXPECT_TRUE(snapshot.activeFaults.empty());
+    EXPECT_EQ(busOf(snapshot).diagnostics.size(), 1U);
+    EXPECT_TRUE(busOf(snapshot).activeFaults.empty());
 }
 
 TEST(J1939NodeTests, AnEcuThatFallsSilentTakesItsCodesOffTheListAndTheLampsGoOutWithThem)
@@ -899,14 +922,14 @@ TEST(J1939NodeTests, AnEcuThatFallsSilentTakesItsCodesOffTheListAndTheLampsGoOut
 
     const std::array<CanFrame, 1> lit{faultFrom(kEngine, kRedStop, 100U, 1U, 3U, kSecond)};
     driver.run(lit);
-    ASSERT_EQ(network.snapshot().activeFaults.size(), 1U);
+    ASSERT_EQ(busOf(network.snapshot()).activeFaults.size(), 1U);
     ASSERT_GT(variables.value(std::string{kJ1939LampStopVariable}), 0.5);
 
     // Two seconds on, the body controller is still talking and the engine has not repeated itself:
     // still current.
     const std::array<CanFrame, 1> soon{diagnosticFrom(kPgnDm1, kBody, 0x00U, 3U * kSecond)};
     driver.run(soon);
-    EXPECT_EQ(network.snapshot().activeFaults.size(), 1U);
+    EXPECT_EQ(busOf(network.snapshot()).activeFaults.size(), 1U);
 
     const std::uint64_t before = network.revision();
 
@@ -915,13 +938,13 @@ TEST(J1939NodeTests, AnEcuThatFallsSilentTakesItsCodesOffTheListAndTheLampsGoOut
 
     // Gone from the list, and the change was published: a panel is told, not left to find out.
     const J1939NetworkSnapshot snapshot = network.snapshot();
-    EXPECT_TRUE(snapshot.activeFaults.empty());
+    EXPECT_TRUE(busOf(snapshot).activeFaults.empty());
     EXPECT_GT(network.revision(), before);
     EXPECT_LT(variables.value(std::string{kJ1939LampStopVariable}), 0.5);
 
     // What the engine last said is still what a panel that reads the ECUs finds.
-    ASSERT_EQ(snapshot.diagnostics.size(), 2U);
-    EXPECT_EQ(snapshot.diagnostics[0].faults.size(), 1U);
+    ASSERT_EQ(busOf(snapshot).diagnostics.size(), 2U);
+    EXPECT_EQ(busOf(snapshot).diagnostics[0].faults.size(), 1U);
 }
 
 TEST(J1939NodeTests, AnEcuThatComesBackPutsItsCodeBackOnTheList)
@@ -935,14 +958,14 @@ TEST(J1939NodeTests, AnEcuThatComesBackPutsItsCodeBackOnTheList)
 
     const std::array<CanFrame, 1> elsewhere{diagnosticFrom(kPgnDm1, kBody, 0x00U, 6U * kSecond)};
     driver.run(elsewhere);
-    ASSERT_TRUE(bench.network.snapshot().activeFaults.empty());
+    ASSERT_TRUE(busOf(bench.network.snapshot()).activeFaults.empty());
 
     const std::array<CanFrame, 1> back{faultFrom(kEngine, kRedStop, 100U, 1U, 3U, 7U * kSecond)};
     driver.run(back);
 
     const J1939NetworkSnapshot snapshot = bench.network.snapshot();
-    ASSERT_EQ(snapshot.activeFaults.size(), 1U);
-    EXPECT_EQ(snapshot.activeFaults[0].code.spn, 100U);
+    ASSERT_EQ(busOf(snapshot).activeFaults.size(), 1U);
+    EXPECT_EQ(busOf(snapshot).activeFaults[0].code.spn, 100U);
 }
 
 TEST(J1939NodeTests, AFaultRepeatedEverySecondIsHandedOverOnceAndNotEveryPass)
@@ -964,7 +987,7 @@ TEST(J1939NodeTests, AFaultRepeatedEverySecondIsHandedOverOnceAndNotEveryPass)
     }
 
     EXPECT_EQ(bench.network.revision(), settled);
-    EXPECT_EQ(bench.network.snapshot().activeFaults.size(), 1U);
+    EXPECT_EQ(busOf(bench.network.snapshot()).activeFaults.size(), 1U);
 
     // A different code from the same ECU is a change: its new message replaces the old.
     const std::array<CanFrame, 1> another{faultFrom(kEngine, kRedStop, 110U, 0U, 1U, 8U * kSecond)};
@@ -973,8 +996,8 @@ TEST(J1939NodeTests, AFaultRepeatedEverySecondIsHandedOverOnceAndNotEveryPass)
     EXPECT_GT(bench.network.revision(), settled);
 
     const J1939NetworkSnapshot snapshot = bench.network.snapshot();
-    ASSERT_EQ(snapshot.activeFaults.size(), 1U);
-    EXPECT_EQ(snapshot.activeFaults[0].code.spn, 110U);
+    ASSERT_EQ(busOf(snapshot).activeFaults.size(), 1U);
+    EXPECT_EQ(busOf(snapshot).activeFaults[0].code.spn, 110U);
 }
 
 TEST(J1939NodeTests, StoppingTheMeasurementEmptiesTheListAndKeepsWhatTheEcusSaid)
@@ -984,21 +1007,21 @@ TEST(J1939NodeTests, StoppingTheMeasurementEmptiesTheListAndKeepsWhatTheEcusSaid
 
     const std::array<CanFrame, 1> lit{faultFrom(kEngine, kRedStop, 100U, 1U, 3U, kSecond)};
     driver.run(lit);
-    ASSERT_EQ(bench.network.snapshot().activeFaults.size(), 1U);
+    ASSERT_EQ(busOf(bench.network.snapshot()).activeFaults.size(), 1U);
 
     const std::uint64_t running = bench.network.revision();
     bench.node.finish();
 
     // A stopped measurement reports no fault, the same as its lamps - and a panel is told.
     const J1939NetworkSnapshot snapshot = bench.network.snapshot();
-    EXPECT_TRUE(snapshot.activeFaults.empty());
+    EXPECT_TRUE(busOf(snapshot).activeFaults.empty());
     EXPECT_GT(bench.network.revision(), running);
 
     // What the J1939 panel reads afterwards is still there, with the ECUs.
     EXPECT_TRUE(snapshot.published);
-    ASSERT_EQ(snapshot.diagnostics.size(), 1U);
-    EXPECT_EQ(snapshot.diagnostics[0].faults.size(), 1U);
-    EXPECT_EQ(snapshot.nodes.size(), 1U);
+    ASSERT_EQ(busOf(snapshot).diagnostics.size(), 1U);
+    EXPECT_EQ(busOf(snapshot).diagnostics[0].faults.size(), 1U);
+    EXPECT_EQ(busOf(snapshot).nodes.size(), 1U);
 
     // Stopping a block that had nothing to report publishes nothing.
     NetworkBench quiet;
@@ -1013,17 +1036,17 @@ TEST(J1939NodeTests, AMeasurementStartsWithAnEmptyList)
 
     const std::array<CanFrame, 1> lit{faultFrom(kEngine, kRedStop, 100U, 1U, 3U, kSecond)};
     driver.run(lit);
-    ASSERT_FALSE(bench.network.snapshot().activeFaults.empty());
+    ASSERT_FALSE(busOf(bench.network.snapshot()).activeFaults.empty());
 
     // What the engine does at Start, and the block does at prepare: nothing from the last run.
     bench.network.clear();
-    EXPECT_TRUE(bench.network.snapshot().activeFaults.empty());
+    EXPECT_TRUE(busOf(bench.network.snapshot()).activeFaults.empty());
 
     ASSERT_TRUE(bench.node.prepare(64U).succeeded());
     const std::array<CanFrame, 1> healthy{diagnosticFrom(kPgnDm1, kEngine, 0x00U, kSecond)};
     driver.run(healthy);
 
-    EXPECT_TRUE(bench.network.snapshot().activeFaults.empty());
+    EXPECT_TRUE(busOf(bench.network.snapshot()).activeFaults.empty());
 }
 
 TEST(J1939NodeTests, TheEcusRepeatingADm1AreHandedOverAndTheHealthyOnesAreAmongThem)
@@ -1043,12 +1066,12 @@ TEST(J1939NodeTests, TheEcusRepeatingADm1AreHandedOverAndTheHealthyOnesAreAmongT
 
     const J1939NetworkSnapshot snapshot = bench.network.snapshot();
 
-    ASSERT_EQ(snapshot.reporting.size(), 2U);
-    EXPECT_EQ(snapshot.reporting[0], kEngine);
-    EXPECT_EQ(snapshot.reporting[1], kBody);
+    ASSERT_EQ(busOf(snapshot).reporting.size(), 2U);
+    EXPECT_EQ(busOf(snapshot).reporting[0], kEngine);
+    EXPECT_EQ(busOf(snapshot).reporting[1], kBody);
 
-    EXPECT_EQ(snapshot.activeFaults.size(), 1U);
-    EXPECT_EQ(snapshot.diagnostics.size(), 3U);
+    EXPECT_EQ(busOf(snapshot).activeFaults.size(), 1U);
+    EXPECT_EQ(busOf(snapshot).diagnostics.size(), 3U);
 }
 
 TEST(J1939NodeTests, AHealthyEcuThatGoesQuietLeavesTheReportingAndAPanelIsToldSo)
@@ -1062,12 +1085,12 @@ TEST(J1939NodeTests, AHealthyEcuThatGoesQuietLeavesTheReportingAndAPanelIsToldSo
     const std::array<CanFrame, 2> first{diagnosticFrom(kPgnDm1, kEngine, 0x00U, kSecond),
                                         diagnosticFrom(kPgnDm1, kBody, 0x00U, kSecond)};
     driver.run(first);
-    ASSERT_EQ(bench.network.snapshot().reporting.size(), 2U);
+    ASSERT_EQ(busOf(bench.network.snapshot()).reporting.size(), 2U);
 
     // Two seconds on, only the body controller has repeated itself: the engine has missed one.
     const std::array<CanFrame, 1> soon{diagnosticFrom(kPgnDm1, kBody, 0x00U, 3U * kSecond)};
     driver.run(soon);
-    EXPECT_EQ(bench.network.snapshot().reporting.size(), 2U);
+    EXPECT_EQ(busOf(bench.network.snapshot()).reporting.size(), 2U);
 
     const std::uint64_t before = bench.network.revision();
 
@@ -1075,19 +1098,19 @@ TEST(J1939NodeTests, AHealthyEcuThatGoesQuietLeavesTheReportingAndAPanelIsToldSo
     driver.run(late);
 
     const J1939NetworkSnapshot snapshot = bench.network.snapshot();
-    ASSERT_EQ(snapshot.reporting.size(), 1U);
-    EXPECT_EQ(snapshot.reporting[0], kBody);
+    ASSERT_EQ(busOf(snapshot).reporting.size(), 1U);
+    EXPECT_EQ(busOf(snapshot).reporting[0], kBody);
     EXPECT_GT(bench.network.revision(), before);
 
     // What the engine last said is still there, to be shown as that.
-    EXPECT_EQ(snapshot.diagnostics.size(), 2U);
-    EXPECT_TRUE(snapshot.activeFaults.empty());
+    EXPECT_EQ(busOf(snapshot).diagnostics.size(), 2U);
+    EXPECT_TRUE(busOf(snapshot).activeFaults.empty());
 
     // And when it speaks again it is reporting again, with the same bytes as before.
     const std::array<CanFrame, 1> back{diagnosticFrom(kPgnDm1, kEngine, 0x00U, 6U * kSecond)};
     driver.run(back);
 
-    EXPECT_EQ(bench.network.snapshot().reporting.size(), 2U);
+    EXPECT_EQ(busOf(bench.network.snapshot()).reporting.size(), 2U);
 }
 
 TEST(J1939NodeTests, EcusRepeatingTheirDm1AreHandedOverOnceAndNotEveryPass)
@@ -1111,7 +1134,7 @@ TEST(J1939NodeTests, EcusRepeatingTheirDm1AreHandedOverOnceAndNotEveryPass)
     }
 
     EXPECT_EQ(bench.network.revision(), settled);
-    EXPECT_EQ(bench.network.snapshot().reporting.size(), 2U);
+    EXPECT_EQ(busOf(bench.network.snapshot()).reporting.size(), 2U);
 }
 
 TEST(J1939NodeTests, StoppingTheMeasurementTakesTheReportingOffEvenWhenNothingWasWrong)
@@ -1124,18 +1147,18 @@ TEST(J1939NodeTests, StoppingTheMeasurementTakesTheReportingOffEvenWhenNothingWa
 
     const std::array<CanFrame, 1> healthy{diagnosticFrom(kPgnDm1, kEngine, 0x00U, kSecond)};
     driver.run(healthy);
-    ASSERT_EQ(bench.network.snapshot().reporting.size(), 1U);
+    ASSERT_EQ(busOf(bench.network.snapshot()).reporting.size(), 1U);
 
     const std::uint64_t running = bench.network.revision();
     bench.node.finish();
 
     const J1939NetworkSnapshot snapshot = bench.network.snapshot();
-    EXPECT_TRUE(snapshot.reporting.empty());
+    EXPECT_TRUE(busOf(snapshot).reporting.empty());
     EXPECT_GT(bench.network.revision(), running);
 
     // What the ECU last said is still what the J1939 panel reads afterwards.
     EXPECT_TRUE(snapshot.published);
-    EXPECT_EQ(snapshot.diagnostics.size(), 1U);
+    EXPECT_EQ(busOf(snapshot).diagnostics.size(), 1U);
 }
 
 TEST(J1939NodeTests, AnEcuThatClaimedItsAddressIsNamedOnTheFaultListByTheShippedFunctionTable)
@@ -1212,8 +1235,8 @@ TEST(J1939NodeTests, AReaderOfTheHandOverNeverSeesHalfOfAPublication)
         const J1939NetworkSnapshot snapshot = network.snapshot();
         ++reads;
 
-        if (snapshot.nodes.size() != snapshot.activeFaults.size()
-            || snapshot.nodes.size() != snapshot.reporting.size()) {
+        if (busOf(snapshot).nodes.size() != busOf(snapshot).activeFaults.size()
+            || busOf(snapshot).nodes.size() != busOf(snapshot).reporting.size()) {
             ++torn;
         }
     }
@@ -1255,7 +1278,8 @@ TEST(J1939NodeTests, ASnapshotCarriesTheRevisionItsContentsAreFrom)
         const J1939NetworkSnapshot snapshot = network.snapshot();
         ++reads;
 
-        if (!snapshot.nodes.empty() && snapshot.revision != snapshot.nodes.front().framesSeen) {
+        if (!busOf(snapshot).nodes.empty()
+            && snapshot.revision != busOf(snapshot).nodes.front().framesSeen) {
             ++wrong;
         }
     }
@@ -1267,9 +1291,9 @@ TEST(J1939NodeTests, ASnapshotCarriesTheRevisionItsContentsAreFrom)
 
     // And what is left at the end is the last publication, and says so.
     const J1939NetworkSnapshot last = network.snapshot();
-    ASSERT_EQ(last.nodes.size(), 1U);
+    ASSERT_EQ(busOf(last).nodes.size(), 1U);
     EXPECT_EQ(last.revision, 50'000U);
-    EXPECT_EQ(last.nodes.front().framesSeen, 50'000U);
+    EXPECT_EQ(busOf(last).nodes.front().framesSeen, 50'000U);
 }
 
 // ---------------------------------------------------------------------------
@@ -1315,10 +1339,16 @@ struct SilenceBench final {
         return variables.value(std::string{kJ1939LampStopVariable}) > 0.5;
     }
 
-    [[nodiscard]] std::size_t listed() const { return network.snapshot().activeFaults.size(); }
+    [[nodiscard]] std::size_t listed() const
+    {
+        return busOf(network.snapshot()).activeFaults.size();
+    }
 
     /// How many ECUs are repeating a DM1, healthy ones included.
-    [[nodiscard]] std::size_t reporting() const { return network.snapshot().reporting.size(); }
+    [[nodiscard]] std::size_t reporting() const
+    {
+        return busOf(network.snapshot()).reporting.size();
+    }
 
     J1939Network network;
     SystemVariables variables;
@@ -1363,7 +1393,7 @@ TEST(J1939NodeTests, ABusThatFallsSilentAllAtOnceLetsGoOfItsCodesAndItsLampsAfte
 
     // A panel is told, and what the engine last said is still what a panel that reads it finds.
     EXPECT_GT(bench.network.revision(), before);
-    EXPECT_EQ(bench.network.snapshot().diagnostics.size(), 1U);
+    EXPECT_EQ(busOf(bench.network.snapshot()).diagnostics.size(), 1U);
 }
 
 TEST(J1939NodeTests,
@@ -1553,7 +1583,7 @@ TEST(J1939NodeTests, ABusOfHealthyEcusThatFallsSilentLetsGoOfItsReportingAfterTh
 
     // A panel is told, and what the ECU last said is still what it finds.
     EXPECT_GT(bench.network.revision(), before);
-    EXPECT_EQ(bench.network.snapshot().diagnostics.size(), 1U);
+    EXPECT_EQ(busOf(bench.network.snapshot()).diagnostics.size(), 1U);
 
     // And with nothing left to age, the clock is not read for it any more.
     const int asked = bench.asked;
@@ -1598,7 +1628,375 @@ TEST(J1939NodeTests, WithNoClockOfItsOwnTheBlockUsesTheMachinesSteadyClock)
         driver.run(std::span<const CanFrame>{});
     }
 
-    EXPECT_EQ(bench.network.snapshot().activeFaults.size(), 1U);
+    EXPECT_EQ(busOf(bench.network.snapshot()).activeFaults.size(), 1U);
+}
+
+// ---------------------------------------------------------------------------
+// More than one bus
+// ---------------------------------------------------------------------------
+//
+// A J1939 block on each of two buses - a truck's powertrain and its body - and one hand-over
+// between them and the panels. What a block publishes is its own bus, under the channel its frames
+// arrive on, and it leaves the other bus alone; the lamps are both buses' at once, because a
+// cluster has one stop lamp. It used to be one view for the whole graph, and whichever block had
+// changed last was the bus the panels showed.
+
+namespace {
+
+[[nodiscard]] CanFrame onChannel(CanFrame frame, std::uint8_t channel)
+{
+    frame.channel = channel;
+    return frame;
+}
+
+/// Two J1939 blocks, one on CAN 1 and one on CAN 2, wired to one network and one set of variables
+/// as the engine wires every J1939 block of a graph - and with the machine's clock in the test's
+/// hand.
+struct TwoBusBench final {
+    TwoBusBench()
+        : powertrain{nullptr, "J1939 powertrain"}
+        , body{nullptr, "J1939 body"}
+        , drivePowertrain{powertrain}
+        , driveBody{body}
+    {
+        for (J1939Node* node : {&powertrain, &body}) {
+            node->setNetwork(&network);
+            node->setSystemVariables(&variables);
+            node->setHostClock([this] { return hostNs; });
+            EXPECT_TRUE(node->prepare(64U).succeeded());
+        }
+    }
+
+    /// One frame on CAN 1, to the block that reads it.
+    void onPowertrain(const CanFrame& frame)
+    {
+        const std::array<CanFrame, 1> frames{onChannel(frame, 0U)};
+        drivePowertrain.run(frames);
+    }
+
+    /// One frame on CAN 2, to the block that reads it.
+    void onBody(const CanFrame& frame)
+    {
+        const std::array<CanFrame, 1> frames{onChannel(frame, 1U)};
+        driveBody.run(frames);
+    }
+
+    [[nodiscard]] bool lit(std::string_view lamp) const
+    {
+        return variables.value(std::string{lamp}) > 0.5;
+    }
+
+    J1939Network network;
+    SystemVariables variables;
+    std::uint64_t hostNs{900U * kSecond};
+
+    J1939Node powertrain;
+    J1939Node body;
+    Driver drivePowertrain;
+    Driver driveBody;
+};
+
+} // namespace
+
+TEST(J1939NodeTests, TwoBlocksOnTwoBusesAreTwoBusesInTheHandOver)
+{
+    TwoBusBench bench;
+
+    bench.onPowertrain(faultFrom(kEngine, kRedStop, 100U, 1U, 1U, kSecond));
+    bench.onBody(faultFrom(kBody, kAmberWarning, 4096U, 4U, 1U, kSecond));
+
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    ASSERT_EQ(snapshot.buses.size(), 2U);
+
+    // In channel order, each with what its own bus said and nothing of the other's.
+    EXPECT_EQ(snapshot.buses[0].channel, 0U);
+    ASSERT_EQ(snapshot.buses[0].nodes.size(), 1U);
+    EXPECT_EQ(snapshot.buses[0].nodes[0].address, kEngine);
+    ASSERT_EQ(snapshot.buses[0].activeFaults.size(), 1U);
+    EXPECT_EQ(snapshot.buses[0].activeFaults[0].code.spn, 100U);
+    EXPECT_EQ(snapshot.buses[0].reporting, std::vector<std::uint8_t>{kEngine});
+
+    EXPECT_EQ(snapshot.buses[1].channel, 1U);
+    ASSERT_EQ(snapshot.buses[1].nodes.size(), 1U);
+    EXPECT_EQ(snapshot.buses[1].nodes[0].address, kBody);
+    ASSERT_EQ(snapshot.buses[1].activeFaults.size(), 1U);
+    EXPECT_EQ(snapshot.buses[1].activeFaults[0].code.spn, 4096U);
+
+    // And found by its channel.
+    ASSERT_NE(snapshot.bus(1U), nullptr);
+    EXPECT_EQ(snapshot.bus(1U)->nodes.front().address, kBody);
+    EXPECT_EQ(snapshot.bus(2U), nullptr);
+}
+
+TEST(J1939NodeTests, WhatOneBusPublishesLeavesTheOtherBusAsItWas)
+{
+    // One publication used to replace the other: the panels showed the bus that had changed last,
+    // and the fault list lost the codes of one bus whenever the other one moved.
+    TwoBusBench bench;
+
+    bench.onPowertrain(faultFrom(kEngine, kRedStop, 100U, 1U, 1U, kSecond));
+    bench.onBody(faultFrom(kBody, kAmberWarning, 4096U, 4U, 1U, kSecond));
+
+    // The engine reports another code, and the powertrain publishes again.
+    const std::uint64_t before = bench.network.revision();
+    bench.onPowertrain(faultFrom(kEngine, kRedStop, 110U, 0U, 1U, 2U * kSecond));
+    ASSERT_GT(bench.network.revision(), before);
+
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    ASSERT_EQ(snapshot.buses.size(), 2U);
+    ASSERT_NE(snapshot.bus(0U), nullptr);
+    ASSERT_EQ(snapshot.bus(0U)->activeFaults.size(), 1U);
+    EXPECT_EQ(snapshot.bus(0U)->activeFaults[0].code.spn, 110U);
+
+    ASSERT_NE(snapshot.bus(1U), nullptr);
+    ASSERT_EQ(snapshot.bus(1U)->activeFaults.size(), 1U);
+    EXPECT_EQ(snapshot.bus(1U)->activeFaults[0].code.spn, 4096U);
+}
+
+TEST(J1939NodeTests, ABlockFilesItsBusUnderTheChannelItsFramesArriveOn)
+{
+    NetworkBench bench;
+    Driver driver{bench.node};
+
+    const std::array<CanFrame, 1> frames{
+        onChannel(faultFrom(kEngine, kRedStop, 100U, 1U, 1U, kSecond), 3U)};
+    driver.run(frames);
+
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    ASSERT_EQ(snapshot.buses.size(), 1U);
+    EXPECT_EQ(snapshot.buses[0].channel, 3U);
+}
+
+TEST(J1939NodeTests, TwoBlocksOnOneChannelReadOneBus)
+{
+    // Two databases on the same wire: the same ECUs, and one bus to the panels - not two copies of
+    // it, which would list every code twice.
+    J1939Network network;
+    J1939Node first{nullptr, "J1939 a"};
+    J1939Node second{nullptr, "J1939 b"};
+
+    for (J1939Node* node : {&first, &second}) {
+        node->setNetwork(&network);
+        ASSERT_TRUE(node->prepare(64U).succeeded());
+    }
+
+    Driver driveFirst{first};
+    Driver driveSecond{second};
+
+    const std::array<CanFrame, 1> frames{faultFrom(kEngine, kRedStop, 100U, 1U, 1U, kSecond)};
+    driveFirst.run(frames);
+    driveSecond.run(frames);
+
+    const J1939NetworkSnapshot snapshot = network.snapshot();
+    ASSERT_EQ(snapshot.buses.size(), 1U);
+    EXPECT_EQ(snapshot.buses[0].nodes.size(), 1U);
+    EXPECT_EQ(snapshot.buses[0].activeFaults.size(), 1U);
+}
+
+TEST(J1939NodeTests, TheLampsAreEveryBussLampsAtOnce)
+{
+    TwoBusBench bench;
+
+    // The engine lights the stop lamp on CAN 1 and the body controller the amber one on CAN 2.
+    bench.onPowertrain(diagnosticFrom(kPgnDm1, kEngine, kRedStop, kSecond));
+    bench.onBody(diagnosticFrom(kPgnDm1, kBody, kAmberWarning, kSecond));
+    EXPECT_TRUE(bench.lit(kJ1939LampStopVariable));
+    EXPECT_TRUE(bench.lit(kJ1939LampWarningVariable));
+
+    // The body's amber goes out, and the engine's red does not go with it.
+    bench.onBody(diagnosticFrom(kPgnDm1, kBody, 0x00U, 2U * kSecond));
+    EXPECT_TRUE(bench.lit(kJ1939LampStopVariable));
+    EXPECT_FALSE(bench.lit(kJ1939LampWarningVariable));
+
+    // Both buses ask for the stop lamp, and one of them stops asking: still lit, for the other.
+    bench.onBody(diagnosticFrom(kPgnDm1, kBody, kRedStop, 3U * kSecond));
+    bench.onPowertrain(diagnosticFrom(kPgnDm1, kEngine, 0x00U, 3U * kSecond));
+    EXPECT_TRUE(bench.lit(kJ1939LampStopVariable));
+
+    // Then the other: out.
+    bench.onBody(diagnosticFrom(kPgnDm1, kBody, 0x00U, 4U * kSecond));
+    EXPECT_FALSE(bench.lit(kJ1939LampStopVariable));
+
+    // And lit again by the engine - whose block last saw the lamp lit, and must not take what it
+    // saw then for what the lamp says now: the other block has put it out since.
+    bench.onPowertrain(diagnosticFrom(kPgnDm1, kEngine, kRedStop, 5U * kSecond));
+    EXPECT_TRUE(bench.lit(kJ1939LampStopVariable));
+}
+
+TEST(J1939NodeTests, ABusThatFallsSilentLetsGoOfItsOwnCodesAndLampsAndNotTheOthers)
+{
+    TwoBusBench bench;
+
+    bench.onPowertrain(faultFrom(kEngine, kRedStop, 100U, 1U, 1U, kSecond));
+    bench.onBody(faultFrom(kBody, kAmberWarning, 4096U, 4U, 1U, kSecond));
+
+    // CAN 1 falls silent - its adapter unplugged - while CAN 2 goes on talking.
+    for (std::uint64_t second = 2U; second <= 5U; ++second) {
+        bench.drivePowertrain.run(std::span<const CanFrame>{});
+        bench.hostNs += kSecond;
+        bench.onBody(faultFrom(kBody, kAmberWarning, 4096U, 4U, 1U, second * kSecond));
+    }
+    bench.drivePowertrain.run(std::span<const CanFrame>{});
+
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    ASSERT_EQ(snapshot.buses.size(), 2U);
+
+    // The silent bus has let go of what it was saying; the other has not been touched.
+    EXPECT_TRUE(snapshot.bus(0U)->activeFaults.empty());
+    EXPECT_TRUE(snapshot.bus(0U)->reporting.empty());
+    EXPECT_EQ(snapshot.bus(1U)->activeFaults.size(), 1U);
+
+    EXPECT_FALSE(bench.lit(kJ1939LampStopVariable));
+    EXPECT_TRUE(bench.lit(kJ1939LampWarningVariable));
+}
+
+TEST(J1939NodeTests, StoppingPutsOutTheLampsOfEveryBusAsEachBlockFinishes)
+{
+    TwoBusBench bench;
+
+    bench.onPowertrain(faultFrom(kEngine, kRedStop, 100U, 1U, 1U, kSecond));
+    bench.onBody(faultFrom(kBody, kAmberWarning, 4096U, 4U, 1U, kSecond));
+
+    // The engine finishes its blocks one at a time: the bus whose block has not finished yet still
+    // lights what it lights, until it has.
+    bench.body.finish();
+    EXPECT_TRUE(bench.lit(kJ1939LampStopVariable));
+    EXPECT_FALSE(bench.lit(kJ1939LampWarningVariable));
+
+    bench.powertrain.finish();
+    EXPECT_FALSE(bench.lit(kJ1939LampStopVariable));
+
+    // Both buses are still there for the J1939 panel to read, and neither reports anything.
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    ASSERT_EQ(snapshot.buses.size(), 2U);
+
+    for (const J1939BusView& bus : snapshot.buses) {
+        EXPECT_TRUE(bus.activeFaults.empty()) << "CAN " << bus.channel + 1;
+        EXPECT_TRUE(bus.reporting.empty()) << "CAN " << bus.channel + 1;
+        EXPECT_EQ(bus.diagnostics.size(), 1U) << "CAN " << bus.channel + 1;
+    }
+}
+
+TEST(J1939NodeTests, TheBusesOfASnapshotAreInChannelOrderWhicheverPublishedFirst)
+{
+    // CAN 2 is heard first - its ECUs were on before the measurement's first pass reached CAN 1 -
+    // and a panel still lists CAN 1 above it.
+    J1939Network network;
+
+    J1939NetworkNode body;
+    body.address = kBody;
+    network.publish({body}, {}, {}, {}, {}, 1U);
+
+    J1939NetworkNode engine;
+    engine.address = kEngine;
+    network.publish({engine}, {}, {}, {}, {}, 0U);
+
+    const J1939NetworkSnapshot snapshot = network.snapshot();
+    ASSERT_EQ(snapshot.buses.size(), 2U);
+    EXPECT_EQ(snapshot.buses[0].channel, 0U);
+    EXPECT_EQ(snapshot.buses[0].nodes.front().address, kEngine);
+    EXPECT_EQ(snapshot.buses[1].channel, 1U);
+    EXPECT_EQ(snapshot.buses[1].nodes.front().address, kBody);
+}
+
+TEST(J1939NodeTests, ClearingForgetsEveryBusAndWhatEveryBlockLit)
+{
+    J1939Network network;
+    network.publish({J1939NetworkNode{}}, {}, {}, {}, {}, 0U);
+    network.publish({J1939NetworkNode{}}, {}, {}, {}, {}, 1U);
+    ASSERT_EQ(network.snapshot().buses.size(), 2U);
+
+    // A block of the last measurement left the stop lamp lit.
+    const int lastRun = 0;
+    ASSERT_EQ(network.combineLamps(&lastRun, {1, 0, 0, 0}),
+              (std::array<std::int8_t, 4>{1, 0, 0, 0}));
+
+    network.clear();
+    EXPECT_TRUE(network.snapshot().buses.empty());
+
+    // A block of the new one that lights nothing is all there is: the last run's lamp is gone.
+    const int thisRun = 0;
+    EXPECT_EQ(network.combineLamps(&thisRun, {0, 0, 0, 0}),
+              (std::array<std::int8_t, 4>{0, 0, 0, 0}));
+}
+
+TEST(J1939NodeTests, TwoJ1939BlocksOfOneGraphReportTheirOwnBusesThroughTheEngine)
+{
+    // The whole path, as a project builds it: a CAN Source and a J1939 block on each of two
+    // channels, the catalog handing both blocks the engine's one network and its variables.
+    CanEngine engine;
+
+    for (std::uint8_t channel = 0U; channel < 2U; ++channel) {
+        CanChannelConfig config;
+        config.deviceHandle = "virtual:" + std::to_string(channel);
+        config.applicationChannel = channel;
+        config.timing.bitrate = 250'000;
+        ASSERT_TRUE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
+    }
+
+    GraphDescription description;
+    description.addNode(NodeDescription{
+        .id = "can_1",
+        .typeName = "can.source",
+        .parameters = {{"channel", ParameterValue::fromInteger(0)}},
+    });
+    description.addNode(NodeDescription{
+        .id = "can_2",
+        .typeName = "can.source",
+        .parameters = {{"channel", ParameterValue::fromInteger(1)}},
+    });
+    description.addNode(NodeDescription{.id = "j1939_powertrain", .typeName = "j1939.decoder"});
+    description.addNode(NodeDescription{.id = "j1939_body", .typeName = "j1939.decoder"});
+    description.addEdge(EdgeDescription{"can_1", 0, "j1939_powertrain", 0});
+    description.addEdge(EdgeDescription{"can_2", 0, "j1939_body", 0});
+
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+    ASSERT_TRUE(description.validate(catalog).succeeded());
+    engine.setGraphDescription(description, catalog);
+
+    const Result started = engine.start();
+    ASSERT_TRUE(started.succeeded()) << std::string{started.message()};
+
+    const auto waitUntil = [](const std::function<bool()>& done) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+        while (!done() && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        }
+        return done();
+    };
+
+    const auto lamp = [&engine](std::string_view name) {
+        return engine.variables().value(std::string{name}) > 0.5;
+    };
+
+    // The engine lights the stop lamp on CAN 1 and the body controller the amber one on CAN 2.
+    ASSERT_TRUE(
+        engine.transmit(0, diagnosticFrom(kPgnDm1, kEngine, kRedStop, kSecond)).succeeded());
+    ASSERT_TRUE(
+        engine.transmit(1, diagnosticFrom(kPgnDm1, kBody, kAmberWarning, kSecond)).succeeded());
+
+    EXPECT_TRUE(waitUntil([&] {
+        return engine.j1939Network().snapshot().buses.size() == 2U && lamp(kJ1939LampStopVariable)
+               && lamp(kJ1939LampWarningVariable);
+    }));
+
+    const J1939NetworkSnapshot both = engine.j1939Network().snapshot();
+    ASSERT_EQ(both.buses.size(), 2U);
+    ASSERT_NE(both.bus(0U), nullptr);
+    ASSERT_NE(both.bus(1U), nullptr);
+    EXPECT_EQ(both.bus(0U)->nodes.front().address, kEngine);
+    EXPECT_EQ(both.bus(1U)->nodes.front().address, kBody);
+
+    // The engine's lamp goes out on CAN 1; the body's on CAN 2 stays lit.
+    ASSERT_TRUE(engine.transmit(0, diagnosticFrom(kPgnDm1, kEngine, 0x00U, kSecond)).succeeded());
+
+    EXPECT_TRUE(waitUntil([&] { return !lamp(kJ1939LampStopVariable); }));
+    EXPECT_TRUE(lamp(kJ1939LampWarningVariable));
+
+    engine.stop();
+
+    EXPECT_FALSE(lamp(kJ1939LampWarningVariable));
+    EXPECT_EQ(engine.j1939Network().snapshot().buses.size(), 2U);
 }
 
 // ---------------------------------------------------------------------------

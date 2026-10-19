@@ -52,7 +52,24 @@ against what it does, which turned up more than expected.
   it hears the bus in each measurement** - on-highway, function 33 (*System Monitor*), the address as its
   serial number - and only then its telemetry and its predictive DM1, as a J1939 ECU does, so its rows on the
   fault list read `SA 128 · System Monitor`. That is one more frame on the bus at Start, and the block does
-  not analyse it when it comes back. The 11-bit example vehicle has no addresses and claims nothing.
+  not analyse it when it comes back. The 11-bit example vehicle has no addresses and claims nothing. It keeps
+  the rules of a claim (J1939-81): a Request for Address Claimed is answered with it, an ECU claiming the same
+  address with a higher NAME is told again that it is taken, and one with a lower NAME takes it - the block
+  sends *cannot claim* from the null address and puts nothing more on the bus until the next Start, while the
+  model goes on feeding the Dashboard (*J1939 address lost* in its statistics).
+- **J1939 on more than one bus.** A J1939 block on each of two buses used to share one view with the other:
+  the J1939 Network panel and the fault list showed whichever bus had changed last, and the instrument
+  cluster's lamps were what the last block to change wrote - a stop lamp could go out with a fault still
+  active on the other bus. The hand-over now keeps one view per bus, under the CAN channel its frames arrive
+  on (`J1939NetworkSnapshot::buses`); the J1939 Network panel lists each bus's ECUs under a heading of its own
+  when there is more than one, the fault list says the bus on each row (`CAN 2 · SA 0 · Body Control`), with
+  each ECU named from the claims of its own bus, and the lamps are the OR of every bus
+  (`J1939Network::combineLamps`). Two blocks on one channel read one bus; with one bus nothing changes on
+  screen.
+- **The example dashboard tests wait for what they check.** `ExampleDashboardTests` ran each example for a
+  fixed two and a half or three seconds - sixteen seconds of the unit suite, and a run that a slow machine
+  would one day have found too short. Each run now polls for what its test looks at (every widget's signal,
+  the fault, every ECU's claim) with fifteen seconds of patience, and the six take under a second.
 - **The Dashboard is built from the databases, and has six new kinds of widget.** A signal dragged out of
   the DBC Explorer onto the Dashboard (Edit mode) becomes the widget it suits - a lamp for a two-state signal,
   a state chip for a value table, a bar for a percentage, a gauge for a declared range, a numeric for the

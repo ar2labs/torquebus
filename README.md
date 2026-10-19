@@ -3,7 +3,7 @@
 **Open Automotive Network & Diagnostics Workbench**
 
 [![CI](https://github.com/ar2labs/torquebus/actions/workflows/ci.yml/badge.svg)](https://github.com/ar2labs/torquebus/actions/workflows/ci.yml)
-[![Google Test](https://img.shields.io/badge/Google_Test-1344_tests-2ea44f?logo=google)](https://github.com/ar2labs/torquebus/actions)
+[![Google Test](https://img.shields.io/badge/Google_Test-1364_tests-2ea44f?logo=google)](https://github.com/ar2labs/torquebus/actions)
 [![Tests Passing](https://img.shields.io/badge/tests-100%25_passing-brightgreen)](https://github.com/ar2labs/torquebus/actions)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
@@ -149,10 +149,10 @@ acceptance pass, ordered so the cheapest failures surface first.
 
 ## Testing & Quality Assurance (Google Test)
 
-TorqueBus enforces a **100% automated test pass contract**. Every pull request and build runs **1344 automated tests** powered by [Google Test](https://github.com/google/googletest) (v1.15.2) and CTest across four architectural layers:
+TorqueBus enforces a **100% automated test pass contract**. Every pull request and build runs **1364 automated tests** powered by [Google Test](https://github.com/google/googletest) (v1.15.2) and CTest across four architectural layers:
 
-* **Unit Tests (963 tests):** CAN engine core, DBC parser, J1939 codecs, ISO-TP, UDS, TinyML inference, the Lua runtime and its limits, and a seeded fuzz of every reader.
-* **UI Tests (302 tests):** QML Instrument Cluster, the Dashboard's widgets, form and signal picker, the Pipeline canvas and its CAN Bus, docking layouts, widgets, and property bindings.
+* **Unit Tests (979 tests):** CAN engine core, DBC parser, J1939 codecs, ISO-TP, UDS, TinyML inference, the Lua runtime and its limits, and a seeded fuzz of every reader.
+* **UI Tests (306 tests):** QML Instrument Cluster, the Dashboard's widgets, form and signal picker, the Pipeline canvas and its CAN Bus, docking layouts, widgets, and property bindings.
 * **Integration Tests (68 tests):** Multi-node virtual CAN bus, Lua ECU lifecycles, every block of the catalog built and run on an engine, and dataflow throughput (asserting 150,000 frames/s with zero loss).
 * **Hardware Loopback Tests (11 tests):** Physical PEAK and Kvaser adapter validation (cleanly skipped via `GTEST_SKIP()` when hardware is detached).
 

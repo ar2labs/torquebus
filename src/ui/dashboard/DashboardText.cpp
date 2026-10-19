@@ -267,13 +267,20 @@ QString faultCountText(const J1939Dtc& code)
 
 QString faultEcuText(const DashboardFault& fault)
 {
-    const QString address = tr("SA %1").arg(fault.sourceAddress);
+    QString text = tr("SA %1").arg(fault.sourceAddress);
 
-    if (!fault.ecu.has_value()) {
-        return address;
+    if (fault.ecu.has_value()) {
+        text += QStringLiteral(" · ") + QString::fromStdString(*fault.ecu);
     }
 
-    return address + QStringLiteral(" · ") + QString::fromStdString(*fault.ecu);
+    // The bus first, when there is more than one: an address is a seat on one of them. Counted from
+    // one, as the channels are everywhere else a person reads them.
+    if (fault.channel.has_value()) {
+        text =
+            tr("CAN %1").arg(static_cast<int>(*fault.channel) + 1) + QStringLiteral(" · ") + text;
+    }
+
+    return text;
 }
 
 QString faultDetailsText(const DashboardFault& fault)
