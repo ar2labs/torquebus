@@ -20,6 +20,12 @@
 //   - Port 1 (`signals`, PortType::Signals): five decoded physical signals
 //     (`AnomalyScore`, `Confidence`, `RegimeClass`, `ThermalHealth`,
 //     `InferenceTimeUs`) ready to wire directly into a `signal.plot` block.
+//
+// On a J1939 bus (`j1939Mode`) it is one ECU, and behaves like one: the first
+// time it hears the bus in a measurement it claims the address it speaks from
+// (Address Claimed, J1939-81), under a NAME that says what it is - an on-highway
+// System Monitor - and only then sends its telemetry and its predictive DM1 from
+// that address. That is what lets a panel name it, rather than show a number.
 
 #pragma once
 
@@ -129,6 +135,11 @@ private:
     /// normal. Called whenever any of the three moves.
     void updateThermalDelta() noexcept;
 
+    /// The Address Claimed of a J1939 bus, appended to the output: who this ECU is, before it says
+    /// anything else. `timestampNs` is the time of the frame that made it due - an ECU with no
+    /// clock of its own takes the bus's.
+    void appendAddressClaim(std::uint64_t timestampNs);
+
     /// The telemetry frame of a J1939 bus (Proprietary B), and the predictive DM1 that follows it
     /// while the model thinks the engine is in trouble, appended to the output.
     void appendJ1939Telemetry(const CanFrame& cause,
@@ -212,6 +223,12 @@ private:
     /// J1939 telemetry and predictive DTC tracking.
     std::uint8_t m_j1939MessageCounter{0};
     std::uint32_t m_dm1Identifier{0};
+
+    /// Its own Address Claimed, which comes back to it off the bus like its DM1 does, and whether
+    /// it has been sent in this measurement. A measurement claims again: the ECU is switched on
+    /// again.
+    std::uint32_t m_claimIdentifier{0};
+    bool m_addressClaimed{false};
 
     /// Bus time the engine has been (or has stopped being) in trouble since, and what was last said
     /// about it on the bus. Optionals because bus time zero is a time, and a sentinel that equals

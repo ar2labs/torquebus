@@ -61,6 +61,8 @@ Result J1939Node::prepare(std::size_t maximumBatchSize)
     m_diagnostics.clear();
     m_activeFaults.clear();
     m_scratchFaults.clear();
+    m_reporting.clear();
+    m_scratchReporting.clear();
     m_newestNs = 0;
     m_idleSinceNs.reset();
 
@@ -310,12 +312,21 @@ void J1939Node::process(NodeContext& context)
 
 void J1939Node::settle(std::uint64_t busNowNs)
 {
-    // What the bus is reporting now, into a list that keeps its capacity: a bus with a fault on it
-    // costs no allocation per pass, and a steady one no publication at all.
+    // What the bus is reporting now, and who is repeating a DM1, into lists that keep their
+    // capacity: a bus with a fault on it costs no allocation per pass, and a steady one no
+    // publication at all.
     j1939CollectActiveFaults(m_diagnostics, busNowNs, m_scratchFaults);
+    j1939CollectReporting(m_diagnostics, busNowNs, m_scratchReporting);
 
     if (m_scratchFaults != m_activeFaults) {
         m_activeFaults.swap(m_scratchFaults);
+        m_networkDirty = true;
+    }
+
+    // The ECU that has gone quiet with nothing to report is a change nothing else in the pass
+    // notices - no code left the list - and is the one a panel needs to be told of.
+    if (m_scratchReporting != m_reporting) {
+        m_reporting.swap(m_scratchReporting);
         m_networkDirty = true;
     }
 
@@ -325,7 +336,8 @@ void J1939Node::settle(std::uint64_t busNowNs)
         m_network->publish({m_addresses.nodes().begin(), m_addresses.nodes().end()},
                            {m_addresses.defeated().begin(), m_addresses.defeated().end()},
                            m_diagnostics,
-                           m_activeFaults);
+                           m_activeFaults,
+                           m_reporting);
         m_networkDirty = false;
     }
 
@@ -334,12 +346,11 @@ void J1939Node::settle(std::uint64_t busNowNs)
 
 void J1939Node::ageOnAnIdlePass()
 {
-    // Nothing is being reported and no lamp is lit - a healthy bus, which is the usual one - so
-    // nothing can go out of date: ageing only ever takes away.
-    if (m_activeFaults.empty()
-        && std::all_of(m_publishedLamps.begin(), m_publishedLamps.end(), [](std::int8_t lit) {
-               return lit <= 0;
-           })) {
+    // No ECU is repeating a DM1: a bus that has said nothing yet, or has only said what is over. A
+    // code on the list and a lamp that is lit both come from a DM1 that is being repeated, so
+    // nothing can go out of date - ageing only ever takes away. An ECU repeating a DM1 with nothing
+    // in it is something to take away as well, and the clock is read for it.
+    if (m_reporting.empty()) {
         return;
     }
 
@@ -457,16 +468,19 @@ void J1939Node::finish()
         }
     }
 
-    // And for the same reason the codes: a stopped measurement is not reporting any. Published
-    // empty, with everything else as it was, so that the panel that reads what the ECUs last said
-    // still can while a dashboard that lists what the bus is saying goes quiet with the lamps.
-    if (!m_activeFaults.empty()) {
+    // And for the same reason the codes, and the ECUs that were repeating a DM1: a stopped
+    // measurement is not reporting any. Published empty, with everything else as it was, so that
+    // the panel that reads what the ECUs last said still can - and says that it is the last thing
+    // they said - while a dashboard that lists what the bus is saying goes quiet with the lamps.
+    if (!m_activeFaults.empty() || !m_reporting.empty()) {
         m_activeFaults.clear();
+        m_reporting.clear();
 
         if (m_network != nullptr) {
             m_network->publish({m_addresses.nodes().begin(), m_addresses.nodes().end()},
                                {m_addresses.defeated().begin(), m_addresses.defeated().end()},
                                m_diagnostics,
+                               {},
                                {});
         }
     }

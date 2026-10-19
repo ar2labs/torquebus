@@ -8,6 +8,7 @@
 #include "core/can/CanEngine.h"
 #include "core/dashboard/SystemVariables.h"
 #include "core/database/DecodedSignal.h"
+#include "core/j1939/J1939Name.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "core/pipeline/PipelineGraph.h"
@@ -25,6 +26,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <thread>
@@ -445,7 +447,10 @@ TEST(TinyMlEcuTests, J1939ModeProcessesCcvs1AndEt1AndEmitsProprietaryBFrame)
 
     graph.execute();
 
-    ASSERT_EQ(emittedFrames.size(), 3U);
+    // The claim of its address first, then one telemetry frame for each of the three frames it
+    // read.
+    ASSERT_EQ(emittedFrames.size(), 4U);
+    EXPECT_EQ(emittedFrames.front().identifier, 0x18EEFF80U);
     EXPECT_EQ(emittedFrames.back().identifier, 0x18FF0080U);
     EXPECT_EQ(emittedFrames.back().format, CanFrameFormat::Extended);
     EXPECT_EQ(emittedFrames.back().length, 8U);
@@ -533,6 +538,13 @@ public:
     }
 
     [[nodiscard]] const TinyMlEcuNode& node() const { return m_node; }
+
+    /// What the engine does at the start of the next measurement: the same block, prepared again.
+    void restart()
+    {
+        const Result prepared = m_node.prepare(256U);
+        EXPECT_TRUE(prepared.succeeded()) << std::string{prepared.message()};
+    }
 
 private:
     TinyMlEcuNode m_node;
@@ -759,6 +771,146 @@ TEST(TinyMlEcuTests, TheTroubleCodeIsSentFromTheAddressOfTheTelemetry)
     CanFrame own = withIdentifier(out, 0x18FECA81U).front();
     driver.run(std::vector<CanFrame>{own});
     EXPECT_EQ(driver.node().framesAnalysed(), analysed);
+}
+
+// ---------------------------------------------------------------------------
+// The claim of its address
+// ---------------------------------------------------------------------------
+
+TEST(TinyMlEcuTests, OnAJ1939BusTheEcuClaimsItsAddressBeforeItSaysAnythingElse)
+{
+    // Nothing is sent from an address that has not been claimed, and a panel names an ECU by its
+    // claim and by nothing else: without one this ECU was "SA 128" and a number.
+    TinyDriver driver{j1939Config()};
+
+    const std::vector<CanFrame> frames{makeJ1939SpeedFrame(60.0, 100 * kMs),
+                                       makeJ1939TempFrame(88, 150 * kMs)};
+    const std::vector<CanFrame> out = driver.run(frames);
+
+    ASSERT_FALSE(out.empty());
+    EXPECT_EQ(out.front().identifier, 0x18EEFF80U) << "the claim comes first";
+
+    const std::vector<CanFrame> claims = withIdentifier(out, 0x18EEFF80U);
+    ASSERT_EQ(claims.size(), 1U);
+
+    const CanFrame& claim = claims.front();
+    EXPECT_EQ(claim.format, CanFrameFormat::Extended);
+    EXPECT_EQ(claim.length, 8U);
+    EXPECT_EQ(claim.dlc, 8U);
+    EXPECT_EQ(claim.direction, CanDirection::Tx);
+
+    // The time of the frame that woke it: an ECU with no clock of its own takes the bus's.
+    EXPECT_EQ(claim.timestampNs, 100 * kMs);
+
+    // On-highway, a System Monitor, and the address it speaks from as its serial number.
+    const std::optional<J1939Name> name = j1939NameFromClaim(claim);
+    ASSERT_TRUE(name.has_value());
+    EXPECT_EQ(name->industryGroup, 1U);
+    EXPECT_EQ(name->function, 33U);
+    EXPECT_EQ(name->identityNumber, 0x80U);
+    EXPECT_FALSE(name->arbitraryAddressCapable);
+
+    // And then what it came to say.
+    EXPECT_FALSE(withIdentifier(out, 0x18FF0080U).empty());
+}
+
+TEST(TinyMlEcuTests, TheClaimIsSentOncePerMeasurementAndAgainWhenTheNextOneStarts)
+{
+    TinyDriver driver{j1939Config()};
+
+    const auto claimsFor = [&driver](std::uint64_t atMs) {
+        const std::vector<CanFrame> frames{makeJ1939SpeedFrame(60.0, atMs * kMs),
+                                           makeJ1939TempFrame(88, (atMs + 50) * kMs)};
+        return withIdentifier(driver.run(frames), 0x18EEFF80U).size();
+    };
+
+    EXPECT_EQ(claimsFor(100), 1U);
+    EXPECT_EQ(claimsFor(200), 0U);
+    EXPECT_EQ(claimsFor(300), 0U);
+
+    // The ECU is switched on again, and claims again.
+    driver.restart();
+
+    EXPECT_EQ(claimsFor(100), 1U);
+    EXPECT_EQ(claimsFor(200), 0U);
+}
+
+TEST(TinyMlEcuTests, TheClaimIsMadeFromTheAddressOfTheTelemetryAndNamesItBySerialNumber)
+{
+    // The ECU is one ECU. At 0x81 it claims 0x81, and is not the NAME of the one at 0x80: two of
+    // them on a bus are two ECUs and not a contest for an address.
+    TinyDriver first{j1939Config(0x18FF0080U)};
+    TinyDriver second{j1939Config(0x18FF0081U)};
+
+    const std::vector<CanFrame> frames{makeJ1939SpeedFrame(60.0, 100 * kMs)};
+    const std::vector<CanFrame> outFirst = first.run(frames);
+    const std::vector<CanFrame> outSecond = second.run(frames);
+
+    const std::vector<CanFrame> claimFirst = withIdentifier(outFirst, 0x18EEFF80U);
+    const std::vector<CanFrame> claimSecond = withIdentifier(outSecond, 0x18EEFF81U);
+
+    ASSERT_EQ(claimFirst.size(), 1U);
+    ASSERT_EQ(claimSecond.size(), 1U);
+    EXPECT_TRUE(withIdentifier(outSecond, 0x18EEFF80U).empty());
+
+    const std::optional<J1939Name> nameFirst = j1939NameFromClaim(claimFirst.front());
+    const std::optional<J1939Name> nameSecond = j1939NameFromClaim(claimSecond.front());
+    ASSERT_TRUE(nameFirst.has_value());
+    ASSERT_TRUE(nameSecond.has_value());
+
+    EXPECT_EQ(nameSecond->identityNumber, 0x81U);
+    EXPECT_NE(nameFirst->value(), nameSecond->value());
+}
+
+TEST(TinyMlEcuTests, ItsOwnClaimComingBackOffTheBusIsNotAFrameToAnalyseAndNotAnotherClaim)
+{
+    TinyDriver driver{j1939Config()};
+
+    const std::vector<CanFrame> frames{makeJ1939SpeedFrame(60.0, 100 * kMs),
+                                       makeJ1939TempFrame(88, 150 * kMs)};
+    const std::vector<CanFrame> out = driver.run(frames);
+
+    const std::uint64_t analysed = driver.node().framesAnalysed();
+    const CanFrame own = withIdentifier(out, 0x18EEFF80U).front();
+
+    const std::vector<CanFrame> answer = driver.run(std::vector<CanFrame>{own});
+
+    EXPECT_EQ(driver.node().framesAnalysed(), analysed);
+    EXPECT_TRUE(answer.empty());
+}
+
+TEST(TinyMlEcuTests, WhateverItFirstHearsOnTheBusMakesItClaim)
+{
+    // Not only the frames the model runs on: an ECU claims because the bus is there. Here all it
+    // hears is another ECU's claim, which is no reason to say nothing about its own.
+    TinyDriver driver{j1939Config()};
+
+    CanFrame engine{};
+    engine.identifier = 0x18EEFF00U; // Address Claimed from address 0
+    engine.format = CanFrameFormat::Extended;
+    engine.dlc = 8;
+    engine.length = 8;
+    engine.timestampNs = 100 * kMs;
+
+    const std::vector<CanFrame> out = driver.run(std::vector<CanFrame>{engine});
+
+    ASSERT_EQ(out.size(), 1U);
+    EXPECT_EQ(out.front().identifier, 0x18EEFF80U);
+}
+
+TEST(TinyMlEcuTests, TheElevenBitVehicleHasNoAddressesAndNothingToClaim)
+{
+    TinyDriver driver{TinyMlEcuConfig{}};
+
+    const std::vector<CanFrame> frames{makeSpeedFrame(60.0, 100 * kMs),
+                                       makeTempFrame(88, 150 * kMs)};
+    const std::vector<CanFrame> out = driver.run(frames);
+
+    ASSERT_FALSE(out.empty());
+
+    for (const CanFrame& frame : out) {
+        EXPECT_EQ(frame.format, CanFrameFormat::Standard);
+    }
 }
 
 TEST(TinyMlEcuTests, ASensorThatReportsErrorOrNotAvailableIsBusStressAndRecovers)

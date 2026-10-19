@@ -248,6 +248,19 @@ void j1939CollectActiveFaults(std::span<const J1939Diagnostic> diagnostics,
 [[nodiscard]] std::vector<J1939ActiveFault>
 j1939ActiveFaults(std::span<const J1939Diagnostic> diagnostics, std::uint64_t nowNs);
 
+/// Replaces the contents of `out` with the source address of every ECU whose DM1 is current at
+/// `nowNs`: in the order `diagnostics` holds them, which is address order, and once each. The ECUs
+/// with nothing to report are in it, and that is what it is for. They have no code for the list
+/// above to name, so a healthy ECU and one that has fallen silent are the same empty list there -
+/// and a panel that shows what each ECU last said could not tell them apart. `out` keeps its
+/// capacity.
+void j1939CollectReporting(std::span<const J1939Diagnostic> diagnostics,
+                           std::uint64_t nowNs,
+                           std::vector<std::uint8_t>& out);
+
+[[nodiscard]] std::vector<std::uint8_t> j1939Reporting(std::span<const J1939Diagnostic> diagnostics,
+                                                       std::uint64_t nowNs);
+
 /// True when `pgn` is DM1 or DM2.
 [[nodiscard]] constexpr bool j1939IsDiagnosticPgn(std::uint32_t pgn) noexcept
 {

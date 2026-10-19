@@ -122,9 +122,11 @@ struct Delivered final {
 /// Runs the project on the virtual bus for `duration`: as many channels as its CAN blocks name.
 /// `whileRunning`, when there is one, is called with the engine at the end of it and before it is
 /// stopped - which puts some lamps out and empties the list of faults, so it is the moment to look.
+/// `afterStart` is called as soon as the engine is running, for what a person would do to it then.
 [[nodiscard]] Delivered run(const Example& example,
                             std::chrono::milliseconds duration,
-                            const std::function<void(CanEngine&)>& whileRunning = {})
+                            const std::function<void(CanEngine&)>& whileRunning = {},
+                            const std::function<void(CanEngine&)>& afterStart = {})
 {
     Delivered delivered;
 
@@ -157,6 +159,10 @@ struct Delivered final {
 
     if (delivered.started.failed()) {
         return delivered;
+    }
+
+    if (afterStart) {
+        afterStart(engine);
     }
 
     std::this_thread::sleep_for(duration);
@@ -456,9 +462,12 @@ TEST(ExampleDashboardTests, TheOilPressureFaultOfTheEnginesLowOilScenarioIsOnThe
     EXPECT_EQ(faults.front().tone, DashboardTone::Danger);
 
     // The measurement ended, and so did its faults: an empty list - while what each ECU last said
-    // is still there for the J1939 panel to read.
+    // is still there for the J1939 panel to read, and said to be the last thing, because no ECU is
+    // repeating it any more.
     EXPECT_TRUE(dashboardFaultsOf(stopped, nullptr).empty());
     EXPECT_FALSE(stopped.diagnostics.empty());
+    EXPECT_FALSE(running.reporting.empty());
+    EXPECT_TRUE(stopped.reporting.empty());
 }
 
 TEST(ExampleDashboardTests, EveryEcuOfTheJ1939ExampleClaimsItsAddressAndIsNamedByTheShippedTable)
@@ -466,7 +475,8 @@ TEST(ExampleDashboardTests, EveryEcuOfTheJ1939ExampleClaimsItsAddressAndIsNamedB
     // The rows of the fault list say "Engine" and not only an address because the ECU claimed one
     // when it started and the function table that ships knows what its NAME says it is. Nothing
     // between the script and the table is allowed to lose that: not the claim, not the address
-    // table, not the spelling of the function.
+    // table, not the spelling of the function. The six scripted ECUs claim from their scripts, and
+    // the TinyML ECU - a block of the graph and not a script - from the block itself.
     Example example;
     ASSERT_TRUE(open("j1939-vehicle.tbsproj", example));
 
@@ -487,7 +497,8 @@ TEST(ExampleDashboardTests, EveryEcuOfTheJ1939ExampleClaimsItsAddressAndIsNamedB
                                               {0x17, "Instrument Cluster"},
                                               {0x21, "Body Control"},
                                               {0x37, "Operator Controls Lighting"},
-                                              {0x3D, "Exhaust Emission Control"}};
+                                              {0x3D, "Exhaust Emission Control"},
+                                              {0x80, "System Monitor"}};
 
     for (const auto& [address, word] : expected) {
         SCOPED_TRACE(word);
@@ -505,6 +516,42 @@ TEST(ExampleDashboardTests, EveryEcuOfTheJ1939ExampleClaimsItsAddressAndIsNamedB
         ASSERT_TRUE(function.has_value());
         EXPECT_EQ(std::string{*function}, word);
     }
+}
+
+TEST(ExampleDashboardTests, TheTinyMlEcusPredictiveCodeIsOnTheFaultListUnderItsOwnName)
+{
+    // A fault only the model can see, from a block of the graph and not from a script - and the
+    // block's claim of its address is what lets the list say whose it is, and not only that it came
+    // from address 128. Injecting a fault is what the canvas's button does: it sets this variable.
+    Example example;
+    ASSERT_TRUE(open("j1939-vehicle.tbsproj", example));
+
+    J1939NetworkSnapshot snapshot;
+
+    const Delivered delivered = run(
+        example,
+        std::chrono::milliseconds{2500},
+        [&](CanEngine& engine) { snapshot = engine.j1939Network().snapshot(); },
+        [](CanEngine& engine) { engine.variables().set("tinyml.inject_fault", 1.5); });
+
+    ASSERT_TRUE(delivered.started.succeeded()) << std::string{delivered.started.message()};
+
+    J1939NameTables names;
+    ASSERT_TRUE(names.loadFile(shippedFunctionTable()).succeeded());
+
+    const std::vector<DashboardFault> faults = dashboardFaultsOf(snapshot, &names);
+
+    const auto predictive =
+        std::find_if(faults.begin(), faults.end(), [](const DashboardFault& fault) {
+            return fault.sourceAddress == 0x80U && fault.code.spn == 110U;
+        });
+
+    ASSERT_TRUE(predictive != faults.end())
+        << "SPN 110 of the TinyML ECU is not on the list: the model is sure of trouble at once "
+           "with a fault injected, and says so in a DM1 once a second";
+
+    ASSERT_TRUE(predictive->ecu.has_value());
+    EXPECT_EQ(*predictive->ecu, "System Monitor");
 }
 
 TEST(ExampleDashboardTests, AHealthyVehicleLeavesTheFaultListEmptyAndEveryLampDark)
@@ -533,4 +580,18 @@ TEST(ExampleDashboardTests, AHealthyVehicleLeavesTheFaultListEmptyAndEveryLampDa
     EXPECT_TRUE(snapshot.activeFaults.empty());
     EXPECT_TRUE(dashboardFaultsOf(snapshot, nullptr).empty());
     EXPECT_DOUBLE_EQ(lamps, 0.0);
+
+    // And all of them are still saying it: the empty list cannot tell a healthy ECU from one that
+    // has gone quiet, and the ECUs that are repeating their DM1 are what can.
+    EXPECT_GE(snapshot.reporting.size(), 5U);
+
+    for (const J1939Diagnostic& message : snapshot.diagnostics) {
+        if (message.active) {
+            EXPECT_TRUE(std::find(snapshot.reporting.begin(),
+                                  snapshot.reporting.end(),
+                                  message.sourceAddress)
+                        != snapshot.reporting.end())
+                << "address " << static_cast<int>(message.sourceAddress);
+        }
+    }
 }

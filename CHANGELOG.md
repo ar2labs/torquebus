@@ -42,13 +42,17 @@ against what it does, which turned up more than expected.
   list under its trends; with `ecu_engine` on `low_oil_pressure` it shows `SPN 100 / FMI 1` from
   `SA 0 · Engine` on a red row under the lit stop lamp, and `ExampleDashboardTests` runs exactly that. See
   `docs/development/dashboard.md`.
-- **The J1939 example's Lua ECUs claim their addresses.** Engine, aftertreatment, body, brakes, switch panel
+- **Every ECU of the J1939 example claims its address.** Engine, aftertreatment, body, brakes, switch panel
   and cluster core each send an Address Claimed when they start, with a NAME whose function is what the
   function table that ships calls them, so the J1939 Network panel shows them *claimed* and the fault list
-  says `SA 0 · Engine`. (The TinyML ECU does not, and says only its address.) The scripts' check against
-  `j1939.dbc` leaves Address Claimed - network management, not an application message - out of the PGNs a
-  database must describe, and a new test holds each script to claiming once, from its own address, with a NAME
-  of its own.
+  says `SA 0 · Engine`. The scripts' check against `j1939.dbc` leaves Address Claimed - network management, not
+  an application message - out of the PGNs a database must describe, and a new test holds each script to
+  claiming once, from its own address, with a NAME of its own. The TinyML ECU is a block and not a script, and
+  claims too: **a `tinyml.ecu` in J1939 mode now sends an Address Claimed from its own address the first time
+  it hears the bus in each measurement** - on-highway, function 33 (*System Monitor*), the address as its
+  serial number - and only then its telemetry and its predictive DM1, as a J1939 ECU does, so its rows on the
+  fault list read `SA 128 · System Monitor`. That is one more frame on the bus at Start, and the block does
+  not analyse it when it comes back. The 11-bit example vehicle has no addresses and claims nothing.
 - **The Dashboard is built from the databases, and has six new kinds of widget.** A signal dragged out of
   the DBC Explorer onto the Dashboard (Edit mode) becomes the widget it suits - a lamp for a two-state signal,
   a state chip for a value table, a bar for a percentage, a gauge for a declared range, a numeric for the
@@ -156,13 +160,17 @@ against what it does, which turned up more than expected.
   pass with no frame (or only error and remote frames) it now asks the machine's clock how long the silence
   has gone on, and nothing else: three seconds of it ages the bus as an ECU that stopped repeating its DM1
   is aged, from where the bus's own clock stood. The two clocks are never compared, so a replayed log or a
-  device that stamps its own frames is not confused, and the clock is not read while nothing is reported.
-  The block's *Active faults* statistic counts what the bus is reporting now, not what each ECU last said.
+  device that stamps its own frames is not confused, and the clock is not read while no ECU is repeating a
+  DM1. The block's *Active faults* statistic counts what the bus is reporting now, not what each ECU last said.
 
 - **The J1939 Network panel says what is old.** The tree keeps each ECU's last DM1, which is what it is for
   after a measurement ends - and went on calling it *active faults* and counting it. A DM1 whose ECU is not
   reporting any more (it went quiet, or the measurement stopped) is now *last reported*, with a tooltip, and
-  the summary counts only what the bus is reporting now: *no active faults, 2 reported earlier*.
+  the summary counts only what the bus is reporting now: *no active faults, 2 reported earlier*. An ECU that
+  said it was *fine* is the same case and was not covered: the list of codes is as empty for a healthy ECU as
+  for one that went quiet, so the block now also publishes which ECUs are still repeating a DM1
+  (`J1939NetworkSnapshot::reporting`, aged by the same rule, empty at Stop), and a healthy ECU that stops is
+  *last reported: none* in the quiet colour and no longer *active faults: none* in the green of a diagnosis.
 
 - **`J1939Network::snapshot()` reports the revision its contents are from.** The revision was read after the
   lock was released, so a copy could carry a newer revision than its contents and a panel that remembered it

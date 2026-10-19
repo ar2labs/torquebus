@@ -497,13 +497,19 @@ TEST(J1939NodeTests, ClearingForANewMeasurementIsAChangeAPanelNotices)
     // that put the counter back where it already was, and go on showing the
     // previous run's bus.
     J1939Network network;
-    network.publish({J1939NetworkNode{}}, {}, {});
+    network.publish({J1939NetworkNode{}}, {}, {}, {J1939ActiveFault{}}, {kEngine});
+    ASSERT_EQ(network.snapshot().reporting.size(), 1U);
 
     const std::uint64_t before = network.revision();
     network.clear();
 
     EXPECT_TRUE(network.revision() > before);
     EXPECT_TRUE(network.snapshot().nodes.empty());
+
+    // What the last run's bus was saying is not what this one's is: neither the codes, nor the ECUs
+    // that were repeating a DM1.
+    EXPECT_TRUE(network.snapshot().activeFaults.empty());
+    EXPECT_TRUE(network.snapshot().reporting.empty());
 }
 
 TEST(J1939NodeTests, SpecialValuesForNotAvailableAndErrorDecodeToNan)
@@ -1020,6 +1026,118 @@ TEST(J1939NodeTests, AMeasurementStartsWithAnEmptyList)
     EXPECT_TRUE(bench.network.snapshot().activeFaults.empty());
 }
 
+TEST(J1939NodeTests, TheEcusRepeatingADm1AreHandedOverAndTheHealthyOnesAreAmongThem)
+{
+    // A healthy ECU has no code, so the list of codes cannot name it - and that list is as empty
+    // for an ECU that has stopped talking. Without this a panel could not tell one that says it is
+    // fine from one that has said nothing for a while.
+    NetworkBench bench;
+    Driver driver{bench.node};
+
+    // The engine has a code, the body controller is healthy, and the brakes have only ever answered
+    // a request: a DM2 is history, it is not repeated, and is not a reason to be reporting.
+    const std::array<CanFrame, 3> frames{faultFrom(kEngine, kRedStop, 100U, 1U, 3U, kSecond),
+                                         diagnosticFrom(kPgnDm1, kBody, 0x00U, kSecond),
+                                         diagnosticFrom(kPgnDm2, kBrakes, kRedStop, kSecond)};
+    driver.run(frames);
+
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+
+    ASSERT_EQ(snapshot.reporting.size(), 2U);
+    EXPECT_EQ(snapshot.reporting[0], kEngine);
+    EXPECT_EQ(snapshot.reporting[1], kBody);
+
+    EXPECT_EQ(snapshot.activeFaults.size(), 1U);
+    EXPECT_EQ(snapshot.diagnostics.size(), 3U);
+}
+
+TEST(J1939NodeTests, AHealthyEcuThatGoesQuietLeavesTheReportingAndAPanelIsToldSo)
+{
+    // Nothing leaves the list of codes - there was no code on it - and that is the change a panel
+    // that shows what each ECU last said has to hear of: the "none" of that ECU is the last thing
+    // it said and not something it is saying.
+    NetworkBench bench;
+    Driver driver{bench.node};
+
+    const std::array<CanFrame, 2> first{diagnosticFrom(kPgnDm1, kEngine, 0x00U, kSecond),
+                                        diagnosticFrom(kPgnDm1, kBody, 0x00U, kSecond)};
+    driver.run(first);
+    ASSERT_EQ(bench.network.snapshot().reporting.size(), 2U);
+
+    // Two seconds on, only the body controller has repeated itself: the engine has missed one.
+    const std::array<CanFrame, 1> soon{diagnosticFrom(kPgnDm1, kBody, 0x00U, 3U * kSecond)};
+    driver.run(soon);
+    EXPECT_EQ(bench.network.snapshot().reporting.size(), 2U);
+
+    const std::uint64_t before = bench.network.revision();
+
+    const std::array<CanFrame, 1> late{diagnosticFrom(kPgnDm1, kBody, 0x00U, 5U * kSecond)};
+    driver.run(late);
+
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    ASSERT_EQ(snapshot.reporting.size(), 1U);
+    EXPECT_EQ(snapshot.reporting[0], kBody);
+    EXPECT_GT(bench.network.revision(), before);
+
+    // What the engine last said is still there, to be shown as that.
+    EXPECT_EQ(snapshot.diagnostics.size(), 2U);
+    EXPECT_TRUE(snapshot.activeFaults.empty());
+
+    // And when it speaks again it is reporting again, with the same bytes as before.
+    const std::array<CanFrame, 1> back{diagnosticFrom(kPgnDm1, kEngine, 0x00U, 6U * kSecond)};
+    driver.run(back);
+
+    EXPECT_EQ(bench.network.snapshot().reporting.size(), 2U);
+}
+
+TEST(J1939NodeTests, EcusRepeatingTheirDm1AreHandedOverOnceAndNotEveryPass)
+{
+    // The same cost the list of codes is built around: the reporting is worked out on every pass
+    // and published when it differs, and six healthy ECUs saying the same thing for an hour are one
+    // publication.
+    NetworkBench bench;
+    Driver driver{bench.node};
+
+    const std::array<CanFrame, 2> first{diagnosticFrom(kPgnDm1, kEngine, 0x00U, kSecond),
+                                        diagnosticFrom(kPgnDm1, kBody, 0x00U, kSecond)};
+    driver.run(first);
+    const std::uint64_t settled = bench.network.revision();
+
+    for (std::uint64_t second = 2U; second < 12U; ++second) {
+        const std::array<CanFrame, 2> again{
+            diagnosticFrom(kPgnDm1, kEngine, 0x00U, second * kSecond),
+            diagnosticFrom(kPgnDm1, kBody, 0x00U, second * kSecond)};
+        driver.run(again);
+    }
+
+    EXPECT_EQ(bench.network.revision(), settled);
+    EXPECT_EQ(bench.network.snapshot().reporting.size(), 2U);
+}
+
+TEST(J1939NodeTests, StoppingTheMeasurementTakesTheReportingOffEvenWhenNothingWasWrong)
+{
+    // A stopped measurement repeats no DM1. The list of codes was empty already, so what has to be
+    // published is the other list - and a block that published at Stop only when it had codes would
+    // leave a healthy ECU "reporting" for ever.
+    NetworkBench bench;
+    Driver driver{bench.node};
+
+    const std::array<CanFrame, 1> healthy{diagnosticFrom(kPgnDm1, kEngine, 0x00U, kSecond)};
+    driver.run(healthy);
+    ASSERT_EQ(bench.network.snapshot().reporting.size(), 1U);
+
+    const std::uint64_t running = bench.network.revision();
+    bench.node.finish();
+
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    EXPECT_TRUE(snapshot.reporting.empty());
+    EXPECT_GT(bench.network.revision(), running);
+
+    // What the ECU last said is still what the J1939 panel reads afterwards.
+    EXPECT_TRUE(snapshot.published);
+    EXPECT_EQ(snapshot.diagnostics.size(), 1U);
+}
+
 TEST(J1939NodeTests, AnEcuThatClaimedItsAddressIsNamedOnTheFaultListByTheShippedFunctionTable)
 {
     // The whole path a name takes: an Address Claimed on the wire, the address table, the
@@ -1066,9 +1184,10 @@ TEST(J1939NodeTests, AnEcuThatClaimedItsAddressIsNamedOnTheFaultListByTheShipped
 
 TEST(J1939NodeTests, AReaderOfTheHandOverNeverSeesHalfOfAPublication)
 {
-    // The panel reads on the GUI thread what the executor thread publishes. The codes are published
-    // with the ECUs they name in one step, under one lock; a reader that could see the codes of one
-    // publication and the ECUs of another would list a fault for an address nobody was seen at.
+    // The panel reads on the GUI thread what the executor thread publishes. The codes, and the ECUs
+    // that are repeating a DM1, are published with the ECUs they name in one step, under one lock;
+    // a reader that could see the codes of one publication and the ECUs of another would list a
+    // fault for an address nobody was seen at.
     J1939Network network;
     std::atomic<bool> finished{false};
 
@@ -1078,8 +1197,9 @@ TEST(J1939NodeTests, AReaderOfTheHandOverNeverSeesHalfOfAPublication)
 
             std::vector<J1939NetworkNode> nodes(count);
             std::vector<J1939ActiveFault> faults(count);
+            std::vector<std::uint8_t> reporting(count);
 
-            network.publish(std::move(nodes), {}, {}, std::move(faults));
+            network.publish(std::move(nodes), {}, {}, std::move(faults), std::move(reporting));
         }
 
         finished.store(true, std::memory_order_release);
@@ -1092,7 +1212,8 @@ TEST(J1939NodeTests, AReaderOfTheHandOverNeverSeesHalfOfAPublication)
         const J1939NetworkSnapshot snapshot = network.snapshot();
         ++reads;
 
-        if (snapshot.nodes.size() != snapshot.activeFaults.size()) {
+        if (snapshot.nodes.size() != snapshot.activeFaults.size()
+            || snapshot.nodes.size() != snapshot.reporting.size()) {
             ++torn;
         }
     }
@@ -1195,6 +1316,9 @@ struct SilenceBench final {
     }
 
     [[nodiscard]] std::size_t listed() const { return network.snapshot().activeFaults.size(); }
+
+    /// How many ECUs are repeating a DM1, healthy ones included.
+    [[nodiscard]] std::size_t reporting() const { return network.snapshot().reporting.size(); }
 
     J1939Network network;
     SystemVariables variables;
@@ -1386,20 +1510,78 @@ TEST(J1939NodeTests, ABusThatCarriesOnlyErrorFramesIsASilentOne)
     EXPECT_FALSE(bench.stopLamp());
 }
 
-TEST(J1939NodeTests, TheMachinesClockIsNotAskedOfABusWithNothingToReport)
+TEST(J1939NodeTests, TheMachinesClockIsNotAskedOfABusWithNoDm1RepeatingOnIt)
 {
-    // Six healthy ECUs and a bus between their messages: nothing is reported, no lamp is lit, and
-    // ageing only ever takes away - so there is nothing to age and no reason to read a clock.
+    // Nothing is repeating a DM1: no code, no lamp, no ECU. A DM2 is an answer to a request and is
+    // never repeated, so one on the bus is nothing that can go out of date either - and ageing only
+    // ever takes away, so there is no reason to read a clock.
     SilenceBench bench;
 
-    const std::array<CanFrame, 1> healthy{diagnosticFrom(kPgnDm1, kEngine, 0x00U, kSecond)};
-    bench.driver.run(healthy);
+    const std::array<CanFrame, 1> history{diagnosticFrom(kPgnDm2, kEngine, kRedStop, kSecond)};
+    bench.driver.run(history);
 
     for (int pass = 0; pass < 5; ++pass) {
         bench.idle();
     }
 
     EXPECT_EQ(bench.asked, 0);
+}
+
+TEST(J1939NodeTests, ABusOfHealthyEcusThatFallsSilentLetsGoOfItsReportingAfterThreeSeconds)
+{
+    // The case the list of codes and the lamps cannot show: nothing is listed and nothing is lit,
+    // and an ECU that said it was fine goes on being one that is saying so until somebody notices
+    // that nothing has said it for a while. The same rule, on the same clock.
+    SilenceBench bench;
+
+    const std::array<CanFrame, 1> healthy{diagnosticFrom(kPgnDm1, kEngine, 0x00U, kSecond)};
+    bench.driver.run(healthy);
+    ASSERT_EQ(bench.reporting(), 1U);
+
+    // The first pass without a frame starts the count; just short of three seconds is not past it.
+    bench.idle();
+    bench.hostNs += 2'900'000'000ULL;
+    bench.idle();
+    EXPECT_EQ(bench.reporting(), 1U);
+
+    const std::uint64_t before = bench.network.revision();
+
+    bench.hostNs += 200'000'000ULL;
+    bench.idle();
+
+    EXPECT_EQ(bench.reporting(), 0U);
+
+    // A panel is told, and what the ECU last said is still what it finds.
+    EXPECT_GT(bench.network.revision(), before);
+    EXPECT_EQ(bench.network.snapshot().diagnostics.size(), 1U);
+
+    // And with nothing left to age, the clock is not read for it any more.
+    const int asked = bench.asked;
+    bench.idle();
+    bench.idle();
+
+    EXPECT_EQ(bench.asked, asked);
+}
+
+TEST(J1939NodeTests, AMeasurementStartsWithNobodyReportingWhateverTheLastOneLeft)
+{
+    SilenceBench bench;
+
+    const std::array<CanFrame, 1> healthy{diagnosticFrom(kPgnDm1, kEngine, 0x00U, kSecond)};
+    bench.driver.run(healthy);
+    ASSERT_EQ(bench.reporting(), 1U);
+
+    // What the engine does at Start: the network is cleared and the block prepared again. An ECU
+    // the last measurement heard is not one this one has, so there is nothing to age and the idle
+    // passes that open it do not read the clock.
+    bench.network.clear();
+    ASSERT_TRUE(bench.node.prepare(64U).succeeded());
+
+    bench.idle();
+    bench.idle();
+
+    EXPECT_EQ(bench.asked, 0);
+    EXPECT_EQ(bench.reporting(), 0U);
 }
 
 TEST(J1939NodeTests, WithNoClockOfItsOwnTheBlockUsesTheMachinesSteadyClock)

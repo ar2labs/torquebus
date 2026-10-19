@@ -6,6 +6,7 @@
 #include "core/tinyml/TinyMlEcuNode.h"
 
 #include "core/j1939/J1939Id.h"
+#include "core/j1939/J1939Name.h"
 
 #include <algorithm>
 #include <chrono>
@@ -54,6 +55,13 @@ constexpr std::uint64_t kDtcRecoverNs = 10'000'000'000ULL;
 
 // J1939-73: a DM1 repeats every second while it says anything, and is sent at once when it changes.
 constexpr std::uint64_t kDm1PeriodNs = 1'000'000'000ULL;
+
+// The NAME it claims its address under (J1939-81): on-highway, and function 33 - System Monitor,
+// which is what a model that watches the vehicle is. No manufacturer, because it is nobody's
+// product, and the serial number is the address it speaks from, so that two of them on one bus at
+// two addresses are two NAMEs and not a contest.
+constexpr std::uint8_t kClaimIndustryGroup = 1U;
+constexpr std::uint8_t kClaimFunction = 33U;
 
 /// SPN 110, engine coolant temperature: what the model is watching.
 constexpr std::uint32_t kPredictiveSpn = 110U;
@@ -213,11 +221,13 @@ Result TinyMlEcuNode::prepare(std::size_t maximumBatchSize)
     }
     setupTelemetryDefinitions();
 
-    // The predictive DM1 goes out under the same address as the telemetry: the ECU is one ECU. The
-    // identifier it has to ignore on the way in follows from it, and not from a constant that
-    // happens to match the default.
-    m_dm1Identifier =
-        j1939Identifier(kPgnDm1, static_cast<std::uint8_t>(m_config.outputCanId & 0xFFU));
+    // The predictive DM1 and the claim go out under the same address as the telemetry: the ECU is
+    // one ECU. The identifiers it has to ignore on the way in follow from it, and not from a
+    // constant that happens to match the default.
+    const auto address = static_cast<std::uint8_t>(m_config.outputCanId & 0xFFU);
+    m_dm1Identifier = j1939Identifier(kPgnDm1, address);
+    m_claimIdentifier = j1939Identifier(kPgnAddressClaimed, address);
+    m_addressClaimed = false;
 
     m_ambientAllowanceDegC = 0.0F;
     m_j1939MessageCounter = 0;
@@ -259,11 +269,19 @@ void TinyMlEcuNode::process(NodeContext& context)
         return;
     }
 
+    // The first thing a J1939 ECU does is claim the address it speaks from, so before anything it
+    // has to say. It has no clock of its own, and takes the time of the frame that woke it.
+    if (m_config.j1939Mode && !m_addressClaimed) {
+        appendAddressClaim(incoming.front().timestampNs);
+    }
+
     for (const CanFrame& frame : incoming) {
-        // Its own telemetry and its own trouble code come back to it off the bus, and a model that
-        // took its own output for the vehicle would be listening to itself.
+        // Its own telemetry, its own trouble code and its own claim come back to it off the bus,
+        // and a model that took its own output for the vehicle would be listening to itself.
         if (frame.identifier == m_config.outputCanId
-            || (m_config.j1939Mode && frame.identifier == m_dm1Identifier)) {
+            || (m_config.j1939Mode
+                && (frame.identifier == m_dm1Identifier
+                    || frame.identifier == m_claimIdentifier))) {
             continue;
         }
 
@@ -568,6 +586,39 @@ bool TinyMlEcuNode::observeJ1939(const CanFrame& frame) noexcept
     default:
         return false;
     }
+}
+
+void TinyMlEcuNode::appendAddressClaim(std::uint64_t timestampNs)
+{
+    // Like everything this block puts on the output, only where there is room for it: a pass never
+    // grows the buffer. Not claimed yet means asked again with the next frame.
+    if (m_outgoingFrames.size() >= m_outgoingFrames.capacity()) {
+        return;
+    }
+
+    m_addressClaimed = true;
+
+    J1939Name name;
+    name.industryGroup = kClaimIndustryGroup;
+    name.function = kClaimFunction;
+    name.identityNumber = m_claimIdentifier & 0xFFU;
+
+    CanFrame claim{};
+    claim.identifier = m_claimIdentifier;
+    claim.channel = m_config.transmitChannel;
+    claim.direction = CanDirection::Tx;
+    claim.format = CanFrameFormat::Extended;
+    claim.dlc = kJ1939NameBytes;
+    claim.length = kJ1939NameBytes;
+    claim.timestampNs = timestampNs;
+
+    // The NAME as it goes on the wire, the least significant byte first.
+    const std::uint64_t bits = name.value();
+    for (std::size_t byte = 0; byte < kJ1939NameBytes; ++byte) {
+        claim.data[byte] = static_cast<std::uint8_t>((bits >> (8U * byte)) & 0xFFU);
+    }
+
+    m_outgoingFrames.push_back(claim);
 }
 
 void TinyMlEcuNode::appendJ1939Telemetry(const CanFrame& cause,

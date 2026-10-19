@@ -78,6 +78,18 @@ otherwise), described by `TinyML_Proprietary` in `examples/databases/j1939.dbc`:
 | 6 | `InputAge` | 0.1 s/bit |
 | 7-8 | `InferenceTimeUs` | held to 64255 |
 
+**It claims its address.** Like any J1939 ECU, the block claims the address it speaks from before it says
+anything else: the first time it hears the bus in a measurement it sends an Address Claimed (PGN `0xEE00`,
+`0x18EEFF80` from address `0x80`) under a NAME of its own - on-highway, function 33, *System Monitor*, with the
+address as its serial number - and only then the telemetry and the predictive DM1, from that address. That is
+what lets the J1939 Network panel show it as *claimed*, and the Dashboard's fault list call a code of its own
+`SA 128 · System Monitor` and not only `SA 128`. It claims again at every Start (the ECU is switched on
+again), takes its own claim coming back off the bus for the bus's and does not analyse it, and a block that
+is not on a J1939 bus - the 11-bit example vehicle - has no address to claim. It claims and does not
+contest: it does not answer a Request for Address Claimed, and it does not give the address up to an ECU
+that claims it with a lower NAME - it is a virtual ECU for a bench, at an address its owner chose
+(`outputCanId`), and the NAME is fixed.
+
 **Predictive DM1.** When the anomaly has been 80 % or more for five seconds - or the thermal health falls
 under 30 %, at once - the block sends a DM1 from its own address: SPN 110, FMI 15 with the amber lamp, or
 FMI 16 with the red lamp as well when it is the health that is failing. It is sent when it starts and then

@@ -276,8 +276,9 @@ arrived last. The **lamps of the whole bus** - the OR of every ECU's - are writt
 system variables `j1939.lamp_stop`, `j1939.lamp_warning`, `j1939.lamp_mil` and `j1939.lamp_protect`, which is
 what a cluster reads. The **codes** behind those lamps are handed over with the block's view of the bus
 (`J1939Network::activeFaults`), aged by the same rule - a DM1 not repeated for three seconds of bus time is an
-ECU that has gone quiet - and empty after Stop; the Dashboard's **Faults** widget lists them (`dashboard.md`,
-*The fault list*).
+ECU that has gone quiet - and empty after Stop, beside the list of the ECUs that are still repeating a DM1
+(`J1939NetworkSnapshot::reporting`, the healthy ones too); the Dashboard's **Faults** widget lists the codes
+(`dashboard.md`, *The fault list*).
 
 ---
 

@@ -520,3 +520,64 @@ TEST(J1939DiagnosticsTests, NothingReportedIsAnEmptyListAndCollectingKeepsItsRoo
     EXPECT_TRUE(faults.empty());
     EXPECT_EQ(faults.capacity(), capacity);
 }
+
+TEST(J1939DiagnosticsTests, TheEcusReportingAreEveryEcuWithACurrentDm1HealthyOnesIncluded)
+{
+    // The list of codes cannot say which ECUs are still talking: a healthy one has no code to be
+    // listed by, and the same empty list is what an ECU that has gone quiet leaves behind. So the
+    // block says it separately - here the engine has a code, the body is healthy and talking, the
+    // brakes were healthy and have not repeated themselves since the first second.
+    const std::vector<J1939Diagnostic> diagnostics{
+        messageFrom(kPgnDm1, kEngine, kRedStop, {dtcBytes(100U, 1U, 3U)}, 9U * kSecond),
+        messageFrom(kPgnDm2, kEngine, kRedStop, {dtcBytes(111U, 2U, 1U)}, 9U * kSecond),
+        messageFrom(kPgnDm1, kBrakes, 0x00U, {noFaultCode()}, kSecond),
+        messageFrom(kPgnDm1, kBody, 0x00U, {noFaultCode()}, 9U * kSecond),
+    };
+
+    // Two of the three that spoke, in address order and once each: the engine's DM2 is an answer to
+    // a request and is not repeated, so it is not a reason to be listed twice - or at all.
+    const std::vector<std::uint8_t> reporting = j1939Reporting(diagnostics, 9U * kSecond);
+    ASSERT_EQ(reporting.size(), 2U);
+    EXPECT_EQ(reporting[0], kEngine);
+    EXPECT_EQ(reporting[1], kBody);
+
+    // And the list of codes is one entry long, which is why it could not have said so.
+    EXPECT_EQ(j1939ActiveFaults(diagnostics, 9U * kSecond).size(), 1U);
+}
+
+TEST(J1939DiagnosticsTests, AnEcuLeavesTheReportingWhenItsDm1IsOlderThanTheRuleAllows)
+{
+    const std::vector<J1939Diagnostic> diagnostics{
+        messageFrom(kPgnDm1, kBody, 0x00U, {noFaultCode()}, 10U * kSecond),
+    };
+
+    EXPECT_EQ(j1939Reporting(diagnostics, 10U * kSecond + kJ1939DiagnosticCurrentNs).size(), 1U);
+    EXPECT_TRUE(
+        j1939Reporting(diagnostics, 10U * kSecond + kJ1939DiagnosticCurrentNs + 1U).empty());
+}
+
+TEST(J1939DiagnosticsTests, NobodyReportingIsAnEmptyListAndCollectingKeepsItsRoom)
+{
+    EXPECT_TRUE(j1939Reporting({}, 0U).empty());
+
+    // Replaced and not appended to, with the capacity it grew kept: the block does this on every
+    // pass, and a pass that allocates is one that can miss its deadline.
+    const std::vector<J1939Diagnostic> diagnostics{
+        messageFrom(kPgnDm1, kEngine, 0x00U, {noFaultCode()}, kSecond),
+        messageFrom(kPgnDm1, kBody, 0x00U, {noFaultCode()}, kSecond),
+    };
+
+    std::vector<std::uint8_t> reporting;
+    j1939CollectReporting(diagnostics, kSecond, reporting);
+    ASSERT_EQ(reporting.size(), 2U);
+
+    const std::size_t capacity = reporting.capacity();
+    j1939CollectReporting(diagnostics, kSecond, reporting);
+
+    EXPECT_EQ(reporting.size(), 2U);
+    EXPECT_EQ(reporting.capacity(), capacity);
+
+    j1939CollectReporting({}, kSecond, reporting);
+    EXPECT_TRUE(reporting.empty());
+    EXPECT_EQ(reporting.capacity(), capacity);
+}
