@@ -155,6 +155,28 @@ std::vector<J1939ActiveFault> j1939ActiveFaults(std::span<const J1939Diagnostic>
     return faults;
 }
 
+void j1939CollectReporting(std::span<const J1939Diagnostic> diagnostics,
+                           std::uint64_t nowNs,
+                           std::vector<std::uint8_t>& out)
+{
+    out.clear();
+
+    for (const J1939Diagnostic& message : diagnostics) {
+        if (j1939DiagnosticIsCurrent(message, nowNs)) {
+            out.push_back(message.sourceAddress);
+        }
+    }
+}
+
+std::vector<std::uint8_t> j1939Reporting(std::span<const J1939Diagnostic> diagnostics,
+                                         std::uint64_t nowNs)
+{
+    std::vector<std::uint8_t> sources;
+    j1939CollectReporting(diagnostics, nowNs, sources);
+
+    return sources;
+}
+
 std::string_view j1939FmiName(std::uint8_t fmi) noexcept
 {
     switch (fmi & 0x1FU) {

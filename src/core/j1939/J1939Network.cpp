@@ -10,7 +10,8 @@ namespace torquebus {
 void J1939Network::publish(std::vector<J1939NetworkNode> nodes,
                            std::vector<J1939Defeated> defeated,
                            std::vector<J1939Diagnostic> diagnostics,
-                           std::vector<J1939ActiveFault> activeFaults)
+                           std::vector<J1939ActiveFault> activeFaults,
+                           std::vector<std::uint8_t> reporting)
 {
     const std::lock_guard<std::mutex> guard{m_mutex};
 
@@ -20,6 +21,7 @@ void J1939Network::publish(std::vector<J1939NetworkNode> nodes,
     m_defeated.swap(defeated);
     m_diagnostics.swap(diagnostics);
     m_activeFaults.swap(activeFaults);
+    m_reporting.swap(reporting);
     m_published = true;
 
     // Under the lock, after the contents, and with release ordering. A snapshot
@@ -41,6 +43,7 @@ J1939NetworkSnapshot J1939Network::snapshot() const
         result.defeated = m_defeated;
         result.diagnostics = m_diagnostics;
         result.activeFaults = m_activeFaults;
+        result.reporting = m_reporting;
         result.published = m_published;
 
         // Inside the lock: see publish().
@@ -57,6 +60,7 @@ void J1939Network::clear()
     m_defeated.clear();
     m_diagnostics.clear();
     m_activeFaults.clear();
+    m_reporting.clear();
     m_published = false;
 
     // Moved rather than reset to zero: a panel watching for a change would miss

@@ -129,13 +129,13 @@ enum Column : int {
     return QObject::tr("not fitted");
 }
 
-/// Whether `address` has a code on the list of what the bus is reporting now.
+/// Whether the ECU at `address` is still repeating its DM1, which is what makes the last one it
+/// sent what it is saying now. The ones with nothing to report count: a healthy ECU is on the list
+/// the block hands over, and has no code on the list of faults to be found by.
 [[nodiscard]] bool isReportingNow(const J1939NetworkSnapshot& snapshot, std::uint8_t address)
 {
-    return std::any_of(
-        snapshot.activeFaults.begin(),
-        snapshot.activeFaults.end(),
-        [address](const J1939ActiveFault& fault) { return fault.sourceAddress == address; });
+    return std::find(snapshot.reporting.begin(), snapshot.reporting.end(), address)
+           != snapshot.reporting.end();
 }
 
 [[nodiscard]] QString faultText(const J1939Dtc& fault)
@@ -318,13 +318,13 @@ void J1939NetworkPanel::rebuild(const J1939NetworkSnapshot& snapshot)
                 continue;
             }
 
-            // A DM1 is what an ECU is saying only while it goes on saying it. One that carries
-            // faults and is not on the list of what the bus is reporting now is the last thing the
-            // ECU said: it has gone quiet, or the measurement has stopped. Its faults are still
-            // worth reading - that is why the panel keeps them - and are not what is wrong with the
-            // machine now.
-            const bool lastReported = message.active && !message.faults.empty()
-                                      && !isReportingNow(snapshot, node.address);
+            // A DM1 is what an ECU is saying only while it goes on saying it. One whose ECU is not
+            // repeating it is the last thing that ECU said: it has gone quiet, or the measurement
+            // has stopped. The faults it lists are still worth reading - that is why the panel
+            // keeps them - and are not what is wrong with the machine now. Nor is "none" a
+            // diagnosis any more: an ECU that said it had no faults, and has not said so since, is
+            // not saying it.
+            const bool lastReported = message.active && !isReportingNow(snapshot, node.address);
 
             auto* group = new QTreeWidgetItem(row);
             group->setText(ColumnAddress,
@@ -333,11 +333,16 @@ void J1939NetworkPanel::rebuild(const J1939NetworkSnapshot& snapshot)
                                : (lastReported ? tr("last reported") : tr("active faults")));
 
             if (lastReported) {
+                const QString whatItSaid =
+                    message.faults.empty()
+                        ? tr("It said it had no faults, which is not something it is saying now.")
+                        : tr("These faults are not being reported now.");
+
                 group->setToolTip(
                     ColumnAddress,
                     tr("The last DM1 this ECU sent, and it has not sent another: it has gone "
-                       "quiet, "
-                       "or the measurement has stopped. These faults are not being reported now."));
+                       "quiet, or the measurement has stopped. %1")
+                        .arg(whatItSaid));
             }
 
             group->setText(ColumnName,
@@ -348,10 +353,11 @@ void J1939NetworkPanel::rebuild(const J1939NetworkSnapshot& snapshot)
                                     lampText(message.lamps.protect)));
 
             if (message.faults.empty()) {
-                // A statement, not a blank. An ECU that says it is fine is a
-                // different thing from one that has not answered.
+                // A statement, not a blank. An ECU that says it is fine is a different thing from
+                // one that has not answered - and from one that said so and has gone quiet, whose
+                // "none" is kept in the colour of what is not being said now.
                 group->setText(ColumnState, tr("none"));
-                group->setForeground(ColumnState, theme.success);
+                group->setForeground(ColumnState, lastReported ? theme.textMuted : theme.success);
                 continue;
             }
 

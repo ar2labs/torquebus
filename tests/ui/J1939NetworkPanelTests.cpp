@@ -13,21 +13,34 @@
 //
 // The panel is given a network of its own and what the block would publish is published into it,
 // by the one door the engine's thread uses.
+//
+// "Said now" is two things, and the panel needs both: the codes the bus is reporting, and the ECUs
+// that are repeating a DM1. The first cannot say anything of a healthy ECU, which has no code - so
+// an ECU that said it was fine and then went quiet is only seen through the second.
 
+#include "core/can/CanEngine.h"
+#include "core/dashboard/DashboardDescription.h"
 #include "core/j1939/J1939Diagnostics.h"
 #include "core/j1939/J1939Network.h"
+#include "core/pipeline/GraphDescription.h"
+#include "core/pipeline/NodeCatalog.h"
+#include "core/transmit/TransmitList.h"
+#include "drivers/virtual/VirtualCanBackend.h"
+#include "services/ProjectFile.h"
 #include "ui/j1939/J1939NetworkPanel.h"
 
 #include <gtest/gtest.h>
 
 #include <QApplication>
 #include <QElapsedTimer>
+#include <QFileInfo>
 #include <QLabel>
 #include <QString>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 
 #include <functional>
+#include <memory>
 #include <vector>
 
 using namespace torquebus;
@@ -91,11 +104,19 @@ bool waitFor(const std::function<bool()>& done, int milliseconds = 2000)
     return message;
 }
 
-/// The codes of `messages` that are being reported now, as the block hands them over.
-[[nodiscard]] std::vector<J1939ActiveFault>
-reportedNow(const std::vector<J1939Diagnostic>& messages)
+/// What the block hands over of a bus that is being reported now.
+struct Reported final {
+    /// The codes, whichever ECU they came from.
+    std::vector<J1939ActiveFault> faults;
+
+    /// The ECUs that are repeating a DM1, the healthy ones included.
+    std::vector<std::uint8_t> sources;
+};
+
+/// Everything `messages` say, as if every one of them were still being repeated.
+[[nodiscard]] Reported reportedNow(const std::vector<J1939Diagnostic>& messages)
 {
-    return j1939ActiveFaults(messages, 0U);
+    return {j1939ActiveFaults(messages, 0U), j1939Reporting(messages, 0U)};
 }
 
 struct Bench final {
@@ -112,9 +133,13 @@ struct Bench final {
     /// Publishes what the block would, and waits for the panel to have drawn it.
     [[nodiscard]] bool publish(std::vector<J1939NetworkNode> nodes,
                                std::vector<J1939Diagnostic> messages,
-                               std::vector<J1939ActiveFault> reporting)
+                               Reported reported)
     {
-        network.publish(std::move(nodes), {}, std::move(messages), std::move(reporting));
+        network.publish(std::move(nodes),
+                        {},
+                        std::move(messages),
+                        std::move(reported.faults),
+                        std::move(reported.sources));
 
         return waitFor([this] { return tree()->topLevelItemCount() > 0; });
     }
@@ -274,4 +299,122 @@ TEST(J1939NetworkPanelTests, BeforeAnythingIsPublishedItSaysSoAndNothingAboutFau
     EXPECT_TRUE(bench.summary().contains(QStringLiteral("Nothing seen yet")))
         << bench.summary().toStdString();
     EXPECT_FALSE(bench.summary().contains(QStringLiteral("fault")));
+}
+
+TEST(J1939NetworkPanelTests, AHealthyEcuThatHasGoneQuietIsNotSaidToBeSayingItHasNoFaults)
+{
+    Bench bench;
+
+    // Both said that nothing was wrong, and only the brakes have said it since. The engine was
+    // healthy when last heard, and that is all the panel knows of it.
+    const std::vector<J1939Diagnostic> messages{dm1From(0U, {}), dm1From(11U, {})};
+    const std::vector<J1939Diagnostic> brakes{messages[1]};
+
+    ASSERT_TRUE(bench.publish({nodeAt(0U), nodeAt(11U)}, messages, reportedNow(brakes)));
+    ASSERT_TRUE(bench.waitForSummary(QStringLiteral("no active faults")))
+        << bench.summary().toStdString();
+
+    // The one that goes on saying it is a diagnosis, as before.
+    EXPECT_EQ(bench.groupOf(11U).toStdString(), "active faults");
+
+    const QTreeWidgetItem* speaking = bench.ecu(11U)->child(0);
+    EXPECT_EQ(speaking->text(2).toStdString(), "none");
+    EXPECT_TRUE(speaking->toolTip(0).isEmpty());
+
+    // The other is the last thing its ECU said - kept, because that is what the panel is for - and
+    // not in the colour of an ECU that is saying it now.
+    EXPECT_EQ(bench.groupOf(0U).toStdString(), "last reported");
+
+    const QTreeWidgetItem* quiet = bench.ecu(0U)->child(0);
+    EXPECT_EQ(quiet->text(2).toStdString(), "none");
+    EXPECT_NE(quiet->foreground(2).color().name().toStdString(),
+              speaking->foreground(2).color().name().toStdString());
+
+    // Said in words: what it said is not something it is saying now.
+    EXPECT_TRUE(quiet->toolTip(0).contains(QStringLiteral("no faults")))
+        << quiet->toolTip(0).toStdString();
+    EXPECT_TRUE(quiet->toolTip(0).contains(QStringLiteral("not sent another")))
+        << quiet->toolTip(0).toStdString();
+
+    // Nothing to count, and nothing "reported earlier" either: there were no faults to report.
+    EXPECT_FALSE(bench.summary().contains(QStringLiteral("earlier")));
+}
+
+TEST(J1939NetworkPanelTests, AMeasurementThatStopsMakesAHealthyEcusNoneTheLastThingItSaid)
+{
+    Bench bench;
+
+    const std::vector<J1939Diagnostic> messages{dm1From(0U, {})};
+
+    ASSERT_TRUE(bench.publish({nodeAt(0U)}, messages, reportedNow(messages)));
+    ASSERT_TRUE(bench.waitForSummary(QStringLiteral("no active faults")));
+    EXPECT_EQ(bench.groupOf(0U).toStdString(), "active faults");
+
+    // Stopped: the same view of the bus, and no ECU repeating anything. The list of codes was empty
+    // before and is now - it is the other list that says this.
+    bench.network.publish({nodeAt(0U)}, {}, messages, {}, {});
+
+    ASSERT_TRUE(waitFor([&bench] { return bench.groupOf(0U) == QStringLiteral("last reported"); }));
+    EXPECT_EQ(bench.ecu(0U)->child(0)->text(2).toStdString(), "none");
+}
+
+TEST(J1939NetworkPanelTests, TheJ1939ExampleIsReportingWhileItRunsAndLastReportedOnceItIsStopped)
+{
+    // All the way: the example's own graph on the engine and the engine's own network on the panel.
+    // The ECUs of the example repeat a DM1 a second, every one of them saying that nothing is
+    // wrong, and "active faults: none" is true of them only while they are saying it.
+    const QString path = QStringLiteral(TORQUEBUS_EXAMPLE_PROJECT_DIR "/j1939-vehicle.tbsproj");
+
+    GraphDescription pipeline;
+    TransmitList transmit;
+    DashboardDescription dashboard;
+
+    const Result opened = services::ProjectFile::load(path, pipeline, transmit, dashboard);
+    ASSERT_TRUE(opened.succeeded()) << std::string{opened.message()};
+
+    CanEngine engine;
+    CanChannelConfig config;
+    config.deviceHandle = "virtual:0";
+    config.timing.bitrate = 500'000;
+    ASSERT_TRUE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
+
+    engine.setGraphDescription(
+        pipeline, NodeCatalog::withBuiltinTypes(), QFileInfo{path}.absolutePath().toStdString());
+    ASSERT_TRUE(engine.start().succeeded());
+
+    J1939NetworkPanel panel;
+    panel.setNetwork(&engine.j1939Network());
+    panel.resize(900, 400);
+    panel.show();
+
+    const QTreeWidget* tree = panel.findChild<QTreeWidget*>();
+    ASSERT_NE(tree, nullptr);
+
+    // How many ECUs have a DM1 under their row that the panel calls `label`.
+    const auto groups = [tree](const QString& label) {
+        int count = 0;
+
+        for (int row = 0; row < tree->topLevelItemCount(); ++row) {
+            const QTreeWidgetItem* ecu = tree->topLevelItem(row);
+
+            for (int child = 0; child < ecu->childCount(); ++child) {
+                count += ecu->child(child)->text(0) == label ? 1 : 0;
+            }
+        }
+
+        return count;
+    };
+
+    const QString active = QStringLiteral("active faults");
+    const QString last = QStringLiteral("last reported");
+
+    EXPECT_TRUE(waitFor([&] { return groups(active) >= 5 && groups(last) == 0; }, 8000))
+        << groups(active) << " reporting, " << groups(last) << " last reported";
+
+    // The measurement stops: nobody is repeating anything, and what each ECU said is all that is
+    // left, and is said to be that.
+    engine.stop();
+
+    EXPECT_TRUE(waitFor([&] { return groups(last) >= 5 && groups(active) == 0; }))
+        << groups(active) << " reporting, " << groups(last) << " last reported";
 }

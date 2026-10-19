@@ -1967,7 +1967,9 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                         .type = ParameterValue::Type::Boolean,
                         .required = false,
                         .description =
-                            "Enable SAE J1939 decoding and Proprietary B (0x18FF0080) output."},
+                            "Enable SAE J1939 decoding and Proprietary B (0x18FF0080) output. "
+                            "The block claims its address (Address Claimed) when it first hears "
+                            "the bus."},
                 },
             .talksOnBus = true,
         },

@@ -27,8 +27,8 @@
 //   * **What an ECU last said is not what the bus is reporting now.** The tree
 //     keeps each ECU's last DM1, which is what a panel is for after a
 //     measurement ends; an ECU that has gone quiet, or a measurement that has
-//     stopped, leaves those faults *last reported*, and the summary counts only
-//     what the block says is being reported now.
+//     stopped, leaves that DM1 *last reported* - its faults, or its "none" - and
+//     the summary counts only what the block says is being reported now.
 //
 // It reads a J1939Network the block fills - see that header for why the
 // hand-over is a snapshot rather than a lock, and why this panel asks for a

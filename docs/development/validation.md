@@ -1090,16 +1090,22 @@ The fault list (`docs/development/dashboard.md`, *The fault list*):
 37. Stop, set `ecu_body` to `alternator_failure` as well and press **Start**: a second row, amber,
     under the red one - worst first, whichever ECU sent which - and the **WARN** lamp lit too.
 38. Press **Stop**. The list empties and the lamps go out, as the cluster's do - while the **J1939
-    Network** panel still shows what each ECU last said, which is what it is for afterwards.
-39. The name beside the address is there because the engine claimed its address when it started:
-    the six Lua ECUs of the example each send an Address Claimed at power-up (*Engine*, *Body
-    Control*, *System Control Brakes*, ...), and the **J1939 Network** panel shows them as *claimed*,
-    not *transmitting*. An ECU that has not been seen claiming its address is only its number: the
-    TinyML ECU does not claim, so a code of its own reads `SA 128`.
+    Network** panel still shows what each ECU last said, which is what it is for afterwards. Every
+    group under an ECU's row is now *last reported* - the healthy ECUs' *none* too, in the quiet
+    colour: while the measurement ran they said *active faults: none* and it was true because they
+    were saying it.
+39. The name beside the address is there because the ECU claimed its address when it started: the
+    six Lua ECUs of the example each send an Address Claimed at power-up (*Engine*, *Body Control*,
+    *System Control Brakes*, ...) and so does the TinyML ECU, a *System Monitor* at address 128 -
+    press **Inject TinyML Anomaly** on the Canvas (`docs/development/tinyml.md`) and its predictive
+    code, SPN 110, is listed as `SA 128 · System Monitor`. The **J1939 Network** panel shows all of
+    them as *claimed*, not *transmitting*. An ECU that has not been seen claiming its address is
+    only its number.
     **A bus that goes silent.** With real hardware, or a replay that ends, take the traffic away
     while the engine is on `low_oil_pressure`: three seconds later the list empties and the lamps go
     out - not at **Stop**. The **J1939 Network** panel then labels the engine's faults *last
-    reported* and says *no active faults, 1 reported earlier*.
+    reported* and says *no active faults, 1 reported earlier*; and the healthy ECUs, which have no
+    fault to list, go from *active faults: none* to *last reported: none* in the same three seconds.
 40. Drag the fault list's corner until it is too small for its rows. The worst stay on show and
     the last line says **+ N more**.
 

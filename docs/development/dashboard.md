@@ -286,10 +286,12 @@ it:
 * A **row** is `SPN n / FMI m`, the failure mode in words (J1939-73, Table 2), how many times the ECU says the
   fault has occurred (127 is the most the field holds, so it is written `×127+`), and which ECU: its source
   address and, after a dot, the name of its function when the ECU was seen claiming its address *and* the name
-  tables know it (`SA 0 · Engine`). An ECU that never claimed one is an address and nothing more - the
-  example's six Lua ECUs claim theirs when they start, and its TinyML ECU does not, so its rows say
-  `SA 128` - because a number known to be right beats a name that is a guess. An SPN the J1939 block did not assemble (a legacy packing nobody declared, see
-  `J1939Diagnostics.h`) is `SPN ?` and not a number that would look like one; hovering gives the four bytes.
+  tables know it (`SA 0 · Engine`). An ECU that never claimed one is an address and nothing more, because a
+  number known to be right beats a name that is a guess. Every ECU of the example claims its address when it
+  starts - the six Lua ECUs from their scripts, and the TinyML ECU from the block itself, as a *System
+  Monitor* - so its rows say `SA 128 · System Monitor`. An SPN the J1939 block did not assemble (a legacy
+  packing nobody declared, see `J1939Diagnostics.h`) is `SPN ?` and not a number that would look like one;
+  hovering gives the four bytes.
 * **The tint is the lamp's.** A lamp belongs to a DM1 and not to one code in it, so a row is as bad as the
   lamps of the message it arrived in: the red stop lamp makes it red, any other lit lamp (amber warning,
   malfunction indicator, protect) amber, and a message whose lamps are all dark leaves its codes plain -
@@ -333,6 +335,14 @@ with a DM1 that is byte for byte the one before, and at **Stop** the block publi
 the J1939 panel still shows what every ECU last said, which is what it is for afterwards. Time is the bus's, so
 a log being replayed ages the same way.
 
+**And who is still saying it.** The list of codes is as empty for an ECU that is healthy as for one that has
+gone quiet, so it cannot tell a panel which is which: an ECU that said *no faults* and then stopped would go on
+looking like one that says it. So the block publishes beside the codes the source address of every ECU whose DM1
+is still being repeated - the healthy ones included - by the same rule, in the same pass, and empty at Stop
+too (`J1939NetworkSnapshot::reporting`). The J1939 panel reads it to call a DM1 whose ECU is not on it *last
+reported*: the faults it lists, or the *none* it said, are the last thing that ECU said and not what it is
+saying.
+
 **A bus that falls silent altogether** - every ECU at once, an adapter unplugged - has no newest frame to
 age against, because the clock of the bus is its frames and it stopped with them. On a pass in which nothing
 arrived (or only error and remote frames, which say nothing a DM1 is repeated by) the block asks the machine's
@@ -340,8 +350,8 @@ clock how long that has gone on, and ages from where the bus's own stood: three 
 same as an ECU that stopped repeating itself, and the list and the lamps let go together, not at Stop. Only
 the *length* of the silence is taken from the machine and never what time it is - the two clocks are not
 compared, so a replayed log or a device that stamps its own frames is not confused - and the clock is not
-asked at all while nothing is reported and no lamp is lit, which is a healthy bus between its messages. A
-replay that is paused, or has ended, is a silent bus and ages the same way.
+asked at all while no ECU is repeating a DM1, which is a bus that has said nothing yet. A replay that is
+paused, or has ended, is a silent bus and ages the same way.
 
 ---
 
@@ -444,7 +454,9 @@ image, which would break on every font.
 |---|---|
 | `DashboardTests` | the description, `validate()`, the file format round trip, the kinds and what each asks for |
 | `DashboardFaultsTests` | the fault list as data: what a lamp says about a code, worst first, an ECU named only when the NAME and the tables say so, and the lamps the cluster reads |
-| `J1939NodeTests`, `J1939DiagnosticsTests` | what the block hands over: the codes being reported now with their lamps, an ECU that falls silent leaving the list and coming back to it, Stop emptying it while what the ECUs said stays, a steady bus publishing once, and a reader never seeing half a publication |
+| `J1939NodeTests`, `J1939DiagnosticsTests` | what the block hands over: the codes being reported now with their lamps, and the ECUs still repeating a DM1 - the healthy ones too - an ECU that falls silent leaving the list and coming back to it, a bus that falls silent altogether, Stop emptying both while what the ECUs said stays, a steady bus publishing once, and a reader never seeing half a publication |
+| `J1939NetworkPanelTests` | what the J1939 panel calls what an ECU last said: *active faults* while it is repeating it, *last reported* when it is not - for a list of faults and for a healthy ECU's *none* - and the example run on the engine, all the way to the tree |
+| `TinyMlEcuTests` | the TinyML block on a J1939 bus claims its address before it says anything, once per measurement, from the address of its telemetry, and does not take its own claim for the bus's |
 | `SignalDictionaryTests` | search and ranking, `suggestKind`, `applyEntry`, raw to physical, tones, time-outs, the audit and its did-you-mean |
 | `DashboardAssetsTests` | relative and absolute, `..`, Windows paths, moving a project |
 | `ExampleDashboardTests` | the two example dashboards, against their databases, their files and their pipelines - and the J1939 example's fault list on a run of the engine's `low_oil_pressure` |
@@ -462,7 +474,6 @@ failure this has to catch.
 
 * The **fault list** shows the whole bus: it cannot be limited to one ECU, it does not show the codes that
   were active (DM2) and it cannot clear them (DM11, which is a request on the bus and so a transmit entry).
-  The example's TinyML ECU does not claim an address, so a code of its own says only `SA 128`.
 * **Copy and paste** between projects, a **snap to grid**, and moving several widgets at once: a widget moves
   one at a time and a drop of many lays them out for you.
 * A CAN signal cannot be *written* from a widget, on purpose (see *What it is made of*).

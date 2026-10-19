@@ -66,6 +66,14 @@ struct J1939NetworkSnapshot final {
     /// the same pass.
     std::vector<J1939ActiveFault> activeFaults;
 
+    /// The source address of every ECU whose DM1 is still being repeated
+    /// (j1939DiagnosticIsCurrent), in address order - the ones with nothing to report included,
+    /// which `activeFaults` cannot say: a healthy ECU has no code to be listed by. So a DM1 in
+    /// `diagnostics` whose source is not here is the last thing that ECU said, whether it listed
+    /// faults or none. Empty after a measurement ends and for a bus that has gone quiet, like
+    /// `activeFaults`, and published with it.
+    std::vector<std::uint8_t> reporting;
+
     /// Which publication this came from. Zero means nothing has been published
     /// yet, which is a measurement that has not started rather than a bus with
     /// nobody on it - and a panel must say the difference.
@@ -87,7 +95,8 @@ public:
     void publish(std::vector<J1939NetworkNode> nodes,
                  std::vector<J1939Defeated> defeated,
                  std::vector<J1939Diagnostic> diagnostics,
-                 std::vector<J1939ActiveFault> activeFaults = {});
+                 std::vector<J1939ActiveFault> activeFaults = {},
+                 std::vector<std::uint8_t> reporting = {});
 
     /// A copy of the latest publication. Its `revision` is exactly the one its
     /// contents are from: both are read under the lock a publication is made
@@ -114,6 +123,7 @@ private:
     std::vector<J1939Defeated> m_defeated;
     std::vector<J1939Diagnostic> m_diagnostics;
     std::vector<J1939ActiveFault> m_activeFaults;
+    std::vector<std::uint8_t> m_reporting;
     bool m_published{false};
 
     /// Moved under the mutex, with the contents it counts, and read both ways:

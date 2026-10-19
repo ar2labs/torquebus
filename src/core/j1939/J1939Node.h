@@ -158,12 +158,14 @@ private:
     void publishLamps(std::uint64_t nowNs) noexcept;
 
     /// Brings everything the block hands over up to date as of bus time `busNowNs`: the codes the
-    /// bus is reporting, the view a panel reads (when it changed) and the lamps.
+    /// bus is reporting and the ECUs that are repeating a DM1, the view a panel reads (when either
+    /// changed) and the lamps.
     void settle(std::uint64_t busNowNs);
 
     /// A pass with no frame in it. Ages what the bus said by how long it has been silent, so that a
     /// bus that falls silent altogether - every ECU at once, an adapter unplugged - lets go of its
-    /// lamps and its codes as an ECU that stops repeating its DM1 does, and not at Stop.
+    /// lamps, its codes and its reporting ECUs as an ECU that stops repeating its DM1 does, and not
+    /// at Stop.
     void ageOnAnIdlePass();
 
     [[nodiscard]] static std::uint64_t steadyNanoseconds();
@@ -193,6 +195,11 @@ private:
     /// is worked out into before it is compared. Both keep their capacity.
     std::vector<J1939ActiveFault> m_activeFaults;
     std::vector<J1939ActiveFault> m_scratchFaults;
+
+    /// The same two for the ECUs whose DM1 is still being repeated: the ones with nothing to report
+    /// are among them, and the list of codes cannot name those.
+    std::vector<std::uint8_t> m_reporting;
+    std::vector<std::uint8_t> m_scratchReporting;
 
     /// Where the lamps of the whole bus go, and the handles resolved for them in prepare().
     SystemVariables* m_variables{nullptr};
