@@ -14,12 +14,14 @@
 // opens one.
 
 #include "core/can/CanEngine.h"
+#include "core/j1939/J1939Id.h"
 #include "core/j1939/J1939NameTables.h"
 #include "core/j1939/J1939Network.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "core/transmit/TransmitList.h"
 #include "drivers/api/CanBackendRegistry.h"
+#include "drivers/virtual/VirtualCanBackend.h"
 #include "plugins/host/PluginLoader.h"
 #include "services/ProjectFile.h"
 #include "services/SettingsStore.h"
@@ -27,6 +29,7 @@
 #include "ui/dashboard/DashboardWidgetEditor.h"
 #include "ui/dashboard/DashboardWidgetPainters.h"
 #include "ui/engine/CanEngineController.h"
+#include "ui/j1939/J1939NetworkPanel.h"
 #include "ui/mainwindow/Docking.h"
 #include "ui/mainwindow/MainWindow.h"
 #include "ui/output/OutputPanel.h"
@@ -41,9 +44,12 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QPlainTextEdit>
+#include <QPushButton>
 #include <QTemporaryDir>
 
+#include <atomic>
 #include <memory>
+#include <span>
 #include <string>
 
 using namespace torquebus;
@@ -357,4 +363,81 @@ TEST_F(MainWindowDashboardTests,
     app().names.clear();
 
     EXPECT_TRUE(app().panel().faultRows().empty());
+}
+
+TEST_F(MainWindowDashboardTests, TheJ1939PanelsRequestClaimsAsksTheRunningMeasurementAndSaysSo)
+{
+    // The wiring a panel's own tests cannot see: a button that emits a signal nobody listens to is
+    // a button that does nothing, and one that stays on after Stop asks a bus that is not there.
+    auto* controller = app().window->findChild<CanEngineController*>();
+    ASSERT_NE(controller, nullptr);
+
+    auto* panel = app().window->findChild<J1939NetworkPanel*>();
+    ASSERT_NE(panel, nullptr);
+
+    auto* button = panel->findChild<QPushButton*>(QStringLiteral("requestClaimsButton"));
+    ASSERT_NE(button, nullptr);
+
+    EXPECT_FALSE(button->isEnabled());
+
+    // The channels the window bound when it was built - whatever this machine offers - or one of
+    // its own where there are none, so that there is a bus to ask on.
+    bool addedAChannel = false;
+
+    if (controller->engine().channelCount() == 0U) {
+        CanChannelConfig config;
+        config.deviceHandle = "virtual:0";
+        config.timing.bitrate = 500'000;
+        ASSERT_TRUE(controller->engine()
+                        .addChannel(std::make_unique<VirtualCanBackend>(), config)
+                        .succeeded());
+        addedAChannel = true;
+    }
+
+    const auto channels = static_cast<int>(controller->engine().channelCount());
+
+    std::atomic<int> requests{0};
+    const SinkId sink =
+        controller->engine().addFrameSink([&requests](std::span<const CanFrame> frames) {
+            for (const CanFrame& frame : frames) {
+                if (j1939RequestedPgn(frame) == kPgnAddressClaimed) {
+                    ++requests;
+                }
+            }
+        });
+
+    controller->start();
+    pump(100);
+    ASSERT_TRUE(controller->isRunning());
+
+    // The measurement's start turns it on, with nothing else done to it.
+    EXPECT_TRUE(button->isEnabled());
+
+    const QString before = app().output();
+    button->click();
+
+    // A request on each channel at least: two channels on one virtual bus hear each other's.
+    QElapsedTimer clock;
+    clock.start();
+    while (requests.load() < channels && clock.elapsed() < 5000) {
+        QApplication::processEvents(QEventLoop::AllEvents, 20);
+    }
+
+    EXPECT_GE(requests.load(), channels);
+
+    const QString said = app().output().mid(before.size());
+    EXPECT_TRUE(said.contains(QStringLiteral("asked every ECU on CAN 1"))) << said.toStdString();
+    EXPECT_TRUE(said.contains(QStringLiteral("to claim its address again"))) << said.toStdString();
+
+    controller->stop();
+    pump(100);
+
+    // And off again when it stops.
+    EXPECT_FALSE(button->isEnabled());
+
+    controller->engine().removeFrameSink(sink);
+
+    if (addedAChannel) {
+        controller->engine().clearChannels();
+    }
 }

@@ -12,14 +12,17 @@
 // notice that the project joining them did not open, which is what this file is for - an example
 // that does not start is worse than none, because it is the first thing somebody tries.
 //
-// The run is real: the virtual bus, the engine's own executor thread and the clock. It lasts a
-// couple of seconds because the slowest message the cluster reads is sent once a second.
+// The run is real: the virtual bus, the engine's own executor thread and the clock. It lasts as
+// long as the test has to wait for what it came to see - the cluster's every instrument, every
+// ECU's first DM1, and whatever the scenario is meant to show - and no longer: a run of a fixed
+// length was too long on a fast machine, and on a slow one would one day have been too short.
 
 #include "core/can/CanEngine.h"
 #include "core/dashboard/DashboardDescription.h"
 #include "core/dashboard/cluster/ClusterProfile.h"
 #include "core/dashboard/cluster/ClusterProfiles.h"
 #include "core/dashboard/cluster/ClusterRole.h"
+#include "core/j1939/J1939Network.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "core/transmit/TransmitList.h"
@@ -36,6 +39,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -97,57 +101,38 @@ struct Observed final {
     /// A role of the profile, as the cluster would read it: the newest sample of its signal or the
     /// value of its variable. Empty when there is nothing to read.
     std::map<ClusterRole, double> roles;
+
+    /// How many ECUs are repeating a DM1 on the bus, and how many inferences the TinyML ECU has
+    /// run: what says that the lamps of the bus and the model's verdict are about the vehicle and
+    /// not what they were before anybody had spoken.
+    std::size_t reportingEcus{0};
+    double inferences{0.0};
+
+    /// How long the run had lasted when it was last looked at.
+    std::chrono::milliseconds elapsed{0};
+
+    /// Whether what the test was waiting for came before kPatience ran out.
+    bool arrived{false};
 };
 
-/// Opens the project, lets `edit` change it (a scenario, say) and runs it for `duration`.
-template<typename Edit>
-[[nodiscard]] Observed runProject(std::chrono::milliseconds duration, Edit&& edit)
+/// How long a run waits for what it came to see. The vehicle sends every message it has at least
+/// once a second and its first of each at once, so this is many times what any of it takes.
+constexpr std::chrono::seconds kPatience{15};
+
+/// The ECUs of the project that send a DM1: the six scripted ones. The TinyML ECU sends one only
+/// when its model is sure of trouble.
+constexpr std::size_t kScriptedEcus = 6;
+
+/// A model that has run on a few dozen frames has had the chance to be wrong; one that has run on
+/// none says what it said before it started.
+constexpr double kInferencesThatCount = 20.0;
+
+/// Reads the plot store, the variables and the bus the way the cluster would, into `run`.
+void observe(CanEngine& engine, Observed& run)
 {
-    Observed run;
+    run.series.clear();
+    run.roles.clear();
 
-    Project project;
-    run.started = openProject(project);
-    if (run.started.failed()) {
-        return run;
-    }
-
-    edit(project.pipeline);
-
-    const DashboardWidget* cluster = clusterOf(project);
-    if (cluster != nullptr) {
-        run.profile = ClusterProfiles::instance().find(cluster->profile);
-    }
-
-    CanEngine engine;
-    CanChannelConfig config;
-    config.deviceHandle = "virtual:0";
-    config.timing.bitrate = 500'000;
-    run.started = engine.addChannel(std::make_unique<VirtualCanBackend>(), config);
-    if (run.started.failed()) {
-        return run;
-    }
-
-    std::mutex errorMutex;
-    engine.addLogSink([&run, &errorMutex](const std::string& text, bool isError) {
-        if (isError) {
-            const std::lock_guard lock{errorMutex};
-            run.errors.push_back(text);
-        }
-    });
-
-    const std::string base = QFileInfo{projectPath()}.absolutePath().toStdString();
-    engine.setGraphDescription(project.pipeline, NodeCatalog::withBuiltinTypes(), base);
-
-    run.started = engine.start();
-    if (run.started.failed()) {
-        return run;
-    }
-
-    std::this_thread::sleep_for(duration);
-
-    // Read while it is still running. The J1939 block puts the lamps of the bus out at Stop, which
-    // is right for a cluster - a stopped measurement has no fault to report - and wrong for a test
-    // that wants to know what the cluster was showing.
     for (const SeriesInfo& info : engine.plotStore().listSeries()) {
         double value = 0.0;
         std::uint64_t when = 0;
@@ -170,14 +155,95 @@ template<typename Edit>
         }
     }
 
+    run.reportingEcus = 0;
+    for (const J1939BusView& bus : engine.j1939Network().snapshot().buses) {
+        run.reportingEcus += bus.reporting.size();
+    }
+
+    run.inferences = engine.variables().value("tinyml.inferences");
+}
+
+/// Opens the project, lets `edit` change it (a scenario, say) and runs it until `arrived` says that
+/// the engine shows what the test came to see, or kPatience has passed.
+template<typename Edit>
+[[nodiscard]] Observed runProject(const std::function<bool(const Observed&)>& arrived, Edit&& edit)
+{
+    Observed run;
+
+    Project project;
+    run.started = openProject(project);
+    if (run.started.failed()) {
+        return run;
+    }
+
+    edit(project.pipeline);
+
+    const DashboardWidget* cluster = clusterOf(project);
+    if (cluster != nullptr) {
+        run.profile = ClusterProfiles::instance().find(cluster->profile);
+    }
+
+    // Before the engine, so that they outlive the sink that fills them.
+    std::mutex errorMutex;
+    std::vector<std::string> errors;
+
+    CanEngine engine;
+    CanChannelConfig config;
+    config.deviceHandle = "virtual:0";
+    config.timing.bitrate = 500'000;
+    run.started = engine.addChannel(std::make_unique<VirtualCanBackend>(), config);
+    if (run.started.failed()) {
+        return run;
+    }
+
+    engine.addLogSink([&errors, &errorMutex](const std::string& text, bool isError) {
+        if (isError) {
+            const std::lock_guard lock{errorMutex};
+            errors.push_back(text);
+        }
+    });
+
+    const std::string base = QFileInfo{projectPath()}.absolutePath().toStdString();
+    engine.setGraphDescription(project.pipeline, NodeCatalog::withBuiltinTypes(), base);
+
+    run.started = engine.start();
+    if (run.started.failed()) {
+        return run;
+    }
+
+    const auto began = std::chrono::steady_clock::now();
+    const auto deadline = began + kPatience;
+
+    // Read while it is running, and read again until it shows what was asked for. The J1939 block
+    // puts the lamps of the bus out at Stop, which is right for a cluster - a stopped measurement
+    // has no fault to report - and wrong for a test that wants to know what the cluster was
+    // showing.
+    for (;;) {
+        observe(engine, run);
+        run.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - began);
+        run.arrived = arrived(run);
+
+        if (run.arrived || std::chrono::steady_clock::now() >= deadline) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds{20});
+    }
+
     engine.stop();
+
+    {
+        const std::lock_guard lock{errorMutex};
+        run.errors = errors;
+    }
 
     return run;
 }
 
-[[nodiscard]] Observed runProject(std::chrono::milliseconds duration)
+[[nodiscard]] Observed runProject(const std::function<bool(const Observed&)>& arrived)
 {
-    return runProject(duration, [](GraphDescription&) { });
+    return runProject(arrived, [](GraphDescription&) { });
 }
 
 [[nodiscard]] std::string joined(const std::vector<std::string>& lines)
@@ -196,6 +262,8 @@ template<typename Edit>
     for (const auto& [role, value] : run.roles) {
         text << ' ' << nameOf(role) << '=' << value;
     }
+    text << " (" << run.reportingEcus << " ECUs reporting, " << run.inferences << " inferences, "
+         << run.elapsed.count() << " ms)";
     return text.str();
 }
 
@@ -230,6 +298,12 @@ void setScenario(GraphDescription& pipeline, const std::string& node, const char
 {
     const auto found = run.roles.find(role);
     return found != run.roles.end() ? found->second : std::nan("");
+}
+
+/// Whether the cluster has something to read for the role, "not available" included.
+[[nodiscard]] bool present(const Observed& run, ClusterRole role)
+{
+    return run.roles.find(role) != run.roles.end();
 }
 
 } // namespace
@@ -304,13 +378,12 @@ TEST(J1939ExampleProjectTests, TheClusterNamesAProfileThisBuildHas)
 
 namespace {
 
-constexpr std::chrono::milliseconds kRun{2500};
-
 /// Fails with the whole picture of what the cluster would have had, and what the scripts said.
 #define EXPECT_RUN_CLEAN(run)                                                                      \
     SCOPED_TRACE(::testing::Message() << "the cluster would have:" << describe(run)                \
                                       << "\nscript errors:" << joined((run).errors));              \
     ASSERT_TRUE((run).started.succeeded()) << std::string{(run).started.message()};                \
+    EXPECT_TRUE((run).arrived) << "what the test was waiting for did not come";                    \
     EXPECT_TRUE((run).errors.empty())
 
 [[nodiscard]] bool lit(const Observed& run, ClusterRole role)
@@ -323,11 +396,37 @@ constexpr std::chrono::milliseconds kRun{2500};
     return has(run, role) && of(run, role) < 0.5;
 }
 
+/// The vehicle has said everything it says at once: the cluster has something to read for every
+/// role of its profile, every scripted ECU has sent its first DM1 - so the lamps of the bus are
+/// theirs, and not what they were before anybody spoke - and the model has run on enough of it to
+/// have an opinion.
+[[nodiscard]] bool settled(const Observed& run)
+{
+    if (run.profile == nullptr) {
+        return false;
+    }
+
+    const bool everyRole =
+        std::all_of(run.profile->sources.begin(),
+                    run.profile->sources.end(),
+                    [&run](const ClusterSource& source) { return present(run, source.role); });
+
+    return everyRole && run.reportingEcus >= kScriptedEcus
+           && run.inferences >= kInferencesThatCount;
+}
+
 } // namespace
 
 TEST(J1939ExampleProjectTests, TheProjectStartsRunsAndFeedsTheCluster)
 {
-    const Observed run = runProject(kRun);
+    // Until every role has a value to show, which is what the test is about.
+    const Observed run = runProject([](const Observed& seen) {
+        return seen.profile != nullptr
+               && std::all_of(
+                   seen.profile->sources.begin(),
+                   seen.profile->sources.end(),
+                   [&seen](const ClusterSource& source) { return has(seen, source.role); });
+    });
     EXPECT_RUN_CLEAN(run);
 
     ASSERT_TRUE(run.profile != nullptr);
@@ -342,9 +441,9 @@ TEST(J1939ExampleProjectTests, TheProjectStartsRunsAndFeedsTheCluster)
 
 TEST(J1939ExampleProjectTests, ANormalVehicleShowsNormalInstrumentsAndNoWarning)
 {
-    // The default scenario, a couple of seconds in: the drive cycle opens with four seconds at
-    // standstill. What matters is what is NOT there - no lamp, no alarm - as much as what is.
-    const Observed run = runProject(kRun);
+    // The default scenario, as it opens: the drive cycle starts with four seconds at standstill.
+    // What matters is what is NOT there - no lamp, no alarm - as much as what is.
+    const Observed run = runProject(settled);
     EXPECT_RUN_CLEAN(run);
 
     EXPECT_NEAR(of(run, ClusterRole::Speed), 0.0, 1.0);
@@ -392,10 +491,12 @@ TEST(J1939ExampleProjectTests, ANormalVehicleShowsNormalInstrumentsAndNoWarning)
 
 TEST(J1939ExampleProjectTests, AVehicleOnTheHighwayDrivesWithCruiseControlOn)
 {
-    const Observed run = runProject(kRun, [](GraphDescription& pipeline) {
-        setScenario(pipeline, "ecu_engine", "highway");
-        setParameter(pipeline, "ecu_engine", "initial_speed", ParameterValue::fromReal(100.0));
-    });
+    const Observed run = runProject(
+        [](const Observed& seen) { return settled(seen) && lit(seen, ClusterRole::Cruise); },
+        [](GraphDescription& pipeline) {
+            setScenario(pipeline, "ecu_engine", "highway");
+            setParameter(pipeline, "ecu_engine", "initial_speed", ParameterValue::fromReal(100.0));
+        });
     EXPECT_RUN_CLEAN(run);
 
     EXPECT_NEAR(of(run, ClusterRole::Speed), 100.0, 3.0);
@@ -414,7 +515,8 @@ TEST(J1939ExampleProjectTests, AVehicleOnTheHighwayDrivesWithCruiseControlOn)
 TEST(J1939ExampleProjectTests, TheParkingBrakeLightsItsLamp)
 {
     const Observed run = runProject(
-        kRun, [](GraphDescription& pipeline) { setScenario(pipeline, "ecu_engine", "parked"); });
+        [](const Observed& seen) { return settled(seen) && lit(seen, ClusterRole::LampPark); },
+        [](GraphDescription& pipeline) { setScenario(pipeline, "ecu_engine", "parked"); });
     EXPECT_RUN_CLEAN(run);
 
     EXPECT_TRUE(lit(run, ClusterRole::LampPark));
@@ -423,9 +525,11 @@ TEST(J1939ExampleProjectTests, TheParkingBrakeLightsItsLamp)
 
 TEST(J1939ExampleProjectTests, LowOilPressureLightsTheStopLampFromTheEnginesDm1)
 {
-    const Observed run = runProject(kRun, [](GraphDescription& pipeline) {
-        setScenario(pipeline, "ecu_engine", "low_oil_pressure");
-    });
+    const Observed run = runProject(
+        [](const Observed& seen) { return settled(seen) && lit(seen, ClusterRole::DmStop); },
+        [](GraphDescription& pipeline) {
+            setScenario(pipeline, "ecu_engine", "low_oil_pressure");
+        });
     EXPECT_RUN_CLEAN(run);
 
     // Five other ECUs send a DM1 a second with every lamp dark, and the lamp is still lit: the
@@ -436,12 +540,19 @@ TEST(J1939ExampleProjectTests, LowOilPressureLightsTheStopLampFromTheEnginesDm1)
 
 TEST(J1939ExampleProjectTests, AnOverheatingEngineLightsTheStopAndEngineLampsAndAlarmsTheModel)
 {
-    const Observed run = runProject(kRun, [](GraphDescription& pipeline) {
-        setScenario(pipeline, "ecu_engine", "overheating");
-        // Where it would get to in half a minute, so that a test does not have to wait for it.
-        setParameter(
-            pipeline, "ecu_engine", "initial_coolant_temp", ParameterValue::fromReal(112.0));
-    });
+    // The engine's own ECU lights the lamps at once; what takes the model a moment is to see the
+    // heat in its features, so that is what is waited for.
+    const Observed run = runProject(
+        [](const Observed& seen) {
+            return settled(seen) && lit(seen, ClusterRole::DmMil) && lit(seen, ClusterRole::DmStop)
+                   && of(seen, ClusterRole::AiAnomaly) > 50.0;
+        },
+        [](GraphDescription& pipeline) {
+            setScenario(pipeline, "ecu_engine", "overheating");
+            // Where it would get to in half a minute, so that a test does not have to wait for it.
+            setParameter(
+                pipeline, "ecu_engine", "initial_coolant_temp", ParameterValue::fromReal(112.0));
+        });
     EXPECT_RUN_CLEAN(run);
 
     EXPECT_GT(of(run, ClusterRole::Coolant), 105.0);
@@ -456,21 +567,27 @@ TEST(J1939ExampleProjectTests, AnOverheatingEngineLightsTheStopAndEngineLampsAnd
 
 TEST(J1939ExampleProjectTests, ACoolantSensorThatFailsIsNoDataAndAnAmberLamp)
 {
-    const Observed run = runProject(kRun, [](GraphDescription& pipeline) {
-        setScenario(pipeline, "ecu_engine", "sensor_error");
-    });
+    const Observed run = runProject(
+        [](const Observed& seen) { return settled(seen) && lit(seen, ClusterRole::DmWarn); },
+        [](GraphDescription& pipeline) { setScenario(pipeline, "ecu_engine", "sensor_error"); });
     EXPECT_RUN_CLEAN(run);
 
     // "Not available" is NaN, which the cluster draws as dashes - and not 215 degC.
+    EXPECT_TRUE(present(run, ClusterRole::Coolant));
     EXPECT_FALSE(has(run, ClusterRole::Coolant));
     EXPECT_TRUE(lit(run, ClusterRole::DmWarn));
 }
 
 TEST(J1939ExampleProjectTests, AnAlternatorThatStopsChargingLightsTheWarningLamp)
 {
-    const Observed run = runProject(kRun, [](GraphDescription& pipeline) {
-        setScenario(pipeline, "ecu_body", "alternator_failure");
-    });
+    const Observed run = runProject(
+        [](const Observed& seen) {
+            return settled(seen) && of(seen, ClusterRole::Battery) < 11.8
+                   && lit(seen, ClusterRole::DmWarn);
+        },
+        [](GraphDescription& pipeline) {
+            setScenario(pipeline, "ecu_body", "alternator_failure");
+        });
     EXPECT_RUN_CLEAN(run);
 
     EXPECT_LT(of(run, ClusterRole::Battery), 11.8);
@@ -479,9 +596,11 @@ TEST(J1939ExampleProjectTests, AnAlternatorThatStopsChargingLightsTheWarningLamp
 
 TEST(J1939ExampleProjectTests, AnEmptyAdBlueTankLightsTheWarningLamp)
 {
-    const Observed run = runProject(kRun, [](GraphDescription& pipeline) {
-        setScenario(pipeline, "ecu_aftertreatment", "low_adblue");
-    });
+    const Observed run = runProject(
+        [](const Observed& seen) { return settled(seen) && lit(seen, ClusterRole::DmWarn); },
+        [](GraphDescription& pipeline) {
+            setScenario(pipeline, "ecu_aftertreatment", "low_adblue");
+        });
     EXPECT_RUN_CLEAN(run);
 
     EXPECT_NEAR(of(run, ClusterRole::Def), 8.0, 1.0);
@@ -491,7 +610,11 @@ TEST(J1939ExampleProjectTests, AnEmptyAdBlueTankLightsTheWarningLamp)
 TEST(J1939ExampleProjectTests, AnAbsFaultLightsTheAbsLampAndTheWarningLamp)
 {
     const Observed run = runProject(
-        kRun, [](GraphDescription& pipeline) { setScenario(pipeline, "ecu_brakes", "abs_fault"); });
+        [](const Observed& seen) {
+            return settled(seen) && lit(seen, ClusterRole::LampAbs)
+                   && lit(seen, ClusterRole::DmWarn);
+        },
+        [](GraphDescription& pipeline) { setScenario(pipeline, "ecu_brakes", "abs_fault"); });
     EXPECT_RUN_CLEAN(run);
 
     // The ABS lamp is the amber warning signal, not "the ABS is regulating", which is a thing that
@@ -502,10 +625,13 @@ TEST(J1939ExampleProjectTests, AnAbsFaultLightsTheAbsLampAndTheWarningLamp)
 
 TEST(J1939ExampleProjectTests, AnAirLeakLightsTheStopLamp)
 {
-    const Observed run = runProject(kRun, [](GraphDescription& pipeline) {
-        setScenario(pipeline, "ecu_brakes", "air_leak");
-        setParameter(pipeline, "ecu_brakes", "initial_circuit1_air", ParameterValue::fromReal(4.0));
-    });
+    const Observed run = runProject(
+        [](const Observed& seen) { return settled(seen) && lit(seen, ClusterRole::DmStop); },
+        [](GraphDescription& pipeline) {
+            setScenario(pipeline, "ecu_brakes", "air_leak");
+            setParameter(
+                pipeline, "ecu_brakes", "initial_circuit1_air", ParameterValue::fromReal(4.0));
+        });
     EXPECT_RUN_CLEAN(run);
 
     EXPECT_LT(of(run, ClusterRole::AirPressure), 4.5);
@@ -514,9 +640,10 @@ TEST(J1939ExampleProjectTests, AnAirLeakLightsTheStopLamp)
 
 TEST(J1939ExampleProjectTests, TheTurnStalkOnThePanelLightsTheArrowOnTheCluster)
 {
-    const Observed run = runProject(kRun, [](GraphDescription& pipeline) {
-        setScenario(pipeline, "ecu_switches", "turn_left");
-    });
+    // An arrow flashes, so it is lit for part of every cycle: the run is read at a moment it is.
+    const Observed run = runProject(
+        [](const Observed& seen) { return settled(seen) && lit(seen, ClusterRole::LampLeft); },
+        [](GraphDescription& pipeline) { setScenario(pipeline, "ecu_switches", "turn_left"); });
     EXPECT_RUN_CLEAN(run);
 
     // Panel -> bus -> body controller -> bus -> cluster: two ECUs that have to hear each other.
@@ -528,7 +655,11 @@ TEST(J1939ExampleProjectTests, TheTurnStalkOnThePanelLightsTheArrowOnTheCluster)
 TEST(J1939ExampleProjectTests, TheHazardButtonOnThePanelLightsBothArrowsAndItsOwnLamp)
 {
     const Observed run = runProject(
-        kRun, [](GraphDescription& pipeline) { setScenario(pipeline, "ecu_switches", "hazard"); });
+        [](const Observed& seen) {
+            return settled(seen) && lit(seen, ClusterRole::LampHazard)
+                   && lit(seen, ClusterRole::LampLeft) && lit(seen, ClusterRole::LampRight);
+        },
+        [](GraphDescription& pipeline) { setScenario(pipeline, "ecu_switches", "hazard"); });
     EXPECT_RUN_CLEAN(run);
 
     EXPECT_TRUE(lit(run, ClusterRole::LampHazard));
@@ -538,16 +669,25 @@ TEST(J1939ExampleProjectTests, TheHazardButtonOnThePanelLightsBothArrowsAndItsOw
 
 TEST(J1939ExampleProjectTests, TheLightSwitchAndTheHighBeamReachTheCluster)
 {
-    const Observed run = runProject(kRun, [](GraphDescription& pipeline) {
-        setParameter(pipeline, "ecu_switches", "high_beam", ParameterValue::fromInteger(1));
-    });
+    const Observed run = runProject(
+        [](const Observed& seen) {
+            return settled(seen) && lit(seen, ClusterRole::LampHigh)
+                   && lit(seen, ClusterRole::LampLow);
+        },
+        [](GraphDescription& pipeline) {
+            setParameter(pipeline, "ecu_switches", "high_beam", ParameterValue::fromInteger(1));
+        });
     EXPECT_RUN_CLEAN(run);
     EXPECT_TRUE(lit(run, ClusterRole::LampHigh));
     EXPECT_TRUE(lit(run, ClusterRole::LampLow));
 
-    const Observed off = runProject(kRun, [](GraphDescription& pipeline) {
-        setParameter(pipeline, "ecu_switches", "lighting", ParameterValue::fromInteger(0));
-    });
+    // Everything switched off is the absence of lamps, which has to be waited for as long as the
+    // vehicle's first messages: a lamp that is dark because nothing has been heard is not off.
+    const Observed off = runProject(
+        [](const Observed& seen) { return settled(seen); },
+        [](GraphDescription& pipeline) {
+            setParameter(pipeline, "ecu_switches", "lighting", ParameterValue::fromInteger(0));
+        });
     EXPECT_RUN_CLEAN(off);
     EXPECT_TRUE(dark(off, ClusterRole::LampLow));
     EXPECT_TRUE(dark(off, ClusterRole::LampPosition));
@@ -556,9 +696,9 @@ TEST(J1939ExampleProjectTests, TheLightSwitchAndTheHighBeamReachTheCluster)
 
 TEST(J1939ExampleProjectTests, AnUnfastenedSeatBeltLightsItsLamp)
 {
-    const Observed run = runProject(kRun, [](GraphDescription& pipeline) {
-        setScenario(pipeline, "ecu_body", "belt_unbuckled");
-    });
+    const Observed run = runProject(
+        [](const Observed& seen) { return settled(seen) && lit(seen, ClusterRole::LampBelt); },
+        [](GraphDescription& pipeline) { setScenario(pipeline, "ecu_body", "belt_unbuckled"); });
     EXPECT_RUN_CLEAN(run);
 
     EXPECT_TRUE(lit(run, ClusterRole::LampBelt));
@@ -566,7 +706,12 @@ TEST(J1939ExampleProjectTests, AnUnfastenedSeatBeltLightsItsLamp)
 
 TEST(J1939ExampleProjectTests, NoSignalOfANormalRunIsReportedAsNotAvailableByMistake)
 {
-    const Observed run = runProject(kRun);
+    // Every message of the vehicle repeats at least once a second, and its first is sent at once:
+    // after a second and a bit, every signal the database describes has been delivered, and the
+    // test can say which of them is not a number.
+    const Observed run = runProject([](const Observed& seen) {
+        return settled(seen) && seen.elapsed >= std::chrono::milliseconds{1200};
+    });
     EXPECT_RUN_CLEAN(run);
 
     // The J1939 block turns "error" and "not available" into NaN. A script that writes one of those

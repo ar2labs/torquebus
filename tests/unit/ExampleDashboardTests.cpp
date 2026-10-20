@@ -24,7 +24,9 @@
 #include "core/dashboard/SignalDictionary.h"
 #include "core/database/CanMessage.h"
 #include "core/database/DbcParser.h"
+#include "core/j1939/J1939ClaimRequest.h"
 #include "core/j1939/J1939Diagnostics.h"
+#include "core/j1939/J1939Id.h"
 #include "core/j1939/J1939NameTables.h"
 #include "core/j1939/J1939Network.h"
 #include "core/pipeline/GraphDescription.h"
@@ -43,6 +45,8 @@
 #include <QStringList>
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -51,6 +55,7 @@
 #include <memory>
 #include <optional>
 #include <set>
+#include <span>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -149,11 +154,13 @@ constexpr std::chrono::seconds kPatience{15};
 /// see, or kPatience has passed: as many channels as its CAN blocks name. `whileRunning`, when
 /// there is one, is called with the engine then and before it is stopped - which puts some lamps
 /// out and empties the list of faults, so it is the moment to look. `afterStart` is called as soon
-/// as the engine is running, for what a person would do to it then.
+/// as the engine is running, for what a person would do to it then; `beforeStart`, for what has to
+/// be in place before it runs, such as a sink that must see the first frame.
 [[nodiscard]] Delivered run(const Example& example,
                             const std::function<bool(CanEngine&)>& arrived,
                             const std::function<void(CanEngine&)>& whileRunning = {},
-                            const std::function<void(CanEngine&)>& afterStart = {})
+                            const std::function<void(CanEngine&)>& afterStart = {},
+                            const std::function<void(CanEngine&)>& beforeStart = {})
 {
     Delivered delivered;
 
@@ -181,6 +188,10 @@ constexpr std::chrono::seconds kPatience{15};
     }
 
     engine.setGraphDescription(example.pipeline, NodeCatalog::withBuiltinTypes(), example.folder());
+
+    if (beforeStart) {
+        beforeStart(engine);
+    }
 
     delivered.started = engine.start();
 
@@ -630,6 +641,68 @@ TEST(ExampleDashboardTests, EveryEcuOfTheJ1939ExampleClaimsItsAddressAndIsNamedB
         const std::optional<std::string_view> function = names.function(*node->name);
         ASSERT_TRUE(function.has_value());
         EXPECT_EQ(std::string{*function}, word);
+    }
+}
+
+TEST(ExampleDashboardTests, EveryEcuOfTheJ1939ExampleClaimsAgainWhenTheBusIsAskedForItsClaims)
+{
+    // A measurement started on a machine that was already running has no claims to read, and the
+    // J1939 Network panel's button asks the bus for them. Every ECU of the example has to answer:
+    // the six scripted ones from the node that runs them - which can only hear the request if the
+    // bus is wired to them - and the TinyML ECU from its block.
+    Example example;
+    ASSERT_TRUE(open("j1939-vehicle.tbsproj", example));
+
+    const std::set<int> ecus{0x00, 0x0B, 0x17, 0x21, 0x37, 0x3D, 0x80};
+
+    // How many times each address has been heard claiming, counted on the engine's thread.
+    std::array<std::atomic<int>, 256> claims{};
+    J1939ClaimRequestOutcome outcome;
+    bool asked = false;
+
+    const auto allClaimed = [&claims, &ecus](int times) {
+        return std::all_of(ecus.begin(), ecus.end(), [&claims, times](int address) {
+            return claims[static_cast<std::size_t>(address)].load() >= times;
+        });
+    };
+
+    const Delivered delivered = run(
+        example,
+        [&](CanEngine& engine) {
+            // Everyone at power-up first: what follows the request is then known to answer it.
+            if (!asked) {
+                if (!allClaimed(1)) {
+                    return false;
+                }
+
+                asked = true;
+                outcome = j1939RequestAddressClaims(engine);
+            }
+
+            return allClaimed(2);
+        },
+        {},
+        {},
+        [&claims](CanEngine& engine) {
+            engine.addFrameSink([&claims](std::span<const CanFrame> frames) {
+                for (const CanFrame& frame : frames) {
+                    const std::optional<J1939Id> id = j1939Decompose(frame);
+
+                    if (id.has_value() && id->pgn() == kPgnAddressClaimed) {
+                        ++claims[id->sourceAddress];
+                    }
+                }
+            });
+        });
+
+    ASSERT_TRUE(delivered.started.succeeded()) << std::string{delivered.started.message()};
+    EXPECT_TRUE(asked) << "not every ECU of the example claimed when it started";
+    EXPECT_EQ(outcome.sent, (std::vector<std::uint8_t>{0U}));
+    EXPECT_TRUE(outcome.refused.empty());
+
+    for (const int address : ecus) {
+        EXPECT_GE(claims[static_cast<std::size_t>(address)].load(), 2)
+            << "the ECU at address " << address << " did not answer the request for claims";
     }
 }
 

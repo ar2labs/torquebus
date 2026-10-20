@@ -1066,6 +1066,340 @@ TEST(TinyMlEcuTests, ANewMeasurementClaimsTheAddressAgainAfterOneThatLostIt)
     EXPECT_FALSE(withIdentifier(out, 0x18FF0080U).empty());
 }
 
+// ---------------------------------------------------------------------------
+// What it claims to be, and an ECU that can move
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// A configuration for a block that can take another address when it loses its own.
+[[nodiscard]] TinyMlEcuConfig movingConfig()
+{
+    TinyMlEcuConfig config = j1939Config();
+    config.j1939ArbitraryAddress = true;
+    return config;
+}
+
+/// A NAME lower than the System Monitor's, as an engine controller's is: it wins any contest with
+/// it, whether the System Monitor can move or not.
+[[nodiscard]] J1939Name winningName(std::uint32_t identity = 7U)
+{
+    J1939Name name;
+    name.identityNumber = identity;
+    return name;
+}
+
+/// The claim a block put on the bus from `source`, or nothing when it put none.
+[[nodiscard]] std::optional<J1939Name> claimedFrom(const std::vector<CanFrame>& frames,
+                                                   std::uint8_t source)
+{
+    const std::vector<CanFrame> claims =
+        withIdentifier(frames, j1939Identifier(kPgnAddressClaimed, source));
+
+    if (claims.size() != 1U) {
+        return std::nullopt;
+    }
+
+    return j1939NameFromClaim(claims.front());
+}
+
+} // namespace
+
+TEST(TinyMlEcuTests, ByDefaultItIsASystemMonitorThatCannotMoveAndTheCatalogSaysSo)
+{
+    TinyDriver driver{j1939Config()};
+    const std::vector<CanFrame> out =
+        driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
+
+    const std::optional<J1939Name> name = claimedFrom(out, 0x80U);
+    ASSERT_TRUE(name.has_value());
+
+    EXPECT_EQ(name->industryGroup, 1U);
+    EXPECT_EQ(name->function, 33U);
+    EXPECT_EQ(name->identityNumber, 0x80U);
+    EXPECT_EQ(name->manufacturerCode, 0U);
+    EXPECT_FALSE(name->arbitraryAddressCapable);
+}
+
+TEST(TinyMlEcuTests, WhatItClaimsToBeIsWhatItWasToldToBe)
+{
+    TinyMlEcuConfig config = movingConfig();
+    config.j1939Function = 7U;
+    config.j1939Identity = 1'234'567U;
+
+    TinyDriver driver{config};
+    const std::vector<CanFrame> out =
+        driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
+
+    const std::optional<J1939Name> name = claimedFrom(out, 0x80U);
+    ASSERT_TRUE(name.has_value());
+
+    EXPECT_EQ(name->function, 7U);
+    EXPECT_EQ(name->identityNumber, 1'234'567U);
+    EXPECT_TRUE(name->arbitraryAddressCapable);
+
+    // A serial number is 21 bits: what does not fit is not carried over into the manufacturer's.
+    config.j1939Identity = 0xFFFF'FFFFU;
+    TinyDriver wide{config};
+    const std::optional<J1939Name> clipped =
+        claimedFrom(wide.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)}), 0x80U);
+
+    ASSERT_TRUE(clipped.has_value());
+    EXPECT_EQ(clipped->identityNumber, 0x1F'FFFFU);
+    EXPECT_EQ(clipped->manufacturerCode, 0U);
+}
+
+TEST(TinyMlEcuTests, AnEcuThatCanMoveTakesTheLowestFreeAddressWhenItLosesTheOneItHas)
+{
+    SystemVariables variables;
+    variables.set("tinyml.inject_fault", 1.5); // so that it has a trouble code to send as well
+    TinyDriver driver{movingConfig(), &variables};
+
+    const std::vector<CanFrame> first =
+        driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
+    const std::optional<J1939Name> before = claimedFrom(first, 0x80U);
+    ASSERT_TRUE(before.has_value());
+
+    const std::vector<CanFrame> answer =
+        driver.run(std::vector<CanFrame>{claimOf(0x80U, winningName(), 200 * kMs)});
+
+    // It claims the next address, under the NAME it had: moving does not make it another ECU.
+    ASSERT_EQ(answer.size(), 1U);
+    const std::optional<J1939Name> after = claimedFrom(answer, 0x81U);
+    ASSERT_TRUE(after.has_value());
+    EXPECT_EQ(after->value(), before->value());
+    EXPECT_EQ(after->identityNumber, 0x80U);
+
+    // It has not given up: nothing is said about having no address.
+    EXPECT_TRUE(withIdentifier(answer, kCannotClaim).empty());
+    EXPECT_EQ(statistic(driver.node(), "J1939 address lost"), std::optional<std::uint64_t>{0U});
+    EXPECT_EQ(statistic(driver.node(), "J1939 address"), std::optional<std::uint64_t>{0x81U});
+
+    // And everything it says from now on is said from there: the telemetry and the trouble code.
+    std::vector<CanFrame> sent;
+    for (std::uint64_t step = 0; step < 20; ++step) {
+        const std::vector<CanFrame> out =
+            driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, (300 + step * 100) * kMs),
+                                             makeJ1939TempFrame(95, (350 + step * 100) * kMs)});
+        sent.insert(sent.end(), out.begin(), out.end());
+    }
+
+    EXPECT_FALSE(withIdentifier(sent, 0x18FF0081U).empty());
+    EXPECT_FALSE(withIdentifier(sent, 0x18FECA81U).empty());
+    EXPECT_TRUE(withIdentifier(sent, 0x18FF0080U).empty());
+    EXPECT_TRUE(withIdentifier(sent, 0x18FECA80U).empty());
+}
+
+TEST(TinyMlEcuTests, WhenItMovesItSkipsEveryAddressSomebodyElseHasClaimed)
+{
+    TinyDriver driver{movingConfig()};
+    (void)driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
+
+    // Two other ECUs hold the next two addresses; their NAMEs are higher than the winner's and
+    // lower than nothing in particular - they are simply there.
+    (void)driver.run(std::vector<CanFrame>{claimOf(0x81U, winningName(20U), 150 * kMs),
+                                           claimOf(0x82U, winningName(21U), 160 * kMs)});
+
+    const std::vector<CanFrame> answer =
+        driver.run(std::vector<CanFrame>{claimOf(0x80U, winningName(), 200 * kMs)});
+
+    EXPECT_TRUE(claimedFrom(answer, 0x83U).has_value());
+    EXPECT_EQ(statistic(driver.node(), "J1939 address"), std::optional<std::uint64_t>{0x83U});
+}
+
+TEST(TinyMlEcuTests, AnEcuThatMovedMovesAgainWhenTheAddressItMovedToIsLostToo)
+{
+    TinyDriver driver{movingConfig()};
+    (void)driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
+
+    (void)driver.run(std::vector<CanFrame>{claimOf(0x80U, winningName(), 200 * kMs)});
+    ASSERT_EQ(statistic(driver.node(), "J1939 address"), std::optional<std::uint64_t>{0x81U});
+
+    // Somebody with a lower NAME wants 0x81 as well. 0x80 is taken, so 0x82.
+    const std::vector<CanFrame> answer =
+        driver.run(std::vector<CanFrame>{claimOf(0x81U, winningName(8U), 300 * kMs)});
+
+    EXPECT_TRUE(claimedFrom(answer, 0x82U).has_value());
+    EXPECT_EQ(statistic(driver.node(), "J1939 address"), std::optional<std::uint64_t>{0x82U});
+}
+
+TEST(TinyMlEcuTests, WithNoPlaceLeftItFallsSilentAsOneThatCannotMoveDoes)
+{
+    TinyDriver driver{movingConfig()};
+    (void)driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
+
+    // Every address from 129 to 247 is somebody's.
+    std::vector<CanFrame> crowd;
+    for (unsigned address = 129U; address <= 247U; ++address) {
+        crowd.push_back(
+            claimOf(static_cast<std::uint8_t>(address), winningName(100U + address), 150 * kMs));
+    }
+    (void)driver.run(crowd);
+
+    const std::vector<CanFrame> answer =
+        driver.run(std::vector<CanFrame>{claimOf(0x80U, winningName(), 200 * kMs)});
+
+    ASSERT_EQ(answer.size(), 1U);
+    EXPECT_EQ(answer.front().identifier, kCannotClaim);
+    EXPECT_EQ(statistic(driver.node(), "J1939 address lost"), std::optional<std::uint64_t>{1U});
+
+    const std::vector<CanFrame> after = driver.run(std::vector<CanFrame>{
+        makeJ1939SpeedFrame(60.0, 300 * kMs), makeJ1939TempFrame(95, 350 * kMs)});
+    EXPECT_TRUE(after.empty());
+}
+
+TEST(TinyMlEcuTests, ItLooksForAPlaceFromTheBottomOfTheRangeAndMayTakeTheLastAddressOfIt)
+{
+    // An ECU that was given an address above the bottom of the range looks from the bottom: the
+    // lowest free address is 128 whatever address it lost.
+    TinyMlEcuConfig high = j1939Config(0x18FF0090U);
+    high.j1939ArbitraryAddress = true;
+
+    TinyDriver climbing{high};
+    (void)climbing.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
+
+    const std::vector<CanFrame> lowest =
+        climbing.run(std::vector<CanFrame>{claimOf(0x90U, winningName(), 200 * kMs)});
+    EXPECT_TRUE(claimedFrom(lowest, 0x80U).has_value());
+
+    // And the top of it is a place: with every address below it taken, 247 is the one left.
+    TinyDriver crowded{movingConfig()};
+    (void)crowded.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
+
+    std::vector<CanFrame> neighbours;
+    for (unsigned address = 129U; address <= 246U; ++address) {
+        neighbours.push_back(
+            claimOf(static_cast<std::uint8_t>(address), winningName(100U + address), 150 * kMs));
+    }
+    (void)crowded.run(neighbours);
+
+    const std::vector<CanFrame> last =
+        crowded.run(std::vector<CanFrame>{claimOf(0x80U, winningName(), 200 * kMs)});
+    EXPECT_TRUE(claimedFrom(last, 247U).has_value());
+    EXPECT_EQ(statistic(crowded.node(), "J1939 address"), std::optional<std::uint64_t>{247U});
+}
+
+TEST(TinyMlEcuTests, AnEcuThatMovedAnswersARequestFromWhereItIsNow)
+{
+    TinyDriver driver{movingConfig()};
+    (void)driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
+    (void)driver.run(std::vector<CanFrame>{claimOf(0x80U, winningName(), 200 * kMs)});
+
+    const auto answers = [&driver](std::uint8_t destination, std::uint8_t from) {
+        return withIdentifier(driver.run(std::vector<CanFrame>{
+                                  requestFor(kPgnAddressClaimed, destination, 300 * kMs)}),
+                              j1939Identifier(kPgnAddressClaimed, from))
+            .size();
+    };
+
+    // To everyone, and to the address it has now: from the address it has now.
+    EXPECT_EQ(answers(kJ1939GlobalAddress, 0x81U), 1U);
+    EXPECT_EQ(answers(0x81U, 0x81U), 1U);
+
+    // To the one it left, which belongs to somebody else now: not its to answer.
+    EXPECT_EQ(answers(0x80U, 0x81U), 0U);
+}
+
+TEST(TinyMlEcuTests, AnEcuThatCanMoveStillDefendsTheAddressAgainstAHigherName)
+{
+    // Moving is for the one that loses. Against a NAME that is higher than its own - another ECU
+    // that can move, with a bigger serial number - it keeps the address and says so again.
+    TinyDriver driver{movingConfig()};
+    (void)driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
+
+    J1939Name higher;
+    higher.arbitraryAddressCapable = true;
+    higher.industryGroup = 1U;
+    higher.function = 33U;
+    higher.identityNumber = 0x1000U;
+
+    const std::vector<CanFrame> answer =
+        driver.run(std::vector<CanFrame>{claimOf(0x80U, higher, 200 * kMs)});
+
+    EXPECT_EQ(withIdentifier(answer, kOwnClaim).size(), 1U);
+    EXPECT_EQ(statistic(driver.node(), "J1939 address"), std::optional<std::uint64_t>{0x80U});
+}
+
+TEST(TinyMlEcuTests, ANewMeasurementStartsAtTheAddressItWasMeantToHaveAndForgetsWhoWasThere)
+{
+    TinyDriver driver{movingConfig()};
+    (void)driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
+    (void)driver.run(std::vector<CanFrame>{claimOf(0x81U, winningName(20U), 150 * kMs)});
+    (void)driver.run(std::vector<CanFrame>{claimOf(0x80U, winningName(), 200 * kMs)});
+    ASSERT_EQ(statistic(driver.node(), "J1939 address"), std::optional<std::uint64_t>{0x82U});
+
+    // Switched on again: it claims the address it was given, and the bus is a bus it knows nothing
+    // about yet - the ECU at 0x81 of the last measurement is not one of this one.
+    driver.restart();
+
+    const std::vector<CanFrame> out =
+        driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
+    EXPECT_EQ(withIdentifier(out, kOwnClaim).size(), 1U);
+    EXPECT_EQ(statistic(driver.node(), "J1939 address"), std::optional<std::uint64_t>{0x80U});
+
+    const std::vector<CanFrame> answer =
+        driver.run(std::vector<CanFrame>{claimOf(0x80U, winningName(), 200 * kMs)});
+    EXPECT_TRUE(claimedFrom(answer, 0x81U).has_value());
+}
+
+TEST(TinyMlEcuTests, TheCatalogGivesTheBlockTheNameAndTheAbilityItWasGiven)
+{
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    NodeParameters parameters;
+    parameters.set("j1939", ParameterValue::fromBoolean(true));
+    parameters.set("j1939Function", ParameterValue::fromInteger(7));
+    parameters.set("j1939Identity", ParameterValue::fromInteger(99));
+    parameters.set("j1939ArbitraryAddress", ParameterValue::fromBoolean(true));
+
+    NodeBuildContext context;
+    std::unique_ptr<IPipelineNode> built;
+    ASSERT_TRUE(catalog.create("tinyml.ecu", parameters, context, "tiny", built).succeeded());
+
+    const auto* node = dynamic_cast<const TinyMlEcuNode*>(built.get());
+    ASSERT_NE(node, nullptr);
+    EXPECT_EQ(node->config().j1939Function, 7U);
+    ASSERT_TRUE(node->config().j1939Identity.has_value());
+    EXPECT_EQ(*node->config().j1939Identity, 99U);
+    EXPECT_TRUE(node->config().j1939ArbitraryAddress);
+
+    // And a block that was told nothing keeps what it always was.
+    NodeParameters nothing;
+    nothing.set("j1939", ParameterValue::fromBoolean(true));
+    std::unique_ptr<IPipelineNode> plain;
+    ASSERT_TRUE(catalog.create("tinyml.ecu", nothing, context, "plain", plain).succeeded());
+
+    const auto* plainNode = dynamic_cast<const TinyMlEcuNode*>(plain.get());
+    ASSERT_NE(plainNode, nullptr);
+    EXPECT_EQ(plainNode->config().j1939Function, 33U);
+    EXPECT_FALSE(plainNode->config().j1939Identity.has_value());
+    EXPECT_FALSE(plainNode->config().j1939ArbitraryAddress);
+}
+
+TEST(TinyMlEcuTests, AFunctionOrASerialNumberThatDoesNotFitItsFieldIsRefusedBeforeStart)
+{
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+
+    NodeParameters tooBigFunction;
+    tooBigFunction.set("j1939Function", ParameterValue::fromInteger(256));
+    const Result function = catalog.validateParameters("tinyml.ecu", tooBigFunction, "tiny");
+    ASSERT_TRUE(function.failed());
+    EXPECT_NE(std::string{function.message()}.find("J1939 Function"), std::string::npos)
+        << std::string{function.message()};
+
+    NodeParameters tooBigSerial;
+    tooBigSerial.set("j1939Identity", ParameterValue::fromInteger(2'097'152));
+    const Result serial = catalog.validateParameters("tinyml.ecu", tooBigSerial, "tiny");
+    ASSERT_TRUE(serial.failed());
+    EXPECT_NE(std::string{serial.message()}.find("J1939 Serial Number"), std::string::npos)
+        << std::string{serial.message()};
+
+    NodeParameters fits;
+    fits.set("j1939Function", ParameterValue::fromInteger(255));
+    fits.set("j1939Identity", ParameterValue::fromInteger(2'097'151));
+    EXPECT_TRUE(catalog.validateParameters("tinyml.ecu", fits, "tiny").succeeded());
+}
+
 TEST(TinyMlEcuTests, TheElevenBitVehicleHasNoAddressesAndNothingToClaim)
 {
     TinyDriver driver{TinyMlEcuConfig{}};

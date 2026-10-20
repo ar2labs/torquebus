@@ -268,6 +268,16 @@ padded the way J1939 pads one. They are in the prelude, and the example ECUs in
 `raw`, `send` and `dm1` are short names for the same functions, as the example ECUs write them.
 They are globals, so a script of your own that defines one of those names uses its own.
 
+**An ECU that claimed an address answers for it.** The node remembers the Address Claimed a script sent -
+through `j1939_claim`, or an `emit` of one - for each address, the last one if it sent several. When the bus
+asks (a Request for Address Claimed, PGN 59904 asking for PGN 60928, to everyone or to that address) the node
+sends the claim again in the same pass, the way the network-management layer of a real ECU does without its
+application being involved: the script does nothing to get this, and still sees the request in `on_message`.
+It is how a measurement started on a machine that was already running learns who is on it, and what the J1939
+Network panel's **Request claims** relies on. For the node to hear the request, the bus has to be wired to
+the ECU as well as the ECU to the bus. A reload replaces the claims with those of the new script, and a reload
+that is refused leaves the old ones.
+
 **`send` means two things, and which depends on where it is.** In an ECU it is the J1939 message
 above - or, called the old way, `send(id, payload [, options])`, exactly `emit()`. In a
 [test sequence](testing.md#sending) it is the node's own `send(id, payload [, options])` and is left

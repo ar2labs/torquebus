@@ -20,7 +20,7 @@ Welcome to the **TorqueBus Studio** documentation hub. This index organizes all 
 
 ## 🧪 Testing & Quality Assurance
 
-* **[Google Test & QA Framework](development/testing-framework.md)**: Comprehensive guide to the **1364 automated tests**, test hierarchy (`unit`, `ui`, `integration`, `hardware`), CTest automation, XML/JUnit reports, and GitHub Actions CI.
+* **[Google Test & QA Framework](development/testing-framework.md)**: Comprehensive guide to the **1405 automated tests**, test hierarchy (`unit`, `ui`, `integration`, `hardware`), CTest automation, XML/JUnit reports, and GitHub Actions CI.
 * **[Pipeline Test Sequences](development/testing.md)**: Creating automated test sequence blocks in the pipeline canvas using Lua coroutines to assert bus timings and silence.
 
 ---

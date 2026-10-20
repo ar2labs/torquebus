@@ -39,6 +39,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -143,11 +144,67 @@ private:
     std::vector<CanFrame> m_frames;
 };
 
-/// What one example ECU did when it was run for a moment.
+/// What a run waits for: the point at which the bus shows what the test came to see.
+using Arrived = std::function<bool(const Recorder&)>;
+
+/// How long a run waits for it. The ECUs of the examples send their first message within a few
+/// milliseconds of starting, so this is many times what any of them takes: a slow machine waits
+/// longer and a fast one hardly at all - where a run of 150 or 250 ms was too long on one and might
+/// one day have been too short on the other.
+constexpr std::chrono::seconds kPatience{15};
+
+/// Every one of `identifiers` has been heard.
+[[nodiscard]] Arrived hasSent(std::vector<std::uint32_t> identifiers)
+{
+    return [identifiers = std::move(identifiers)](const Recorder& recorder) {
+        return std::all_of(identifiers.begin(), identifiers.end(), [&recorder](std::uint32_t id) {
+            return recorder.countWithIdentifier(id) > 0U;
+        });
+    };
+}
+
+/// Something has been heard, and in the last `quiet` nothing new has: the script has said what it
+/// starts by saying, and a test that looks at which identifiers it used is looking at all of them.
+/// What a fixed run did by being longer than any of them took.
+[[nodiscard]] Arrived hasSaidWhatItSays(std::chrono::milliseconds quiet = 100ms)
+{
+    struct State final {
+        std::set<std::uint32_t> identifiers;
+        std::chrono::steady_clock::time_point lastNew{std::chrono::steady_clock::now()};
+    };
+
+    auto state = std::make_shared<State>();
+
+    return [state, quiet](const Recorder& recorder) {
+        bool grew = false;
+
+        for (const CanFrame& frame : recorder.frames()) {
+            grew = state->identifiers.insert(frame.identifier).second || grew;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (grew) {
+            state->lastNew = now;
+        }
+
+        return !state->identifiers.empty() && now - state->lastNew >= quiet;
+    };
+}
+
+/// Anything at all has been heard.
+[[nodiscard]] bool hasSentAnything(const Recorder& recorder)
+{
+    return recorder.total() > 0U;
+}
+
+/// What one example ECU did when it was run until it had said what the test came to hear.
 struct Outcome final {
     std::uint64_t emitted{};
     bool faulted{true};
     Recorder recorder;
+
+    /// Whether what the test was waiting for came before kPatience ran out.
+    bool arrived{false};
 
     /// Error lines the script produced, which is the half isFaulted() misses.
     ///
@@ -159,13 +216,14 @@ struct Outcome final {
     std::vector<std::string> errors;
 };
 
-/// Runs an ECU script on a virtual bus for `duration`.
+/// Runs an ECU script on a virtual bus until `arrived` says the bus shows what the test came to
+/// see, or kPatience has passed.
 ///
 /// The shape is the one from the scripting guide - the script's emit() reaches a
 /// real channel through the engine's own graph - because running these any other
 /// way would be testing a path no user takes.
 void runEcu(const char* name,
-            std::chrono::milliseconds duration,
+            const Arrived& arrived,
             Outcome& outcome,
             const char* databaseName = nullptr)
 {
@@ -238,13 +296,22 @@ void runEcu(const char* name,
     // failure a stale example actually has.
     EXPECT_TRUE(engine.start().succeeded());
 
-    std::this_thread::sleep_for(duration);
+    const auto deadline = std::chrono::steady_clock::now() + kPatience;
+
+    while (!(outcome.arrived = arrived(outcome.recorder))
+           && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(10ms);
+    }
+
+    // Stopped first, and read after: the node's counters are written by the engine's thread, and
+    // once that has stopped they are nobody's but the test's. The graph outlives the stop.
+    engine.stop();
 
     EXPECT_TRUE(ecu != nullptr);
     outcome.emitted = ecu->emittedFrames();
     outcome.faulted = ecu->isFaulted();
 
-    engine.stop();
+    EXPECT_TRUE(outcome.arrived) << name << ": what the test was waiting for did not come";
 }
 
 } // namespace
@@ -252,7 +319,7 @@ void runEcu(const char* name,
 TEST(ExampleScriptTests, EcuVehicleLuaPutsSpeedAndTemperatureOnTheBus)
 {
     Outcome outcome;
-    runEcu("ecu_vehicle.lua", 250ms, outcome);
+    runEcu("ecu_vehicle.lua", hasSent({0x101U, 0x102U}), outcome);
 
     EXPECT_FALSE(outcome.faulted);
     EXPECT_TRUE(outcome.emitted > 0);
@@ -275,7 +342,7 @@ TEST(ExampleScriptTests, EcuVehicleDbcLuaSpeaksSignalNamesAgainstTheShippedDatab
     // which is how this test found out it had to supply the database the
     // script's header names.
     Outcome outcome;
-    runEcu("ecu_vehicle_dbc.lua", 250ms, outcome, "vehicle.dbc");
+    runEcu("ecu_vehicle_dbc.lua", hasSent({0x101U}), outcome, "vehicle.dbc");
 
     EXPECT_FALSE(outcome.faulted);
     EXPECT_TRUE(outcome.emitted > 0);
@@ -293,7 +360,7 @@ TEST(ExampleScriptTests, EcuMotorLuaRunsAndTransmits)
     // Exercises the reactive powertrain actuator ECU script (`ecu_motor.lua`),
     // which uses `string.pack` / `string.unpack` and periodic status frames.
     Outcome outcome;
-    runEcu("ecu_motor.lua", 250ms, outcome);
+    runEcu("ecu_motor.lua", hasSentAnything, outcome);
 
     EXPECT_FALSE(outcome.faulted);
     EXPECT_TRUE(outcome.emitted > 0);
@@ -364,7 +431,7 @@ TEST(ExampleScriptTests, J1939EcuScriptsRunAndTransmitFrames)
 
     for (const char* script : scripts) {
         Outcome outcome;
-        runEcu(script, 150ms, outcome);
+        runEcu(script, hasSentAnything, outcome);
 
         EXPECT_FALSE(outcome.faulted) << "Faulted script: " << script;
         EXPECT_GT(outcome.emitted, 0U) << "No frames emitted: " << script;
@@ -389,7 +456,7 @@ TEST(ExampleScriptTests, TheExampleDatabasesDecodeWhatTheExampleScriptsSend)
                                       const char* databaseFile) {
         Outcome outcome;
         runEcu(script,
-               250ms,
+               hasSaidWhatItSays(),
                outcome,
                std::string_view{databaseName} == "none" ? nullptr : databaseName);
 
@@ -482,7 +549,7 @@ TEST(ExampleScriptTests, EveryJ1939ScriptSendsOnlyMessagesTheJ1939DatabaseDescri
         SCOPED_TRACE(script);
 
         Outcome outcome;
-        runEcu(script, 250ms, outcome);
+        runEcu(script, hasSaidWhatItSays(), outcome);
 
         std::set<std::uint32_t> missing;
         std::size_t sent = 0;
@@ -547,7 +614,7 @@ TEST(ExampleScriptTests, EveryJ1939ScriptClaimsItsAddressOnceAtPowerUpWithANameO
         SCOPED_TRACE(ecu.script);
 
         Outcome outcome;
-        runEcu(ecu.script, 250ms, outcome);
+        runEcu(ecu.script, hasSaidWhatItSays(), outcome);
 
         std::vector<CanFrame> claims;
 

@@ -17,9 +17,12 @@
 #include "core/database/DbcParser.h"
 #include "core/j1939/J1939NameTables.h"
 #include "core/j1939/J1939Node.h"
+#include "core/log/TraceLog.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "drivers/virtual/VirtualCanBackend.h"
+
+#include "UniqueTempPath.h"
 
 #include <gtest/gtest.h>
 
@@ -1997,6 +2000,394 @@ TEST(J1939NodeTests, TwoJ1939BlocksOfOneGraphReportTheirOwnBusesThroughTheEngine
 
     EXPECT_FALSE(lamp(kJ1939LampWarningVariable));
     EXPECT_EQ(engine.j1939Network().snapshot().buses.size(), 2U);
+}
+
+// ---------------------------------------------------------------------------
+// One block, two buses
+// ---------------------------------------------------------------------------
+//
+// A recording of two buses, replayed into one J1939 block, is one stream with both buses in it:
+// the frames say which they are on, and an address is a seat on one bus. The ECU at 0 on CAN 1 and
+// the ECU at 0 on CAN 2 are two ECUs, with two NAMEs and two lists of faults; a transfer under way
+// on one bus is not finished by the packets of the other; and each bus is silent or talking in its
+// own right, on a clock of its own. The block used to read the two as one bus, under the channel of
+// the first frame it saw.
+
+namespace {
+
+/// An Address Claimed from `source` on `channel`, for an ECU whose function is `function`.
+[[nodiscard]] CanFrame
+claimOnChannel(std::uint8_t source, std::uint8_t function, std::uint8_t channel, std::uint64_t atNs)
+{
+    J1939Name name;
+    name.industryGroup = 1U;
+    name.function = function;
+    name.identityNumber = source;
+
+    std::vector<std::uint8_t> bytes(kJ1939NameBytes);
+    for (std::size_t index = 0U; index < bytes.size(); ++index) {
+        bytes[index] = static_cast<std::uint8_t>((name.value() >> (8U * index)) & 0xFFU);
+    }
+
+    CanFrame frame = frameOf(j1939Identifier(kPgnAddressClaimed, source), std::move(bytes));
+    frame.channel = channel;
+    frame.timestampNs = atNs;
+    return frame;
+}
+
+/// One J1939 block, as the engine wires one - a network, the system variables - and the machine's
+/// clock in the test's hand. Frames of any number of buses go in through run().
+struct OneBlockBench final {
+    OneBlockBench()
+        : node{nullptr, "J1939"}
+        , driver{node}
+    {
+        node.setNetwork(&network);
+        node.setSystemVariables(&variables);
+        node.setHostClock([this] { return hostNs; });
+        EXPECT_TRUE(node.prepare(64U).succeeded());
+    }
+
+    /// One pass of the block with these frames in it, in this order.
+    void run(const std::vector<CanFrame>& frames) { driver.run(frames); }
+
+    /// One pass with nothing in it.
+    void idle() { driver.run(std::span<const CanFrame>{}); }
+
+    [[nodiscard]] bool lit(std::string_view lamp) const
+    {
+        return variables.value(std::string{lamp}) > 0.5;
+    }
+
+    [[nodiscard]] std::uint64_t statistic(std::string_view label) const
+    {
+        for (const NodeStatistic& statistic : node.statistics()) {
+            if (statistic.label == label) {
+                return statistic.value;
+            }
+        }
+
+        return ~std::uint64_t{0};
+    }
+
+    J1939Network network;
+    SystemVariables variables;
+    std::uint64_t hostNs{900U * kSecond};
+
+    J1939Node node;
+    Driver driver;
+};
+
+} // namespace
+
+TEST(J1939NodeTests, TheSameAddressOnTwoBusesIsTwoEcusAndNotAContest)
+{
+    OneBlockBench bench;
+
+    // The engine at 0 on CAN 1, and a body controller that also sits at 0 on CAN 2.
+    bench.run(
+        {claimOnChannel(kEngine, 0U, 0U, kSecond), claimOnChannel(kEngine, 26U, 1U, kSecond)});
+
+    EXPECT_EQ(bench.node.channels(), (std::vector<std::uint8_t>{0U, 1U}));
+
+    // Each seat has the ECU that claimed it on its own bus. Read as one bus these are one address
+    // contested, and one of two ECUs loses it.
+    ASSERT_EQ(bench.node.addresses(0U).nodes().size(), 1U);
+    ASSERT_EQ(bench.node.addresses(1U).nodes().size(), 1U);
+    ASSERT_TRUE(bench.node.addresses(0U).nodes()[0].name.has_value());
+    ASSERT_TRUE(bench.node.addresses(1U).nodes()[0].name.has_value());
+    EXPECT_EQ(bench.node.addresses(0U).nodes()[0].name->function, 0U);
+    EXPECT_EQ(bench.node.addresses(1U).nodes()[0].name->function, 26U);
+
+    // And the hand-over carries both, each under its own channel.
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    ASSERT_EQ(snapshot.buses.size(), 2U);
+    ASSERT_NE(snapshot.bus(0U), nullptr);
+    ASSERT_NE(snapshot.bus(1U), nullptr);
+    EXPECT_EQ(snapshot.bus(0U)->nodes[0].name->function, 0U);
+    EXPECT_EQ(snapshot.bus(1U)->nodes[0].name->function, 26U);
+
+    // Two ECUs, because there are two.
+    EXPECT_EQ(bench.statistic("ECUs seen"), 2U);
+}
+
+TEST(J1939NodeTests, TheDm1sOfTheSameAddressOnTwoBusesAreNotEachOthersAndTheLampsAreBoth)
+{
+    OneBlockBench bench;
+
+    // CAN 1's engine lights the stop lamp; the ECU at 0 on CAN 2 says it is fine.
+    bench.run({onChannel(faultFrom(kEngine, kRedStop, 100U, 1U, 1U, kSecond), 0U),
+               onChannel(diagnosticFrom(kPgnDm1, kEngine, 0x00U, kSecond), 1U)});
+
+    J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    ASSERT_EQ(snapshot.buses.size(), 2U);
+    EXPECT_EQ(snapshot.bus(0U)->activeFaults.size(), 1U);
+    EXPECT_TRUE(snapshot.bus(1U)->activeFaults.empty());
+    EXPECT_EQ(snapshot.bus(0U)->reporting, std::vector<std::uint8_t>{kEngine});
+    EXPECT_EQ(snapshot.bus(1U)->reporting, std::vector<std::uint8_t>{kEngine});
+    EXPECT_TRUE(bench.lit(kJ1939LampStopVariable));
+    EXPECT_FALSE(bench.lit(kJ1939LampWarningVariable));
+
+    // CAN 2's ECU lights the amber lamp while CAN 1's goes on saying red: both are lit.
+    bench.run({onChannel(faultFrom(kEngine, kRedStop, 100U, 1U, 1U, 2U * kSecond), 0U),
+               onChannel(faultFrom(kEngine, kAmberWarning, 110U, 0U, 1U, 2U * kSecond), 1U)});
+
+    EXPECT_TRUE(bench.lit(kJ1939LampStopVariable));
+    EXPECT_TRUE(bench.lit(kJ1939LampWarningVariable));
+    EXPECT_EQ(bench.statistic("Active faults"), 2U);
+
+    // CAN 1's ECU recovers: its lamp goes out and the other bus's stays.
+    bench.run({onChannel(diagnosticFrom(kPgnDm1, kEngine, 0x00U, 3U * kSecond), 0U),
+               onChannel(faultFrom(kEngine, kAmberWarning, 110U, 0U, 1U, 3U * kSecond), 1U)});
+
+    EXPECT_FALSE(bench.lit(kJ1939LampStopVariable));
+    EXPECT_TRUE(bench.lit(kJ1939LampWarningVariable));
+    EXPECT_EQ(bench.statistic("Active faults"), 1U);
+}
+
+TEST(J1939NodeTests, EachBusOfABlockIsAgedByItsOwnClock)
+{
+    OneBlockBench bench;
+
+    // Two interfaces stamp their frames with clocks of their own, and a recording of both keeps
+    // each. CAN 2's is four thousand seconds ahead of CAN 1's.
+    bench.run({onChannel(faultFrom(kEngine, kRedStop, 100U, 1U, 1U, kSecond), 0U),
+               onChannel(faultFrom(kBody, kAmberWarning, 4096U, 4U, 1U, 5000U * kSecond), 1U)});
+    bench.run({onChannel(faultFrom(kEngine, kRedStop, 100U, 1U, 1U, 2U * kSecond), 0U),
+               onChannel(faultFrom(kBody, kAmberWarning, 4096U, 4U, 1U, 5001U * kSecond), 1U)});
+
+    // Both repeat their DM1 a second apart on their own clocks, and so both are reporting. Aged by
+    // the newest time of either, the engine's would be an hour out of date and the lamp gone out.
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    ASSERT_EQ(snapshot.buses.size(), 2U);
+    EXPECT_EQ(snapshot.bus(0U)->activeFaults.size(), 1U);
+    EXPECT_EQ(snapshot.bus(1U)->activeFaults.size(), 1U);
+    EXPECT_TRUE(bench.lit(kJ1939LampStopVariable));
+    EXPECT_TRUE(bench.lit(kJ1939LampWarningVariable));
+}
+
+TEST(J1939NodeTests, ABusThatFallsSilentWhileTheOtherTalksIsSilentAndLetsGoOfItsLamp)
+{
+    OneBlockBench bench;
+
+    bench.run({onChannel(faultFrom(kEngine, kRedStop, 100U, 1U, 1U, kSecond), 0U),
+               onChannel(faultFrom(kBody, kAmberWarning, 4096U, 4U, 1U, 5000U * kSecond), 1U)});
+    ASSERT_TRUE(bench.lit(kJ1939LampStopVariable));
+    ASSERT_TRUE(bench.lit(kJ1939LampWarningVariable));
+
+    // From here only CAN 2 talks, a second at a time. The pass that has its frames in it is not a
+    // pass in which CAN 1 said anything, and the machine's clock says how long it has not.
+    for (std::uint64_t second = 1U; second <= 6U; ++second) {
+        bench.hostNs += kSecond;
+        bench.run({onChannel(
+            faultFrom(kBody, kAmberWarning, 4096U, 4U, 1U, (5000U + second) * kSecond), 1U)});
+    }
+
+    // CAN 1's engine has not repeated its DM1 for six seconds: its code and its lamp are gone, and
+    // CAN 2's, which is still repeating, is not.
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    EXPECT_TRUE(snapshot.bus(0U)->activeFaults.empty());
+    EXPECT_TRUE(snapshot.bus(0U)->reporting.empty());
+    EXPECT_EQ(snapshot.bus(1U)->activeFaults.size(), 1U);
+    EXPECT_FALSE(bench.lit(kJ1939LampStopVariable));
+    EXPECT_TRUE(bench.lit(kJ1939LampWarningVariable));
+
+    // What the silent ECU last said is still what a panel finds.
+    EXPECT_EQ(snapshot.bus(0U)->diagnostics.size(), 1U);
+}
+
+TEST(J1939NodeTests, ATransferOnOneBusIsNotFinishedByThePacketsOfAnother)
+{
+    OneBlockBench bench;
+
+    // The engine at 0 on CAN 1 begins a DM1 of three codes: the announcement and the first packet.
+    bench.run({onChannel(bamFrame(kPgnDm1, 14U, 2U, kEngine), 0U),
+               onChannel(dataFrame(1U, {0x40U, 0x00U, 100U, 0U, 1U, 2U, 110U}, kEngine), 0U)});
+
+    // The second packet comes from the ECU at 0 on CAN 2, which is another ECU and not the end of
+    // this transfer.
+    const CanFrame second = dataFrame(2U, {0U, 3U, 1U, 190U, 0U, 4U, 7U}, kEngine);
+    bench.run({onChannel(second, 1U)});
+
+    EXPECT_TRUE(bench.node.diagnostics(0U).empty());
+    EXPECT_TRUE(bench.node.diagnostics(1U).empty());
+
+    // From CAN 1 it is.
+    bench.run({onChannel(second, 0U)});
+
+    ASSERT_EQ(bench.node.diagnostics(0U).size(), 1U);
+    EXPECT_EQ(bench.node.diagnostics(0U)[0].faults.size(), 3U);
+    EXPECT_TRUE(bench.node.diagnostics(1U).empty());
+}
+
+TEST(J1939NodeTests, StoppingPutsOutTheLampsOfEveryBusOfABlockAndKeepsWhatTheyLastSaid)
+{
+    OneBlockBench bench;
+
+    bench.run({onChannel(faultFrom(kEngine, kRedStop, 100U, 1U, 1U, kSecond), 0U),
+               onChannel(faultFrom(kBody, kAmberWarning, 4096U, 4U, 1U, kSecond), 1U)});
+    ASSERT_TRUE(bench.lit(kJ1939LampStopVariable));
+    ASSERT_TRUE(bench.lit(kJ1939LampWarningVariable));
+
+    bench.node.finish();
+
+    EXPECT_FALSE(bench.lit(kJ1939LampStopVariable));
+    EXPECT_FALSE(bench.lit(kJ1939LampWarningVariable));
+
+    // Neither bus reports anything any more, and both still say what their ECUs last said.
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    ASSERT_EQ(snapshot.buses.size(), 2U);
+
+    for (const J1939BusView& bus : snapshot.buses) {
+        EXPECT_TRUE(bus.activeFaults.empty());
+        EXPECT_TRUE(bus.reporting.empty());
+        EXPECT_EQ(bus.diagnostics.size(), 1U);
+    }
+}
+
+TEST(J1939NodeTests, ABusIsMadeFromItsFirstFrameAndTheBusesAreInChannelOrder)
+{
+    OneBlockBench bench;
+
+    // Nothing heard, so no bus: the accessors answer "nobody" and not a null pointer.
+    EXPECT_TRUE(bench.node.channels().empty());
+    EXPECT_TRUE(bench.node.addresses(0U).nodes().empty());
+    EXPECT_TRUE(bench.node.diagnostics(0U).empty());
+    EXPECT_TRUE(bench.node.addresses().nodes().empty());
+    EXPECT_TRUE(bench.node.diagnostics().empty());
+
+    // The channels come in any order, and the buses are kept in the order of their numbers.
+    bench.run({onChannel(faultFrom(kEngine, kRedStop, 100U, 1U, 1U, kSecond), 3U)});
+    bench.run({onChannel(faultFrom(kBody, kAmberWarning, 4096U, 4U, 1U, kSecond), 1U)});
+    bench.run({onChannel(diagnosticFrom(kPgnDm1, kBrakes, 0x00U, kSecond), 2U)});
+
+    EXPECT_EQ(bench.node.channels(), (std::vector<std::uint8_t>{1U, 2U, 3U}));
+
+    // A channel nothing was heard from has no bus in the block or in the hand-over.
+    EXPECT_TRUE(bench.node.addresses(0U).nodes().empty());
+
+    const J1939NetworkSnapshot snapshot = bench.network.snapshot();
+    ASSERT_EQ(snapshot.buses.size(), 3U);
+    EXPECT_EQ(snapshot.buses[0].channel, 1U);
+    EXPECT_EQ(snapshot.buses[1].channel, 2U);
+    EXPECT_EQ(snapshot.buses[2].channel, 3U);
+
+    // And the block's own accessors without a channel are about the first, which is CAN 2's.
+    ASSERT_EQ(bench.node.addresses().nodes().size(), 1U);
+    EXPECT_EQ(bench.node.addresses().nodes()[0].address, kBody);
+    ASSERT_EQ(bench.node.diagnostics().size(), 1U);
+    EXPECT_EQ(bench.node.diagnostics()[0].sourceAddress, kBody);
+}
+
+TEST(J1939NodeTests, ABusThatTalksInFramesThatAreNotJ1939IsStillABusThatTalks)
+{
+    // An 11-bit frame says nothing J1939 and says the bus is alive: it is a frame, and the clock
+    // of the bus ran. A bus with nothing but those reports nothing, and is not made to look silent.
+    OneBlockBench bench;
+
+    CanFrame standard;
+    standard.identifier = 0x7E0U;
+    standard.format = CanFrameFormat::Standard;
+    standard.length = 8U;
+    standard.dlc = 8U;
+    standard.timestampNs = kSecond;
+    standard.channel = 1U;
+
+    bench.run({onChannel(faultFrom(kEngine, kRedStop, 100U, 1U, 1U, kSecond), 0U), standard});
+
+    EXPECT_EQ(bench.node.channels(), (std::vector<std::uint8_t>{0U, 1U}));
+    EXPECT_TRUE(bench.node.addresses(1U).nodes().empty());
+
+    // Nothing of CAN 2's was published: it has no ECU and no code to show.
+    EXPECT_EQ(bench.network.snapshot().buses.size(), 1U);
+}
+
+TEST(J1939NodeTests, OneBlockReadingARecordingOfTwoBusesReportsBothThroughTheEngine)
+{
+    // The whole path: a recording with two buses in it, replayed into one J1939 block. The log
+    // keeps the channel of each frame, so the block gets one stream with both buses in it.
+    //
+    // A file of its own, unique to this process, that goes with the test however it ends.
+    struct Recording final {
+        std::filesystem::path path{
+            torquebus::tests::uniqueTempPath("torquebus_two_buses", 1, ".tblog")};
+
+        ~Recording()
+        {
+            std::error_code ignored;
+            std::filesystem::remove(path, ignored);
+        }
+    } recording;
+
+    const std::filesystem::path& path = recording.path;
+
+    {
+        TraceLogWriter writer;
+        ASSERT_TRUE(writer.open(path.string()).succeeded());
+
+        const std::array<CanFrame, 4> recorded{
+            onChannel(faultFrom(kEngine, kRedStop, 100U, 1U, 1U, kSecond), 0U),
+            onChannel(faultFrom(kEngine, kAmberWarning, 4096U, 4U, 1U, kSecond), 1U),
+            onChannel(faultFrom(kEngine, kRedStop, 100U, 1U, 1U, 2U * kSecond), 0U),
+            onChannel(faultFrom(kEngine, kAmberWarning, 4096U, 4U, 1U, 2U * kSecond), 1U)};
+        ASSERT_TRUE(writer.append(recorded).succeeded());
+        ASSERT_TRUE(writer.flush().succeeded());
+    }
+
+    CanEngine engine;
+
+    // A replay needs no channel of its own; the engine wants one to run.
+    CanChannelConfig config;
+    config.deviceHandle = "virtual:0";
+    config.applicationChannel = 0U;
+    config.timing.bitrate = 250'000;
+    ASSERT_TRUE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
+
+    GraphDescription description;
+    description.addNode(NodeDescription{
+        .id = "replay",
+        .typeName = "log.source",
+        .parameters = {{"path", ParameterValue::fromText(path.string())},
+                       {"speed", ParameterValue::fromReal(1000.0)}},
+    });
+    description.addNode(NodeDescription{.id = "j1939", .typeName = "j1939.decoder"});
+    description.addEdge(EdgeDescription{"replay", 0, "j1939", 0});
+
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+    ASSERT_TRUE(description.validate(catalog).succeeded());
+    engine.setGraphDescription(description, catalog);
+
+    const Result started = engine.start();
+    ASSERT_TRUE(started.succeeded()) << std::string{started.message()};
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{10};
+    J1939NetworkSnapshot snapshot;
+
+    while (std::chrono::steady_clock::now() < deadline) {
+        snapshot = engine.j1939Network().snapshot();
+
+        if (snapshot.buses.size() == 2U && snapshot.bus(0U) != nullptr
+            && snapshot.bus(1U) != nullptr && !snapshot.bus(0U)->activeFaults.empty()
+            && !snapshot.bus(1U)->activeFaults.empty()) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+    }
+
+    engine.stop();
+
+    ASSERT_EQ(snapshot.buses.size(), 2U);
+    ASSERT_NE(snapshot.bus(0U), nullptr);
+    ASSERT_NE(snapshot.bus(1U), nullptr);
+
+    // The same address on both, and a different code on each.
+    ASSERT_EQ(snapshot.bus(0U)->activeFaults.size(), 1U);
+    ASSERT_EQ(snapshot.bus(1U)->activeFaults.size(), 1U);
+    EXPECT_EQ(snapshot.bus(0U)->activeFaults[0].sourceAddress, kEngine);
+    EXPECT_EQ(snapshot.bus(1U)->activeFaults[0].sourceAddress, kEngine);
+    EXPECT_EQ(snapshot.bus(0U)->activeFaults[0].code.spn, 100U);
+    EXPECT_EQ(snapshot.bus(1U)->activeFaults[0].code.spn, 4096U);
 }
 
 // ---------------------------------------------------------------------------

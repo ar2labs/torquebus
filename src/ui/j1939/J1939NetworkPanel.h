@@ -21,7 +21,10 @@
 //     showing rather than leaving somebody to guess.
 //   * **"Not seen claiming" is not "never claimed".** Claims happen at power-up;
 //     a measurement started on a running machine sees none of them. The column
-//     says what was observed since Start, and the tooltip says so in words.
+//     says what was observed since Start, and the tooltip says so in words - and
+//     says what to do about it: the Request claims button asks every ECU to claim
+//     again (J1939ClaimRequest.h), which is the one thing here that transmits, and
+//     only when pressed.
 //   * **An ECU reporting no faults is not an ECU that has not answered.** The
 //     first is a diagnosis and the second is a question still open.
 //   * **What an ECU last said is not what the bus is reporting now.** The tree
@@ -47,6 +50,7 @@
 #include <cstdint>
 
 class QLabel;
+class QPushButton;
 class QTreeWidget;
 class QTreeWidgetItem;
 
@@ -72,6 +76,15 @@ public:
     /// Not owned; must outlive the panel. See J1939NameTables.h for why a
     /// machine can legitimately have none.
     void setNameTables(const J1939NameTables* tables);
+
+    /// Whether Request claims can be pressed: while a measurement runs, and not before it or
+    /// after it, when every channel would refuse. Off until told.
+    void setRequestAvailable(bool available);
+
+Q_SIGNALS:
+    /// The Request claims button was pressed. The panel reads a bus and does not own one, so what
+    /// to ask on is for whoever owns the engine to say.
+    void claimsRequested();
 
 protected:
     void showEvent(QShowEvent* event) override;
@@ -99,6 +112,7 @@ private:
     const J1939NameTables* m_names{nullptr};
 
     QLabel* m_summary{nullptr};
+    QPushButton* m_requestClaims{nullptr};
     QTreeWidget* m_nodes{nullptr};
 
     /// The revision already on screen. Zero means nothing has been shown, which

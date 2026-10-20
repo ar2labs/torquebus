@@ -40,6 +40,7 @@ add_executable(torquebus_unit_tests
     IsoTpTests.cpp
     InstrumentThemeTests.cpp
     J1939ExampleProjectTests.cpp
+    J1939ClaimRequestTests.cpp
     J1939IdTests.cpp
     J1939NameTests.cpp
     J1939TransportTests.cpp

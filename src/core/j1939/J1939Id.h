@@ -168,6 +168,21 @@ struct J1939Id final {
 /// format invents a PGN out of nothing.
 [[nodiscard]] std::optional<J1939Id> j1939Decompose(const CanFrame& frame) noexcept;
 
+/// The Request (PGN 59904) that asks for `requestedPgn`: the three bytes of the PGN, least
+/// significant first, and nothing else - which is all J1939-21 puts in one.
+///
+/// `destination` is one ECU or everyone. `source` is who is asking, and a tool that is not an ECU
+/// has no address to ask from: a device that has claimed none asks from the null address, which is
+/// how a request for the claims of a bus is made by something that is not on it.
+[[nodiscard]] CanFrame j1939RequestFrame(std::uint32_t requestedPgn,
+                                         std::uint8_t destination = kJ1939GlobalAddress,
+                                         std::uint8_t source = kJ1939NullAddress,
+                                         std::uint8_t channel = 0U) noexcept;
+
+/// The PGN a Request asks for. Nothing for a frame that is not a Request, for one too short to name
+/// a PGN, and for an 11-bit frame, which is not J1939 at all.
+[[nodiscard]] std::optional<std::uint32_t> j1939RequestedPgn(const CanFrame& frame) noexcept;
+
 /// Builds an identifier from a PGN and the two addresses.
 ///
 /// `destination` is used only when the PGN is PDU1. A PDU2 group is broadcast

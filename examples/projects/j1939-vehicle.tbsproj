@@ -323,9 +323,21 @@
                 "toPort": 0
             },
             {
+                "from": "can_1",
+                "fromPort": 0,
+                "to": "ecu_engine",
+                "toPort": 0
+            },
+            {
                 "from": "ecu_aftertreatment",
                 "fromPort": 0,
                 "to": "can_1",
+                "toPort": 0
+            },
+            {
+                "from": "can_1",
+                "fromPort": 0,
+                "to": "ecu_aftertreatment",
                 "toPort": 0
             },
             {
@@ -347,9 +359,21 @@
                 "toPort": 0
             },
             {
+                "from": "can_1",
+                "fromPort": 0,
+                "to": "ecu_brakes",
+                "toPort": 0
+            },
+            {
                 "from": "ecu_switches",
                 "fromPort": 0,
                 "to": "can_1",
+                "toPort": 0
+            },
+            {
+                "from": "can_1",
+                "fromPort": 0,
+                "to": "ecu_switches",
                 "toPort": 0
             },
             {

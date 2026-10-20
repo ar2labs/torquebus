@@ -29,6 +29,20 @@
 // to a signal decoder it produces a full set of plausible numbers, every one of
 // them wrong. The reassembler is asked first, and a frame it claims goes no
 // further.
+//
+// --- One block, any number of buses ----------------------------------------------
+//
+// An address is a seat on one bus: the ECU at 0 on CAN 1 and the ECU at 0 on CAN 2
+// are two ECUs, and a transfer under way between 0 and 33 on one bus is not the one
+// between them on the other. So everything the block learns from the traffic - who
+// claimed what, what each ECU's diagnostic messages say, the transfers in flight,
+// what the bus is reporting and for how long it has been silent - is kept for each
+// channel the frames arrive on, and a block wired to two channels reads two buses.
+// The decoded signals are the same stream, as they always were: they carry the
+// channel they came from.
+//
+// Most blocks read one bus, and for them none of this shows: the block has one
+// bus, and what it had before it still answers.
 
 #pragma once
 
@@ -110,17 +124,22 @@ public:
 
     [[nodiscard]] J1939SpnReading spnReading() const noexcept { return m_spnReading; }
 
-    /// Who is on the bus. Written on the executor thread and read by a panel on
-    /// its own timer, the same arrangement the test report has.
-    [[nodiscard]] const J1939AddressTable& addresses() const noexcept { return m_addresses; }
+    /// The channels this block has read frames from, in channel order: one bus each.
+    [[nodiscard]] std::vector<std::uint8_t> channels() const;
 
-    /// The most recent DM1 and DM2 from each ECU that has sent one, in address
-    /// order. A fault list is a statement about now, so an older copy of the
-    /// same ECU list is not worth keeping.
-    [[nodiscard]] std::span<const J1939Diagnostic> diagnostics() const noexcept
-    {
-        return m_diagnostics;
-    }
+    /// Who is on the bus on `channel`, or nobody before a frame has come from it.
+    [[nodiscard]] const J1939AddressTable& addresses(std::uint8_t channel) const noexcept;
+
+    /// The most recent DM1 and DM2 from each ECU of the bus on `channel` that has sent one, in
+    /// address order. A fault list is a statement about now, so an older copy of the same ECU list
+    /// is not worth keeping.
+    [[nodiscard]] std::span<const J1939Diagnostic> diagnostics(std::uint8_t channel) const noexcept;
+
+    /// The same for the first bus the block reads, which for a block on one bus is the bus: who is
+    /// on it, and what its ECUs last said. Written on the executor thread and read by a panel on
+    /// its own timer, the same arrangement the test report has.
+    [[nodiscard]] const J1939AddressTable& addresses() const noexcept;
+    [[nodiscard]] std::span<const J1939Diagnostic> diagnostics() const noexcept;
 
     [[nodiscard]] const std::shared_ptr<const CanDatabase>& database() const noexcept
     {
@@ -150,33 +169,86 @@ private:
                            std::size_t length,
                            std::size_t at);
 
+    /// Everything the block has learnt about one bus: the one a channel stands for.
+    struct Bus final {
+        explicit Bus(std::uint8_t channelIndex) noexcept
+            : channel{channelIndex}
+        { }
+
+        std::uint8_t channel;
+
+        J1939Transport transport;
+        J1939AddressTable addresses;
+
+        /// Latest per ECU, in address order. DM1 and DM2 are kept apart.
+        std::vector<J1939Diagnostic> diagnostics;
+
+        /// What was last handed over as the codes this bus is reporting now, and the list the next
+        /// pass is worked out into before it is compared. Both keep their capacity.
+        std::vector<J1939ActiveFault> activeFaults;
+        std::vector<J1939ActiveFault> scratchFaults;
+
+        /// The same two for the ECUs whose DM1 is still being repeated: the ones with nothing to
+        /// report are among them, and the list of codes cannot name those.
+        std::vector<std::uint8_t> reporting;
+        std::vector<std::uint8_t> scratchReporting;
+
+        /// What this bus lights, stop / warning / malfunction / protect.
+        std::array<std::int8_t, 4> lamps{0, 0, 0, 0};
+
+        /// Something a panel would show changed on this bus during this pass. A steady bus sends
+        /// the same messages for an hour and changes nothing after the first second, so this is
+        /// false almost always and the hand-over costs nothing.
+        bool networkDirty{false};
+
+        /// The newest bus time seen on it, which is what "current" is measured against: the clock
+        /// of a measurement is the bus's, and says nothing about the present when a log is being
+        /// replayed.
+        std::uint64_t newestNs{0};
+
+        /// What the machine's clock said on the first pass of the silence that is going on on this
+        /// bus, or nothing while frames are arriving on it. See ageOnAnIdlePass().
+        std::optional<std::uint64_t> idleSinceNs;
+
+        /// This pass: how many frames came from the bus, and the time of the last of them.
+        std::size_t passFrames{0};
+        std::uint64_t passLatestNs{0};
+    };
+
+    /// The bus on `channel`, made when its first frame comes. The buses are kept in channel order,
+    /// and a bus never moves: a pointer to one stays good while the block runs.
+    Bus& busOn(std::uint8_t channel);
+
+    [[nodiscard]] const Bus* findBus(std::uint8_t channel) const noexcept;
+
     /// Files a DM1 or DM2, replacing the previous one from that ECU.
     /// Returns true when the fault list or lamps changed.
-    bool recordDiagnostic(J1939Diagnostic message);
+    static bool recordDiagnostic(Bus& bus, J1939Diagnostic message);
 
-    /// Works out the OR of the lamps of every ECU whose DM1 is current at `nowNs` and shows it.
-    /// Cheap enough to call every pass: a handful of ECUs, and nothing more unless something moved.
-    void publishLamps(std::uint64_t nowNs);
+    /// Works out the OR of the lamps of every ECU of `bus` whose DM1 is current at `nowNs`, and
+    /// shows what all the buses light. Cheap enough to call every pass: a handful of ECUs, and
+    /// nothing more unless something moved.
+    void publishLamps(Bus& bus, std::uint64_t nowNs);
 
-    /// Shows what this bus lights, when that changed: with a network, the OR of every J1939
-    /// block's bus (J1939Network::combineLamps); the variables are written where they differ.
-    void showLamps(const std::array<std::int8_t, 4>& lit);
+    /// Shows what the buses of this block light together, when that changed: with a network, the
+    /// OR of every J1939 block's buses (J1939Network::combineLamps); the variables are written
+    /// where they differ.
+    void showLamps();
 
-    /// Hands the view of this bus over, under its channel, with these lists as what it is
-    /// reporting now. Only called with a network.
-    void publishView(const std::vector<J1939ActiveFault>& activeFaults,
-                     const std::vector<std::uint8_t>& reporting);
+    /// Hands the view of `bus` over, under its channel. Only called with a network.
+    void publishView(const Bus& bus);
 
-    /// Brings everything the block hands over up to date as of bus time `busNowNs`: the codes the
-    /// bus is reporting and the ECUs that are repeating a DM1, the view a panel reads (when either
-    /// changed) and the lamps.
-    void settle(std::uint64_t busNowNs);
+    /// Brings everything the block hands over about `bus` up to date as of bus time `busNowNs`:
+    /// the codes the bus is reporting and the ECUs that are repeating a DM1, the view a panel reads
+    /// (when either changed) and the lamps.
+    void settle(Bus& bus, std::uint64_t busNowNs);
 
-    /// A pass with no frame in it. Ages what the bus said by how long it has been silent, so that a
-    /// bus that falls silent altogether - every ECU at once, an adapter unplugged - lets go of its
-    /// lamps, its codes and its reporting ECUs as an ECU that stops repeating its DM1 does, and not
-    /// at Stop.
-    void ageOnAnIdlePass();
+    /// A pass with no frame from `bus` in it. Ages what the bus said by how long it has been
+    /// silent, so that a bus that falls silent altogether - every ECU at once, an adapter unplugged
+    /// - lets go of its lamps, its codes and its reporting ECUs as an ECU that stops repeating its
+    /// DM1 does, and not at Stop. Each bus ages on its own: one that falls silent while another
+    /// talks is silent.
+    void ageOnAnIdlePass(Bus& bus);
 
     [[nodiscard]] static std::uint64_t steadyNanoseconds();
 
@@ -187,52 +259,26 @@ private:
     /// change under a running graph.
     std::unordered_map<std::uint32_t, const CanMessage*> m_byPgn;
 
-    J1939Transport m_transport;
-    J1939AddressTable m_addresses;
     J1939SpnReading m_spnReading{J1939SpnReading::Version4};
 
     J1939Network* m_network{nullptr};
 
-    /// Something a panel would show changed during this pass. A steady bus
-    /// sends the same messages for an hour and changes nothing after the first
-    /// second, so this is false almost always and the hand-over costs nothing.
-    bool m_networkDirty{false};
+    /// The buses this block reads, in channel order: one for each channel a frame has come from.
+    /// By pointer, so that a bus made while a pass is under way moves none of the others.
+    std::vector<std::unique_ptr<Bus>> m_buses;
 
-    /// Latest per ECU, in address order. DM1 and DM2 are kept apart.
-    std::vector<J1939Diagnostic> m_diagnostics;
-
-    /// What was last handed over as the codes the bus is reporting now, and the list the next pass
-    /// is worked out into before it is compared. Both keep their capacity.
-    std::vector<J1939ActiveFault> m_activeFaults;
-    std::vector<J1939ActiveFault> m_scratchFaults;
-
-    /// The same two for the ECUs whose DM1 is still being repeated: the ones with nothing to report
-    /// are among them, and the list of codes cannot name those.
-    std::vector<std::uint8_t> m_reporting;
-    std::vector<std::uint8_t> m_scratchReporting;
-
-    /// Where the lamps of the whole bus go, and the handles resolved for them in prepare().
+    /// Where the lamps of the whole vehicle go, and the handles resolved for them in prepare().
     SystemVariables* m_variables{nullptr};
     std::array<SystemVariables::Handle, 4> m_lampVariables{SystemVariables::kUnknown,
                                                            SystemVariables::kUnknown,
                                                            SystemVariables::kUnknown,
                                                            SystemVariables::kUnknown};
 
-    /// What this bus was last seen to light, stop / warning / malfunction / protect, so an
-    /// unchanged bus costs nothing. Starts as a value no lamp can have, so the first pass shows.
-    std::array<std::int8_t, 4> m_busLamps{-1, -1, -1, -1};
+    /// What the buses of this block were last seen to light together, stop / warning / malfunction
+    /// / protect, so that buses that change nothing cost nothing. Starts as a value no lamp can
+    /// have, so the first pass shows.
+    std::array<std::int8_t, 4> m_shownLamps{-1, -1, -1, -1};
 
-    /// The channel this block's frames arrive on, which is the bus it files its view under. Learnt
-    /// from the first frame of a measurement.
-    std::optional<std::uint8_t> m_channel;
-
-    /// The newest bus time seen, which is what "current" is measured against: the clock of a
-    /// measurement is the bus's, and says nothing about the present when a log is being replayed.
-    std::uint64_t m_newestNs{0};
-
-    /// What the machine's clock said on the first pass of the silence that is going on, or nothing
-    /// while frames are arriving. See ageOnAnIdlePass().
-    std::optional<std::uint64_t> m_idleSinceNs;
     HostClock m_hostClock{&J1939Node::steadyNanoseconds};
 
     /// Reused every pass; the published span points into here, so process()

@@ -20,6 +20,7 @@
 #include "core/database/CanMessage.h"
 #include "core/database/DecodedSignal.h"
 #include "core/j1939/J1939Diagnostics.h"
+#include "core/j1939/J1939Network.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "core/plot/SignalSeries.h"
@@ -945,7 +946,8 @@ TEST(DashboardPanelClusterTests, ASignalOnTheStoreReachesTheCluster)
 
 namespace {
 
-/// The cluster the J1939 example shows after `duration` of a real run, read from the QML.
+/// The cluster the J1939 example shows once a real run has shown what the test came to see, read
+/// from the QML.
 struct ClusterShown final {
     Result started{Result::ok()};
     bool loaded{false};
@@ -960,13 +962,81 @@ struct ClusterShown final {
     double aiRegime{std::nan("")};
 
     std::map<std::string, bool> lamps;
+
+    /// How many ECUs are repeating a DM1 on the bus, and how many inferences the TinyML ECU has
+    /// run: what says that the lamps and the model's verdict are about the vehicle and not what
+    /// they were before anybody had spoken.
+    std::size_t reportingEcus{0};
+    double inferences{0.0};
+
+    /// Whether what the test was waiting for came before kPatience ran out.
+    bool arrived{false};
 };
+
+/// How long a run waits for what it came to see. The vehicle sends every message it has at least
+/// once a second and its first of each at once, so this is many times what any of it takes.
+constexpr std::chrono::seconds kPatience{15};
+
+/// The ECUs of the project that send a DM1: the six scripted ones.
+constexpr std::size_t kScriptedEcus = 6;
+
+/// A model that has run on a few dozen frames has had the chance to be wrong.
+constexpr double kInferencesThatCount = 20.0;
+
+/// Reads the cluster the panel holds, and the bus behind it, into `shown`.
+void readTheCluster(const DashboardPanel& panel, CanEngine& engine, ClusterShown& shown)
+{
+    shown.reportingEcus = 0;
+    for (const J1939BusView& bus : engine.j1939Network().snapshot().buses) {
+        shown.reportingEcus += bus.reporting.size();
+    }
+
+    shown.inferences = engine.variables().value("tinyml.inferences");
+
+    const auto views = panel.findChildren<QQuickWidget*>();
+    if (views.size() != 1 || views.front()->rootObject() == nullptr) {
+        return;
+    }
+
+    const QQuickWidget& view = *views.front();
+    shown.loaded = true;
+
+    shown.speed = number(view, "speed");
+    shown.rpm = number(view, "rpm");
+    shown.gear = number(view, "gear");
+    shown.coolant = number(view, "coolant");
+    shown.oil = number(view, "oil");
+    shown.battery = number(view, "battery");
+    shown.odometer = number(view, "odometer");
+    shown.aiRegime = number(view, "aiRegime");
+
+    for (const char* lamp : {"high",
+                             "low",
+                             "position",
+                             "park",
+                             "belt",
+                             "engine",
+                             "stop",
+                             "warn",
+                             "oil",
+                             "battery",
+                             "abs"}) {
+        QVariant lit;
+        QMetaObject::invokeMethod(view.rootObject(),
+                                  "lampOn",
+                                  Q_RETURN_ARG(QVariant, lit),
+                                  Q_ARG(QVariant, QString::fromLatin1(lamp)));
+        shown.lamps[lamp] = lit.toBool();
+    }
+}
 
 /// Runs examples/projects/j1939-vehicle.tbsproj on the engine, with the Dashboard of the project
 /// bound to what the engine produces, and lets the event loop run so that the panel's own timer
-/// feeds the QML. Nothing in between is replaced.
+/// feeds the QML - until `arrived` says the cluster shows what the test came to see, or kPatience
+/// has passed. Nothing in between is replaced.
 template<typename Edit>
-[[nodiscard]] ClusterShown runTheJ1939Example(std::chrono::milliseconds duration, Edit&& edit)
+[[nodiscard]] ClusterShown
+runTheJ1939Example(const std::function<bool(const ClusterShown&)>& arrived, Edit&& edit)
 {
     ClusterShown shown;
 
@@ -1008,46 +1078,41 @@ template<typename Edit>
 
     QElapsedTimer clock;
     clock.start();
-    while (clock.elapsed() < duration.count()) {
+
+    for (;;) {
         QApplication::processEvents(QEventLoop::AllEvents, 20);
-    }
 
-    const auto views = panel.findChildren<QQuickWidget*>();
-    if (views.size() == 1 && views.front()->rootObject() != nullptr) {
-        const QQuickWidget& view = *views.front();
-        shown.loaded = true;
+        // Read while it runs: stopping puts the lamps of the bus out.
+        readTheCluster(panel, engine, shown);
+        shown.arrived = arrived(shown);
 
-        shown.speed = number(view, "speed");
-        shown.rpm = number(view, "rpm");
-        shown.gear = number(view, "gear");
-        shown.coolant = number(view, "coolant");
-        shown.oil = number(view, "oil");
-        shown.battery = number(view, "battery");
-        shown.odometer = number(view, "odometer");
-        shown.aiRegime = number(view, "aiRegime");
-
-        for (const char* lamp : {"high",
-                                 "low",
-                                 "position",
-                                 "park",
-                                 "belt",
-                                 "engine",
-                                 "stop",
-                                 "warn",
-                                 "oil",
-                                 "battery",
-                                 "abs"}) {
-            QVariant lit;
-            QMetaObject::invokeMethod(view.rootObject(),
-                                      "lampOn",
-                                      Q_RETURN_ARG(QVariant, lit),
-                                      Q_ARG(QVariant, QString::fromLatin1(lamp)));
-            shown.lamps[lamp] = lit.toBool();
+        if (shown.arrived || clock.elapsed() > std::chrono::milliseconds{kPatience}.count()) {
+            break;
         }
     }
 
     engine.stop();
     return shown;
+}
+
+/// The vehicle has said everything it says at once: the cluster is on screen with a number for each
+/// instrument, every scripted ECU has sent its first DM1 - so the lamps are the bus's and not what
+/// they were before anybody spoke - and the model has run on enough of it to have an opinion.
+[[nodiscard]] bool settled(const ClusterShown& shown)
+{
+    const auto finite = [](double value) { return std::isfinite(value); };
+
+    return shown.loaded && finite(shown.speed) && finite(shown.rpm) && finite(shown.gear)
+           && finite(shown.coolant) && finite(shown.oil) && finite(shown.battery)
+           && finite(shown.odometer) && finite(shown.aiRegime)
+           && shown.reportingEcus >= kScriptedEcus && shown.inferences >= kInferencesThatCount;
+}
+
+/// A lamp the cluster shows lit, or false for one it has not been asked about.
+[[nodiscard]] bool isLit(const ClusterShown& shown, const char* name)
+{
+    const auto found = shown.lamps.find(name);
+    return found != shown.lamps.end() && found->second;
 }
 
 } // namespace
@@ -1057,11 +1122,15 @@ TEST(J1939ExampleClusterTests, TheExampleProjectDrivesTheRealClusterWithRealValu
     pointQmlAtTheQtThatWasFound();
     const QmlWarningCatcher catcher;
 
-    const ClusterShown shown =
-        runTheJ1939Example(std::chrono::milliseconds{2500}, [](GraphDescription&) { });
+    const ClusterShown shown = runTheJ1939Example(
+        [](const ClusterShown& seen) {
+            return settled(seen) && isLit(seen, "low") && isLit(seen, "position");
+        },
+        [](GraphDescription&) {});
 
     ASSERT_TRUE(shown.started.succeeded()) << std::string{shown.started.message()};
     ASSERT_TRUE(shown.loaded);
+    ASSERT_TRUE(shown.arrived) << "what the test was waiting for did not come";
 
     // Every number the cluster draws is a number: not a dash, which is what it shows for anything
     // the bus did not deliver. The drive cycle opens at standstill with the engine idling.
@@ -1093,8 +1162,11 @@ TEST(J1939ExampleClusterTests, ALowOilPressureLightsTheStopAndOilLampsOnTheRealC
     pointQmlAtTheQtThatWasFound();
     const QmlWarningCatcher catcher;
 
-    const ClusterShown shown =
-        runTheJ1939Example(std::chrono::milliseconds{2500}, [](GraphDescription& pipeline) {
+    const ClusterShown shown = runTheJ1939Example(
+        [](const ClusterShown& seen) {
+            return settled(seen) && isLit(seen, "stop") && isLit(seen, "oil");
+        },
+        [](GraphDescription& pipeline) {
             for (NodeDescription& node : pipeline.nodes()) {
                 if (node.id == "ecu_engine") {
                     node.parameters.set("scenario", ParameterValue::fromText("low_oil_pressure"));
@@ -1104,6 +1176,7 @@ TEST(J1939ExampleClusterTests, ALowOilPressureLightsTheStopAndOilLampsOnTheRealC
 
     ASSERT_TRUE(shown.started.succeeded()) << std::string{shown.started.message()};
     ASSERT_TRUE(shown.loaded);
+    ASSERT_TRUE(shown.arrived) << "what the test was waiting for did not come";
 
     // The stop lamp from the DM1 of the engine, with five other ECUs sending theirs dark; the oil
     // lamp from the pressure itself.
@@ -1135,10 +1208,15 @@ TEST(J1939ExampleClusterTests, AnAlternatorThatStopsChargingLightsTheBatteryAndW
     pointQmlAtTheQtThatWasFound();
     const QmlWarningCatcher catcher;
 
-    const ClusterShown shown = runTheJ1939Example(std::chrono::milliseconds{2500},
-                                                  withScenario("ecu_body", "alternator_failure"));
+    const ClusterShown shown = runTheJ1939Example(
+        [](const ClusterShown& seen) {
+            return settled(seen) && seen.battery < 11.8 && isLit(seen, "battery")
+                   && isLit(seen, "warn");
+        },
+        withScenario("ecu_body", "alternator_failure"));
     ASSERT_TRUE(shown.started.succeeded()) << std::string{shown.started.message()};
     ASSERT_TRUE(shown.loaded);
+    ASSERT_TRUE(shown.arrived) << "what the test was waiting for did not come";
 
     EXPECT_LT(shown.battery, 11.8);
     EXPECT_TRUE(shown.lamps.at("battery"));
@@ -1153,10 +1231,14 @@ TEST(J1939ExampleClusterTests, AnAbsFaultLightsTheAbsLampAndAFastenedBeltDoesNot
     pointQmlAtTheQtThatWasFound();
     const QmlWarningCatcher catcher;
 
-    const ClusterShown shown = runTheJ1939Example(std::chrono::milliseconds{2500},
-                                                  withScenario("ecu_brakes", "abs_fault"));
+    const ClusterShown shown = runTheJ1939Example(
+        [](const ClusterShown& seen) {
+            return settled(seen) && isLit(seen, "abs") && isLit(seen, "warn");
+        },
+        withScenario("ecu_brakes", "abs_fault"));
     ASSERT_TRUE(shown.started.succeeded()) << std::string{shown.started.message()};
     ASSERT_TRUE(shown.loaded);
+    ASSERT_TRUE(shown.arrived) << "what the test was waiting for did not come";
 
     EXPECT_TRUE(shown.lamps.at("abs"));
     EXPECT_TRUE(shown.lamps.at("warn"));
@@ -1172,10 +1254,12 @@ TEST(J1939ExampleClusterTests, AnUnfastenedBeltLightsTheBeltLamp)
     pointQmlAtTheQtThatWasFound();
     const QmlWarningCatcher catcher;
 
-    const ClusterShown shown = runTheJ1939Example(std::chrono::milliseconds{2500},
-                                                  withScenario("ecu_body", "belt_unbuckled"));
+    const ClusterShown shown = runTheJ1939Example(
+        [](const ClusterShown& seen) { return settled(seen) && isLit(seen, "belt"); },
+        withScenario("ecu_body", "belt_unbuckled"));
     ASSERT_TRUE(shown.started.succeeded()) << std::string{shown.started.message()};
     ASSERT_TRUE(shown.loaded);
+    ASSERT_TRUE(shown.arrived) << "what the test was waiting for did not come";
 
     EXPECT_TRUE(shown.lamps.at("belt"));
 

@@ -5,6 +5,8 @@
 
 #include "core/scripting/LuaEcuNode.h"
 
+#include "core/j1939/J1939Id.h"
+#include "core/j1939/J1939Name.h"
 #include "core/scripting/LuaPrelude.h"
 
 #include <algorithm>
@@ -72,6 +74,7 @@ Result LuaEcuNode::prepare(std::size_t maximumBatchSize)
     // something else in it.
     m_repeating.clear();
     m_faults.clear();
+    m_claims.clear();
     m_corrupted = 0;
     m_reloads = 0;
     m_reloadsRefused = 0;
@@ -263,6 +266,10 @@ Result LuaEcuNode::reload(std::string source)
     std::vector<Repeating> previousRepeating = std::move(m_repeating);
     std::map<std::uint32_t, Fault> previousFaults = std::move(m_faults);
 
+    // The claims go with the script that made them: the new one announces what it announces, and a
+    // refused one must leave the running script answering for the address it has.
+    std::vector<CanFrame> previousClaims = std::move(m_claims);
+
     // The diagnostic server goes with it, for a reason that is easy to miss:
     // `uds_did` and `uds_dtc` *add* to the server, so a reload against the same
     // one would leave every identifier the old script declared still answering.
@@ -288,6 +295,7 @@ Result LuaEcuNode::reload(std::string source)
 
     m_repeating.clear();
     m_faults.clear();
+    m_claims.clear();
 
     m_lua = std::make_unique<LuaRuntime>();
 
@@ -306,6 +314,7 @@ Result LuaEcuNode::reload(std::string source)
         m_lua = std::move(previous);
         m_repeating = std::move(previousRepeating);
         m_faults = std::move(previousFaults);
+        m_claims = std::move(previousClaims);
         m_server = std::move(previousServer);
 
         m_hasOnMessage = previousOnMessage;
@@ -477,6 +486,16 @@ void LuaEcuNode::process(NodeContext& context)
         }
 
         m_transport->clearPendingFrames();
+    }
+
+    // --- Who is on this address, when the bus asks -----------------------
+    //
+    // Before on_message for the same reason as the diagnostics: the request and the answer are one
+    // pass. The script still sees the request; it did nothing to be asked and nothing to answer.
+    if (!m_claims.empty()) {
+        for (const CanFrame& frame : context.in<CanFrame>(0)) {
+            answerClaimRequest(frame);
+        }
     }
 
     // --- on_message, once per incoming frame -----------------------------
@@ -1018,6 +1037,52 @@ int LuaEcuNode::luaFault(lua_State* state)
     return 0;
 }
 
+void LuaEcuNode::rememberClaim(const CanFrame& frame)
+{
+    // A claim with a whole NAME in it, and no other frame: the NAME is what a request is answered
+    // with, and a short one answers nothing.
+    if (!j1939NameFromClaim(frame).has_value()) {
+        return;
+    }
+
+    const auto address = static_cast<std::uint8_t>(frame.identifier & 0xFFU);
+
+    for (CanFrame& known : m_claims) {
+        if (static_cast<std::uint8_t>(known.identifier & 0xFFU) == address) {
+            known = frame;
+            return;
+        }
+    }
+
+    m_claims.push_back(frame);
+}
+
+void LuaEcuNode::answerClaimRequest(const CanFrame& request)
+{
+    if (j1939RequestedPgn(request) != kPgnAddressClaimed) {
+        return;
+    }
+
+    // A request to everyone is answered by every address this ECU claimed; one to an address, by
+    // the ECU that holds it and by nobody else.
+    const std::uint8_t destination = j1939Decompose(request.identifier).destinationAddress();
+
+    for (const CanFrame& claim : m_claims) {
+        const auto address = static_cast<std::uint8_t>(claim.identifier & 0xFFU);
+
+        if (destination != kJ1939GlobalAddress && destination != address) {
+            continue;
+        }
+
+        if (m_outgoing.size() >= kMaximumEmitsPerPass) {
+            return;
+        }
+
+        m_outgoing.push_back(claim);
+        ++m_emitted;
+    }
+}
+
 void LuaEcuNode::applyFaults()
 {
     if (m_faults.empty()) {
@@ -1336,6 +1401,8 @@ int LuaEcuNode::luaEmit(lua_State* state)
     // in the trace that never happened.
     node->m_outgoing.push_back(frame);
     ++node->m_emitted;
+
+    node->rememberClaim(frame);
 
     return 0;
 }

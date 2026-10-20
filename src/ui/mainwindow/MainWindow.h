@@ -185,6 +185,10 @@ private:
     /// Gives the Dashboard and its form the databases that are loaded now.
     void shareDatabasesWithDashboard();
 
+    /// The J1939 Network panel's Request claims: asks every ECU on every channel to claim its
+    /// address again, and says in the Output panel where it went and where it was refused.
+    void requestAddressClaims();
+
     /// Marks the pipeline changed and refreshes the title bar.
     void markDirty();
 
