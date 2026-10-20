@@ -1121,6 +1121,23 @@ The fault list (`docs/development/dashboard.md`, *The fault list*):
     `0x18FF0080`, stops; its block's statistics say *J1939 address lost* 1, and the J1939 Network
     panel lists its NAME as an ECU with no address. A Request for Address Claimed (`0x18EAFFF9`,
     data `00 EE 00`) is answered with *cannot claim* again. Stop and Start: it claims 128 again.
+    Now tick **J1939 Arbitrary Address** on the TinyML block (Block panel) and repeat the contest:
+    instead of *cannot claim* it claims **129** under the same NAME - the CAN Trace shows
+    `0x18EEFF81` - and its telemetry moves to `0x18FF0081`; the block's *J1939 address* statistic
+    says 129 and *J1939 address lost* stays 0.
+43. **Asking the bus who is on it.** With the J1939 example running, press **Request claims** in
+    the **J1939 Network** panel (it is off until a measurement runs). The Output panel says it
+    asked every ECU on CAN 1; the CAN Trace shows one frame `0x18EAFFFE` (data `00 EE 00`) and
+    seven Address Claimed in answer - the six Lua ECUs and the TinyML ECU, each from its own
+    address. Nothing in the panel changes if they had all claimed already, which is the point: a
+    machine that was running when you connected, and had its ECUs listed as *no claim seen*, now
+    has their names. `254` is not listed as an ECU. Stop: the button is off again.
+44. **One block, two buses.** Record a measurement with a CAN Bus block on CAN 1 and another on
+    CAN 2, and send a DM1 from the same address on both - say `0x18FECA00`, with a red stop lamp
+    in the data on CAN 1 and every lamp dark on CAN 2. Then replay the recording (a **Log
+    Replay** block) into one J1939 block. The **J1939 Network** panel lists *CAN 1* and *CAN 2*,
+    an ECU at 0 under each; the stop lamp is lit, and the fault list has one row,
+    `CAN 1 · SA 0` - the ECU at 0 on CAN 2 says it is fine, and it is not the one on CAN 1.
 
 **Watch for:** a gauge that shows dashes with a correctly spelled signal. The line under the
 fields in the Widget form says whether the signal is reaching the plot store - *No samples

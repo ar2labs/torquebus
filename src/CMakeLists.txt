@@ -88,6 +88,8 @@ add_library(torquebus_core STATIC
     core/j1939/J1939AddressTable.cpp
     core/j1939/J1939Diagnostics.h
     core/j1939/J1939Diagnostics.cpp
+    core/j1939/J1939ClaimRequest.h
+    core/j1939/J1939ClaimRequest.cpp
     core/j1939/J1939Network.h
     core/j1939/J1939Network.cpp
     core/j1939/J1939Node.h

@@ -13,12 +13,14 @@
 #include <gtest/gtest.h>
 
 #include "core/can/CanFrame.h"
+#include "core/j1939/J1939Id.h"
 #include "core/pipeline/PipelineGraph.h"
 #include "core/pipeline/nodes/FrameNodes.h"
 #include "core/scripting/LuaEcuNode.h"
 #include "core/scripting/LuaRuntime.h"
 
 #include <chrono>
+#include <cstring>
 #include <string>
 #include <thread>
 #include <vector>
@@ -62,6 +64,40 @@ private:
 
     std::vector<CanFrame> m_frames;
     bool m_done{false};
+};
+
+/// A source that publishes one list of frames per pass, in order, and nothing after them: a bus as
+/// it is over time, for a test that needs something to arrive on the second pass and not the first.
+class SequencedSource final : public IPipelineNode {
+public:
+    explicit SequencedSource(std::vector<std::vector<CanFrame>> passes)
+        : m_passes{std::move(passes)}
+    { }
+
+    [[nodiscard]] std::string_view typeName() const noexcept override { return "test.sequence"; }
+    [[nodiscard]] std::string displayName() const override { return "Sequenced source"; }
+    [[nodiscard]] std::span<const PortDescriptor> inputs() const noexcept override { return {}; }
+    [[nodiscard]] std::span<const PortDescriptor> outputs() const noexcept override
+    {
+        return kOutputs;
+    }
+
+    void process(NodeContext& context) override
+    {
+        if (m_pass < m_passes.size() && !m_passes[m_pass].empty()) {
+            context.publish<CanFrame>(0, m_passes[m_pass]);
+        }
+
+        ++m_pass;
+    }
+
+private:
+    static constexpr std::array<PortDescriptor, 1> kOutputs{
+        PortDescriptor{"frames", PortType::Frames},
+    };
+
+    std::vector<std::vector<CanFrame>> m_passes;
+    std::size_t m_pass{0};
 };
 
 /// Collects everything that reaches it, for inspection after the fact.
@@ -681,4 +717,241 @@ TEST(LuaEcuNodeTests, SendIsStillEmitInAnEcuAndTheJ1939FormIsAlwaysExtended)
     EXPECT_TRUE(out[2].isExtended());
     EXPECT_EQ(out[2].length, 8U);
     EXPECT_EQ(out[2].data[0], 0xFFU);
+}
+
+TEST(LuaEcuNodeTests, AnEcuThatClaimedAnAddressClaimsItAgainWhenTheBusAsks)
+{
+    PipelineGraph graph;
+    const auto source = graph.addNode(std::make_unique<SequencedSource>(
+        std::vector<std::vector<CanFrame>>{{}, {j1939RequestFrame(kPgnAddressClaimed)}}));
+    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
+        function on_enable() j1939_claim(0x21, 26, 0, nil, 1, false) end
+    )",
+                                                                "claimer.lua"));
+    const auto sink = graph.addNode(std::make_unique<Collector>());
+
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
+
+    const auto& out = graph.nodeAs<Collector>(sink)->frames;
+
+    // The claim at power-up, on a bus nobody has asked anything of yet.
+    graph.execute();
+    ASSERT_EQ(out.size(), 1U);
+    const CanFrame atPowerUp = out.front();
+    EXPECT_EQ(atPowerUp.identifier, 0x18EEFF21U);
+
+    // And the same one again when somebody does: nothing in the script was asked to.
+    graph.execute();
+    ASSERT_EQ(out.size(), 2U);
+    EXPECT_EQ(out[1].identifier, atPowerUp.identifier);
+    EXPECT_EQ(out[1].length, 8U);
+    EXPECT_EQ(out[1].direction, CanDirection::Tx);
+    EXPECT_EQ(std::memcmp(out[1].data.data(), atPowerUp.data.data(), 8U), 0);
+}
+
+TEST(LuaEcuNodeTests, ARequestToAnotherAddressIsLeftToTheEcuThatHoldsIt)
+{
+    PipelineGraph graph;
+    const auto source = graph.addNode(std::make_unique<SequencedSource>(
+        std::vector<std::vector<CanFrame>>{{},
+                                           {j1939RequestFrame(kPgnAddressClaimed, 0x55U)},
+                                           {j1939RequestFrame(kPgnAddressClaimed, 0x21U)}}));
+    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
+        function on_enable() j1939_claim(0x21, 26, 0, nil, 1, false) end
+    )",
+                                                                "claimer.lua"));
+    const auto sink = graph.addNode(std::make_unique<Collector>());
+
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
+
+    const auto& out = graph.nodeAs<Collector>(sink)->frames;
+
+    graph.execute(); // power-up
+    ASSERT_EQ(out.size(), 1U);
+
+    graph.execute(); // asked of 0x55, which is somebody else
+    EXPECT_EQ(out.size(), 1U);
+
+    graph.execute(); // asked of 0x21, which is this ECU
+    EXPECT_EQ(out.size(), 2U);
+}
+
+TEST(LuaEcuNodeTests, OnlyARequestForTheClaimItselfIsAnsweredWithOne)
+{
+    CanFrame shortRequest = j1939RequestFrame(kPgnAddressClaimed);
+    shortRequest.length = 2U;
+    shortRequest.dlc = 2U;
+
+    // The three bytes of a request for the claim, in a frame that is not J1939.
+    CanFrame standard = j1939RequestFrame(kPgnAddressClaimed);
+    standard.format = CanFrameFormat::Standard;
+    standard.identifier = 0x7EAU;
+
+    // Another ECU's claim, which is the bus saying who is on it and not a question.
+    CanFrame otherClaim{};
+    otherClaim.identifier = 0x18EEFF22U;
+    otherClaim.format = CanFrameFormat::Extended;
+    otherClaim.length = 8U;
+    otherClaim.dlc = 8U;
+
+    PipelineGraph graph;
+    const auto source =
+        graph.addNode(std::make_unique<SequencedSource>(std::vector<std::vector<CanFrame>>{
+            {}, {j1939RequestFrame(kPgnDm1)}, {shortRequest}, {standard}, {otherClaim}}));
+    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
+        function on_enable() j1939_claim(0x21, 26, 0, nil, 1, false) end
+    )",
+                                                                "claimer.lua"));
+    const auto sink = graph.addNode(std::make_unique<Collector>());
+
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
+
+    for (int pass = 0; pass < 5; ++pass) {
+        graph.execute();
+    }
+
+    // The claim at power-up and nothing after it.
+    EXPECT_EQ(graph.nodeAs<Collector>(sink)->frames.size(), 1U);
+}
+
+TEST(LuaEcuNodeTests, AScriptThatClaimedTwoAddressesAnswersForEachOfThem)
+{
+    PipelineGraph graph;
+    const auto source = graph.addNode(std::make_unique<SequencedSource>(
+        std::vector<std::vector<CanFrame>>{{},
+                                           {j1939RequestFrame(kPgnAddressClaimed)},
+                                           {j1939RequestFrame(kPgnAddressClaimed, 0x11U)}}));
+    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
+        function on_enable()
+            j1939_claim(0x10, 0, 0, nil, 1, false)
+            j1939_claim(0x11, 1, 0, nil, 1, false)
+        end
+    )",
+                                                                "two.lua"));
+    const auto sink = graph.addNode(std::make_unique<Collector>());
+
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
+
+    const auto& out = graph.nodeAs<Collector>(sink)->frames;
+
+    graph.execute();
+    ASSERT_EQ(out.size(), 2U);
+
+    // Asked of everyone: both, in the order they were claimed.
+    graph.execute();
+    ASSERT_EQ(out.size(), 4U);
+    EXPECT_EQ(out[2].identifier, 0x18EEFF10U);
+    EXPECT_EQ(out[3].identifier, 0x18EEFF11U);
+
+    // Asked of one: that one.
+    graph.execute();
+    ASSERT_EQ(out.size(), 5U);
+    EXPECT_EQ(out[4].identifier, 0x18EEFF11U);
+}
+
+TEST(LuaEcuNodeTests, AnEcuThatNeverClaimedHasNothingToSayWhenAsked)
+{
+    PipelineGraph graph;
+    const auto source = graph.addNode(std::make_unique<SequencedSource>(
+        std::vector<std::vector<CanFrame>>{{}, {j1939RequestFrame(kPgnAddressClaimed)}}));
+
+    // Talks on the bus, and has never said who it is - and a short "claim" is not one.
+    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
+        function on_enable()
+            emit(0x123, "\1")
+            emit(0x18EEFF21, "\1\2\3", { extended = true })
+        end
+    )",
+                                                                "mute.lua"));
+    const auto sink = graph.addNode(std::make_unique<Collector>());
+
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
+
+    graph.execute();
+    graph.execute();
+
+    EXPECT_EQ(graph.nodeAs<Collector>(sink)->frames.size(), 2U);
+}
+
+TEST(LuaEcuNodeTests, WhatAnEcuSaysWhenAskedIsTheLastClaimItMadeForTheAddress)
+{
+    PipelineGraph graph;
+    const auto source = graph.addNode(std::make_unique<SequencedSource>(
+        std::vector<std::vector<CanFrame>>{{}, {j1939RequestFrame(kPgnAddressClaimed)}}));
+
+    // The function is the sixth byte of the NAME: 26 the first time, 41 the second.
+    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
+        function on_enable()
+            j1939_claim(0x21, 26, 0, nil, 1, false)
+            j1939_claim(0x21, 41, 0, nil, 1, false)
+        end
+    )",
+                                                                "again.lua"));
+    const auto sink = graph.addNode(std::make_unique<Collector>());
+
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
+
+    const auto& out = graph.nodeAs<Collector>(sink)->frames;
+
+    graph.execute();
+    ASSERT_EQ(out.size(), 2U);
+    EXPECT_EQ(out[0].data[5], 26U);
+    EXPECT_EQ(out[1].data[5], 41U);
+
+    // One answer, not two: the address has one claim, and it is the second.
+    graph.execute();
+    ASSERT_EQ(out.size(), 3U);
+    EXPECT_EQ(out[2].data[5], 41U);
+}
+
+TEST(LuaEcuNodeTests, AReloadedScriptAnswersForItsOwnClaimsAndARefusedOneChangesNothing)
+{
+    const CanFrame ask = j1939RequestFrame(kPgnAddressClaimed);
+
+    PipelineGraph graph;
+    const auto source = graph.addNode(std::make_unique<SequencedSource>(
+        std::vector<std::vector<CanFrame>>{{}, {ask}, {ask}, {ask}}));
+    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
+        function on_enable() j1939_claim(0x21, 26, 0, nil, 1, false) end
+    )",
+                                                                "before.lua"));
+    const auto sink = graph.addNode(std::make_unique<Collector>());
+
+    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
+    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
+    ASSERT_TRUE(graph.compile().succeeded());
+
+    auto* node = graph.nodeAs<LuaEcuNode>(ecu);
+    const auto& out = graph.nodeAs<Collector>(sink)->frames;
+
+    graph.execute(); // power-up: 0x21
+    ASSERT_EQ(out.size(), 1U);
+
+    // The new script claims another address, and is the one that answers: the old address is
+    // nobody's any more.
+    ASSERT_TRUE(node->reload(R"(
+        function on_enable() j1939_claim(0x22, 26, 0, nil, 1, false) end
+    )")
+                    .succeeded());
+    graph.execute();
+    ASSERT_EQ(out.size(), 2U);
+    EXPECT_EQ(out[1].identifier, 0x18EEFF22U);
+
+    // A script that will not load leaves the running one alone - and what it answers for.
+    ASSERT_TRUE(node->reload("function on_enable( end").failed());
+    graph.execute();
+    ASSERT_EQ(out.size(), 3U);
+    EXPECT_EQ(out[2].identifier, 0x18EEFF22U);
 }

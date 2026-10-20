@@ -28,9 +28,23 @@
 // that address. That is what lets a panel name it, rather than show a number.
 // It answers a Request for Address Claimed with its claim, and keeps the rules
 // of a contest: another ECU claiming the same address with a lower NAME takes
-// it, and this one - which cannot move to another - says it cannot claim one and
-// is silent on the bus for the rest of the measurement; one with a higher NAME
-// is told again that the address is taken.
+// it, and one with a higher NAME is told again that the address is taken. What
+// the loser does depends on what it is. By default this block cannot move: it
+// says it cannot claim an address and is silent on the bus for the rest of the
+// measurement. Told it is arbitrary-address capable, it moves instead - to the
+// lowest address in 128 to 247 that nobody has been heard to claim - and goes on
+// from there, with the same NAME.
+//
+// What it claims to be is its NAME, and the three things in it that are a choice
+// are parameters: the function, the serial number and whether it can move. The
+// manufacturer is not one - a simulated ECU is nobody's product.
+//
+// One thing of J1939-81 it leaves out, on purpose: the pseudo-random delay of up
+// to 153 ms that an ECU waits before it answers a request or says it cannot
+// claim. The delay is there to spread the answers of ECUs that power up at the
+// same instant on a shared wire, and here the answers are queued by the engine
+// and arbitrated by the bus model, in an order that does not vary. A delay would
+// only make a measurement unrepeatable.
 
 #pragma once
 
@@ -64,6 +78,18 @@ struct TinyMlEcuConfig final {
     std::uint32_t inferenceStride{1};
     std::size_t arenaCapacityBytes{TinyMlArena::kDefaultCapacityBytes};
     bool j1939Mode{false};
+
+    /// What this ECU says it is, in the NAME it claims its address under (J1939-81, on-highway):
+    /// 33 is a System Monitor, which is what a model that watches the vehicle is. The serial number
+    /// is the address it speaks from unless told otherwise, so that two of these at two addresses
+    /// are two NAMEs and not a contest.
+    std::uint8_t j1939Function{33U};
+    std::optional<std::uint32_t> j1939Identity;
+
+    /// Whether it can take another address when it loses the one it speaks from. It is the top bit
+    /// of the NAME, which makes an ECU that can move lose to every ECU that cannot - whoever can
+    /// move, moves.
+    bool j1939ArbitraryAddress{false};
 };
 
 class TinyMlEcuNode final : public IPipelineNode {
@@ -150,12 +176,21 @@ private:
     /// address when it is saying that it cannot claim one. False when there was no room for it.
     bool appendClaimFrom(std::uint8_t source, std::uint64_t timestampNs);
 
-    /// What this ECU is: on-highway, a System Monitor, its address as its serial number.
+    /// What this ECU is: on-highway, a function, a serial number - the address it was first meant
+    /// to speak from, unless told otherwise, so that moving to another does not change who it is.
     [[nodiscard]] J1939Name ownName() const noexcept;
+
+    /// Speaks from `address` from now on: the telemetry, the trouble code and the claim.
+    void useAddress(std::uint8_t address) noexcept;
+
+    /// The lowest address in 128 to 247 that no other ECU has been heard to claim in this
+    /// measurement, other than the one it speaks from now. Nothing when they are all taken.
+    [[nodiscard]] std::optional<std::uint8_t> freeAddress() const noexcept;
 
     /// A claim or a request seen on a J1939 bus, and what this ECU does about it: answers a request
     /// for the claims of the bus, defends its address against a higher NAME, and gives it up to a
-    /// lower one. True when the frame was one of those, which the model does not read.
+    /// lower one - by moving, if it can, and by falling silent if it cannot. True when the frame
+    /// was one of those, which the model does not read.
     bool onNetworkManagement(const CanFrame& frame);
 
     /// The telemetry frame of a J1939 bus (Proprietary B), and the predictive DM1 that follows it
@@ -242,16 +277,28 @@ private:
     std::uint8_t m_j1939MessageCounter{0};
     std::uint32_t m_dm1Identifier{0};
 
+    /// The address this ECU speaks from now, and the one it was meant to: the low byte of the
+    /// telemetry identifier. They differ after it has moved.
+    std::uint8_t m_address{0};
+    std::uint8_t m_preferredAddress{0};
+
+    /// The telemetry identifier from the address it speaks from now.
+    std::uint32_t m_outputIdentifier{0};
+
     /// Its own Address Claimed, which comes back to it off the bus like its DM1 does, and whether
     /// it has been sent in this measurement. A measurement claims again: the ECU is switched on
     /// again.
     std::uint32_t m_claimIdentifier{0};
     bool m_addressClaimed{false};
 
-    /// Another ECU took the address with a lower NAME. Nothing more goes on the bus from this one
-    /// until the next measurement, but a request for the claims of the bus is answered with the
-    /// news that it has no address.
+    /// Another ECU took the address with a lower NAME, and this one could not move. Nothing more
+    /// goes on the bus from it until the next measurement, but a request for the claims of the bus
+    /// is answered with the news that it has no address.
     bool m_addressLost{false};
+
+    /// The addresses other ECUs have been heard to claim in this measurement, which is what an ECU
+    /// that has to move chooses from.
+    std::array<bool, 256> m_claimedByOthers{};
 
     /// Bus time the engine has been (or has stopped being) in trouble since, and what was last said
     /// about it on the bus. Optionals because bus time zero is a time, and a sentinel that equals

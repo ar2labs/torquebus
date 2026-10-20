@@ -12,6 +12,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
+#include <QPushButton>
 #include <QSet>
 #include <QShowEvent>
 #include <QTimer>
@@ -222,6 +223,12 @@ void J1939NetworkPanel::buildUi()
     m_summary->setTextInteractionFlags(Qt::TextSelectableByMouse);
     header->addWidget(m_summary, 1);
 
+    m_requestClaims = new QPushButton(tr("Request claims"));
+    m_requestClaims->setObjectName(QStringLiteral("requestClaimsButton"));
+    connect(m_requestClaims, &QPushButton::clicked, this, &J1939NetworkPanel::claimsRequested);
+    header->addWidget(m_requestClaims);
+    setRequestAvailable(false);
+
     layout->addLayout(header);
 
     m_nodes = new QTreeWidget;
@@ -238,7 +245,7 @@ void J1939NetworkPanel::buildUi()
         tr("What was observed since this measurement started. Address claims happen "
            "at power-up, so a machine that was already running when you connected "
            "shows every ECU as not seen claiming - which is not the same as an ECU "
-           "that never claimed its address."));
+           "that never claimed its address. Request claims asks them to claim again."));
 
     m_nodes->header()->setSectionResizeMode(ColumnAddress, QHeaderView::ResizeToContents);
     m_nodes->header()->setSectionResizeMode(ColumnName, QHeaderView::Interactive);
@@ -253,6 +260,20 @@ void J1939NetworkPanel::buildUi()
 void J1939NetworkPanel::setNameTables(const J1939NameTables* tables)
 {
     m_names = tables;
+}
+
+void J1939NetworkPanel::setRequestAvailable(bool available)
+{
+    m_requestClaims->setEnabled(available);
+
+    const QString what = tr("Asks every ECU on every channel to announce its address and NAME "
+                            "again, with a Request for Address Claimed sent from the null "
+                            "address. Use it when the measurement started on a machine that was "
+                            "already running: claims are made at power-up, so the ECUs that have "
+                            "not claimed since Start are listed as not seen claiming.");
+
+    m_requestClaims->setToolTip(
+        available ? what : tr("%1 Available while a measurement is running.").arg(what));
 }
 
 void J1939NetworkPanel::setNetwork(J1939Network* network)

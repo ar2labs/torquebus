@@ -1969,7 +1969,40 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                         .description =
                             "Enable SAE J1939 decoding and Proprietary B (0x18FF0080) output. "
                             "The block claims its address (Address Claimed) when it first hears "
-                            "the bus."},
+                            "the bus, answers a Request for Address Claimed, and keeps the rules "
+                            "of a contest for the address."},
+                    ParameterDescriptor{
+                        .name = "j1939Function",
+                        .displayName = "J1939 Function",
+                        .type = ParameterValue::Type::Integer,
+                        .required = false,
+                        .description =
+                            "The function in the NAME the block claims its address under, read "
+                            "against the on-highway industry group (default 33, a System Monitor).",
+                        .minimum = 0,
+                        .maximum = 255},
+                    ParameterDescriptor{
+                        .name = "j1939Identity",
+                        .displayName = "J1939 Serial Number",
+                        .type = ParameterValue::Type::Integer,
+                        .required = false,
+                        .description =
+                            "The identity number in its NAME, 0 to 2097151. By default the "
+                            "address it speaks from, so that two of these blocks at two addresses "
+                            "are two NAMEs and not a contest.",
+                        .minimum = 0,
+                        .maximum = 2097151},
+                    ParameterDescriptor{
+                        .name = "j1939ArbitraryAddress",
+                        .displayName = "J1939 Arbitrary Address",
+                        .type = ParameterValue::Type::Boolean,
+                        .required = false,
+                        .description =
+                            "Whether the block can take another address, from 128 to 247, when "
+                            "an ECU with a lower NAME takes the one it speaks from. Off by "
+                            "default: it then says it cannot claim an address and is silent on "
+                            "the bus until the next Start. On, it moves, with the same NAME - "
+                            "and, as every ECU that can move, loses to one that cannot."},
                 },
             .talksOnBus = true,
         },
@@ -2010,6 +2043,16 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             if (config.j1939Mode && config.outputCanId == 0x105) {
                 config.outputCanId = 0x18FF0080;
             }
+
+            // What it claims to be. The ranges are the descriptor's, checked before this runs; the
+            // clamps are for a block built by hand.
+            config.j1939Function = static_cast<std::uint8_t>(
+                std::clamp<std::int64_t>(parameters.integer("j1939Function", 33), 0, 255));
+            if (parameters.contains("j1939Identity")) {
+                config.j1939Identity = static_cast<std::uint32_t>(
+                    std::clamp<std::int64_t>(parameters.integer("j1939Identity", 0), 0, 2097151));
+            }
+            config.j1939ArbitraryAddress = parameters.boolean("j1939ArbitraryAddress", false);
 
             auto node =
                 std::make_unique<TinyMlEcuNode>(std::move(model), config, std::string{nodeId});

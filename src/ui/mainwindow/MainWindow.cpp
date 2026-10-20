@@ -6,6 +6,7 @@
 #include "ui/mainwindow/MainWindow.h"
 
 #include "core/dashboard/DashboardAssets.h"
+#include "core/j1939/J1939ClaimRequest.h"
 #include "core/log/TraceExport.h"
 #include "core/pipeline/BusGrouping.h"
 #include "core/trace/TraceStore.h"
@@ -615,6 +616,17 @@ void MainWindow::createPanels()
     m_j1939Panel = new J1939NetworkPanel;
     m_j1939Panel->setNameTables(&m_j1939Names);
     m_j1939Panel->setNetwork(&m_controller->engine().j1939Network());
+
+    // The one thing the panel can ask the bus for, and only while there is a measurement to ask on.
+    m_j1939Panel->setRequestAvailable(m_controller->isRunning());
+    connect(
+        m_j1939Panel, &J1939NetworkPanel::claimsRequested, this, &MainWindow::requestAddressClaims);
+    connect(m_controller, &CanEngineController::started, m_j1939Panel, [this] {
+        m_j1939Panel->setRequestAvailable(true);
+    });
+    connect(m_controller, &CanEngineController::stopped, m_j1939Panel, [this] {
+        m_j1939Panel->setRequestAvailable(false);
+    });
 
     m_j1939Dock =
         createDockWidget(dockName(kDockJ1939), tr("J1939 Network"), m_j1939Panel, icon("network"));
@@ -1732,6 +1744,29 @@ void MainWindow::updateWindowTitle()
     // appears at the moment it would be lost, which is too late to be a warning.
     setWindowTitle(
         tr("%1%2 - TorqueBus Studio").arg(name, m_dirty ? QStringLiteral("*") : QString{}));
+}
+
+void MainWindow::requestAddressClaims()
+{
+    const J1939ClaimRequestOutcome outcome = j1939RequestAddressClaims(m_controller->engine());
+
+    // Said whichever way it went: a request every ECU answers changes nothing the panel can show
+    // when they had all claimed already, and a button that seems to do nothing is a button
+    // somebody presses again.
+    if (!outcome.sent.empty()) {
+        QStringList channels;
+        for (const std::uint8_t channel : outcome.sent) {
+            channels.push_back(tr("CAN %1").arg(static_cast<int>(channel) + 1));
+        }
+
+        m_output->appendInfo(tr("J1939: asked every ECU on %1 to claim its address again.")
+                                 .arg(channels.join(QStringLiteral(", "))));
+    }
+
+    for (const std::string& refusal : outcome.refused) {
+        m_output->appendWarning(tr("J1939: the request for address claims was not sent on %1")
+                                    .arg(QString::fromStdString(refusal)));
+    }
 }
 
 void MainWindow::markDirty()

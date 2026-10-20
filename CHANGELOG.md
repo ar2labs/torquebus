@@ -66,10 +66,41 @@ against what it does, which turned up more than expected.
   each ECU named from the claims of its own bus, and the lamps are the OR of every bus
   (`J1939Network::combineLamps`). Two blocks on one channel read one bus; with one bus nothing changes on
   screen.
-- **The example dashboard tests wait for what they check.** `ExampleDashboardTests` ran each example for a
-  fixed two and a half or three seconds - sixteen seconds of the unit suite, and a run that a slow machine
-  would one day have found too short. Each run now polls for what its test looks at (every widget's signal,
-  the fault, every ECU's claim) with fifteen seconds of patience, and the six take under a second.
+- **One J1939 block can read more than one bus.** A block used to file everything it learnt - the address
+  table, each ECU's diagnostic messages, the transfers in flight, the ageing of a silent bus - in one place,
+  under the channel of the first frame it saw. An input takes one wire, so the way a block gets two buses is a
+  recording of both replayed into it, and that was read as one bus: the ECU at address 0 on CAN 1 and the one
+  at 0 on CAN 2 became one ECU, a transfer of one bus was finished by the packets of the other, and a bus's
+  DM1 was aged by the clock of the other's interface. The block now keeps a bus for each channel its frames
+  come from, in channel order, hands each over under its own channel, ages each on its own clock - one that
+  falls silent while the other talks is silent - and the lamps are lit for any of them. Most blocks read one
+  bus, and nothing changes for them.
+- **A button that asks a bus who is on it.** ECUs claim their addresses once, at power-up, so a measurement
+  started on a machine that was already running saw no claims and listed every ECU as *not seen claiming*.
+  The J1939 Network panel has a **Request claims** button, on while a measurement runs, that sends the remedy
+  J1939-81 gives for exactly that - a Request for Address Claimed, PGN 59904 for PGN 60928, to everyone, from
+  the null address 254 - on every channel, and says in the Output panel where it went and where it was
+  refused. It goes out only when pressed: the J1939 block reads a bus and still never transmits on one. The
+  ECUs answer. The TinyML block already did; a Lua ECU that claimed an address with `j1939_claim` (or an
+  `emit` of an Address Claimed) now answers for it from the node, with nothing in the script, whether the
+  request is to everyone or to that address; and `j1939-vehicle.tbsproj` wires the bus to all six of its
+  Lua ECUs - four of them could only transmit - so that they can hear it. See `docs/development/j1939-pipeline.md`.
+- **A TinyML ECU that can move, and a NAME it is told.** `j1939Function`, `j1939Identity` and
+  `j1939ArbitraryAddress` are settings of the block. With the last on, an ECU that loses its address to a
+  lower NAME moves instead of falling silent - to the lowest address from 128 to 247 that nobody has been
+  heard to claim, under the same NAME, saying everything from there on from there - moves again if that one is
+  lost too, and gives up like the one that cannot when the range is full (*J1939 address* in its statistics
+  says where it is). The pseudo-random delay J1939-81 asks for before an answer is left out on purpose
+  (`docs/development/tinyml.md`): the answers are queued by the engine and arbitrated by the bus model in an
+  order that does not vary, and a delay would only make a measurement unrepeatable.
+- **The example tests wait for what they check.** `ExampleDashboardTests` ran each example for a fixed two and
+  a half or three seconds - sixteen seconds of the unit suite, and a run that a slow machine would one day
+  have found too short. Each run now polls for what its test looks at (every widget's signal, the fault,
+  every ECU's claim) with fifteen seconds of patience, and the six take under a second. The same went for
+  the rest of the suites that ran the examples for a fixed time: `J1939ExampleProjectTests` (seventeen runs
+  of two and a half seconds) waits for every instrument of the cluster, every ECU's first DM1, the model's
+  first inferences and whatever the scenario is meant to show - about twelve seconds in all - the cluster
+  tests on the real QML and the example scripts do the same.
 - **The Dashboard is built from the databases, and has six new kinds of widget.** A signal dragged out of
   the DBC Explorer onto the Dashboard (Edit mode) becomes the widget it suits - a lamp for a two-state signal,
   a state chip for a value table, a bar for a percentage, a gauge for a declared range, a numeric for the

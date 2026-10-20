@@ -213,3 +213,78 @@ TEST(J1939IdTests, TheNullAddressIsDecodedNotFilteredAway)
 
     EXPECT_TRUE(id.sourceAddress == kJ1939NullAddress);
 }
+
+TEST(J1939IdTests, ARequestForAClaimIsThreeBytesFromTheNullAddressToEveryone)
+{
+    // What a tool without an address sends to ask the bus who is on it: priority 6, PGN 59904 to
+    // the global address, from 254, and the PGN asked for - 60928 - least significant byte first.
+    const CanFrame request = j1939RequestFrame(kPgnAddressClaimed);
+
+    EXPECT_EQ(request.identifier, 0x18EAFFFEU);
+    EXPECT_TRUE(request.isExtended());
+    EXPECT_EQ(request.direction, CanDirection::Tx);
+    EXPECT_EQ(request.length, 3U);
+    EXPECT_EQ(request.dlc, 3U);
+    EXPECT_EQ(request.data[0], 0x00U);
+    EXPECT_EQ(request.data[1], 0xEEU);
+    EXPECT_EQ(request.data[2], 0x00U);
+}
+
+TEST(J1939IdTests, ARequestCanGoToOneECUFromOneAndOnAChannel)
+{
+    // The DM1 of the ECU at 0x21, asked for by the tool at 0xF9, on the third channel.
+    const CanFrame request = j1939RequestFrame(kPgnDm1, 0x21U, 0xF9U, 2U);
+
+    EXPECT_EQ(request.identifier, 0x18EA21F9U);
+    EXPECT_EQ(request.channel, 2U);
+    EXPECT_EQ(request.data[0], 0xCAU);
+    EXPECT_EQ(request.data[1], 0xFEU);
+    EXPECT_EQ(request.data[2], 0x00U);
+
+    const J1939Id id = j1939Decompose(request.identifier);
+    EXPECT_EQ(id.pgn(), kPgnRequest);
+    EXPECT_EQ(id.destinationAddress(), 0x21U);
+    EXPECT_EQ(id.sourceAddress, 0xF9U);
+}
+
+TEST(J1939IdTests, APgnBeyondTwoBytesSurvivesTheRequestAndAnythingBeyondThePgnIsDropped)
+{
+    // The data page is the third byte: a request for 0x1FF01 that lost it would ask for 0xFF01.
+    EXPECT_EQ(j1939RequestFrame(0x1FF01U).data[2], 0x01U);
+    EXPECT_EQ(j1939RequestedPgn(j1939RequestFrame(0x1FF01U)), 0x1FF01U);
+    EXPECT_EQ(j1939RequestedPgn(j1939RequestFrame(kJ1939MaxPgn)), kJ1939MaxPgn);
+    EXPECT_EQ(j1939RequestedPgn(j1939RequestFrame(0U)), 0U);
+
+    // Above the 18 bits of a PGN there is nothing to ask for, and nothing is invented from it.
+    EXPECT_EQ(j1939RequestFrame(0xFFFF'FFFFU).data[2], 0x03U);
+}
+
+TEST(J1939IdTests, TheSixBitsAboveAPgnInARequestAreNotPartOfIt)
+{
+    // Reserved, and whatever a sender left in them: a request for 60928 with them set is still one.
+    CanFrame request = j1939RequestFrame(kPgnAddressClaimed);
+    request.data[2] = 0xFCU;
+
+    EXPECT_EQ(j1939RequestedPgn(request), kPgnAddressClaimed);
+}
+
+TEST(J1939IdTests, OnlyARequestLongEnoughToNameAPgnIsOne)
+{
+    // Not a request: another PGN carrying the same three bytes.
+    CanFrame notARequest = j1939RequestFrame(kPgnAddressClaimed);
+    notARequest.identifier = 0x18FECA00U;
+    EXPECT_FALSE(j1939RequestedPgn(notARequest).has_value());
+
+    // Two bytes name no PGN, and the third is not read off the end of what the frame carries.
+    CanFrame tooShort = j1939RequestFrame(kPgnAddressClaimed);
+    tooShort.length = 2U;
+    tooShort.dlc = 2U;
+    tooShort.data[2] = 0x00U;
+    EXPECT_FALSE(j1939RequestedPgn(tooShort).has_value());
+
+    // An 11-bit frame is not J1939: its identifier would be read as a PF it does not have.
+    CanFrame standard = j1939RequestFrame(kPgnAddressClaimed);
+    standard.format = CanFrameFormat::Standard;
+    standard.identifier = 0x7E0U;
+    EXPECT_FALSE(j1939RequestedPgn(standard).has_value());
+}

@@ -39,6 +39,13 @@
 // deal with it, and return false to say *nothing at all* - a dead ECU, which is
 // the case a tester has to survive and the only one nothing else can simulate.
 //
+// **And the ECU says who it is when it is asked.** A script that announced an address - with
+// j1939_claim(), or an emit() of an Address Claimed - is answered for when the bus asks (a Request
+// for Address Claimed, to every ECU or to that address) with the claim it sent, the way the
+// network-management layer of a real ECU answers without its application being involved. The
+// script does nothing to get this. It is what lets a measurement started on a machine that was
+// already running learn who is on it, and what the J1939 Network panel's request relies on.
+//
 // What changed from cansim, and why: `emit` does not reach the bus. It puts a
 // frame on this node's *output port*, and where that goes is the graph's
 // business. An ECU wired to nothing is a valid, testable thing; an ECU wired to
@@ -371,6 +378,18 @@ private:
 
     /// Applies m_faults to everything about to be published.
     void applyFaults();
+
+    /// Keeps `frame` if it is an Address Claimed this script sent, as the claim for its address:
+    /// the last one per address, which is what the ECU would say if it were asked.
+    void rememberClaim(const CanFrame& frame);
+
+    /// Answers `request` with the claims it asks for - every one this ECU has made for a request
+    /// to everyone, the one for its address for a request to it - and does nothing for any other
+    /// frame.
+    void answerClaimRequest(const CanFrame& request);
+
+    /// The Address Claimed frames the script has sent, by address. Cleared with the interpreter.
+    std::vector<CanFrame> m_claims;
 
     std::uint64_t m_corrupted{0};
     LogHandler m_log;

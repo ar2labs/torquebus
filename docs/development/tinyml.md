@@ -88,14 +88,35 @@ again), takes its own claim coming back off the bus for the bus's and does not a
 is not on a J1939 bus - the 11-bit example vehicle - has no address to claim.
 
 **It keeps the rules of a claim (J1939-81).** A Request for Address Claimed - to every ECU, or to this one -
-is answered with its claim, which is how a tool that joins a running bus learns who is on it. Another ECU
-claiming the same address with a **lower** NAME takes it: this block cannot move to another address, so it
-does what such an ECU does - sends *cannot claim* (an Address Claimed from the null address, 254, with its
-NAME), and puts nothing more on the bus for the rest of the measurement, answering a request with *cannot
-claim* again. The model goes on running and its signals and variables still reach the Dashboard; the block's
-*J1939 address lost* statistic says 1, and the J1939 Network panel lists its NAME as an ECU with no address.
-One claiming it with a **higher** NAME is told again that the address is taken. On a bench the address is
-the one its owner chose (`outputCanId`), and the NAME is fixed.
+is answered with its claim, which is how a tool that joins a running bus learns who is on it (the J1939
+Network panel's **Request claims** button sends one). Another ECU claiming the same address with a **lower**
+NAME takes it, and what this block does about it depends on whether it can move:
+
+* **It cannot, by default.** It does what such an ECU does - sends *cannot claim* (an Address Claimed from the
+  null address, 254, with its NAME), and puts nothing more on the bus for the rest of the measurement,
+  answering a request with *cannot claim* again. The model goes on running and its signals and variables
+  still reach the Dashboard; the block's *J1939 address lost* statistic says 1, and the J1939 Network panel
+  lists its NAME as an ECU with no address.
+* **It can, with `j1939ArbitraryAddress`.** It moves to the lowest address from 128 to 247 that no other ECU has
+  been heard to claim in this measurement, claims it under the **same NAME**, and says everything from there
+  on from there: the telemetry, the predictive DM1, the answer to a request. The *J1939 address* statistic
+  says where it is. An ECU that can move has the top bit of its NAME set, so it loses to every ECU that
+  cannot - whoever can move, moves - and when the address it moved to is lost as well it moves again; when
+  every address of the range is somebody's it gives up like one that cannot move.
+
+One claiming its address with a **higher** NAME is told again that the address is taken. A new Start is a new
+switch-on: the block claims the address it was given (`outputCanId`), and knows nothing yet of who is on the bus.
+
+**What it claims to be** is its NAME, and three things in it are the block's settings: `j1939Function` (default
+33, *System Monitor*, read against the on-highway industry group), `j1939Identity` (the serial number, by
+default the address it was given, so that two of these blocks at two addresses are two NAMEs and not a contest)
+and `j1939ArbitraryAddress` (off). The manufacturer is not a setting: it is 0, because a simulated ECU is
+nobody's product.
+
+**One rule of J1939-81 is left out, on purpose.** An ECU waits a pseudo-random time, up to 153 ms, before it
+answers a request or says it cannot claim. The delay is there to spread out the answers of ECUs that power up
+at the same instant on a shared wire. Here the answers are queued by the engine and arbitrated by the bus
+model, in an order that does not vary, so a delay would add nothing but a measurement that cannot be repeated.
 
 **Predictive DM1.** When the anomaly has been 80 % or more for five seconds - or the thermal health falls
 under 30 %, at once - the block sends a DM1 from its own address: SPN 110, FMI 15 with the amber lamp, or

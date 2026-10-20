@@ -56,12 +56,15 @@ constexpr std::uint64_t kDtcRecoverNs = 10'000'000'000ULL;
 // J1939-73: a DM1 repeats every second while it says anything, and is sent at once when it changes.
 constexpr std::uint64_t kDm1PeriodNs = 1'000'000'000ULL;
 
-// The NAME it claims its address under (J1939-81): on-highway, and function 33 - System Monitor,
-// which is what a model that watches the vehicle is. No manufacturer, because it is nobody's
-// product, and the serial number is the address it speaks from, so that two of them on one bus at
-// two addresses are two NAMEs and not a contest.
+// The NAME it claims its address under (J1939-81): on-highway, and by default function 33 - System
+// Monitor, which is what a model that watches the vehicle is. No manufacturer, because it is
+// nobody's product, and the serial number is the address it was meant to speak from, so that two of
+// them on one bus at two addresses are two NAMEs and not a contest.
 constexpr std::uint8_t kClaimIndustryGroup = 1U;
-constexpr std::uint8_t kClaimFunction = 33U;
+
+// Where an ECU that can move looks for a place: the range J1939-81 gives the self-configurable.
+constexpr std::uint8_t kFirstSelfConfigurableAddress = 128U;
+constexpr std::uint8_t kLastSelfConfigurableAddress = 247U;
 
 /// SPN 110, engine coolant temperature: what the model is watching.
 constexpr std::uint32_t kPredictiveSpn = 110U;
@@ -223,12 +226,13 @@ Result TinyMlEcuNode::prepare(std::size_t maximumBatchSize)
 
     // The predictive DM1 and the claim go out under the same address as the telemetry: the ECU is
     // one ECU. The identifiers it has to ignore on the way in follow from it, and not from a
-    // constant that happens to match the default.
-    const auto address = static_cast<std::uint8_t>(m_config.outputCanId & 0xFFU);
-    m_dm1Identifier = j1939Identifier(kPgnDm1, address);
-    m_claimIdentifier = j1939Identifier(kPgnAddressClaimed, address);
+    // constant that happens to match the default. A measurement starts it at the address it was
+    // meant to have, with nothing known about who else is on the bus.
+    m_preferredAddress = static_cast<std::uint8_t>(m_config.outputCanId & 0xFFU);
+    useAddress(m_preferredAddress);
     m_addressClaimed = false;
     m_addressLost = false;
+    m_claimedByOthers.fill(false);
 
     m_ambientAllowanceDegC = 0.0F;
     m_j1939MessageCounter = 0;
@@ -285,7 +289,7 @@ void TinyMlEcuNode::process(NodeContext& context)
 
         // Its own telemetry and its own trouble code come back to it off the bus, and a model that
         // took its own output for the vehicle would be listening to itself.
-        if (frame.identifier == m_config.outputCanId
+        if (frame.identifier == m_outputIdentifier
             || (m_config.j1939Mode && frame.identifier == m_dm1Identifier)) {
             continue;
         }
@@ -383,10 +387,40 @@ void TinyMlEcuNode::infer(const CanFrame& cause)
 J1939Name TinyMlEcuNode::ownName() const noexcept
 {
     J1939Name name;
+    name.arbitraryAddressCapable = m_config.j1939ArbitraryAddress;
     name.industryGroup = kClaimIndustryGroup;
-    name.function = kClaimFunction;
-    name.identityNumber = m_claimIdentifier & 0xFFU;
+    name.function = m_config.j1939Function;
+
+    // The address it was meant to have and not the one it has: a NAME that changed when its ECU
+    // moved would be another ECU, and the one it lost to would be told it won against nobody.
+    name.identityNumber = m_config.j1939Identity.value_or(m_preferredAddress) & 0x1F'FFFFU;
     return name;
+}
+
+void TinyMlEcuNode::useAddress(std::uint8_t address) noexcept
+{
+    m_address = address;
+
+    // The telemetry keeps whatever the identifier says above the address, and the two messages
+    // that are not its own are built from the address as the standard builds them.
+    m_outputIdentifier = (m_config.outputCanId & ~0xFFU) | address;
+    m_dm1Identifier = j1939Identifier(kPgnDm1, address);
+    m_claimIdentifier = j1939Identifier(kPgnAddressClaimed, address);
+
+    // And the definition the decoded signals point at, which says where they came from.
+    m_telemetryMessage.identifier = m_outputIdentifier;
+}
+
+std::optional<std::uint8_t> TinyMlEcuNode::freeAddress() const noexcept
+{
+    for (unsigned address = kFirstSelfConfigurableAddress; address <= kLastSelfConfigurableAddress;
+         ++address) {
+        if (address != m_address && !m_claimedByOthers[address]) {
+            return static_cast<std::uint8_t>(address);
+        }
+    }
+
+    return std::nullopt;
 }
 
 bool TinyMlEcuNode::onNetworkManagement(const CanFrame& frame)
@@ -396,21 +430,15 @@ bool TinyMlEcuNode::onNetworkManagement(const CanFrame& frame)
     }
 
     const J1939Id id = j1939Decompose(frame.identifier);
-    const auto address = static_cast<std::uint8_t>(m_claimIdentifier & 0xFFU);
 
     if (id.pgn() == kPgnRequest) {
         // A request for the claims of the bus, to every ECU or to this one, is answered with who it
         // is - or, once it has lost its address, with the news that it has none (J1939-81).
-        const std::uint32_t requested =
-            frame.length >= 3U ? static_cast<std::uint32_t>(frame.data[0])
-                                     | (static_cast<std::uint32_t>(frame.data[1]) << 8U)
-                                     | (static_cast<std::uint32_t>(frame.data[2]) << 16U)
-                               : 0U;
         const bool toThisEcu =
-            id.destinationAddress() == kJ1939GlobalAddress || id.destinationAddress() == address;
+            id.destinationAddress() == kJ1939GlobalAddress || id.destinationAddress() == m_address;
 
-        if (toThisEcu && requested == kPgnAddressClaimed) {
-            appendClaimFrom(m_addressLost ? kJ1939NullAddress : address, frame.timestampNs);
+        if (toThisEcu && j1939RequestedPgn(frame) == kPgnAddressClaimed) {
+            appendClaimFrom(m_addressLost ? kJ1939NullAddress : m_address, frame.timestampNs);
         }
 
         return true;
@@ -418,12 +446,6 @@ bool TinyMlEcuNode::onNetworkManagement(const CanFrame& frame)
 
     if (id.pgn() != kPgnAddressClaimed) {
         return false;
-    }
-
-    // A claim of another address, or an ECU announcing it has none, is not this ECU's business -
-    // and nor is anything after it has given its own up.
-    if (id.sourceAddress != address || m_addressLost) {
-        return true;
     }
 
     const std::optional<J1939Name> theirs = j1939NameFromClaim(frame);
@@ -434,16 +456,37 @@ bool TinyMlEcuNode::onNetworkManagement(const CanFrame& frame)
         return true;
     }
 
-    // Another ECU claims the address this one speaks from, and the lower NAME keeps it. This one
-    // cannot move to another address, so when it loses it does what such an ECU does: it says that
-    // it cannot claim one, and is silent from then on. When it wins it says so again, so the other
-    // one knows to move.
-    if (theirs->winsAgainst(ours)) {
-        m_addressLost = true;
-        appendClaimFrom(kJ1939NullAddress, frame.timestampNs);
-    } else {
-        appendClaimFrom(address, frame.timestampNs);
+    // Who else is on the bus, for the day this ECU has to look for a place. The null address is
+    // an ECU saying it has none, and not a place anybody holds.
+    if (id.sourceAddress < kJ1939NullAddress) {
+        m_claimedByOthers[id.sourceAddress] = true;
     }
+
+    // A claim of another address is not this ECU's business - and nor is anything after it has
+    // given its own up.
+    if (id.sourceAddress != m_address || m_addressLost) {
+        return true;
+    }
+
+    // Another ECU claims the address this one speaks from, and the lower NAME keeps it. When this
+    // one wins it says so again, so the other one knows to move. When it loses it moves, if it
+    // can, to a place nobody has claimed and says so from there; and if it cannot, it says that it
+    // cannot claim an address and is silent from then on.
+    if (!theirs->winsAgainst(ours)) {
+        appendClaimFrom(m_address, frame.timestampNs);
+        return true;
+    }
+
+    if (m_config.j1939ArbitraryAddress) {
+        if (const std::optional<std::uint8_t> place = freeAddress(); place.has_value()) {
+            useAddress(*place);
+            appendClaimFrom(m_address, frame.timestampNs);
+            return true;
+        }
+    }
+
+    m_addressLost = true;
+    appendClaimFrom(kJ1939NullAddress, frame.timestampNs);
 
     return true;
 }
@@ -666,7 +709,7 @@ bool TinyMlEcuNode::observeJ1939(const CanFrame& frame) noexcept
 void TinyMlEcuNode::appendAddressClaim(std::uint64_t timestampNs)
 {
     // Not claimed yet - no room left in this pass's output - means asked again with the next frame.
-    if (appendClaimFrom(static_cast<std::uint8_t>(m_claimIdentifier & 0xFFU), timestampNs)) {
+    if (appendClaimFrom(m_address, timestampNs)) {
         m_addressClaimed = true;
     }
 }
@@ -709,7 +752,7 @@ void TinyMlEcuNode::appendJ1939Telemetry(const CanFrame& cause,
     //   5  message counter                  6  age of the input, 0.1 s/bit
     //   7-8  inference time, microseconds
     CanFrame telemetry{};
-    telemetry.identifier = m_config.outputCanId;
+    telemetry.identifier = m_outputIdentifier;
     telemetry.channel = m_config.transmitChannel;
     telemetry.direction = CanDirection::Tx;
     telemetry.format = CanFrameFormat::Extended;
@@ -884,7 +927,7 @@ void TinyMlEcuNode::appendDecodedSignals(std::uint64_t timestampNs,
         sample.signal = &m_telemetrySignals[index];
         sample.value = physicalValue;
         sample.raw = rawValue;
-        sample.identifier = m_config.outputCanId;
+        sample.identifier = m_outputIdentifier;
         sample.channel = m_config.transmitChannel;
         sample.truncated = false;
         m_outgoingSignals.push_back(sample);
@@ -922,7 +965,7 @@ void TinyMlEcuNode::publishToSystemVariables(const TinyMlInferenceResult& result
 
 std::vector<NodeStatistic> TinyMlEcuNode::statistics() const
 {
-    return {
+    std::vector<NodeStatistic> entries{
         {"Frames analysed", m_framesAnalysed},
         {"Inferences run", m_inferencesRun},
         {"Anomalies detected", m_anomaliesDetected},
@@ -939,6 +982,14 @@ std::vector<NodeStatistic> TinyMlEcuNode::statistics() const
         // the bus since. Its NAME is then on the J1939 Network panel as an ECU with no address.
         {"J1939 address lost", m_addressLost ? 1U : 0U},
     };
+
+    // Where it speaks from: not the address it was given, when it has had to move. An 11-bit bus
+    // has no addresses, and a number that was the low byte of an identifier would read as one.
+    if (m_config.j1939Mode) {
+        entries.push_back({"J1939 address", m_address});
+    }
+
+    return entries;
 }
 
 } // namespace torquebus

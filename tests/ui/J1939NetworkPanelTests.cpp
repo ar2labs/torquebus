@@ -35,6 +35,7 @@
 #include <QElapsedTimer>
 #include <QFileInfo>
 #include <QLabel>
+#include <QPushButton>
 #include <QString>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -531,4 +532,55 @@ TEST(J1939NetworkPanelTests, WithOneBusThereIsNoHeadingAndTheEcusAreAtTheTopAsBe
     EXPECT_FALSE(bench.summary().contains(QStringLiteral("buses")));
     ASSERT_EQ(bench.tree()->topLevelItemCount(), 1);
     EXPECT_TRUE(bench.tree()->topLevelItem(0)->text(0).startsWith(QStringLiteral("0 ")));
+}
+
+TEST(J1939NetworkPanelTests, RequestClaimsCanBePressedOnlyWhileAMeasurementRuns)
+{
+    Bench bench;
+
+    int asked = 0;
+    QObject::connect(&bench.panel, &J1939NetworkPanel::claimsRequested, [&asked] { ++asked; });
+
+    auto* button = bench.panel.findChild<QPushButton*>(QStringLiteral("requestClaimsButton"));
+    ASSERT_NE(button, nullptr);
+
+    // Off until whoever owns the engine says a measurement runs: before it every channel refuses.
+    EXPECT_FALSE(button->isEnabled());
+    button->click();
+    EXPECT_EQ(asked, 0);
+    EXPECT_TRUE(
+        button->toolTip().contains(QStringLiteral("Available while a measurement is running")));
+
+    bench.panel.setRequestAvailable(true);
+    EXPECT_TRUE(button->isEnabled());
+    EXPECT_FALSE(button->toolTip().contains(QStringLiteral("Available while")));
+
+    button->click();
+    EXPECT_EQ(asked, 1);
+
+    // Once per press, and not again by itself.
+    QApplication::processEvents();
+    EXPECT_EQ(asked, 1);
+
+    bench.panel.setRequestAvailable(false);
+    EXPECT_FALSE(button->isEnabled());
+    button->click();
+    EXPECT_EQ(asked, 1);
+}
+
+TEST(J1939NetworkPanelTests, TheButtonSaysWhatItSendsAndWhenToUseIt)
+{
+    Bench bench;
+
+    const auto* button = bench.panel.findChild<QPushButton*>(QStringLiteral("requestClaimsButton"));
+    ASSERT_NE(button, nullptr);
+
+    EXPECT_EQ(button->text().toStdString(), "Request claims");
+
+    // What it puts on the bus, from where, and the situation it is for: a person pressing a button
+    // that transmits has to be able to find out what it transmits.
+    const QString tip = button->toolTip();
+    EXPECT_TRUE(tip.contains(QStringLiteral("Request for Address Claimed")));
+    EXPECT_TRUE(tip.contains(QStringLiteral("null address")));
+    EXPECT_TRUE(tip.contains(QStringLiteral("already running")));
 }
