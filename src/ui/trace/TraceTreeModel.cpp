@@ -200,6 +200,17 @@ const CanMessage* TraceTreeModel::definitionFor(std::uint32_t identifier,
             return message;
         }
     }
+    if (format == CanFrameFormat::Extended) {
+        const std::uint32_t targetPgn = j1939Decompose(identifier).pgn();
+        for (const auto& database : m_databases) {
+            for (const CanMessage& message : database->messages()) {
+                if (message.format == CanFrameFormat::Extended
+                    && j1939Decompose(message.identifier).pgn() == targetPgn) {
+                    return &message;
+                }
+            }
+        }
+    }
     return nullptr;
 }
 

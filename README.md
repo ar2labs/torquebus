@@ -3,7 +3,7 @@
 **Open Automotive Network & Diagnostics Workbench**
 
 [![CI](https://github.com/ar2labs/torquebus/actions/workflows/ci.yml/badge.svg)](https://github.com/ar2labs/torquebus/actions/workflows/ci.yml)
-[![Google Test](https://img.shields.io/badge/Google_Test-1405_tests-2ea44f?logo=google)](https://github.com/ar2labs/torquebus/actions)
+[![Google Test](https://img.shields.io/badge/Google_Test-1504_tests-2ea44f?logo=google)](https://github.com/ar2labs/torquebus/actions)
 [![Tests Passing](https://img.shields.io/badge/tests-100%25_passing-brightgreen)](https://github.com/ar2labs/torquebus/actions)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
@@ -65,8 +65,9 @@ visual identity, an open architecture and a GPLv3 licence.
   See [`docs/development/dashboard.md`](docs/development/dashboard.md).
 - **Recording outlives the UI.** Close the Trace panel; the log keeps writing.
 - **Protocols above the frame.** ISO-TP and UDS, and J1939/ISOBUS with address
-  claiming, transport (BAM, RTS/CTS, ETP) and DM1/DM2 — checked line by line
-  against SAE J1939-21, J1939-73 and ISO 11783-3 rather than against memory.
+  claiming, requests - ask a bus, or one ECU on it, for any parameter group and read
+  its answer or its refusal - transport (BAM, RTS/CTS, ETP) and DM1/DM2 — checked
+  line by line against SAE J1939-21, J1939-73 and ISO 11783-3 rather than against memory.
 - **Extensible without a fork.** A plugin registers backends and pipeline block
   types through the same calls the built-in code uses. There is no second API
   for outsiders, because the second API is the one that rots.
@@ -149,11 +150,11 @@ acceptance pass, ordered so the cheapest failures surface first.
 
 ## Testing & Quality Assurance (Google Test)
 
-TorqueBus enforces a **100% automated test pass contract**. Every pull request and build runs **1405 automated tests** powered by [Google Test](https://github.com/google/googletest) (v1.15.2) and CTest across four architectural layers:
+TorqueBus enforces a **100% automated test pass contract**. Every pull request and build runs **1504 automated tests** powered by [Google Test](https://github.com/google/googletest) (v1.15.2) and CTest across four architectural layers:
 
-* **Unit Tests (1017 tests):** CAN engine core, DBC parser, J1939 codecs, ISO-TP, UDS, TinyML inference, the Lua runtime and its limits, and a seeded fuzz of every reader.
-* **UI Tests (309 tests):** QML Instrument Cluster, the Dashboard's widgets, form and signal picker, the Pipeline canvas and its CAN Bus, docking layouts, widgets, and property bindings.
-* **Integration Tests (68 tests):** Multi-node virtual CAN bus, Lua ECU lifecycles, every block of the catalog built and run on an engine, and dataflow throughput (asserting 150,000 frames/s with zero loss).
+* **Unit Tests (1071 tests):** CAN engine core, DBC parser, J1939 codecs, ISO-TP, UDS, TinyML inference, the Lua runtime and its limits, and a seeded fuzz of every reader.
+* **UI Tests (353 tests):** QML Instrument Cluster, the Dashboard's widgets, form and signal picker, the Pipeline canvas and its CAN Bus, docking layouts, widgets, and property bindings.
+* **Integration Tests (69 tests):** Multi-node virtual CAN bus, Lua ECU lifecycles, every block of the catalog built and run on an engine, and dataflow throughput (asserting 150,000 frames/s with zero loss).
 * **Hardware Loopback Tests (11 tests):** Physical PEAK and Kvaser adapter validation (cleanly skipped via `GTEST_SKIP()` when hardware is detached).
 
 Run the full Google Test suite locally:

@@ -96,6 +96,20 @@ to would be a loop - and a Rest Bus only speaks.
 To change that, right-click the drop: **Direction** is **Receive and send**, **Receive only** or
 **Send only**.
 
+### Several buses into one block
+
+An input takes one wire, so a block that is to read two buses - the J1939 block, which lists each ECU under
+the bus it is on - is fed through a **Frame Merge** (palette, *Transforms*). It has four inputs, *frames 1*
+to *frames 4*, and one output. Drop it on a bus, then on the next: each drop is wired to the next input that
+is free, so the buses land on *frames 1*, *frames 2*, ... and one that is let go of gives its input to the
+next to come. A fifth is refused. It listens and does not speak - what it puts out sent back onto a bus
+would be a loop - so a drop of it is one wire. Then draw its output to the block that reads them.
+
+Frames come out in the order of their timestamps and keep the channel they were received on, so a J1939 block
+behind it reports *CAN 1* and *CAN 2* as it would for a recording of both. What it does when more arrives than
+a pass can carry is in `FrameMergeNode.h`, and its counters - *Frames passed*, *Frames held over*, *Frames
+dropped* - are in Statistics.
+
 ### Which frames a module hears
 
 The bus carries 11-bit and 29-bit frames, and a module need not hear both. Each drop that delivers frames
@@ -156,6 +170,14 @@ in** (`NodeCatalog::createTap` - for the bus, a CAN Transmit on its channel), so
 nobody chose, and each module's transmissions are counted separately in Statistics. `rx` is a CAN Channel,
 read. A bus with six ECUs on it builds into exactly the graph that six pairs of CAN Channel and CAN Transmit
 blocks used to be drawn as.
+
+**Several wires into one block go through a Frame Merge.** The rule that an input takes one wire stays, and
+the message that says so now says where the other is: for frames, a Frame Merge block (`can.merge`,
+`FrameMergeNode`). It is the policy the rule asked for - timestamps decide, a tie goes to the lower input,
+the order of one wire is never changed, a frame is not altered, a pass carries one batch at most and what does
+not fit waits and is counted - written once, in a node, instead of by whatever happens to be connected. On the
+canvas, `PipelineGraphModel::firstFreeFramesInput()` is what makes a second bus dropped on the same block land
+on its second input: a block with one frames input has it tried and refused as before.
 
 **A limited wire passes through a filter.** `GraphDescription::build()` puts the Frame Filter's node on a wire
 whose `frameFormat` is not "all", labelled with the wire (`ecu to decoder (29-bit only)`), so what a wire says
@@ -242,5 +264,6 @@ QtNodes holds is not asking.
 |---|---|
 | `tests/unit/CanBusTests.cpp` | The bus runs: ECUs on it answer and transmit, every wire into it is a CAN Transmit, a limited wire is a filter and the one that is not limited hears more, a switched-off bus silences what is on it, grouping puts one bus where the channel was and the grouped project runs frame for frame as it did. |
 | `tests/unit/ProjectFileTests.cpp` | `frames` round-trips, is absent when not used, and an unknown one is refused. |
-| `tests/ui/CanvasBusTests.cpp` | The model (one drop is two wires and is wired and deleted as one, a filter does not speak, the rail follows its modules) and the canvas through the widgets a person has - the palette, the ports, the chevron, the real mouse events of a drag onto the rail. And what a drop looks like: the geometry of its two wires for every placement, the colours they are drawn in on both themes, the shape that picks them up, and the glow along them while running. |
+| `tests/unit/FrameMergeNodeTests.cpp` | The Frame Merge: timestamps decide, a tie goes to the lower input, a wire is never reordered, a frame is not altered, one wire goes on without a copy, a pass carries a batch and the rest waits - ahead of what arrives later - and is dropped and counted past the room to wait in; two randomized runs of thousands of passes check that nothing is lost without a count and that the order of time holds across passes; the catalog entry, and the graph that accepts four wires into the merge and still refuses two into one input. |
+| `tests/ui/CanvasBusTests.cpp` | The model (one drop is two wires and is wired and deleted as one, a filter does not speak, the rail follows its modules, each bus dropped on a Frame Merge lands on the next input and a fifth is refused) and the canvas through the widgets a person has - the palette, the ports, the chevron, the real mouse events of a drag onto the rail. And what a drop looks like: the geometry of its two wires for every placement, the colours they are drawn in on both themes, the shape that picks them up, and the glow along them while running. |
 | `tests/ui/CanvasArrangeTests.cpp` | Speakers over the bus and listeners under it, nothing on top of anything, arranging twice changes nothing. |

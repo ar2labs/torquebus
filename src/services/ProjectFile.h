@@ -78,7 +78,8 @@ public:
                                      GraphDescription& pipeline,
                                      TransmitList& transmit,
                                      DashboardDescription& dashboard,
-                                     QStringList* databases = nullptr);
+                                     QStringList* databases = nullptr,
+                                     bool* hasDatabasesKey = nullptr);
 };
 
 } // namespace torquebus::services

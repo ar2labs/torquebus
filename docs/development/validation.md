@@ -1129,7 +1129,8 @@ The fault list (`docs/development/dashboard.md`, *The fault list*):
     the **J1939 Network** panel (it is off until a measurement runs). The Output panel says it
     asked every ECU on CAN 1; the CAN Trace shows one frame `0x18EAFFFE` (data `00 EE 00`) and
     seven Address Claimed in answer - the six Lua ECUs and the TinyML ECU, each from its own
-    address. Nothing in the panel changes if they had all claimed already, which is the point: a
+    address, within about a fifth of a second and one after another, not all at once: each waits
+    the time its NAME gives it (J1939-81). Nothing in the panel changes if they had all claimed already, which is the point: a
     machine that was running when you connected, and had its ECUs listed as *no claim seen*, now
     has their names. `254` is not listed as an ECU. Stop: the button is off again.
 44. **One block, two buses.** Record a measurement with a CAN Bus block on CAN 1 and another on
@@ -1138,6 +1139,36 @@ The fault list (`docs/development/dashboard.md`, *The fault list*):
     Replay** block) into one J1939 block. The **J1939 Network** panel lists *CAN 1* and *CAN 2*,
     an ECU at 0 under each; the stop lamp is lit, and the fault list has one row,
     `CAN 1 · SA 0` - the ECU at 0 on CAN 2 says it is fine, and it is not the one on CAN 1.
+45. **Asking one ECU for something.** With the J1939 example running, press **Request PGN...** in the
+    **J1939 Network** panel. The dialog opens on the address claim, to every ECU on every channel.
+    Choose *Previously active faults (DM2)* in the list - the field fills in `65227` - in the **ECU**
+    list the ECU at 0, in **Channel** CAN 1, and press **Ask**. The Output panel says it asked the ECU at 0
+    on CAN 1 for PGN 65227 (0xFECB); the CAN Trace shows `0x18EA00FE` (data `CB FE 00`) and, from the
+    engine ECU, `0x18E8FF00` (data `01 FF FF FF FE CB FE 00`): an Acknowledgement, *negative* - it
+    has no DM2 to send - to everyone, because the request came from the null address, where nobody is
+    to be told. The engine ECU's row now says in its detail *last answer: PGN 65227 (0xFECB) not
+    supported*; no other ECU's does. Now right-click the row of the body controller (address 33) and
+    choose *Active faults (DM1)* in the menu *Ask the ECU at 33 (0x21)*: its DM1 appears at once in
+    the CAN Trace, between its once-a-second ones. In the dialog type `60929`: **Ask** is off, and
+    the line under the field says a group for one ECU ends in 00 and suggests `60928 (0xEE00)`; type
+    `abc` and it says that is not a PGN. Type `0xFECC` (DM3, which clears fault codes): **Ask** asks
+    whether that is meant - answer *Cancel* and nothing goes on the bus. Stop: both buttons and the
+    menu entries are off. **On a real bus (not yet done):** the requests come from the null address
+    (254), which J1939-81 gives to the Request for Address Claimed; an ECU that follows the standard to
+    the letter may answer step 43 and ignore a request for a DM2 or an identification. If that is what
+    is seen, the tool needs an address of its own to ask with - it has none today.
+46. **Two live buses, one J1939 block, through a Frame Merge.** In the J1939 example add a second CAN
+    Bus, on CAN 2 (add a channel for it first if the hardware dialog has only one). Take the J1939
+    block off the CAN 1 rail - select its drop and press Delete - and add a **Frame Merge** from the
+    palette (*Transforms*): drop it on CAN 1's rail, then on CAN 2's. The wires land on its first two
+    inputs (*frames 1*, *frames 2*) and a fifth bus would be refused. Draw the merge's output to the
+    J1939 block's input. Start, and from the Transmit panel send a DM1 on CAN 2 - `0x18FECA21`, lamp
+    byte `04` and a code. The **J1939 Network** panel lists *CAN 1*, with the six ECUs and the TinyML
+    one, and *CAN 2*, with the ECU at 33; the fault list names the bus on its row, as in step 41. The
+    Statistics panel lists the merge with *Frames passed* growing, and *Frames held over* and *Frames
+    dropped* at 0. **With two different adapters (not yet done):** the merge orders by the channels'
+    timestamps, which each backend stamps with its own clock; check in the CAN Trace that the merged
+    stream is in a believable order, and that each bus's own frames are in the order they were sent.
 
 **Watch for:** a gauge that shows dashes with a correctly spelled signal. The line under the
 fields in the Widget form says whether the signal is reaching the plot store - *No samples

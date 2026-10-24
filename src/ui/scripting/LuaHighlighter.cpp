@@ -52,6 +52,7 @@ const QStringList& torqueBusNames()
         QStringLiteral("on_disable"),
         QStringLiteral("on_timer"),
         QStringLiteral("on_message"),
+        QStringLiteral("on_request"),
         QStringLiteral("on_uds_request"),
         QStringLiteral("on_security_seed"),
         // Bindings a script calls back.

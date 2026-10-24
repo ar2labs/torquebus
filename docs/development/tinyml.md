@@ -87,9 +87,19 @@ what lets the J1939 Network panel show it as *claimed*, and the Dashboard's faul
 again), takes its own claim coming back off the bus for the bus's and does not analyse it, and a block that
 is not on a J1939 bus - the 11-bit example vehicle - has no address to claim.
 
+**It answers requests (J1939-21).** Asked for its claim, its DM1 or its telemetry - to every ECU, or to this
+one - it sends them, from the address it speaks from: the claim, the DM1 as it stands (the predictive code
+while the model is sure of trouble, J1939-73's *no active fault* while it is not) and the last telemetry
+frame it sent. Asked by its own address for anything else it sends the refusal J1939-21 has an ECU send - an
+Acknowledgement, PGN 59392, control byte 1 (*negative*), naming the group and the one who asked - and asked
+of everyone it says nothing, because most ECUs have nothing to say to most requests. Its own request coming
+back off the bus is not answered. The J1939 Network panel's **Request claims**, its **Request PGN...** and the
+menu of an ECU's row send them, and the refusal is shown on the row of the ECU that sent it. The Statistics
+panel counts *Requests answered* and *Requests refused*.
+
 **It keeps the rules of a claim (J1939-81).** A Request for Address Claimed - to every ECU, or to this one -
-is answered with its claim, which is how a tool that joins a running bus learns who is on it (the J1939
-Network panel's **Request claims** button sends one). Another ECU claiming the same address with a **lower**
+is answered with its claim, which is how a tool that joins a running bus learns who is on it. Another ECU
+claiming the same address with a **lower**
 NAME takes it, and what this block does about it depends on whether it can move:
 
 * **It cannot, by default.** It does what such an ECU does - sends *cannot claim* (an Address Claimed from the
@@ -113,10 +123,16 @@ default the address it was given, so that two of these blocks at two addresses a
 and `j1939ArbitraryAddress` (off). The manufacturer is not a setting: it is 0, because a simulated ECU is
 nobody's product.
 
-**One rule of J1939-81 is left out, on purpose.** An ECU waits a pseudo-random time, up to 153 ms, before it
-answers a request or says it cannot claim. The delay is there to spread out the answers of ECUs that power up
-at the same instant on a shared wire. Here the answers are queued by the engine and arbitrated by the bus
-model, in an order that does not vary, so a delay would add nothing but a measurement that cannot be repeated.
+**It waits before it answers (J1939-81).** An ECU waits a pseudo-random time, up to 153 ms, before it answers
+a request to everyone for its claim or says it cannot claim, so that the answers of ECUs asked at one instant
+do not all arrive at one instant. Here the time comes from the NAME - its top byte, spread by a constant,
+times 0.6 ms - so that two ECUs differ and one measurement is the same as the last, which a simulation that
+is to be repeated needs. The block has no clock of its own, so it waits in the time of the bus: the answer is
+stamped with the time it was due and goes out with the first frame of the bus that is as late as that. On a
+bus with traffic that is within a pass; on a bus with none it is never, because nothing wakes the block. The
+claim at power-up, a defending re-claim and a move to another address are not answers and are not delayed.
+Thirty-two answers can wait at once; a bus asked faster than that has the rest left out, and they are not
+counted as answered.
 
 **Predictive DM1.** When the anomaly has been 80 % or more for five seconds - or the thermal health falls
 under 30 %, at once - the block sends a DM1 from its own address: SPN 110, FMI 15 with the amber lamp, or

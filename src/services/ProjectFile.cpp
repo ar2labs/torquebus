@@ -577,17 +577,13 @@ Result ProjectFile::save(const QString& path,
     // dashboards existed, which is a different thing.
     root[kDashboard] = panel;
 
-    if (!databases.isEmpty()) {
-        QJsonArray dbArray;
-        for (const QString& dbPath : databases) {
-            if (!dbPath.trimmed().isEmpty()) {
-                dbArray.append(QDir::fromNativeSeparators(dbPath.trimmed()));
-            }
-        }
-        if (!dbArray.isEmpty()) {
-            root[kDatabases] = dbArray;
+    QJsonArray dbArray;
+    for (const QString& dbPath : databases) {
+        if (!dbPath.trimmed().isEmpty()) {
+            dbArray.append(QDir::fromNativeSeparators(dbPath.trimmed()));
         }
     }
+    root[kDatabases] = dbArray;
 
     // QSaveFile writes to a temporary beside the target and renames on commit,
     // so a crash or a full disk during the save leaves yesterday's project
@@ -617,7 +613,8 @@ Result ProjectFile::load(const QString& path,
                          GraphDescription& pipeline,
                          TransmitList& transmit,
                          DashboardDescription& dashboard,
-                         QStringList* databases)
+                         QStringList* databases,
+                         bool* hasDatabasesKey)
 {
     QFile file{path};
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -854,6 +851,9 @@ Result ProjectFile::load(const QString& path,
     dashboard = std::move(panel);
     if (databases != nullptr) {
         *databases = std::move(loadedDatabases);
+    }
+    if (hasDatabasesKey != nullptr) {
+        *hasDatabasesKey = root.contains(kDatabases);
     }
 
     return Result::ok();

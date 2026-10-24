@@ -325,8 +325,9 @@ order the user happened to add blocks in.
 
 A CAN network is the one place a pipeline wants more than one wire into an input: every ECU on a bus
 transmits on it. The graph refuses that everywhere else - merging two streams needs a policy, and
-picking one silently is worse than asking for a merge node - and `j1939-vehicle.tbsproj` shipped
-unstartable for exactly that reason ("Two wires arrive at 'tx_1' port 0").
+picking one silently is worse than asking for a merge node (for frames, the Frame Merge block) - and
+`j1939-vehicle.tbsproj` shipped unstartable for exactly that reason ("Two wires arrive at 'tx_1'
+port 0").
 
 The CAN Bus block (`can.bus`) is the exception, kept out of the executor. `PortDescriptor::fanIn` says an
 input takes any number of wires, *in a description*; at build time `GraphDescription::build()` gives every

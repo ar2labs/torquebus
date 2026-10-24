@@ -10,14 +10,25 @@
 #include "ui/theme/ThemeManager.h"
 
 #include <QAbstractItemView>
+#include <QEvent>
 #include <QFileInfo>
 #include <QFrame>
+#include <QGuiApplication>
+#include <QHBoxLayout>
 #include <QHeaderView>
+#include <QHelpEvent>
+#include <QHideEvent>
 #include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMimeData>
+#include <QMouseEvent>
+#include <QPushButton>
+#include <QScreen>
+#include <QScrollBar>
 #include <QStringList>
+#include <QToolTip>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
@@ -45,6 +56,12 @@ constexpr int kPathRole = Qt::UserRole + 2;
 constexpr int kMessageRole = Qt::UserRole + 3;
 constexpr int kSignalRole = Qt::UserRole + 4;
 constexpr int kMultiplexRole = Qt::UserRole + 5;
+constexpr int kCardTitleRole = Qt::UserRole + 6;
+constexpr int kCardMetaRole = Qt::UserRole + 7;
+constexpr int kCardBodyRole = Qt::UserRole + 8;
+constexpr int kCardValuesRole = Qt::UserRole + 9;
+
+constexpr int kCommentCardLineWidth = 54;
 
 /// Where an item is in the tree: its row under each of its parents, from the top. Items sorted by
 /// it are items in the order the tree shows them.
@@ -205,6 +222,49 @@ protected:
     return {};
 }
 
+/// Wraps a description at word boundaries so the hover card and tooltip present
+/// long comments across multiple balanced lines rather than as a single wide ribbon.
+[[nodiscard]] QString wrapCommentLines(const QString& text,
+                                       int maxLineChars = kCommentCardLineWidth)
+{
+    const QString trimmed = text.trimmed();
+    if (trimmed.isEmpty()) {
+        return {};
+    }
+
+    QStringList wrappedParagraphs;
+    const QStringList paragraphs = trimmed.split(QLatin1Char('\n'));
+
+    for (const QString& rawParagraph : paragraphs) {
+        const QString paragraph = rawParagraph.simplified();
+        if (paragraph.isEmpty()) {
+            continue;
+        }
+        if (paragraph.size() <= maxLineChars) {
+            wrappedParagraphs << paragraph;
+            continue;
+        }
+
+        const QStringList words = paragraph.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        QString currentLine;
+        for (const QString& word : words) {
+            if (currentLine.isEmpty()) {
+                currentLine = word;
+            } else if (currentLine.size() + 1 + word.size() <= maxLineChars) {
+                currentLine += QLatin1Char(' ') + word;
+            } else {
+                wrappedParagraphs << currentLine;
+                currentLine = word;
+            }
+        }
+        if (!currentLine.isEmpty()) {
+            wrappedParagraphs << currentLine;
+        }
+    }
+
+    return wrappedParagraphs.join(QLatin1Char('\n'));
+}
+
 } // namespace
 
 DatabasePanel::DatabasePanel(QWidget* parent)
@@ -231,12 +291,55 @@ void DatabasePanel::buildUi()
     m_filter->setClearButtonEnabled(true);
     m_filter->setPlaceholderText(tr("Filter messages and signals"));
 
+    m_removeButton = new QPushButton(tr("Remove Database"), this);
+    m_removeButton->setObjectName(QStringLiteral("removeDatabaseButton"));
+    m_removeButton->setToolTip(
+        tr("Remove the selected database from the project (save the project to persist removal)"));
+    m_removeButton->setEnabled(false);
+    connect(
+        m_removeButton, &QPushButton::clicked, this, [this] { (void)removeSelectedDatabase(); });
+
+    auto* topBar = new QHBoxLayout;
+    topBar->setContentsMargins(0, 0, 0, 0);
+    topBar->setSpacing(4);
+    topBar->addWidget(m_filter, 1);
+    topBar->addWidget(m_removeButton);
+
     m_tree = new ExplorerTree(this);
     m_tree->setColumnCount(ColumnCount);
     m_tree->setHeaderLabels({tr("Name"), tr("Position"), tr("Range"), tr("Unit"), tr("Comment")});
     m_tree->setUniformRowHeights(true);
     m_tree->setAnimated(false);
     m_tree->setAlternatingRowColors(true);
+    m_tree->setMouseTracking(true);
+    m_tree->viewport()->setMouseTracking(true);
+    m_tree->viewport()->installEventFilter(this);
+    m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_tree, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QTreeWidgetItem* item = m_tree->itemAt(pos);
+        if (item == nullptr && m_databases.empty()) {
+            return;
+        }
+        const QString targetPath =
+            item != nullptr
+                ? item->data(0, kPathRole).toString()
+                : (m_databases.size() == 1 ? QString::fromStdString(m_databases.front()->sourcePath)
+                                           : QString{});
+        if (targetPath.isEmpty()) {
+            return;
+        }
+
+        QMenu menu(this);
+        QAction* removeAction =
+            menu.addAction(tr("Remove '%1' from Project").arg(QFileInfo{targetPath}.fileName()));
+        if (ThemeManager* themes = ThemeManager::instance()) {
+            removeAction->setIcon(themes->icon(QStringLiteral("clear")));
+        }
+        connect(removeAction, &QAction::triggered, this, [this, targetPath] {
+            (void)removeDatabase(targetPath);
+        });
+        menu.exec(m_tree->viewport()->mapToGlobal(pos));
+    });
 
     // Several at once, so that the signals of one message can be dragged to the Dashboard together.
     m_tree->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -244,10 +347,17 @@ void DatabasePanel::buildUi()
     m_tree->header()->setStretchLastSection(true);
     m_tree->header()->setSectionResizeMode(ColumnName, QHeaderView::Interactive);
     m_tree->setIconSize(QSize(16, 16));
-    m_tree->setColumnWidth(ColumnName, 240);
-    m_tree->setColumnWidth(ColumnPosition, 170);
-    m_tree->setColumnWidth(ColumnRange, 170);
+    m_tree->setColumnWidth(ColumnName, 190);
+    m_tree->setColumnWidth(ColumnPosition, 90);
+    m_tree->setColumnWidth(ColumnRange, 70);
     m_tree->setColumnWidth(ColumnUnit, 60);
+
+    connect(m_tree->verticalScrollBar(), &QScrollBar::valueChanged, this, [this] {
+        hideCommentCard();
+    });
+    connect(m_tree->horizontalScrollBar(), &QScrollBar::valueChanged, this, [this] {
+        hideCommentCard();
+    });
 
     m_summary = new QLabel(this);
     m_summary->setObjectName(QStringLiteral("panelStatus"));
@@ -255,9 +365,176 @@ void DatabasePanel::buildUi()
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(6, 6, 6, 4);
     layout->setSpacing(4);
-    layout->addWidget(m_filter);
+    layout->addLayout(topBar);
     layout->addWidget(m_tree, 1);
     layout->addWidget(m_summary);
+
+    buildCommentCard();
+    applyIcons();
+}
+
+void DatabasePanel::buildCommentCard()
+{
+    m_commentCard = new QFrame(this,
+                               Qt::ToolTip | Qt::FramelessWindowHint | Qt::WindowTransparentForInput
+                                   | Qt::WindowDoesNotAcceptFocus);
+    m_commentCard->setObjectName(QStringLiteral("dbcCommentCard"));
+    m_commentCard->setAttribute(Qt::WA_ShowWithoutActivating, true);
+    m_commentCard->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    m_commentCard->setMinimumWidth(300);
+    m_commentCard->setMaximumWidth(420);
+
+    auto* cardLayout = new QVBoxLayout(m_commentCard);
+    cardLayout->setContentsMargins(10, 8, 10, 8);
+    cardLayout->setSpacing(4);
+
+    m_cardTitle = new QLabel(m_commentCard);
+    m_cardTitle->setObjectName(QStringLiteral("dbcCommentCardTitle"));
+    m_cardTitle->setWordWrap(true);
+    m_cardTitle->setTextFormat(Qt::PlainText);
+
+    m_cardMeta = new QLabel(m_commentCard);
+    m_cardMeta->setObjectName(QStringLiteral("dbcCommentCardMeta"));
+    m_cardMeta->setWordWrap(true);
+    m_cardMeta->setTextFormat(Qt::PlainText);
+
+    m_cardBody = new QLabel(m_commentCard);
+    m_cardBody->setObjectName(QStringLiteral("dbcCommentCardBody"));
+    m_cardBody->setWordWrap(true);
+    m_cardBody->setTextFormat(Qt::PlainText);
+
+    m_cardValues = new QLabel(m_commentCard);
+    m_cardValues->setObjectName(QStringLiteral("dbcCommentCardValues"));
+    m_cardValues->setWordWrap(true);
+    m_cardValues->setTextFormat(Qt::PlainText);
+
+    cardLayout->addWidget(m_cardTitle);
+    cardLayout->addWidget(m_cardMeta);
+    cardLayout->addWidget(m_cardBody);
+    cardLayout->addWidget(m_cardValues);
+
+    m_commentCard->hide();
+}
+
+void DatabasePanel::updateCommentCardAt(const QPoint& viewportPos)
+{
+    if (m_tree == nullptr || m_commentCard == nullptr) {
+        return;
+    }
+
+    QTreeWidgetItem* item = m_tree->itemAt(viewportPos);
+    const int column = m_tree->columnAt(viewportPos.x());
+    if (item == nullptr || column != ColumnComment) {
+        hideCommentCard();
+        return;
+    }
+
+    const QString title = item->data(0, kCardTitleRole).toString();
+    const QString meta = item->data(0, kCardMetaRole).toString();
+    const QString body = item->data(0, kCardBodyRole).toString();
+    const QString values = item->data(0, kCardValuesRole).toString();
+    if (body.isEmpty() && values.isEmpty()) {
+        hideCommentCard();
+        return;
+    }
+
+    if (m_hoveredCommentItem != item) {
+        m_hoveredCommentItem = item;
+
+        m_cardTitle->setText(title);
+        m_cardTitle->setVisible(!title.isEmpty());
+
+        m_cardMeta->setText(meta);
+        m_cardMeta->setVisible(!meta.isEmpty());
+
+        if (!body.isEmpty()) {
+            m_cardBody->setText(body);
+            m_cardBody->setVisible(true);
+            m_cardValues->setText(values);
+            m_cardValues->setVisible(!values.isEmpty());
+        } else {
+            m_cardBody->setText(values);
+            m_cardBody->setVisible(true);
+            m_cardValues->clear();
+            m_cardValues->setVisible(false);
+        }
+
+        if (m_commentCard->layout() != nullptr) {
+            m_commentCard->layout()->activate();
+        }
+        m_commentCard->adjustSize();
+    }
+
+    const QModelIndex index = m_tree->indexFromItem(item, ColumnComment);
+    const QRect cellRect = m_tree->visualRect(index);
+    const QPoint globalCursor = m_tree->viewport()->mapToGlobal(viewportPos);
+    const QPoint cellBottomLeft = m_tree->viewport()->mapToGlobal(cellRect.bottomLeft());
+    const QPoint cellTopLeft = m_tree->viewport()->mapToGlobal(cellRect.topLeft());
+
+    const QSize cardSize = m_commentCard->sizeHint().expandedTo(m_commentCard->minimumSize());
+    int x = std::max(cellBottomLeft.x(), globalCursor.x() - 24);
+    int y = cellBottomLeft.y() + 6;
+
+    if (const QScreen* screen = QGuiApplication::screenAt(globalCursor)) {
+        const QRect avail = screen->availableGeometry();
+        if (x + cardSize.width() > avail.right() - 8) {
+            x = std::max(avail.left() + 8, avail.right() - cardSize.width() - 8);
+        }
+        if (y + cardSize.height() > avail.bottom() - 8) {
+            y = std::max(avail.top() + 8, cellTopLeft.y() - cardSize.height() - 6);
+        }
+    }
+
+    m_commentCard->move(x, y);
+    if (!m_commentCard->isVisible()) {
+        m_commentCard->show();
+    }
+}
+
+void DatabasePanel::hideCommentCard()
+{
+    m_hoveredCommentItem = nullptr;
+    if (m_commentCard != nullptr && m_commentCard->isVisible()) {
+        m_commentCard->hide();
+    }
+}
+
+bool DatabasePanel::eventFilter(QObject* watched, QEvent* event)
+{
+    if (m_tree != nullptr && watched == m_tree->viewport() && event != nullptr) {
+        switch (event->type()) {
+        case QEvent::MouseMove: {
+            const auto* mouseEvent = static_cast<QMouseEvent*>(event);
+            updateCommentCardAt(mouseEvent->pos());
+            break;
+        }
+        case QEvent::ToolTip: {
+            const auto* helpEvent = static_cast<QHelpEvent*>(event);
+            if (m_tree->columnAt(helpEvent->pos().x()) == ColumnComment) {
+                updateCommentCardAt(helpEvent->pos());
+                QToolTip::hideText();
+                return true;
+            }
+            hideCommentCard();
+            break;
+        }
+        case QEvent::Leave:
+        case QEvent::Wheel:
+        case QEvent::Hide:
+            hideCommentCard();
+            break;
+        default:
+            break;
+        }
+    }
+
+    return QWidget::eventFilter(watched, event);
+}
+
+void DatabasePanel::hideEvent(QHideEvent* event)
+{
+    hideCommentCard();
+    QWidget::hideEvent(event);
 }
 
 bool DatabasePanel::loadDatabase(const QString& path)
@@ -300,88 +577,235 @@ bool DatabasePanel::loadDatabase(const QString& path)
 void DatabasePanel::addDatabaseToTree(const CanDatabase& database)
 {
     const QString path = QString::fromStdString(database.sourcePath);
+    const QString fileName = QFileInfo{path}.fileName();
 
     auto* root = new QTreeWidgetItem(m_tree);
-    root->setText(ColumnName, QFileInfo{path}.fileName());
+    root->setText(ColumnName, fileName);
     root->setText(ColumnComment, path);
     root->setToolTip(ColumnName, path);
     root->setData(0, kKindRole, KindDatabase);
     root->setData(0, kPathRole, path);
     root->setExpanded(true);
 
+    QStringList rootMetaParts;
     if (!database.version.empty()) {
-        root->setText(ColumnRange, tr("version %1").arg(QString::fromStdString(database.version)));
+        const QString versionText = tr("version %1").arg(QString::fromStdString(database.version));
+        root->setText(ColumnRange, versionText);
+        rootMetaParts << versionText;
     }
+    rootMetaParts << tr("%1 message(s), %2 signal(s)")
+                         .arg(database.messageCount())
+                         .arg(database.signalCount());
+
+    const QString wrappedPath = wrapCommentLines(path);
+    root->setData(0, kCardTitleRole, fileName);
+    root->setData(0, kCardMetaRole, rootMetaParts.join(QStringLiteral(" · ")));
+    root->setData(0, kCardBodyRole, wrappedPath);
+    root->setToolTip(ColumnComment, wrappedPath);
 
     for (const CanMessage& message : database.messages()) {
+        const QString messageName = QString::fromStdString(message.name);
+        const QString identifierText = formatIdentifier(message);
+        const QString lengthText = tr("%n byte(s)", nullptr, message.length);
+        const QString messageComment = QString::fromStdString(message.comment);
+
         auto* messageItem = new QTreeWidgetItem(root);
-        messageItem->setText(ColumnName, QString::fromStdString(message.name));
-        messageItem->setText(ColumnPosition, formatIdentifier(message));
-        messageItem->setText(ColumnRange, tr("%n byte(s)", nullptr, message.length));
-        messageItem->setText(ColumnComment, QString::fromStdString(message.comment));
+        messageItem->setText(ColumnName, messageName);
+        messageItem->setText(ColumnPosition, identifierText);
+        messageItem->setText(ColumnRange, lengthText);
+        messageItem->setText(ColumnComment, messageComment);
         messageItem->setData(0, kKindRole, KindMessage);
         messageItem->setData(0, kPathRole, path);
-        messageItem->setData(0, kMessageRole, QString::fromStdString(message.name));
+        messageItem->setData(0, kMessageRole, messageName);
 
+        QStringList messageMetaParts{lengthText};
         if (message.cycleTimeMs > 0) {
-            messageItem->setText(ColumnUnit, tr("%1 ms").arg(message.cycleTimeMs));
+            const QString cycleText = tr("%1 ms").arg(message.cycleTimeMs);
+            messageItem->setText(ColumnUnit, cycleText);
+            messageMetaParts << cycleText;
         }
 
         if (!message.transmitter.empty()) {
-            messageItem->setToolTip(
-                ColumnName, tr("Sent by %1").arg(QString::fromStdString(message.transmitter)));
+            const QString txText =
+                tr("Sent by %1").arg(QString::fromStdString(message.transmitter));
+            messageItem->setToolTip(ColumnName, txText);
+            messageMetaParts << txText;
+        }
+
+        const QString wrappedMessageComment = wrapCommentLines(messageComment);
+        messageItem->setData(
+            0, kCardTitleRole, QStringLiteral("%1 (%2)").arg(messageName, identifierText));
+        messageItem->setData(0, kCardMetaRole, messageMetaParts.join(QStringLiteral(" · ")));
+        messageItem->setData(0, kCardBodyRole, wrappedMessageComment);
+        if (!wrappedMessageComment.isEmpty()) {
+            messageItem->setToolTip(ColumnComment, wrappedMessageComment);
         }
 
         for (const CanSignal& signal : message.signalList) {
+            const QString signalName = QString::fromStdString(signal.name);
+            const QString positionText = formatPosition(signal);
+            const QString rangeText = formatRange(signal);
+            const QString unitText = QString::fromStdString(signal.unit);
+
             auto* signalItem = new QTreeWidgetItem(messageItem);
-            signalItem->setText(ColumnName, QString::fromStdString(signal.name));
-            signalItem->setText(ColumnPosition, formatPosition(signal));
-            signalItem->setText(ColumnRange, formatRange(signal));
-            signalItem->setText(ColumnUnit, QString::fromStdString(signal.unit));
+            signalItem->setText(ColumnName, signalName);
+            signalItem->setText(ColumnPosition, positionText);
+            signalItem->setText(ColumnRange, rangeText);
+            signalItem->setText(ColumnUnit, unitText);
             signalItem->setData(0, kKindRole, KindSignal);
             signalItem->setData(0, kPathRole, path);
-            signalItem->setData(0, kMessageRole, QString::fromStdString(message.name));
-            signalItem->setData(0, kSignalRole, QString::fromStdString(signal.name));
+            signalItem->setData(0, kMessageRole, messageName);
+            signalItem->setData(0, kSignalRole, signalName);
             signalItem->setData(
                 0, kMultiplexRole, signal.isMultiplexer || signal.multiplexerValue.has_value());
+
+            const QString signalComment = QString::fromStdString(signal.comment);
+            const QString multiplexingText = formatMultiplexing(signal);
+            QStringList valueLines;
+            for (const SignalValueName& value : signal.valueNames) {
+                valueLines << QStringLiteral("%1 = %2")
+                                  .arg(value.value)
+                                  .arg(QString::fromStdString(value.name));
+            }
 
             // The comment column carries whichever of the three things the
             // signal actually has. A comment is the most useful, then the
             // multiplexing, then the value table - and a row that says all
             // three is a row nobody reads.
-            QString detail = QString::fromStdString(signal.comment);
+            QString detail = signalComment;
             if (detail.isEmpty()) {
-                detail = formatMultiplexing(signal);
+                detail = multiplexingText;
             }
-            if (detail.isEmpty() && !signal.valueNames.empty()) {
-                QStringList names;
-                for (const SignalValueName& value : signal.valueNames) {
-                    names << QStringLiteral("%1 = %2")
-                                 .arg(value.value)
-                                 .arg(QString::fromStdString(value.name));
-                }
-                detail = names.join(QStringLiteral(", "));
+            if (detail.isEmpty() && !valueLines.isEmpty()) {
+                detail = valueLines.join(QStringLiteral(", "));
             }
             signalItem->setText(ColumnComment, detail);
 
-            // The full value table goes in the tooltip whatever the column
-            // shows, because a gear selector with sixteen positions is exactly
-            // the signal whose comment is also worth having.
-            if (!signal.valueNames.empty()) {
-                QStringList names;
-                for (const SignalValueName& value : signal.valueNames) {
-                    names << QStringLiteral("%1 = %2")
-                                 .arg(value.value)
-                                 .arg(QString::fromStdString(value.name));
-                }
-                signalItem->setToolTip(ColumnComment, names.join(QLatin1Char('\n')));
+            QStringList signalMetaParts{positionText};
+            if (!rangeText.isEmpty()) {
+                signalMetaParts << (unitText.isEmpty()
+                                        ? rangeText
+                                        : QStringLiteral("%1 %2").arg(rangeText, unitText));
+            } else if (!unitText.isEmpty()) {
+                signalMetaParts << unitText;
+            }
+
+            const QString rawCardBody = !signalComment.isEmpty() ? signalComment : multiplexingText;
+            const QString wrappedSignalBody = wrapCommentLines(rawCardBody);
+
+            QStringList extraCardLines;
+            if (!signalComment.isEmpty() && !multiplexingText.isEmpty()) {
+                extraCardLines << multiplexingText;
+            }
+            extraCardLines.append(valueLines);
+            const QString cardValuesText = extraCardLines.join(QLatin1Char('\n'));
+
+            signalItem->setData(
+                0, kCardTitleRole, QStringLiteral("%1 · %2").arg(messageName, signalName));
+            signalItem->setData(0, kCardMetaRole, signalMetaParts.join(QStringLiteral(" · ")));
+            signalItem->setData(0, kCardBodyRole, wrappedSignalBody);
+            signalItem->setData(0, kCardValuesRole, cardValuesText);
+
+            QStringList toolTipSections;
+            if (!wrappedSignalBody.isEmpty()) {
+                toolTipSections << wrappedSignalBody;
+            }
+            if (!cardValuesText.isEmpty()) {
+                toolTipSections << cardValuesText;
+            }
+            if (!toolTipSections.isEmpty()) {
+                signalItem->setToolTip(ColumnComment, toolTipSections.join(QStringLiteral("\n\n")));
             }
         }
     }
 }
 
+bool DatabasePanel::removeDatabase(const QString& path)
+{
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty()) {
+        return false;
+    }
+
+    const QString normalizedTarget = QFileInfo{trimmed}.absoluteFilePath();
+    auto matchesPath = [&](const QString& candidate) {
+        if (QString::compare(candidate, trimmed, Qt::CaseInsensitive) == 0) {
+            return true;
+        }
+        const QString normalizedCandidate = QFileInfo{candidate}.absoluteFilePath();
+        return !normalizedTarget.isEmpty()
+               && QString::compare(normalizedCandidate, normalizedTarget, Qt::CaseInsensitive) == 0;
+    };
+
+    QString removedPath;
+    for (auto it = m_databases.begin(); it != m_databases.end(); ++it) {
+        if (!*it) {
+            continue;
+        }
+        const QString candidate = QString::fromStdString((*it)->sourcePath);
+        if (matchesPath(candidate)) {
+            removedPath = candidate;
+            m_databases.erase(it);
+            break;
+        }
+    }
+
+    if (removedPath.isEmpty()) {
+        return false;
+    }
+
+    hideCommentCard();
+
+    for (int i = m_tree->topLevelItemCount() - 1; i >= 0; --i) {
+        QTreeWidgetItem* root = m_tree->topLevelItem(i);
+        if (root != nullptr && matchesPath(root->data(0, kPathRole).toString())) {
+            delete m_tree->takeTopLevelItem(i);
+        }
+    }
+
+    updateSummary();
+    Q_EMIT databaseRemoved(removedPath);
+    return true;
+}
+
+bool DatabasePanel::removeSelectedDatabase()
+{
+    if (m_databases.empty() || m_tree == nullptr) {
+        return false;
+    }
+
+    QStringList pathsToRemove;
+    for (const QTreeWidgetItem* item : m_tree->selectedItems()) {
+        if (item == nullptr) {
+            continue;
+        }
+        const QString itemPath = item->data(0, kPathRole).toString();
+        if (!itemPath.isEmpty() && !pathsToRemove.contains(itemPath, Qt::CaseInsensitive)) {
+            pathsToRemove.push_back(itemPath);
+        }
+    }
+
+    if (pathsToRemove.isEmpty() && m_tree->currentItem() != nullptr) {
+        const QString currentPath = m_tree->currentItem()->data(0, kPathRole).toString();
+        if (!currentPath.isEmpty()) {
+            pathsToRemove.push_back(currentPath);
+        }
+    }
+
+    if (pathsToRemove.isEmpty() && !m_databases.empty()) {
+        pathsToRemove.push_back(QString::fromStdString(m_databases.back()->sourcePath));
+    }
+
+    bool anyRemoved = false;
+    for (const QString& targetPath : std::as_const(pathsToRemove)) {
+        anyRemoved = removeDatabase(targetPath) || anyRemoved;
+    }
+    return anyRemoved;
+}
+
 void DatabasePanel::clear()
 {
+    hideCommentCard();
     m_tree->clear();
     m_databases.clear();
     updateSummary();
@@ -411,6 +835,10 @@ QStringList DatabasePanel::databasePaths() const
 
 void DatabasePanel::updateSummary()
 {
+    if (m_removeButton != nullptr) {
+        m_removeButton->setEnabled(!m_databases.empty());
+    }
+
     if (m_databases.empty()) {
         m_summary->setText(tr("No database loaded. File → Import Database..."));
         return;
@@ -431,6 +859,7 @@ void DatabasePanel::updateSummary()
 
 void DatabasePanel::onFilterChanged(const QString& text)
 {
+    hideCommentCard();
     const QString needle = text.trimmed();
 
     for (int i = 0; i < m_tree->topLevelItemCount(); ++i) {
@@ -480,6 +909,10 @@ void DatabasePanel::applyIcons()
     ThemeManager* themes = ThemeManager::instance();
     if (themes == nullptr) {
         return;
+    }
+
+    if (m_removeButton != nullptr) {
+        m_removeButton->setIcon(themes->icon(QStringLiteral("clear")));
     }
 
     const QIcon databaseIcon = themes->icon(QStringLiteral("database"));

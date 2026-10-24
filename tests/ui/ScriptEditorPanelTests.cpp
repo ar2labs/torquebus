@@ -4,6 +4,7 @@
 // Copyright (C) TorqueBus contributors
 
 #include "core/pipeline/GraphDescription.h"
+#include "ui/scripting/LuaHighlighter.h"
 #include "ui/scripting/ScriptEdit.h"
 #include "ui/scripting/ScriptEditorPanel.h"
 
@@ -15,12 +16,17 @@
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTextCursor>
+#include <QTextDocument>
 #include <QTextEdit>
+#include <QTextLayout>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QTreeWidgetItemIterator>
 
 #include <gtest/gtest.h>
+
+#include <algorithm>
+#include <cstring>
 
 namespace torquebus::ui {
 namespace {
@@ -209,6 +215,70 @@ TEST(ScriptEditorPanelTests, SidebarToggleAndComponents)
 
     // Reset filter
     panel.onFunctionFilterChanged(QString{});
+}
+
+TEST(ScriptEditorPanelTests, TheScriptReferenceListsTheHookThatAnswersRequests)
+{
+    GraphDescription description;
+    ScriptEditorPanel panel{description};
+
+    const QTreeWidgetItem* found = nullptr;
+
+    for (QTreeWidgetItemIterator it{panel.functionsTree()}; *it != nullptr; ++it) {
+        if ((*it)->text(0) == QStringLiteral("on_request")) {
+            found = *it;
+        }
+    }
+
+    ASSERT_NE(found, nullptr);
+    EXPECT_EQ(found->parent()->text(0).toStdString(), "Event Handlers");
+    EXPECT_EQ(found->text(1).toStdString(),
+              "function on_request(pgn, destination, source, channel)");
+    EXPECT_TRUE(found->data(0, Qt::UserRole + 3).toString().contains(QStringLiteral("false")));
+
+    // The template inserted is the hook, and a script that has it is one the node would call.
+    const QString snippet = found->data(0, Qt::UserRole + 4).toString();
+    EXPECT_TRUE(snippet.startsWith(
+        QStringLiteral("function on_request(pgn, destination, source, channel)")));
+    EXPECT_TRUE(snippet.contains(QStringLiteral("return false")));
+    EXPECT_TRUE(snippet.contains(QStringLiteral("j1939_send(")));
+}
+
+TEST(ScriptEditorPanelTests, TheEditorColoursEveryHookTheNodeLooksFor)
+{
+    // A hook that is not coloured looks like a typo in a script, and one a node calls is one the
+    // person writing it has to be able to trust.
+    QTextDocument document;
+    LuaHighlighter highlighter{&document};
+
+    for (const char* hook : {"on_enable",
+                             "on_disable",
+                             "on_timer",
+                             "on_message",
+                             "on_request",
+                             "on_uds_request",
+                             "on_security_seed"}) {
+        document.setPlainText(QStringLiteral("function %1() end").arg(QLatin1String{hook}));
+        highlighter.rehighlight();
+
+        const QList<QTextLayout::FormatRange> formats = document.firstBlock().layout()->formats();
+        const int length = static_cast<int>(std::strlen(hook));
+
+        const bool coloured =
+            std::ranges::any_of(formats, [length](const QTextLayout::FormatRange& range) {
+                return range.start == 9 && range.length == length;
+            });
+
+        EXPECT_TRUE(coloured) << hook;
+    }
+
+    // And a word that only looks like one is not.
+    document.setPlainText(QStringLiteral("function on_requests() end"));
+    highlighter.rehighlight();
+
+    for (const QTextLayout::FormatRange& range : document.firstBlock().layout()->formats()) {
+        EXPECT_FALSE(range.start == 9 && range.length == 10);
+    }
 }
 
 TEST(ScriptEditorPanelTests, DBCSignalsAndSystemVariablesPopulation)

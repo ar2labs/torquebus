@@ -5,6 +5,7 @@
 
 #include "core/can/CanFrame.h"
 #include "core/database/CanMessage.h"
+#include "core/database/DbcParser.h"
 #include "core/trace/TraceStore.h"
 #include "ui/trace/TracePanel.h"
 #include "ui/trace/TraceTreeFilterModel.h"
@@ -18,6 +19,8 @@
 #include <QLineEdit>
 #include <QTableView>
 #include <QTreeView>
+
+#include <filesystem>
 
 using namespace torquebus;
 using namespace torquebus::ui;
@@ -299,4 +302,53 @@ TEST(TracePanelTests, ClearHidesExistingFramesAcrossSubsequentPollsUntilNewFrame
     ASSERT_EQ(treeModel->rowCount(rxGroup), 1);
     EXPECT_EQ(treeModel->data(treeModel->index(0, ColumnCount, rxGroup)).toString(),
               QStringLiteral("1"));
+}
+
+TEST(TracePanelTests, IdentifiesJ1939AddressClaimAndSharedPgnFramesAcrossMultipleSourceAddresses)
+{
+    const auto dbcPath = std::filesystem::path{TORQUEBUS_EXAMPLE_PROJECT_DIR}.parent_path()
+                         / "databases" / "j1939.dbc";
+    auto db = std::make_shared<CanDatabase>();
+    ASSERT_TRUE(DbcParser::parseFile(dbcPath.string(), *db).ok());
+
+    TraceStore store{100};
+    TracePanel panel;
+    panel.setStore(&store);
+    panel.setDatabases({db});
+    panel.resize(1000, 600);
+    panel.show();
+    settle();
+
+    // Address Claimed (PGN 60928 / 0xEE00) from EMS (SA 0x00) and ACM (SA 0x3D)
+    CanFrame acEms = makeFrame(0x18EEFF00U, CanDirection::Rx, CanFrameFormat::Extended, 8);
+    acEms.data = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10};
+    CanFrame acAcm = makeFrame(0x18EEFF3DU, CanDirection::Rx, CanFrameFormat::Extended, 8);
+    acAcm.data = {0x3D, 0x00, 0x00, 0x00, 0x00, 0x2C, 0x00, 0x10};
+
+    store.append(std::span<const CanFrame>{&acEms, 1});
+    store.append(std::span<const CanFrame>{&acAcm, 1});
+
+    panel.poll();
+    settle();
+
+    auto* tree = panel.findChild<QTreeView*>("torquebusTraceTree");
+    ASSERT_NE(tree, nullptr);
+    auto* treeModel = tree->model();
+    ASSERT_NE(treeModel, nullptr);
+
+    const QModelIndex rxGroup = treeModel->index(0, 0);
+    ASSERT_EQ(treeModel->rowCount(rxGroup), 2);
+
+    for (int row = 0; row < 2; ++row) {
+        EXPECT_EQ(treeModel->data(treeModel->index(row, ColumnIdDec, rxGroup)).toString(),
+                  QStringLiteral("60928"));
+        EXPECT_EQ(treeModel->data(treeModel->index(row, ColumnSymbol, rxGroup)).toString(),
+                  QStringLiteral("AC"));
+        EXPECT_TRUE(treeModel->data(treeModel->index(row, ColumnDescription, rxGroup))
+                        .toString()
+                        .contains(QStringLiteral("Address Claimed")));
+
+        const QModelIndex msgIndex = treeModel->index(row, 0, rxGroup);
+        EXPECT_EQ(treeModel->rowCount(msgIndex), 10);
+    }
 }

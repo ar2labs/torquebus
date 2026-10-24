@@ -5,6 +5,7 @@
 
 #include "ui/trace/TraceModel.h"
 
+#include "core/j1939/J1939Id.h"
 #include "ui/theme/ThemeManager.h"
 
 #include <QColor>
@@ -397,6 +398,17 @@ const CanMessage* TraceModel::definitionFor(const CanFrame& frame) const
     for (const std::shared_ptr<const CanDatabase>& database : m_databases) {
         if (const CanMessage* message = database->find(frame)) {
             return message;
+        }
+    }
+    if (frame.format == CanFrameFormat::Extended) {
+        const std::uint32_t targetPgn = j1939Decompose(frame.identifier).pgn();
+        for (const std::shared_ptr<const CanDatabase>& database : m_databases) {
+            for (const CanMessage& message : database->messages()) {
+                if (message.format == CanFrameFormat::Extended
+                    && j1939Decompose(message.identifier).pgn() == targetPgn) {
+                    return &message;
+                }
+            }
         }
     }
     return nullptr;

@@ -30,8 +30,12 @@
 #include <memory>
 #include <vector>
 
+class QFrame;
+class QHideEvent;
 class QLabel;
 class QLineEdit;
+class QPoint;
+class QPushButton;
 class QTreeWidget;
 class QTreeWidgetItem;
 
@@ -51,6 +55,13 @@ public:
     /// and a line number is something you want to keep looking at.
     bool loadDatabase(const QString& path);
 
+    /// Removes the database matching `path` from the explorer and emits databaseRemoved().
+    bool removeDatabase(const QString& path);
+
+    /// Removes the currently selected database (or the single loaded database when none is
+    /// selected).
+    bool removeSelectedDatabase();
+
     /// Forgets every loaded database.
     void clear();
 
@@ -66,6 +77,7 @@ public:
 
 Q_SIGNALS:
     void databaseLoaded(const QString& path, int messageCount, int signalCount);
+    void databaseRemoved(const QString& path);
     void databaseFailed(const QString& path, const QString& reason);
 
     /// A signal was picked. Carries enough to identify it without exposing a
@@ -74,6 +86,10 @@ Q_SIGNALS:
                         const QString& messageName,
                         const QString& signalName);
 
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
+
 private Q_SLOTS:
     void onFilterChanged(const QString& text);
     void onCurrentItemChanged(QTreeWidgetItem* current);
@@ -81,6 +97,9 @@ private Q_SLOTS:
 
 private:
     void buildUi();
+    void buildCommentCard();
+    void updateCommentCardAt(const QPoint& viewportPos);
+    void hideCommentCard();
     void addDatabaseToTree(const CanDatabase& database);
     void applyIcons();
     void updateSummary();
@@ -92,7 +111,14 @@ private:
 
     QTreeWidget* m_tree{nullptr};
     QLineEdit* m_filter{nullptr};
+    QPushButton* m_removeButton{nullptr};
     QLabel* m_summary{nullptr};
+    QFrame* m_commentCard{nullptr};
+    QLabel* m_cardTitle{nullptr};
+    QLabel* m_cardMeta{nullptr};
+    QLabel* m_cardBody{nullptr};
+    QLabel* m_cardValues{nullptr};
+    QTreeWidgetItem* m_hoveredCommentItem{nullptr};
 
     /// Held by shared_ptr for the same reason the decoder node does: a
     /// DecodedSignal points at these definitions, and anything this panel hands

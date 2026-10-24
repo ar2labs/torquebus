@@ -268,16 +268,6 @@ padded the way J1939 pads one. They are in the prelude, and the example ECUs in
 `raw`, `send` and `dm1` are short names for the same functions, as the example ECUs write them.
 They are globals, so a script of your own that defines one of those names uses its own.
 
-**An ECU that claimed an address answers for it.** The node remembers the Address Claimed a script sent -
-through `j1939_claim`, or an `emit` of one - for each address, the last one if it sent several. When the bus
-asks (a Request for Address Claimed, PGN 59904 asking for PGN 60928, to everyone or to that address) the node
-sends the claim again in the same pass, the way the network-management layer of a real ECU does without its
-application being involved: the script does nothing to get this, and still sees the request in `on_message`.
-It is how a measurement started on a machine that was already running learns who is on it, and what the J1939
-Network panel's **Request claims** relies on. For the node to hear the request, the bus has to be wired to
-the ECU as well as the ECU to the bus. A reload replaces the claims with those of the new script, and a reload
-that is refused leaves the old ones.
-
 **`send` means two things, and which depends on where it is.** In an ECU it is the J1939 message
 above - or, called the old way, `send(id, payload [, options])`, exactly `emit()`. In a
 [test sequence](testing.md#sending) it is the node's own `send(id, payload [, options])` and is left
@@ -299,6 +289,63 @@ executor is one long tick and not a leap.
 
 `on_message(id, data, channel, extended)` gets `extended` as `1` or `0`, and **`0` is true in Lua** -
 compare it, `extended == 1`.
+
+### Answering requests
+
+A request is one frame - PGN 59904, with the group asked for in its three data bytes - to everyone (the
+global address) or to one ECU. The J1939 Network panel sends them, and so does any tool on the bus (see
+[the J1939 pipeline](j1939-pipeline.md)). A script does nothing to answer one, and a script that wants to
+answer in its own way can.
+
+**The node answers for what the script sent.** For each parameter group and each source address, the node
+remembers the last frame the script sent - through `j1939_send`, `emit`, `every`, `cyclic`, anything that puts
+a frame on the bus - up to 256 groups. When a request names one of them, to everyone or to the address the
+group was sent from, the node sends that frame again in the same pass: the way the network-management layer
+of a real ECU answers without its application being involved. It is the *latest* copy, so for a message that
+cycles it is the present value. The script sees the request in `on_message` all the same.
+
+The first of these is the Address Claimed: an ECU that claimed an address (`j1939_claim`, or an `emit` of one)
+answers a Request for Address Claimed for it, which is how a measurement started on a machine that was already
+running learns who is on it, and what the J1939 Network panel's **Request claims** relies on. Asked of
+everyone, the claims of a bus do not come all at once: each ECU waits a time of its own, from 0 to 153 ms,
+that comes from its NAME (the pseudo-random delay of J1939-81 - see the J1939 pipeline), so a test that wants
+the answer runs passes until it comes. A request to the ECU's own address is answered in the pass that has it.
+
+**What it does not have, it says so.** A request to an address the script speaks from, for a group it has not
+sent, is answered with the refusal J1939-21 has an ECU send: an Acknowledgement (PGN 59392) with the control
+byte 1 - *negative* - naming the group and the one who asked, to that address, or to everyone when the request
+came from the null address and nobody is there to be told. A request to everyone for something the ECU does
+not have is not answered at all - most ECUs have nothing to say to most requests - and neither is one to an
+address it does not hold, or one that came from the ECU's own address and is only its own request coming back
+off the bus. For the node to hear a request the bus has to be wired to the ECU as well as the ECU to the bus.
+
+**`on_request(pgn, destination, source, channel)`** is optional, and is called once for every request the
+node hears, before it answers. `pgn` is the group asked for, `destination` the address it was asked of (255
+for everyone), `source` the address it came from (254 when the one asking has none, as the panel does not)
+and `channel` the channel it arrived on. A script that wants to answer in its own way sends the group with
+`j1939_send` and returns `false`, which says that there is nothing left for the node to add. Returning
+anything else, or nothing, leaves the node to answer as it would have, so the same hook serves a script that
+only wants to know; and a script that returns `false` for everything is an ECU that never answers a request,
+which is what an ECU with its network management switched off looks like. An `on_request` that fails is an
+error like any other callback and counts toward the limit; the node answers as it would have, so that whoever
+asked meets the ECU that was configured and not silence.
+
+```lua
+-- Engine Temperature 1 is not sent on its own here: it is built when somebody asks for it. Every
+-- other request is left to the node.
+local coolant = 85.0
+
+function on_request(pgn, destination, source, channel)
+    if pgn == 0xFEEE then
+        j1939_send(6, 0xFEEE, 0x00, string.pack("<I1", raw(coolant, 1, -40, 1)))
+        return false
+    end
+end
+```
+
+What a script sends from `on_request` is remembered like any other group. A reload replaces what the node
+remembers with what the new script sent, and a reload that is refused leaves the old ones. The Statistics
+panel counts *Requests answered* and *Requests refused* for each Lua ECU.
 
 ## Asking about the bus
 

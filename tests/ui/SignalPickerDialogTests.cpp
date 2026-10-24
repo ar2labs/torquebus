@@ -23,9 +23,13 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QEvent>
 #include <QFile>
+#include <QFrame>
 #include <QItemSelectionModel>
+#include <QLabel>
 #include <QMimeData>
+#include <QMouseEvent>
 #include <QPushButton>
 #include <QTemporaryDir>
 #include <QTreeWidget>
@@ -203,6 +207,90 @@ TEST(DatabasePanelDragTests, SignalsAndMessagesAreDraggedOutOfTheTreeAndAFileIsN
     // The file itself is not something a widget can be made of.
     const auto nothing = dragOf({file});
     EXPECT_EQ(nothing, nullptr);
+}
+
+TEST(DatabasePanelDragTests, CompactColumnWidthsAndMultiLineCommentHoverCard)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+
+    const QString path = directory.filePath(QStringLiteral("hover_card.dbc"));
+    {
+        QFile file{path};
+        ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+        file.write(kDatabase);
+        file.write("\nCM_ SG_ 2364539904 EngineSpeed \"Actual engine speed calculated over a "
+                   "minimum crankshaft angle of 720 degrees divided by the number of cylinders "
+                   "(SPN 190).\";\n");
+    }
+
+    DatabasePanel panel;
+    panel.resize(900, 400);
+    panel.show();
+    QApplication::processEvents();
+
+    ASSERT_TRUE(panel.loadDatabase(path));
+
+    auto* tree = panel.findChild<QTreeWidget*>();
+    ASSERT_NE(tree, nullptr);
+
+    // Compact column widths leaving extra horizontal space for Comment:
+    // Name = 190 (240 - 50), Position = 90 (70 + 20), Range = 70 (170 - 100), Unit = 60.
+    EXPECT_EQ(tree->columnWidth(0), 190);
+    EXPECT_EQ(tree->columnWidth(1), 90);
+    EXPECT_EQ(tree->columnWidth(2), 70);
+    EXPECT_EQ(tree->columnWidth(3), 60);
+
+    QTreeWidgetItem* file = tree->topLevelItem(0);
+    ASSERT_NE(file, nullptr);
+    QTreeWidgetItem* eec1 = file->child(0);
+    ASSERT_NE(eec1, nullptr);
+    eec1->setExpanded(true);
+    QApplication::processEvents();
+
+    QTreeWidgetItem* engineSpeed = eec1->child(0);
+    ASSERT_NE(engineSpeed, nullptr);
+    EXPECT_TRUE(engineSpeed->toolTip(4).contains(QLatin1Char('\n')));
+
+    auto* card = panel.findChild<QFrame*>(QStringLiteral("dbcCommentCard"));
+    auto* cardTitle = panel.findChild<QLabel*>(QStringLiteral("dbcCommentCardTitle"));
+    auto* cardBody = panel.findChild<QLabel*>(QStringLiteral("dbcCommentCardBody"));
+    ASSERT_NE(card, nullptr);
+    ASSERT_NE(cardTitle, nullptr);
+    ASSERT_NE(cardBody, nullptr);
+    EXPECT_FALSE(card->isVisible());
+
+    // Hover over the Comment column (column 4) of EngineSpeed.
+    const QModelIndex commentIndex = tree->indexFromItem(engineSpeed, 4);
+    const QRect commentRect = tree->visualRect(commentIndex);
+    ASSERT_TRUE(commentRect.isValid());
+
+    const QPoint commentCenter = commentRect.center();
+    QMouseEvent moveOnComment(QEvent::MouseMove,
+                              QPointF{commentCenter},
+                              QPointF{tree->viewport()->mapToGlobal(commentCenter)},
+                              Qt::NoButton,
+                              Qt::NoButton,
+                              Qt::NoModifier);
+    QApplication::sendEvent(tree->viewport(), &moveOnComment);
+
+    EXPECT_TRUE(card->isVisible());
+    EXPECT_TRUE(cardTitle->text().contains(QStringLiteral("EngineSpeed")));
+    EXPECT_TRUE(cardBody->wordWrap());
+    EXPECT_TRUE(cardBody->text().contains(QLatin1Char('\n')));
+    EXPECT_TRUE(cardBody->text().contains(QStringLiteral("SPN 190")));
+
+    // Moving the cursor back to the Name column (column 0) hides the Comment card.
+    const QModelIndex nameIndex = tree->indexFromItem(engineSpeed, 0);
+    const QPoint nameCenter = tree->visualRect(nameIndex).center();
+    QMouseEvent moveOnName(QEvent::MouseMove,
+                           QPointF{nameCenter},
+                           QPointF{tree->viewport()->mapToGlobal(nameCenter)},
+                           Qt::NoButton,
+                           Qt::NoButton,
+                           Qt::NoModifier);
+    QApplication::sendEvent(tree->viewport(), &moveOnName);
+    EXPECT_FALSE(card->isVisible());
 }
 
 // ---------------------------------------------------------------------------

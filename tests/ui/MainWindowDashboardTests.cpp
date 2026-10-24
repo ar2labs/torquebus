@@ -28,11 +28,13 @@
 #include "ui/dashboard/DashboardPanel.h"
 #include "ui/dashboard/DashboardWidgetEditor.h"
 #include "ui/dashboard/DashboardWidgetPainters.h"
+#include "ui/database/DatabasePanel.h"
 #include "ui/engine/CanEngineController.h"
 #include "ui/j1939/J1939NetworkPanel.h"
 #include "ui/mainwindow/Docking.h"
 #include "ui/mainwindow/MainWindow.h"
 #include "ui/output/OutputPanel.h"
+#include "ui/project/ProjectExplorerPanel.h"
 #include "ui/theme/ThemeManager.h"
 
 #include <gtest/gtest.h>
@@ -43,11 +45,15 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QMetaObject>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QStringList>
 #include <QTemporaryDir>
+#include <QTreeWidget>
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <string>
@@ -440,4 +446,268 @@ TEST_F(MainWindowDashboardTests, TheJ1939PanelsRequestClaimsAsksTheRunningMeasur
     if (addedAChannel) {
         controller->engine().clearChannels();
     }
+}
+
+TEST_F(MainWindowDashboardTests, TheJ1939PanelsRequestForAGroupAsksOneEcuOnOneChannelAndSaysSo)
+{
+    // The same wiring for the rest of what the panel can ask: the dialog and the menu of a row
+    // emit one signal, and the window is what turns it into frames - on the channel and to the ECU
+    // that was chosen, and not on every channel because that is what the other button does.
+    auto* controller = app().window->findChild<CanEngineController*>();
+    ASSERT_NE(controller, nullptr);
+
+    auto* panel = app().window->findChild<J1939NetworkPanel*>();
+    ASSERT_NE(panel, nullptr);
+
+    auto* button = panel->findChild<QPushButton*>(QStringLiteral("requestPgnButton"));
+    ASSERT_NE(button, nullptr);
+
+    // Off with the measurement, like the claims button.
+    EXPECT_FALSE(button->isEnabled());
+
+    // Two channels, so that "on one" and "on every" are different things: the ones the window bound
+    // when it was built - whatever this machine offers - or two of its own where there are none.
+    bool addedAChannel = false;
+
+    if (controller->engine().channelCount() == 0U) {
+        for (std::uint8_t channel = 0U; channel < 2U; ++channel) {
+            CanChannelConfig config;
+            config.deviceHandle = "virtual:" + std::to_string(channel);
+            config.applicationChannel = channel;
+            config.timing.bitrate = 500'000;
+            ASSERT_TRUE(controller->engine()
+                            .addChannel(std::make_unique<VirtualCanBackend>(), config)
+                            .succeeded());
+        }
+
+        addedAChannel = true;
+    }
+
+    const auto channels = static_cast<int>(controller->engine().channelCount());
+
+    // What the frames say, as the engine's thread hands them over: the identifier of every request
+    // for DM2 and the channel it went out on.
+    std::atomic<int> requests{0};
+    std::atomic<int> onOtherChannels{0};
+    std::atomic<std::uint32_t> lastIdentifier{0U};
+    std::atomic<int> firstChannel{-1};
+
+    const SinkId sink = controller->engine().addFrameSink([&](std::span<const CanFrame> frames) {
+        for (const CanFrame& frame : frames) {
+            if (j1939RequestedPgn(frame) == kPgnDm2) {
+                lastIdentifier = frame.identifier;
+                int none = -1;
+                firstChannel.compare_exchange_strong(none, static_cast<int>(frame.channel));
+                onOtherChannels += frame.channel != 0U ? 1 : 0;
+                ++requests;
+            }
+        }
+    });
+
+    controller->start();
+    pump(100);
+    ASSERT_TRUE(controller->isRunning());
+    EXPECT_TRUE(button->isEnabled());
+
+    // DM2 of the ECU at 33, on CAN 1.
+    QString before = app().output();
+    Q_EMIT panel->pgnRequested(0xFECBU, 0x21, 0);
+
+    QElapsedTimer clock;
+    clock.start();
+    while (requests.load() < 1 && clock.elapsed() < 5000) {
+        QApplication::processEvents(QEventLoop::AllEvents, 20);
+    }
+
+    ASSERT_GE(requests.load(), 1);
+
+    // To that ECU - from the null address, like every request this tool makes - and out of the
+    // channel that was named first.
+    EXPECT_EQ(lastIdentifier.load(), 0x18EA21FEU);
+    EXPECT_EQ(firstChannel.load(), 0);
+
+    QString said = app().output().mid(before.size());
+    EXPECT_TRUE(
+        said.contains(QStringLiteral("asked the ECU at 33 on CAN 1 for PGN 65227 (0xFECB)")))
+        << said.toStdString();
+
+    // Not on the channels that were not named, nor said to be - where there is another to name.
+    pump(100);
+
+    if (channels > 1) {
+        EXPECT_FALSE(said.contains(QStringLiteral("CAN 2"))) << said.toStdString();
+        EXPECT_EQ(onOtherChannels.load(), 0);
+    }
+
+    // To every ECU on every channel, with -1: all the channels there are, and said so.
+    before = app().output();
+    Q_EMIT panel->pgnRequested(0xFECBU, 255, -1);
+
+    said = app().output().mid(before.size());
+
+    QStringList everyChannel;
+    for (int channel = 1; channel <= channels; ++channel) {
+        everyChannel.push_back(QStringLiteral("CAN %1").arg(channel));
+    }
+
+    EXPECT_TRUE(said.contains(QStringLiteral("asked every ECU on %1 for PGN 65227 (0xFECB)")
+                                  .arg(everyChannel.join(QStringLiteral(", ")))))
+        << said.toStdString();
+
+    // And the frames went out on all of them.
+    clock.restart();
+    while (channels > 1 && onOtherChannels.load() < 1 && clock.elapsed() < 5000) {
+        QApplication::processEvents(QEventLoop::AllEvents, 20);
+    }
+
+    if (channels > 1) {
+        EXPECT_GE(onOtherChannels.load(), 1);
+    }
+
+    // An address that is not one, or a channel that cannot be, is not turned into one that is by a
+    // cast: it is refused as it is, and nothing is sent.
+    pump(200); // what the last request put on the other channels has arrived by now
+    const int sentSoFar = requests.load();
+    before = app().output();
+    Q_EMIT panel->pgnRequested(0xFECBU, 300, 0);
+    Q_EMIT panel->pgnRequested(0xFECBU, 33 - 256, 0);
+    Q_EMIT panel->pgnRequested(0xFECBU, 33, 256);
+    Q_EMIT panel->pgnRequested(0xFECBU, 33, -2);
+    pump(100);
+
+    said = app().output().mid(before.size());
+    EXPECT_EQ(requests.load(), sentSoFar);
+    EXPECT_EQ(said.count(QStringLiteral("is not an address")), 4) << said.toStdString();
+    EXPECT_FALSE(said.contains(QStringLiteral("asked "))) << said.toStdString();
+
+    // A channel that is not there is a warning by its name, and nothing else is said of it.
+    before = app().output();
+    Q_EMIT panel->pgnRequested(0xFECBU, 255, 60);
+
+    said = app().output().mid(before.size());
+    EXPECT_TRUE(
+        said.contains(QStringLiteral("the request for PGN 65227 (0xFECB) was not sent on CAN 61")))
+        << said.toStdString();
+    EXPECT_FALSE(said.contains(QStringLiteral("asked "))) << said.toStdString();
+
+    controller->stop();
+    pump(100);
+
+    // And off again when it stops - and a request that gets in all the same is refused and said so,
+    // and not sent to a bus that is not there.
+    EXPECT_FALSE(button->isEnabled());
+
+    before = app().output();
+    Q_EMIT panel->pgnRequested(0xFECBU, 255, 0);
+
+    said = app().output().mid(before.size());
+    EXPECT_TRUE(said.contains(QStringLiteral("was not sent on CAN 1"))) << said.toStdString();
+    EXPECT_FALSE(said.contains(QStringLiteral("asked "))) << said.toStdString();
+
+    controller->engine().removeFrameSink(sink);
+
+    if (addedAChannel) {
+        controller->engine().clearChannels();
+    }
+}
+
+TEST_F(MainWindowDashboardTests, RemovingADatabaseInDbcExplorerAndSavingProjectPersistsRemoval)
+{
+    ProjectFolder folder;
+
+    QFile database{folder.file(QStringLiteral("test.dbc"))};
+    ASSERT_TRUE(database.open(QIODevice::WriteOnly));
+    database.write(kDatabase);
+    database.close();
+
+    GraphDescription pipeline;
+    NodeDescription decoder;
+    decoder.id = "decoder1";
+    decoder.typeName = "dbc.decoder";
+    decoder.parameters.set("database", ParameterValue::fromText("test.dbc"));
+    pipeline.addNode(decoder);
+
+    const QString path = folder.file(QStringLiteral("remove_dbc.tbsproj"));
+    ASSERT_TRUE(services::ProjectFile::save(path,
+                                            pipeline,
+                                            TransmitList{},
+                                            DashboardDescription{},
+                                            QStringList{QStringLiteral("test.dbc")})
+                    .succeeded());
+
+    (void)app().open(path);
+
+    auto* dbPanel = app().window->findChild<DatabasePanel*>();
+    ASSERT_NE(dbPanel, nullptr);
+    EXPECT_EQ(dbPanel->databaseCount(), 1);
+
+    auto* removeBtn = dbPanel->findChild<QPushButton*>(QStringLiteral("removeDatabaseButton"));
+    ASSERT_NE(removeBtn, nullptr);
+    EXPECT_TRUE(removeBtn->isEnabled());
+
+    // Remove the imported DBC via the Remove Database button in DBC Explorer.
+    removeBtn->click();
+    pump(100);
+
+    EXPECT_EQ(dbPanel->databaseCount(), 0);
+    EXPECT_FALSE(removeBtn->isEnabled());
+
+    // Save the project via Save Project.
+    ASSERT_TRUE(QMetaObject::invokeMethod(app().window.get(), "onSaveProject"));
+    pump(100);
+
+    // Reopen the project and verify the removed DBC does not return.
+    (void)app().open(path);
+    EXPECT_EQ(dbPanel->databaseCount(), 0);
+    EXPECT_FALSE(removeBtn->isEnabled());
+}
+
+TEST_F(MainWindowDashboardTests,
+       ProjectExplorerPopulatesScriptsTransmitListsLogsAndRespectsEnabledHardware)
+{
+    const QString j1939Path =
+        QStringLiteral(TORQUEBUS_EXAMPLE_PROJECT_DIR "/j1939-vehicle.tbsproj");
+    (void)app().open(j1939Path);
+
+    auto* explorer = app().window->findChild<ProjectExplorerPanel*>();
+    ASSERT_NE(explorer, nullptr);
+    QTreeWidget* tree = explorer->treeWidget();
+    ASSERT_NE(tree, nullptr);
+    ASSERT_EQ(tree->topLevelItemCount(), 1);
+
+    QTreeWidgetItem* root = tree->topLevelItem(0);
+    ASSERT_NE(root, nullptr);
+    ASSERT_EQ(root->childCount(), 5);
+
+    QTreeWidgetItem* hardwareItem = root->child(0);
+    QTreeWidgetItem* databasesItem = root->child(1);
+    QTreeWidgetItem* transmitItem = root->child(2);
+    QTreeWidgetItem* scriptsItem = root->child(3);
+    QTreeWidgetItem* logsItem = root->child(4);
+
+    EXPECT_EQ(databasesItem->childCount(), 1);
+    EXPECT_EQ(databasesItem->child(0)->text(0), QStringLiteral("j1939.dbc"));
+    EXPECT_GE(transmitItem->childCount(), 17);
+    EXPECT_EQ(scriptsItem->childCount(), 7);
+    EXPECT_GE(logsItem->childCount(), 2);
+
+    // Disable 2 of the 4 virtual CAN channels in HardwareProfile and verify Project Explorer
+    // displays only the 2 enabled CAN channels.
+    services::HardwareProfile profile{app().settings};
+    for (const QString& handle : {QStringLiteral("virtual:2"), QStringLiteral("virtual:3")}) {
+        services::ChannelPreferences prefs = profile.preferencesFor(handle);
+        prefs.enabled = false;
+        profile.setPreferencesFor(handle, prefs);
+    }
+    app().window->refreshHardware();
+    pump(100);
+
+    EXPECT_EQ(hardwareItem->childCount(), 2);
+    for (const QString& handle : {QStringLiteral("virtual:2"), QStringLiteral("virtual:3")}) {
+        services::ChannelPreferences prefs = profile.preferencesFor(handle);
+        prefs.enabled = true;
+        profile.setPreferencesFor(handle, prefs);
+    }
+    app().window->refreshHardware();
+    pump(100);
 }

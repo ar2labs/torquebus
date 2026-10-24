@@ -1779,6 +1779,18 @@ void ScriptEditorPanel::populateFunctionsTree()
                         "Process frame data\n    end\nend\n")},
         {tr("Event Handlers"),
          eventIcon,
+         QStringLiteral("on_request"),
+         QStringLiteral("function on_request(pgn, destination, source, channel)"),
+         tr("Called for every J1939 request this ECU hears, before the node answers it. Return "
+            "false "
+            "to leave the request alone: answer it yourself with j1939_send, or not at all."),
+         QStringLiteral("function on_request(pgn, destination, source, channel)\n    if pgn == "
+                        "0xFEEE then\n        -- answer in your own way, and leave nothing for the "
+                        "node\n        j1939_send(6, 0xFEEE, 0x00, "
+                        "\"\\x50\\xFF\\xFF\\xFF\\xFF\\xFF\\xFF\\xFF\")\n"
+                        "        return false\n    end\nend\n")},
+        {tr("Event Handlers"),
+         eventIcon,
          QStringLiteral("on_timer"),
          QStringLiteral("function on_timer(interval_ms)"),
          tr("Called periodically at the interval configured by set_timer(ms)."),

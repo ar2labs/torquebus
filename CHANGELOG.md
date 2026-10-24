@@ -90,9 +90,58 @@ against what it does, which turned up more than expected.
   lower NAME moves instead of falling silent - to the lowest address from 128 to 247 that nobody has been
   heard to claim, under the same NAME, saying everything from there on from there - moves again if that one is
   lost too, and gives up like the one that cannot when the range is full (*J1939 address* in its statistics
-  says where it is). The pseudo-random delay J1939-81 asks for before an answer is left out on purpose
-  (`docs/development/tinyml.md`): the answers are queued by the engine and arbitrated by the bus model in an
-  order that does not vary, and a delay would only make a measurement unrepeatable.
+  says where it is). The pseudo-random delay J1939-81 asks for before an answer came later; see **The pause
+  before an answer** below.
+- **Any parameter group can be asked for, of one ECU or of everyone.** The J1939 Network panel could only ask
+  for the address claim. **Request PGN...** opens a dialog for any group - from the list of the ones worth
+  asking for by name (the claim, the active and previously active faults, ECU, software, component and
+  vehicle identification) or typed as `65227` or `0xFECB`; of every ECU or of one; on every channel or on one
+  - and the menu of a right click on an ECU's row (*Ask the ECU at 33*) or on a bus's heading (*Ask every ECU
+  on CAN 2*) has the same groups and *Another group...*; the ECU and the channel are those of the row, so the
+  ECU at 0 on CAN 2 is not asked on CAN 1. The dialog says in words what is wrong with a group before it can
+  be asked for - not a number, more than the 18 bits of a PGN, or a group for one ECU whose last byte (its
+  address on the wire, not part of the group) is not zero - and asks before DM3 and DM11, which tell an ECU to
+  clear its fault codes. `j1939RequestPgn()` is the general form of the Request for Address Claimed. Like
+  that one it goes out from the null address (254), the tool having none - which J1939-81 gives to the
+  claim request and *cannot claim*, so a conformant ECU on a real bus may ignore a request for anything else
+  from it. The simulated ECUs answer; a real bus has not been tried, and a tool that claims an address of
+  its own is not built.
+- **ECUs answer a request, or say that they cannot.** A Lua ECU used to answer only the request for its claim.
+  It now answers a request for any group it has sent with the latest copy of it - for each source address, up to
+  256 groups, with nothing in the script - to everyone or to the address the group was sent from; asked by its
+  own address for a group it has not sent, it sends the refusal J1939-21 has an ECU send, an Acknowledgement
+  (PGN 59392) with the control byte *negative*, naming the group and the one who asked (to everyone when the
+  request came from the null address, where nobody is to be told); and asked of everyone for something it does
+  not have it says nothing, as most ECUs do. The TinyML ECU answers for its claim, its DM1 and its telemetry
+  and refuses the rest the same way. The J1939 Network panel keeps the last answer an ECU gave on its row
+  (*last answer: PGN 65227 (0xFECB) not supported*), and an address is written `0xF9` and not `0XF9`.
+- **A script can answer for itself: `on_request`.** `on_request(pgn, destination, source, channel)` is called for
+  every request the node hears, before it answers; returning `false` says that nothing is left for the node to
+  add, which is how a script switches the automatic answer off for a group - or for all of them, for an ECU
+  whose network management is off - and how it answers in its own way, with `j1939_send`. A script that throws
+  leaves the node answering as it would have, and one whose hook keeps failing is stopped after five in a row
+  like any callback. The editor colours `on_request` and the Script Reference lists it with a template. See
+  `docs/development/scripting.md`.
+- **The pause before an answer (J1939-81).** An answer to a request to everyone for the claims of the bus, and
+  a *cannot claim*, now wait a time that comes from the ECU's NAME - 0 to 153 ms - so that ECUs asked at one
+  instant do not answer at one instant, and one measurement is the same as the next. A Lua ECU waits it on the
+  machine's clock; the TinyML ECU, which has no clock, waits it in bus time and answers with the first frame of
+  the bus that is as late as the answer is due. The claim at power-up, a defending re-claim and a move to
+  another address are not answers and are not delayed. The room to wait in is limited (256 answers for a Lua
+  ECU, 32 for the TinyML one), so a bus that is asked faster than that is not an ever-growing queue.
+- **Two live buses can reach one J1939 block: Frame Merge.** An input takes one wire, so a block that reads two
+  buses - the J1939 block, which lists each ECU under the bus it is on - could only be fed a recording of both.
+  The **Frame Merge** block (`can.merge`, *Transforms*) has four inputs and one output: frames come out in the
+  order of their timestamps, a tie goes to the lower input, the order of one wire is never changed, and a frame
+  keeps the channel it was received on and everything else it says. A pass carries one batch at most, which
+  is all anything downstream is sized for; what does not fit waits for the next pass, and past the room to
+  wait in the latest frames are dropped - *Frames passed*, *Frames held over* and *Frames dropped* are in
+  Statistics. On the canvas, a Frame Merge dropped on each bus in turn is wired to the next free input and a
+  fifth is refused; the message that refuses two wires into one input now says where the other is. It orders
+  by the channels' timestamps: the virtual backend's share one clock, the Kvaser and PEAK backends stamp with
+  their own and have not been checked against each other, so across two different adapters the merged order
+  is only as good as their clocks (each bus's own order is kept, and the J1939 block does not depend on the
+  order between buses). See `docs/development/j1939-pipeline.md` and `docs/development/pipeline-canvas.md`.
 - **The example tests wait for what they check.** `ExampleDashboardTests` ran each example for a fixed two and
   a half or three seconds - sixteen seconds of the unit suite, and a run that a slow machine would one day
   have found too short. Each run now polls for what its test looks at (every widget's signal, the fault,

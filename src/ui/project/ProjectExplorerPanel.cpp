@@ -20,6 +20,18 @@ namespace {
 
 /// Role holding the index of a device inside ProjectExplorerPanel::m_devices.
 constexpr int kDeviceIndexRole = Qt::UserRole + 1;
+constexpr int kDatabasePathRole = Qt::UserRole + 2;
+constexpr int kTransmitIndexRole = Qt::UserRole + 3;
+constexpr int kScriptNodeIdRole = Qt::UserRole + 4;
+constexpr int kLogNodeIdRole = Qt::UserRole + 5;
+constexpr int kLogRecordActionRole = Qt::UserRole + 6;
+
+[[nodiscard]] QString formatCanIdentifier(const CanFrame& frame)
+{
+    return frame.format == CanFrameFormat::Extended
+               ? QStringLiteral("0x%1").arg(frame.identifier, 8, 16, QLatin1Char('0')).toUpper()
+               : QStringLiteral("0x%1").arg(frame.identifier, 3, 16, QLatin1Char('0')).toUpper();
+}
 
 QTreeWidgetItem* addCategory(QTreeWidgetItem* parent, const QString& title)
 {
@@ -27,6 +39,14 @@ QTreeWidgetItem* addCategory(QTreeWidgetItem* parent, const QString& title)
     item->setText(0, title);
     item->setExpanded(true);
     return item;
+}
+
+void addEmptyPlaceholder(QTreeWidgetItem* category, const QString& text, const QPalette& palette)
+{
+    auto* empty = new QTreeWidgetItem(category);
+    empty->setText(0, text);
+    empty->setForeground(0, palette.color(QPalette::Disabled, QPalette::Text));
+    empty->setFlags(Qt::ItemIsEnabled);
 }
 
 } // namespace
@@ -53,6 +73,9 @@ ProjectExplorerPanel::ProjectExplorerPanel(QWidget* parent)
             &QTreeWidget::currentItemChanged,
             this,
             [this](QTreeWidgetItem* current, QTreeWidgetItem*) { onCurrentItemChanged(current); });
+    connect(m_tree, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem* item, int) {
+        onItemClicked(item);
+    });
 
     if (ThemeManager* themes = ThemeManager::instance()) {
         connect(themes, &ThemeManager::themeChanged, this, [this] { onThemeChanged(); });
@@ -101,10 +124,13 @@ void ProjectExplorerPanel::onThemeChanged()
 {
     applyIcons();
 
-    // The device rows are rebuilt rather than walked: they are few, and
-    // setDevices() is the one place that knows how a device row is composed.
+    // The section rows are rebuilt rather than walked: they are few, and the
+    // setters are the one place that knows how each row is composed.
     setDevices(m_devices);
     setDatabases(m_databasePaths);
+    setTransmitEntries(m_transmitEntries);
+    setScripts(m_scriptItems);
+    setLogs(m_logItems);
 }
 
 void ProjectExplorerPanel::setProjectName(const QString& name)
@@ -122,10 +148,7 @@ void ProjectExplorerPanel::setDevices(const CanDeviceInfoList& devices)
     qDeleteAll(previous);
 
     if (devices.empty()) {
-        auto* empty = new QTreeWidgetItem(m_hardware);
-        empty->setText(0, tr("No CAN interface detected"));
-        empty->setForeground(0, palette().color(QPalette::Disabled, QPalette::Text));
-        empty->setFlags(Qt::ItemIsEnabled);
+        addEmptyPlaceholder(m_hardware, tr("No CAN interface detected"), palette());
         return;
     }
 
@@ -162,17 +185,130 @@ void ProjectExplorerPanel::setDatabases(const QStringList& paths)
     const QList<QTreeWidgetItem*> previous = m_databases->takeChildren();
     qDeleteAll(previous);
 
+    if (paths.isEmpty()) {
+        addEmptyPlaceholder(m_databases, tr("No database imported"), palette());
+        return;
+    }
+
     ThemeManager* themes = ThemeManager::instance();
     for (const QString& path : paths) {
         auto* item = new QTreeWidgetItem(m_databases);
         item->setText(0, QFileInfo{path}.fileName());
         item->setToolTip(0, path);
+        item->setData(0, kDatabasePathRole, path);
         if (themes != nullptr) {
             item->setIcon(0, themes->icon(QStringLiteral("database")));
         }
     }
 
     m_databases->setExpanded(true);
+}
+
+void ProjectExplorerPanel::setTransmitEntries(const std::vector<TransmitEntry>& entries)
+{
+    m_transmitEntries = entries;
+    if (m_transmitLists == nullptr) {
+        return;
+    }
+
+    const QList<QTreeWidgetItem*> previous = m_transmitLists->takeChildren();
+    qDeleteAll(previous);
+
+    if (entries.empty()) {
+        addEmptyPlaceholder(m_transmitLists, tr("No transmit frames configured"), palette());
+        return;
+    }
+
+    ThemeManager* themes = ThemeManager::instance();
+    for (int index = 0; index < static_cast<int>(entries.size()); ++index) {
+        const TransmitEntry& entry = entries[static_cast<std::size_t>(index)];
+        const QString name = !entry.name.empty() ? QString::fromStdString(entry.name)
+                             : !entry.messageName.empty()
+                                 ? QString::fromStdString(entry.messageName)
+                                 : tr("Frame %1").arg(index + 1);
+        const QString idHex = formatCanIdentifier(entry.frame);
+        const QString mode = entry.isPeriodic() ? tr("%1 ms").arg(entry.cycleMs) : tr("Manual");
+
+        auto* item = new QTreeWidgetItem(m_transmitLists);
+        item->setText(0, QStringLiteral("%1  (%2)").arg(name, idHex));
+        item->setToolTip(0,
+                         tr("CAN %1  |  %2  |  %3 bytes  |  %4")
+                             .arg(entry.channel + 1)
+                             .arg(idHex)
+                             .arg(entry.frame.length)
+                             .arg(mode));
+        item->setData(0, kTransmitIndexRole, index);
+        if (themes != nullptr) {
+            item->setIcon(0, themes->icon(QStringLiteral("transmit")));
+        }
+    }
+
+    m_transmitLists->setExpanded(true);
+}
+
+void ProjectExplorerPanel::setScripts(const QList<ScriptExplorerItem>& scripts)
+{
+    m_scriptItems = scripts;
+    if (m_scripts == nullptr) {
+        return;
+    }
+
+    const QList<QTreeWidgetItem*> previous = m_scripts->takeChildren();
+    qDeleteAll(previous);
+
+    if (scripts.isEmpty()) {
+        addEmptyPlaceholder(m_scripts, tr("No scripts in pipeline"), palette());
+        return;
+    }
+
+    ThemeManager* themes = ThemeManager::instance();
+    for (const ScriptExplorerItem& script : scripts) {
+        auto* item = new QTreeWidgetItem(m_scripts);
+        item->setText(0, script.label);
+        item->setToolTip(0, script.toolTip.isEmpty() ? script.label : script.toolTip);
+        item->setData(0, kScriptNodeIdRole, script.nodeId);
+        if (themes != nullptr) {
+            item->setIcon(0, themes->icon(QStringLiteral("console")));
+        }
+    }
+
+    m_scripts->setExpanded(true);
+}
+
+void ProjectExplorerPanel::setLogs(const QList<LogExplorerItem>& logs)
+{
+    m_logItems = logs;
+    if (m_logs == nullptr) {
+        return;
+    }
+
+    const QList<QTreeWidgetItem*> previous = m_logs->takeChildren();
+    qDeleteAll(previous);
+
+    if (logs.isEmpty()) {
+        addEmptyPlaceholder(m_logs, tr("No active log or logger block"), palette());
+        return;
+    }
+
+    ThemeManager* themes = ThemeManager::instance();
+    for (const LogExplorerItem& log : logs) {
+        auto* item = new QTreeWidgetItem(m_logs);
+        item->setText(0, log.label);
+        item->setToolTip(0, log.toolTip.isEmpty() ? log.label : log.toolTip);
+        if (!log.nodeId.isEmpty()) {
+            item->setData(0, kLogNodeIdRole, log.nodeId);
+        }
+        if (log.isRecordAction) {
+            item->setData(0, kLogRecordActionRole, true);
+        }
+        if (themes != nullptr) {
+            const QString iconName =
+                log.isRecordAction ? QStringLiteral("record") : QStringLiteral("save");
+            item->setIcon(0, themes->icon(iconName));
+        }
+    }
+
+    m_logs->setExpanded(true);
 }
 
 void ProjectExplorerPanel::onCurrentItemChanged(QTreeWidgetItem* current)
@@ -195,6 +331,38 @@ void ProjectExplorerPanel::onCurrentItemChanged(QTreeWidgetItem* current)
     }
 
     Q_EMIT deviceSelected(m_devices[static_cast<std::size_t>(index)]);
+}
+
+void ProjectExplorerPanel::onItemClicked(QTreeWidgetItem* item)
+{
+    if (item == nullptr) {
+        return;
+    }
+
+    if (const QVariant dbPath = item->data(0, kDatabasePathRole); dbPath.isValid()) {
+        Q_EMIT databaseSelected(dbPath.toString());
+        return;
+    }
+
+    if (const QVariant txIdx = item->data(0, kTransmitIndexRole); txIdx.isValid()) {
+        Q_EMIT transmitEntrySelected(txIdx.toInt());
+        return;
+    }
+
+    if (const QVariant scriptId = item->data(0, kScriptNodeIdRole); scriptId.isValid()) {
+        Q_EMIT scriptSelected(scriptId.toString());
+        return;
+    }
+
+    if (item->data(0, kLogRecordActionRole).toBool()) {
+        Q_EMIT recordRequested();
+        return;
+    }
+
+    if (const QVariant logNodeId = item->data(0, kLogNodeIdRole); logNodeId.isValid()) {
+        Q_EMIT logNodeSelected(logNodeId.toString());
+        return;
+    }
 }
 
 } // namespace torquebus::ui

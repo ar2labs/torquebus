@@ -89,10 +89,12 @@ fail the load and name the line.
   on its line, and no real section is; that shape, not a list of names, is what
   the parser keys on.
 
-- **`/* … */` blocks are not DBC syntax and appear anyway.** Both hand-written
-  databases here are full of them. A parser every other tool disagrees with is
-  the one that is wrong, so they are stripped — keeping the newlines, so an
-  error after a twenty-line comment still names the real line.
+- **`/* … */` blocks are not DBC syntax and appear in hand-edited files anyway.**
+  Strictly compliant tools such as Vector CANdb++ 3.1 reject `/* … */` block
+  comments, so the databases shipped in `examples/databases/` use only standard
+  `CM_` statements. When reading third-party files, the parser strips `/* … */`
+  blocks while keeping their newlines, so an error after a twenty-line comment
+  still names the real line.
 
 - **Numbers go through the classic locale.** A `.dbc` always writes `0.01` with
   a dot. On a machine whose locale uses a comma, the ordinary conversions read
@@ -223,13 +225,15 @@ happens to be open in a panel.
 
 ## Example databases
 
-`examples/databases/` holds two, and they pair with different scripts:
+`examples/databases/` holds three Vector CANdb++ 3.1-compatible databases, each
+with complete `CM_ BO_` / `CM_ SG_` descriptions, `GenMsgCycleTime` attributes,
+and `VAL_` tables, and they pair with different scripts:
 
 | Database | Messages | Pairs with |
 |---|---|---|
-| `vehicle.dbc` | 257, 258 | `examples/scripts/ecu_vehicle.lua` |
-| `ecu.dbc` | 1, 255 | `examples/scripts/ecu_motor.lua` |
-| `j1939.dbc` | 21 J1939 messages | the six J1939 ECUs of `examples/projects/j1939-vehicle.tbsproj` |
+| `vehicle.dbc` | 257, 258, 261 | `examples/scripts/ecu_vehicle.lua`, `ecu_vehicle_dbc.lua`, and `virtual-vehicle.tbsproj` |
+| `ecu.dbc` | 1, 255 | `examples/scripts/ecu_motor.lua` and `virtual-vehicle.tbsproj` |
+| `j1939.dbc` | 23 J1939 messages | the six J1939 ECUs and TinyML node of `examples/projects/j1939-vehicle.tbsproj` |
 
 So importing `vehicle.dbc` while the example project runs turns the trace from
 hex into km/h and °C.
@@ -240,9 +244,11 @@ that script sends 257 and 258. A test now runs each script and asks its
 database about every identifier it actually emitted, so the pairing above is
 checked rather than described.
 
-`j1939.dbc` is read by the **J1939 block**, which finds a message by PGN rather than by identifier -
-so the DM1 of the engine and the DM1 of the brakes, from different addresses, are both "DM1". The
-test asks the PGN question for it (`EveryJ1939ScriptSendsOnlyMessagesTheJ1939DatabaseDescribes`):
+`j1939.dbc` is read by the **J1939 block** and the **Trace**, both of which match 29-bit frames by
+PGN when the exact 29-bit identifier is not in the database — so the `AC` (Address Claimed) or `DM1`
+of the engine (`0x00`), the brakes (`0x0B`), and the aftertreatment (`0x3D`) all resolve to their PGN
+definitions (`AC` and `DM1`). The test asks the PGN question for it
+(`EveryJ1939ScriptSendsOnlyMessagesTheJ1939DatabaseDescribes`):
 not "is `0x18FECA3D` in the file" but "is a message with PGN `0xFECA`".
 
 ### "Error" and "not available" in a J1939 database

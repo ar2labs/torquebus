@@ -6,7 +6,7 @@
 #include "ui/mainwindow/MainWindow.h"
 
 #include "core/dashboard/DashboardAssets.h"
-#include "core/j1939/J1939ClaimRequest.h"
+#include "core/j1939/J1939Request.h"
 #include "core/log/TraceExport.h"
 #include "core/pipeline/BusGrouping.h"
 #include "core/trace/TraceStore.h"
@@ -23,6 +23,7 @@
 #include "ui/graph/GraphPanel.h"
 #include "ui/hardware/HardwareDialog.h"
 #include "ui/j1939/J1939NetworkPanel.h"
+#include "ui/j1939/J1939RequestDialog.h"
 #include "ui/output/OutputPanel.h"
 #include "ui/playback/PlaybackPanel.h"
 #include "ui/plugins/PluginsDialog.h"
@@ -403,6 +404,42 @@ void MainWindow::createPanels()
             &ProjectExplorerPanel::selectionCleared,
             m_properties,
             &PropertiesPanel::clearProperties);
+    connect(
+        m_projectExplorer, &ProjectExplorerPanel::databaseSelected, this, [this](const QString&) {
+            if (m_databaseDock != nullptr) {
+                m_databaseDock->setAsCurrentTab();
+            }
+        });
+    connect(
+        m_projectExplorer, &ProjectExplorerPanel::transmitEntrySelected, this, [this](int index) {
+            if (m_transmitDock != nullptr) {
+                m_transmitDock->setAsCurrentTab();
+            }
+            if (m_transmitPanel != nullptr) {
+                m_transmitPanel->selectEntry(index);
+            }
+        });
+    connect(m_projectExplorer,
+            &ProjectExplorerPanel::scriptSelected,
+            this,
+            [this](const QString& nodeId) {
+                onCanvasNodeSelected(nodeId);
+                if (m_scriptEditor != nullptr) {
+                    m_scriptEditor->showNode(nodeId);
+                }
+                if (m_scriptDock != nullptr) {
+                    m_scriptDock->setAsCurrentTab();
+                }
+            });
+    connect(m_projectExplorer,
+            &ProjectExplorerPanel::logNodeSelected,
+            this,
+            [this](const QString& nodeId) { onCanvasNodeSelected(nodeId); });
+    connect(m_projectExplorer, &ProjectExplorerPanel::recordRequested, this, [this] {
+        if (m_actionRecord != nullptr) {
+            m_actionRecord->trigger();
+        }
+    });
 
     const auto icon = [this](const char* name) { return m_themes.icon(QString::fromLatin1(name)); };
 
@@ -469,6 +506,68 @@ void MainWindow::createPanels()
                 // one it does not have.
                 shareDatabasesWithDashboard();
             });
+
+    connect(m_databasePanel, &DatabasePanel::databaseRemoved, this, [this](const QString& path) {
+        m_output->appendInfo(tr("Database removed: %1. Save the project to persist this removal.")
+                                 .arg(QFileInfo{path}.fileName()));
+
+        const QString removedAbs = QFileInfo{path}.absoluteFilePath();
+        const QDir projectDir =
+            m_projectPath.isEmpty() ? QDir::current() : QFileInfo{m_projectPath}.absoluteDir();
+
+        bool decoderCleared = false;
+        for (NodeDescription& node : m_pipeline.nodes()) {
+            if (node.typeName != "dbc.decoder") {
+                continue;
+            }
+            const QString rawNodeDb =
+                QString::fromStdString(std::string{node.parameters.text("database")}).trimmed();
+            if (rawNodeDb.isEmpty()) {
+                continue;
+            }
+
+            QString resolvedNodeDb;
+            if (QFileInfo{rawNodeDb}.isAbsolute()) {
+                resolvedNodeDb = QFileInfo{rawNodeDb}.absoluteFilePath();
+            } else {
+                const QString inProject =
+                    QFileInfo{projectDir.filePath(rawNodeDb)}.absoluteFilePath();
+                const QString inWorking =
+                    QFileInfo{QDir::current().filePath(rawNodeDb)}.absoluteFilePath();
+                resolvedNodeDb = QFileInfo::exists(inProject) ? inProject : inWorking;
+            }
+
+            if (QString::compare(rawNodeDb, path, Qt::CaseInsensitive) == 0
+                || (!removedAbs.isEmpty()
+                    && QString::compare(resolvedNodeDb, removedAbs, Qt::CaseInsensitive) == 0)
+                || QString::compare(QFileInfo{rawNodeDb}.fileName(),
+                                    QFileInfo{path}.fileName(),
+                                    Qt::CaseInsensitive)
+                       == 0) {
+                node.parameters.set("database", ParameterValue::fromText(""));
+                decoderCleared = true;
+            }
+        }
+
+        if (decoderCleared && m_canvas != nullptr) {
+            m_canvas->reload();
+        }
+
+        m_tracePanel->setDatabases(m_databasePanel->databases());
+        m_transmitPanel->setDatabases(m_databasePanel->databases());
+        if (m_canvas != nullptr) {
+            m_canvas->setDatabases(m_databasePanel->databases());
+        }
+        if (m_projectExplorer != nullptr) {
+            m_projectExplorer->setDatabases(m_databasePanel->databasePaths());
+        }
+        if (m_scriptEditor != nullptr) {
+            m_scriptEditor->setDatabases(m_databasePanel->databases());
+        }
+
+        shareDatabasesWithDashboard();
+        markDirty();
+    });
 
     // Reported in the Output panel and not in a message box, because the
     // message names a line number and a line number is something you want to
@@ -566,7 +665,10 @@ void MainWindow::createPanels()
     connect(m_transmitPanel, &TransmitPanel::reported, this, [this](const QString& text) {
         m_output->appendWarning(text);
     });
-    connect(m_transmitPanel, &TransmitPanel::modified, this, &MainWindow::markDirty);
+    connect(m_transmitPanel, &TransmitPanel::modified, this, [this] {
+        markDirty();
+        syncProjectExplorer();
+    });
 
     m_transmitPanel->setMeasurementRunning(m_controller->isRunning());
     connect(m_controller, &CanEngineController::started, m_transmitPanel, [this] {
@@ -621,6 +723,7 @@ void MainWindow::createPanels()
     m_j1939Panel->setRequestAvailable(m_controller->isRunning());
     connect(
         m_j1939Panel, &J1939NetworkPanel::claimsRequested, this, &MainWindow::requestAddressClaims);
+    connect(m_j1939Panel, &J1939NetworkPanel::pgnRequested, this, &MainWindow::requestPgn);
     connect(m_controller, &CanEngineController::started, m_j1939Panel, [this] {
         m_j1939Panel->setRequestAvailable(true);
     });
@@ -747,6 +850,9 @@ void MainWindow::createPanels()
                   m_j1939Dock,
                   m_testDock,
                   m_playbackDock};
+
+    m_projectExplorer->setDatabases({});
+    syncProjectExplorer();
 }
 
 void MainWindow::createActions()
@@ -1359,7 +1465,6 @@ void MainWindow::refreshHardware()
     registry.registerBuiltins();
 
     m_devices = registry.enumerateAll();
-    m_projectExplorer->setDevices(m_devices);
 
     for (const CanBackendRegistry::Entry& entry : registry.backends()) {
         if (!entry.available) {
@@ -1382,6 +1487,24 @@ void MainWindow::refreshHardware()
         handles.append(QString::fromStdString(device.handle));
     }
 
+    const QStringList arrangedHandles =
+        services::HardwareProfile::arrange(handles, m_hardware.order());
+
+    CanDeviceInfoList enabledDevices;
+    enabledDevices.reserve(m_devices.size());
+    for (const QString& handle : arrangedHandles) {
+        if (!m_hardware.preferencesFor(handle).enabled) {
+            continue;
+        }
+        const std::string handleStd = handle.toStdString();
+        const auto found = std::ranges::find(m_devices, handleStd, &CanDeviceInfo::handle);
+        if (found != m_devices.end()) {
+            enabledDevices.push_back(*found);
+        }
+    }
+
+    m_projectExplorer->setDevices(enabledDevices);
+
     const std::size_t bound = m_controller->bindAvailableChannels(
         [this](const CanDeviceInfo& device) -> std::optional<CanChannelConfig> {
             const services::ChannelPreferences preferences =
@@ -1399,7 +1522,7 @@ void MainWindow::refreshHardware()
             config.receiveErrorFrames = preferences.receiveErrorFrames;
             return config;
         },
-        services::HardwareProfile::arrange(handles, m_hardware.order()));
+        arrangedHandles);
 
     if (bound < m_devices.size()) {
         // Said out loud. An interface switched off in the hardware dialog and
@@ -1717,6 +1840,7 @@ void MainWindow::onCanvasNodeSelected(const QString& descriptionId)
 void MainWindow::onGraphEdited()
 {
     markDirty();
+    syncProjectExplorer();
 
     // Reported while the user is looking at the wire they just drew, rather
     // than at the next Start. validate() needs no engine and no nodes, which is
@@ -1748,7 +1872,7 @@ void MainWindow::updateWindowTitle()
 
 void MainWindow::requestAddressClaims()
 {
-    const J1939ClaimRequestOutcome outcome = j1939RequestAddressClaims(m_controller->engine());
+    const J1939RequestOutcome outcome = j1939RequestAddressClaims(m_controller->engine());
 
     // Said whichever way it went: a request every ECU answers changes nothing the panel can show
     // when they had all claimed already, and a button that seems to do nothing is a button
@@ -1766,6 +1890,47 @@ void MainWindow::requestAddressClaims()
     for (const std::string& refusal : outcome.refused) {
         m_output->appendWarning(tr("J1939: the request for address claims was not sent on %1")
                                     .arg(QString::fromStdString(refusal)));
+    }
+}
+
+void MainWindow::requestPgn(quint32 pgn, int destination, int channel)
+{
+    // The panel says an address - or 255 for everyone - and a channel, or -1 for every one. A cast
+    // would turn anything else into a request for somebody, which is worse than none.
+    if (destination < 0 || destination > 255 || channel < -1 || channel > 255) {
+        m_output->appendWarning(
+            tr("J1939: the request for PGN %1 was not sent: %2 is not an address, or %3 a channel.")
+                .arg(J1939RequestDialog::pgnText(pgn))
+                .arg(destination)
+                .arg(channel));
+        return;
+    }
+
+    const J1939RequestOutcome outcome = j1939RequestPgn(
+        m_controller->engine(),
+        pgn,
+        static_cast<std::uint8_t>(destination),
+        channel < 0 ? std::nullopt
+                    : std::optional<std::uint8_t>{static_cast<std::uint8_t>(channel)});
+
+    const QString group = J1939RequestDialog::pgnText(pgn);
+
+    if (!outcome.sent.empty()) {
+        QStringList channels;
+        for (const std::uint8_t sentOn : outcome.sent) {
+            channels.push_back(tr("CAN %1").arg(static_cast<int>(sentOn) + 1));
+        }
+
+        const QString whom =
+            destination == 255 ? tr("every ECU") : tr("the ECU at %1").arg(destination);
+
+        m_output->appendInfo(tr("J1939: asked %1 on %2 for PGN %3.")
+                                 .arg(whom, channels.join(QStringLiteral(", ")), group));
+    }
+
+    for (const std::string& refusal : outcome.refused) {
+        m_output->appendWarning(tr("J1939: the request for PGN %1 was not sent on %2")
+                                    .arg(group, QString::fromStdString(refusal)));
     }
 }
 
@@ -2081,6 +2246,7 @@ void MainWindow::onNewProject()
     }
 
     applyDashboardBase();
+    syncProjectExplorer();
 
     updateWindowTitle();
     m_output->appendInfo(tr("New project."));
@@ -2243,12 +2409,13 @@ void MainWindow::onImportDatabase()
 void MainWindow::openProject(const QString& path)
 {
     QStringList savedDatabases;
+    bool hasDatabasesKey = false;
 
     // Loaded into the live description. ProjectFile leaves it untouched when
     // the read fails, so a broken file cannot leave the canvas showing half a
     // pipeline that was never saved.
     if (const Result result = services::ProjectFile::load(
-            path, m_pipeline, m_transmitList, m_dashboard, &savedDatabases);
+            path, m_pipeline, m_transmitList, m_dashboard, &savedDatabases, &hasDatabasesKey);
         result.failed()) {
         m_output->appendError(tr("Could not open the project: %1")
                                   .arg(QString::fromStdString(std::string{result.message()})));
@@ -2265,14 +2432,18 @@ void MainWindow::openProject(const QString& path)
     m_dirty = false;
 
     // Also include any DBC path referenced directly by a dbc.decoder node in
-    // the pipeline so projects created before the databases list existed still
-    // populate DBC Explorer automatically.
-    for (const NodeDescription& node : m_pipeline.nodes()) {
-        if (node.typeName == "dbc.decoder") {
-            const QString nodeDb =
-                QString::fromStdString(std::string{node.parameters.text("database")}).trimmed();
-            if (!nodeDb.isEmpty() && !savedDatabases.contains(nodeDb, Qt::CaseInsensitive)) {
-                savedDatabases.push_back(nodeDb);
+    // the pipeline when opening an older project file written before the
+    // top-level databases list existed. Once a project has been saved with the
+    // databases array, that array is authoritative so a removed DBC does not
+    // come back on the next open.
+    if (!hasDatabasesKey) {
+        for (const NodeDescription& node : m_pipeline.nodes()) {
+            if (node.typeName == "dbc.decoder") {
+                const QString nodeDb =
+                    QString::fromStdString(std::string{node.parameters.text("database")}).trimmed();
+                if (!nodeDb.isEmpty() && !savedDatabases.contains(nodeDb, Qt::CaseInsensitive)) {
+                    savedDatabases.push_back(nodeDb);
+                }
             }
         }
     }
@@ -2398,6 +2569,7 @@ void MainWindow::openProject(const QString& path)
     // dashboard is replaced, so that what is checked is the one that was opened.
     applyDashboardBase();
     reportDashboardProblems();
+    syncProjectExplorer();
 
     m_recentProjects.add(path);
     rebuildRecentMenu();
@@ -2477,6 +2649,7 @@ bool MainWindow::writeProject(const QString& path)
             m_projectExplorer->setDatabases(m_databasePanel->databasePaths());
         }
     }
+    syncProjectExplorer();
 
     // Save As moves the folder that relative script paths resolve against,
     // and the panel is holding one open.
@@ -2525,6 +2698,92 @@ void MainWindow::shareDatabasesWithDashboard()
     if (m_dashboardEditor != nullptr) {
         m_dashboardEditor->setDatabases(databases);
     }
+}
+
+void MainWindow::syncProjectExplorer()
+{
+    if (m_projectExplorer == nullptr) {
+        return;
+    }
+
+    m_projectExplorer->setTransmitEntries(m_transmitList.entries());
+
+    QList<ScriptExplorerItem> scripts;
+    for (const NodeDescription& node : m_pipeline.nodes()) {
+        if (node.typeName != "lua.ecu" && node.typeName != "lua.test") {
+            continue;
+        }
+
+        const QString nodeId = QString::fromStdString(node.id);
+        const QString rawPath =
+            QString::fromStdString(std::string{node.parameters.text("scriptPath")}).trimmed();
+        const QString inlineCode =
+            QString::fromStdString(std::string{node.parameters.text("script")}).trimmed();
+
+        if (!rawPath.isEmpty()) {
+            const QString fileName = QFileInfo{rawPath}.fileName();
+            scripts.push_back(ScriptExplorerItem{
+                nodeId, QStringLiteral("%1  (%2)").arg(fileName, nodeId), rawPath});
+        } else if (!inlineCode.isEmpty()) {
+            const QString kind =
+                node.typeName == "lua.test" ? tr("Test sequence") : tr("Inline script");
+            scripts.push_back(
+                ScriptExplorerItem{nodeId,
+                                   QStringLiteral("%1  (%2)").arg(nodeId, kind),
+                                   tr("Inline Lua script in block '%1'").arg(nodeId)});
+        } else {
+            scripts.push_back(ScriptExplorerItem{
+                nodeId, QStringLiteral("%1  (unconfigured)").arg(nodeId), nodeId});
+        }
+    }
+    m_projectExplorer->setScripts(scripts);
+
+    QList<LogExplorerItem> logs;
+    if (!m_recordingPath.isEmpty()) {
+        logs.push_back(
+            LogExplorerItem{{},
+                            tr("Recording: %1").arg(QFileInfo{m_recordingPath}.fileName()),
+                            m_recordingPath,
+                            false});
+    } else if (!m_lastRecordedPath.isEmpty()) {
+        logs.push_back(
+            LogExplorerItem{{},
+                            tr("Last recorded: %1").arg(QFileInfo{m_lastRecordedPath}.fileName()),
+                            m_lastRecordedPath,
+                            false});
+    }
+
+    for (const NodeDescription& node : m_pipeline.nodes()) {
+        const QString nodeId = QString::fromStdString(node.id);
+        if (node.typeName == "can.log") {
+            const QString state = !m_recordingPath.isEmpty()
+                                      ? tr("Recording")
+                                      : (node.enabled ? tr("Enabled") : tr("Standby"));
+            logs.push_back(
+                LogExplorerItem{nodeId,
+                                QStringLiteral("%1  (CAN Logger - %2)").arg(nodeId, state),
+                                tr("CAN Logger block '%1'").arg(nodeId),
+                                false});
+        } else if (node.typeName == "log.source") {
+            const QString path =
+                QString::fromStdString(std::string{node.parameters.text("path")}).trimmed();
+            const QString file = path.isEmpty() ? tr("unconfigured") : QFileInfo{path}.fileName();
+            logs.push_back(LogExplorerItem{nodeId,
+                                           QStringLiteral("%1  (%2)").arg(file, nodeId),
+                                           path.isEmpty() ? nodeId : path,
+                                           false});
+        }
+    }
+
+    if (m_recordingPath.isEmpty()) {
+        logs.push_back(LogExplorerItem{
+            {},
+            tr("Record to .tblog..."),
+            tr("Click to arm recording to a .tblog file before starting a measurement"),
+            true});
+    }
+
+    m_projectExplorer->setLogs(logs);
 }
 
 void MainWindow::reportDashboardProblems()
@@ -2612,6 +2871,20 @@ void MainWindow::onRecord(bool checked)
 
         m_controller->engine().stopRecording();
         m_recordingPath.clear();
+
+        if (!m_autoEnabledLoggers.isEmpty()) {
+            for (NodeDescription& node : m_pipeline.nodes()) {
+                if (m_autoEnabledLoggers.contains(QString::fromStdString(node.id))) {
+                    node.enabled = false;
+                }
+            }
+            m_autoEnabledLoggers.clear();
+            if (m_canvas != nullptr) {
+                m_canvas->reload();
+            }
+        }
+
+        syncProjectExplorer();
         return;
     }
 
@@ -2640,6 +2913,18 @@ void MainWindow::onRecord(bool checked)
     }
 
     m_recordingPath = path;
+    m_autoEnabledLoggers.clear();
+    for (NodeDescription& node : m_pipeline.nodes()) {
+        if (node.typeName == "can.log" && !node.enabled) {
+            node.enabled = true;
+            m_autoEnabledLoggers.push_back(QString::fromStdString(node.id));
+        }
+    }
+    if (!m_autoEnabledLoggers.isEmpty() && m_canvas != nullptr) {
+        m_canvas->reload();
+    }
+
+    syncProjectExplorer();
 
     m_output->appendInfo(tr("Armed: recording to %1. Add a CAN Logger block to the "
                             "pipeline and press Start.")
@@ -2803,7 +3088,22 @@ void MainWindow::onMeasurementStopped()
         // which is when the recording ends, not when it started.
         m_output->appendInfo(tr("Recorded %L1 frame(s) to %2.").arg(frames).arg(m_recordingPath));
 
+        m_lastRecordedPath = m_recordingPath;
         m_recordingPath.clear();
+
+        if (!m_autoEnabledLoggers.isEmpty()) {
+            for (NodeDescription& node : m_pipeline.nodes()) {
+                if (m_autoEnabledLoggers.contains(QString::fromStdString(node.id))) {
+                    node.enabled = false;
+                }
+            }
+            m_autoEnabledLoggers.clear();
+            if (m_canvas != nullptr) {
+                m_canvas->reload();
+            }
+        }
+
+        syncProjectExplorer();
 
         {
             // Same reason as putBack above: the button is following the

@@ -185,9 +185,17 @@ private:
     /// Gives the Dashboard and its form the databases that are loaded now.
     void shareDatabasesWithDashboard();
 
+    /// Synchronises the Project Explorer tree (Transmit lists, Scripts, Logs)
+    /// with the current pipeline, transmit list, and recording state.
+    void syncProjectExplorer();
+
     /// The J1939 Network panel's Request claims: asks every ECU on every channel to claim its
     /// address again, and says in the Output panel where it went and where it was refused.
     void requestAddressClaims();
+
+    /// The same for a group the J1939 Network panel asked one ECU, or every ECU, for: `destination`
+    /// is an address or 255, and `channel` is one channel or -1 for every channel.
+    void requestPgn(quint32 pgn, int destination, int channel);
 
     /// Marks the pipeline changed and refreshes the title bar.
     void markDirty();
@@ -288,6 +296,8 @@ private:
     /// Output panel can name the file at Stop, which is the moment somebody
     /// wants to know where it went.
     QString m_recordingPath;
+    QString m_lastRecordedPath;
+    QStringList m_autoEnabledLoggers;
 
     /// Wall clock at the last Start, in microseconds since the epoch, or zero
     /// when nothing has been measured in this session. Only the ASC date line
