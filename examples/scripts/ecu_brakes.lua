@@ -49,6 +49,17 @@ local air_circuit1_bar = kCircuit1Bar
 local air_circuit2_bar = kCircuit2Bar
 
 local last_tick_us = nil
+local last_sent_ebc1 = nil
+local override_ebc1_payload = nil
+local override_ebc1_until_us = nil
+
+local last_sent_air1 = nil
+local override_air1_payload = nil
+local override_air1_until_us = nil
+
+local last_sent_dm1 = nil
+local override_dm1_payload = nil
+local override_dm1_until_us = nil
 
 function on_enable()
     log_message(string.format("J1939 Brake ECU (SA 0x%02X) active", kSa))
@@ -62,6 +73,28 @@ end
 
 function on_disable()
     log_message(string.format("J1939 Brake ECU stopped, circuit 1 at %.1f bar", air_circuit1_bar))
+end
+
+function on_message(id, data, channel, extended)
+    if extended ~= 1 or #data < 8 then
+        return
+    end
+    local now = get_time_us()
+    if id == j1939_id(6, 0xF001, kSa) and data ~= last_sent_ebc1 then
+        override_ebc1_payload = data
+        override_ebc1_until_us = now + 5000000
+    elseif id == j1939_id(6, 0xFEAE, kSa) and data ~= last_sent_air1 then
+        override_air1_payload = data
+        override_air1_until_us = now + 5000000
+    elseif id == j1939_id(6, 0xFECA, kSa) and data ~= last_sent_dm1 then
+        if data == dm1(0, 0, 0, 0, 0, 0, 0) then
+            override_dm1_payload = nil
+            override_dm1_until_us = nil
+        else
+            override_dm1_payload = data
+            override_dm1_until_us = now + 10000000
+        end
+    end
 end
 
 function on_timer()
@@ -89,31 +122,55 @@ function on_timer()
     -- 1. EBC1 (PGN 0xF001, 100 ms, Prio 6)
     if now >= next_ebc1_us then
         next_ebc1_us = now + kEbc1IntervalUs
-        local b1 = (asr_engine_active & 0x03) | ((asr_brake_active & 0x03) << 2) | ((abs_active & 0x03) << 4)
-        local b6 = (amber_warning & 0x03) | ((red_warning & 0x03) << 2)
-        send(6, 0xF001, kSa, string.pack("<I1I1I1I1I1I1", b1, 0xFF, 0xFF, 0xFF, 0xFF, b6))
+        local ebc1_payload
+        if override_ebc1_payload ~= nil and override_ebc1_until_us ~= nil and now < override_ebc1_until_us then
+            ebc1_payload = override_ebc1_payload
+        else
+            override_ebc1_payload = nil
+            local b1 = (asr_engine_active & 0x03) | ((asr_brake_active & 0x03) << 2) | ((abs_active & 0x03) << 4)
+            local b6 = (amber_warning & 0x03) | ((red_warning & 0x03) << 2)
+            ebc1_payload = string.pack("<I1I1I1I1I1I1I1I1", b1, 0xFF, 0xFF, 0xFF, 0xFF, b6, 0xFF, 0xFF)
+        end
+        last_sent_ebc1 = ebc1_payload
+        send(6, 0xF001, kSa, ebc1_payload)
     end
 
     -- 2. AIR1 (PGN 0xFEAE, 1 s, Prio 6)
     if now >= next_air1_us then
         next_air1_us = now + kAir1IntervalUs
-        local b1 = raw(air_supply_bar, 0.08, 0, 1)
-        local b3 = raw(air_circuit1_bar, 0.08, 0, 1)
-        local b4 = raw(air_circuit2_bar, 0.08, 0, 1)
-        send(6, 0xFEAE, kSa, string.pack("<I1I1I1I1", b1, 0xFF, b3, b4))
+        local air1_payload
+        if override_air1_payload ~= nil and override_air1_until_us ~= nil and now < override_air1_until_us then
+            air1_payload = override_air1_payload
+        else
+            override_air1_payload = nil
+            local b1 = raw(air_supply_bar, 0.08, 0, 1)
+            local b3 = raw(air_circuit1_bar, 0.08, 0, 1)
+            local b4 = raw(air_circuit2_bar, 0.08, 0, 1)
+            air1_payload = string.pack("<I1I1I1I1", b1, 0xFF, b3, b4)
+        end
+        last_sent_air1 = air1_payload
+        send(6, 0xFEAE, kSa, air1_payload)
     end
 
     -- 3. DM1 (PGN 0xFECA, 1 s, Prio 6)
     if now >= next_dm1_us then
         next_dm1_us = now + kDm1IntervalUs
-        if kScenario == "abs_fault" then
-            -- Amber warning lamp, SPN 563 (Anti-Lock Braking Active), FMI 12 (Bad intelligent device), OC 1
-            send(6, 0xFECA, kSa, dm1(0, 0, 1, 0, 563, 12, 1))
-        elseif red_warning > 0 then
-            -- Red stop lamp, SPN 1087 (Service Brake Circuit 1 Air Pressure), FMI 1 (Low severely), OC 1
-            send(6, 0xFECA, kSa, dm1(0, 1, 0, 0, 1087, 1, 1))
+        local dm1_payload
+        if override_dm1_payload ~= nil and override_dm1_until_us ~= nil and now < override_dm1_until_us then
+            dm1_payload = override_dm1_payload
         else
-            send(6, 0xFECA, kSa, dm1(0, 0, 0, 0, 0, 0, 0))
+            override_dm1_payload = nil
+            if kScenario == "abs_fault" then
+                -- Amber warning lamp, SPN 563 (Anti-Lock Braking Active), FMI 12 (Bad intelligent device), OC 1
+                dm1_payload = dm1(0, 0, 1, 0, 563, 12, 1)
+            elseif red_warning > 0 then
+                -- Red stop lamp, SPN 1087 (Service Brake Circuit 1 Air Pressure), FMI 1 (Low severely), OC 1
+                dm1_payload = dm1(0, 1, 0, 0, 1087, 1, 1)
+            else
+                dm1_payload = dm1(0, 0, 0, 0, 0, 0, 0)
+            end
         end
+        last_sent_dm1 = dm1_payload
+        send(6, 0xFECA, kSa, dm1_payload)
     end
 end

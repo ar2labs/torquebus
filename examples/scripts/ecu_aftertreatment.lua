@@ -34,6 +34,13 @@ local def_temp = parameters.initial_def_temp or 22.0
 local def_tank_capacity_l = 35.0  -- Typical 35 L DEF tank
 
 local last_tick_us = nil
+local last_sent_at = nil
+local override_at_payload = nil
+local override_at_until_us = nil
+
+local last_sent_dm1 = nil
+local override_dm1_payload = nil
+local override_dm1_until_us = nil
 
 function on_enable()
     log_message(string.format("J1939 Aftertreatment ECU (SA 0x%02X) active", kSa))
@@ -47,6 +54,25 @@ end
 
 function on_disable()
     log_message(string.format("J1939 Aftertreatment ECU stopped, DEF at %.1f%%", def_level))
+end
+
+function on_message(id, data, channel, extended)
+    if extended ~= 1 or #data < 8 then
+        return
+    end
+    local now = get_time_us()
+    if id == j1939_id(6, 0xFE56, kSa) and data ~= last_sent_at then
+        override_at_payload = data
+        override_at_until_us = now + 5000000
+    elseif id == j1939_id(6, 0xFECA, kSa) and data ~= last_sent_dm1 then
+        if data == dm1(0, 0, 0, 0, 0, 0, 0) then
+            override_dm1_payload = nil
+            override_dm1_until_us = nil
+        else
+            override_dm1_payload = data
+            override_dm1_until_us = now + 10000000
+        end
+    end
 end
 
 function on_timer()
@@ -70,22 +96,38 @@ function on_timer()
     -- AT1T1I1 (PGN 0xFE56, 1 s, Prio 6)
     if now >= next_at_us then
         next_at_us = now + kAtIntervalUs
-        local b1 = raw(def_level, 0.4, 0, 1)
-        local b2 = raw(def_temp, 1, -40, 1)
-        local b34 = raw(def_level * 3.5, 0.1, 0, 2) -- Level in mm (approx)
-        local b5 = 0xF0 | (low_indicator & 0x03)
-        local b6 = 0xF8 | (inducement_severity & 0x07)
-        send(6, 0xFE56, kSa, string.pack("<I1I1I2I1I1", b1, b2, b34, b5, b6))
+        local at_payload
+        if override_at_payload ~= nil and override_at_until_us ~= nil and now < override_at_until_us then
+            at_payload = override_at_payload
+        else
+            override_at_payload = nil
+            local b1 = raw(def_level, 0.4, 0, 1)
+            local b2 = raw(def_temp, 1, -40, 1)
+            local b34 = raw(def_level * 3.5, 0.1, 0, 2) -- Level in mm (approx)
+            local b5 = 0xF0 | (low_indicator & 0x03)
+            local b6 = 0xF8 | (inducement_severity & 0x07)
+            at_payload = string.pack("<I1I1I2I1I1I1I1", b1, b2, b34, b5, b6, 0xFF, 0xFF)
+        end
+        last_sent_at = at_payload
+        send(6, 0xFE56, kSa, at_payload)
     end
 
     -- DM1 (PGN 0xFECA, 1 s, Prio 6)
     if now >= next_dm1_us then
         next_dm1_us = now + kDm1IntervalUs
-        if def_level < 10.0 then
-            -- Amber warning lamp, SPN 1761 (DEF Tank Level), FMI 1 (Low severely), OC 1
-            send(6, 0xFECA, kSa, dm1(0, 0, 1, 0, 1761, 1, 1))
+        local dm1_payload
+        if override_dm1_payload ~= nil and override_dm1_until_us ~= nil and now < override_dm1_until_us then
+            dm1_payload = override_dm1_payload
         else
-            send(6, 0xFECA, kSa, dm1(0, 0, 0, 0, 0, 0, 0))
+            override_dm1_payload = nil
+            if def_level < 10.0 then
+                -- Amber warning lamp, SPN 1761 (DEF Tank Level), FMI 1 (Low severely), OC 1
+                dm1_payload = dm1(0, 0, 1, 0, 1761, 1, 1)
+            else
+                dm1_payload = dm1(0, 0, 0, 0, 0, 0, 0)
+            end
         end
+        last_sent_dm1 = dm1_payload
+        send(6, 0xFECA, kSa, dm1_payload)
     end
 end

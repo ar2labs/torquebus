@@ -3,8 +3,7 @@
     "dashboard": {
         "widgets": [
             {
-                "binding": {
-                },
+                "binding": {},
                 "height": 322,
                 "id": "fluids_and_power",
                 "kind": "group",
@@ -18,8 +17,7 @@
                 "width": 248
             },
             {
-                "binding": {
-                },
+                "binding": {},
                 "height": 315,
                 "id": "cluster",
                 "kind": "cluster",
@@ -177,6 +175,7 @@
                         "value": 4
                     }
                 ],
+                "title": "Regime",
                 "width": 76
             },
             {
@@ -295,8 +294,7 @@
                 "width": 248
             },
             {
-                "binding": {
-                },
+                "binding": {},
                 "height": 200,
                 "id": "faults",
                 "kind": "faults",
@@ -417,6 +415,36 @@
                 "fromPort": 0,
                 "to": "filter_ccvs1",
                 "toPort": 0
+            },
+            {
+                "from": "can_1",
+                "fromPort": 0,
+                "to": "uds_tester",
+                "toPort": 0
+            },
+            {
+                "from": "uds_tester",
+                "fromPort": 0,
+                "to": "can_1",
+                "toPort": 0
+            },
+            {
+                "from": "can_1",
+                "fromPort": 0,
+                "to": "j1939_test",
+                "toPort": 0
+            },
+            {
+                "from": "j1939_test",
+                "fromPort": 0,
+                "to": "can_1",
+                "toPort": 0
+            },
+            {
+                "from": "can_1",
+                "fromPort": 0,
+                "to": "can_logger",
+                "toPort": 0
             }
         ],
         "nodes": [
@@ -438,7 +466,10 @@
                     "sa": 0,
                     "scenario": "normal",
                     "scriptPath": "../scripts/ecu_engine.lua",
-                    "tick_ms": 10
+                    "tick_ms": 10,
+                    "enable_uds": true,
+                    "udsRequestId": 2016,
+                    "udsResponseId": 2024
                 },
                 "position": {
                     "x": 234,
@@ -548,8 +579,7 @@
             },
             {
                 "id": "j1939_plot",
-                "parameters": {
-                },
+                "parameters": {},
                 "position": {
                     "x": 234,
                     "y": 316
@@ -566,10 +596,604 @@
                     "y": 212
                 },
                 "type": "can.filter"
+            },
+            {
+                "id": "uds_tester",
+                "parameters": {
+                    "channel": 0,
+                    "receiveId": 2024,
+                    "transmitId": 2016
+                },
+                "position": {
+                    "x": 626,
+                    "y": 212
+                },
+                "type": "uds.client"
+            },
+            {
+                "id": "j1939_test",
+                "parameters": {
+                    "channel": 0,
+                    "script": "-- J1939 & UDS automated verification sequence\n\ntest(\"EEC1 engine speed cyclic broadcast (0x0CF00400)\", function()\n    local frame = expect_frame(0x0CF00400, { within = 500 })\n    assert_equal(#frame.data, 8, \"EEC1 DLC\")\nend)\n\ntest(\"EEC1 engine speed and torque signal validity\", function()\n    local frame = expect_frame(0x0CF00400, { within = 500 })\n    local raw_rpm = frame.data:byte(4) + frame.data:byte(5) * 256\n    assert_true(raw_rpm <= 64255, \"EngineSpeed raw value is valid\")\nend)\n\ntest(\"UDS 0x10 DiagnosticSessionControl on EMS (0x7E0/0x7E8)\", function()\n    send(0x7E0, \"\\x02\\x10\\x01\\x55\\x55\\x55\\x55\\x55\")\n    local answer = expect(0x7E8, { within = 500 })\n    assert_true(answer ~= nil, \"EMS answered within 500 ms\")\n    assert_equal(answer.data:byte(2), 0x50, \"positive response SID 0x50\")\nend)\n\ntest(\"UDS 0x22 ReadDataByIdentifier Coolant DID 0x0105\", function()\n    send(0x7E0, \"\\x03\\x22\\x01\\x05\\x55\\x55\\x55\\x55\")\n    local answer = expect(0x7E8, { within = 500 })\n    assert_true(answer ~= nil, \"EMS answered DID 0x0105 within 500 ms\")\n    assert_equal(answer.data:byte(2), 0x62, \"positive response SID 0x62\")\nend)\n"
+                },
+                "position": {
+                    "x": 822,
+                    "y": 212
+                },
+                "type": "lua.test"
+            },
+            {
+                "enabled": false,
+                "id": "can_logger",
+                "parameters": {},
+                "position": {
+                    "x": 1018,
+                    "y": 212
+                },
+                "type": "can.log"
             }
         ]
     },
     "transmit": [
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "04ff6e000f01ffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419351040,
+            "message": "DM1",
+            "name": "DM1 - Amber Warning Lamp (Coolant Temp High SPN 110)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "10ff64000101ffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419351040,
+            "message": "DM1",
+            "name": "DM1 - Red Stop Lamp (Low Oil Pressure SPN 100)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "50ff6e000001ffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419351040,
+            "message": "DM1",
+            "name": "DM1 - MIL Check Engine + Red Stop (Overheating SPN 110)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "01ff6f000101ffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419351040,
+            "message": "DM1",
+            "name": "DM1 - Protect Lamp Active (Coolant Level Low SPN 111)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "00ff00000000ffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419351040,
+            "message": "DM1",
+            "name": "DM1 - Clear All Diagnostic Lamps (No Active Faults)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 500,
+            "data": "ffffc80cffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419360512,
+            "message": "EFL_P1",
+            "name": "EFL_P1 - Low Oil Pressure Alarm (50 kPa / 0.5 bar - Oil Lamp Lit)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 500,
+            "data": "ffffc85affffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419360512,
+            "message": "EFL_P1",
+            "name": "EFL_P1 - Normal Engine Oil Pressure (360 kPa / 3.6 bar - Oil Lamp Off)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "7800e000e400e400",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419362593,
+            "message": "VEP1",
+            "name": "VEP1 - Alternator Failure / Low Battery (11.4 V - Battery Lamp Lit)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "7800e00028022802",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419362593,
+            "message": "VEP1",
+            "name": "VEP1 - Normal Battery Potential (27.6 V - Battery Lamp Off)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "9effffffffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419360256,
+            "message": "ET1",
+            "name": "ET1 - Engine Overheating Alarm (118 \u00b0C - Coolant Bar Red Alarm)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "80ffffffffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419360256,
+            "message": "ET1",
+            "name": "ET1 - Normal Engine Coolant Temperature (88 \u00b0C - Operating Range)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "ff14ffffffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419363873,
+            "message": "DD1",
+            "name": "DD1 - Low Fuel Warning Alarm (8% - Refuel Soon Bar Amber)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "ffbcffffffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419363873,
+            "message": "DD1",
+            "name": "DD1 - Normal Fuel Level (75% - 3/4 Tank)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "143e1c01f1f9ffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419321405,
+            "message": "AT1T1I1",
+            "name": "AT1T1I1 - Low DEF / AdBlue Warning (8% - AdBlue Bar Amber)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "fa3e1c01f1f9ffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419321405,
+            "message": "AT1T1I1",
+            "name": "AT1T1I1 - Full DEF / AdBlue Tank (100% - Tank Full)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "3cff3c3cffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419343883,
+            "message": "AIR1",
+            "name": "AIR1 - Low Brake Air Pressure (4.8 bar - Warning Alarm)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "69ff6969ffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419343883,
+            "message": "AIR1",
+            "name": "AIR1 - Nominal Brake Air Pressure (8.4 bar - Ready)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "ffffff8021ffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419362048,
+            "message": "AMB",
+            "name": "AMB - Freezing Ambient Temperature (-5 \u00b0C - Icy Road Hazard)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "ffffffa025ffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419362048,
+            "message": "AMB",
+            "name": "AMB - Summer Ambient Temperature (28 \u00b0C - Outside)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 100,
+            "data": "10ffffffff05ffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 418382091,
+            "message": "EBC1",
+            "name": "EBC1 - ABS Amber Warning & EBS Red Stop Active",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 100,
+            "data": "00ffffffff00ffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 418382091,
+            "message": "EBC1",
+            "name": "EBC1 - Normal Braking (ABS Amber & EBS Red Off)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 500,
+            "data": "14ffffffffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419239713,
+            "message": "BAS",
+            "name": "BAS - Driver Seat Belt Unbuckled Warning Lamp",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 500,
+            "data": "00ffffffffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419239713,
+            "message": "BAS",
+            "name": "BAS - Driver Seat Belt Fastened (Warning Lamp Off)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 100,
+            "data": "f70000ccff00ffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419361024,
+            "message": "CCVS1",
+            "name": "CCVS1 - Parking Brake Set (Standstill 0 km/h)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 100,
+            "data": "f30064cdff64ffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419361024,
+            "message": "CCVS1",
+            "name": "CCVS1 - Highway Cruise Control Active (100 km/h)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 100,
+            "data": "f32082ccff00ffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419361024,
+            "message": "CCVS1",
+            "name": "CCVS1 - High Speed Driving (130 km/h - Cruise Off)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 100,
+            "data": "f07d855014ffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 217056256,
+            "message": "EEC1",
+            "name": "EEC1 - Engine Idling (650 RPM - Idle Range)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 100,
+            "data": "f07d854038ffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 217056256,
+            "message": "EEC1",
+            "name": "EEC1 - Engine Cruising (1800 RPM - Economy Range)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 100,
+            "data": "f07d854083ffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 217056256,
+            "message": "EEC1",
+            "name": "EEC1 - Engine Over-revving (4200 RPM - High RPM Range)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 100,
+            "data": "ffff7dffffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 217056512,
+            "message": "ETC2",
+            "name": "ETC2 - Transmission Gear Neutral (N)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 100,
+            "data": "ffff7cffffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 217056512,
+            "message": "ETC2",
+            "name": "ETC2 - Transmission Reverse (R)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 100,
+            "data": "ffff85ffffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 217056512,
+            "message": "ETC2",
+            "name": "ETC2 - Transmission Drive 8th Gear (D8)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 200,
+            "data": "0204ffffffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419286071,
+            "message": "OEL",
+            "name": "OEL - Turn Signal Left + Headlamps On",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 200,
+            "data": "0208ffffffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419286071,
+            "message": "OEL",
+            "name": "OEL - Turn Signal Right + Headlamps On",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 200,
+            "data": "0201ffffffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419286071,
+            "message": "OEL",
+            "name": "OEL - Hazard Warning Flashers On",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 200,
+            "data": "1200ffffffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419286071,
+            "message": "OEL",
+            "name": "OEL - High Beam + Headlamps On",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 200,
+            "data": "0100ffffffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419286071,
+            "message": "OEL",
+            "name": "OEL - Position / Parking Lights Only",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 200,
+            "data": "0000ffffffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419286071,
+            "message": "OEL",
+            "name": "OEL - All Exterior Lights & Turn Signals Off",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "20350f00ffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419348759,
+            "message": "VDHR",
+            "name": "VDHR - Odometer Update (124,580 km)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 1000,
+            "data": "20fd0000ffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419357952,
+            "message": "HOURS",
+            "name": "HOURS - Engine Hours (3,240 h)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 100,
+            "data": "28e6c884ffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419364992,
+            "message": "TinyML_Proprietary",
+            "name": "TinyML - AI Anomaly Alarm (Regime 4 - Critical Red Glow & Pulse)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 100,
+            "data": "a078d463ffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419364992,
+            "message": "TinyML_Proprietary",
+            "name": "TinyML - AI Thermal Stress (Regime 3 - Amber Glow Warning)",
+            "trigger": "manual"
+        },
+        {
+            "channel": 0,
+            "cycleMs": 100,
+            "data": "f00cf021ffffffff",
+            "dlc": 8,
+            "enabled": true,
+            "extended": true,
+            "fd": false,
+            "id": 419364992,
+            "message": "TinyML_Proprietary",
+            "name": "TinyML - AI Cruise Regime (Regime 1 - Normal Cyan/Green Glow)",
+            "trigger": "manual"
+        }
     ],
     "version": 3
 }

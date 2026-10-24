@@ -39,12 +39,17 @@
 // are parameters: the function, the serial number and whether it can move. The
 // manufacturer is not one - a simulated ECU is nobody's product.
 //
-// One thing of J1939-81 it leaves out, on purpose: the pseudo-random delay of up
-// to 153 ms that an ECU waits before it answers a request or says it cannot
-// claim. The delay is there to spread the answers of ECUs that power up at the
-// same instant on a shared wire, and here the answers are queued by the engine
-// and arbitrated by the bus model, in an order that does not vary. A delay would
-// only make a measurement unrepeatable.
+// It answers other requests too, for what it sends: its trouble code (a DM1 that
+// says "no active fault" when the model has none) and its telemetry. A request
+// addressed to it for anything else is refused with a negative Acknowledgement,
+// as J1939-21 has it, and one to everyone for something it does not have is not
+// answered at all.
+//
+// The answers to a request to everyone for the claims of the bus, and the
+// "cannot claim", wait the pseudo-random time J1939-81 asks for - up to 153 ms,
+// from its NAME, so that two ECUs differ and a measurement repeats. The block has
+// no clock of its own, so the time is the bus's: an answer goes out with the first
+// frame that is as late as it is due.
 
 #pragma once
 
@@ -176,6 +181,22 @@ private:
     /// address when it is saying that it cannot claim one. False when there was no room for it.
     bool appendClaimFrom(std::uint8_t source, std::uint64_t timestampNs);
 
+    /// The same claim, as a frame.
+    [[nodiscard]] CanFrame claimFrom(std::uint8_t source, std::uint64_t timestampNs) const;
+
+    /// The same claim, sent after the delay J1939-81 asks of an answer to everyone and of a "cannot
+    /// claim" - from the NAME, counted from `timestampNs`. False when there was no room to wait in.
+    bool scheduleClaimFrom(std::uint8_t source, std::uint64_t timestampNs);
+
+    /// Puts out the answers whose time has come, on a bus whose time is `nowNs`.
+    void releaseDelayedFrames(std::uint64_t nowNs);
+
+    /// What the block does about a request for `pgn` that was sent to it or to everyone.
+    void answerRequest(const CanFrame& request,
+                       std::uint32_t pgn,
+                       bool toEveryone,
+                       std::uint8_t requester);
+
     /// What this ECU is: on-highway, a function, a serial number - the address it was first meant
     /// to speak from, unless told otherwise, so that moving to another does not change who it is.
     [[nodiscard]] J1939Name ownName() const noexcept;
@@ -299,6 +320,21 @@ private:
     /// The addresses other ECUs have been heard to claim in this measurement, which is what an ECU
     /// that has to move chooses from.
     std::array<bool, 256> m_claimedByOthers{};
+
+    /// An answer that is waiting for its time, which is bus time.
+    struct Delayed final {
+        std::uint64_t dueNs{0};
+        CanFrame frame{};
+    };
+
+    std::vector<Delayed> m_delayed;
+
+    /// The latest telemetry frame, which is what a request for its group is answered with.
+    CanFrame m_lastTelemetry{};
+    bool m_hasTelemetry{false};
+
+    std::uint64_t m_requestsAnswered{0};
+    std::uint64_t m_requestsRefused{0};
 
     /// Bus time the engine has been (or has stopped being) in trouble since, and what was last said
     /// about it on the bus. Optionals because bus time zero is a time, and a sentinel that equals

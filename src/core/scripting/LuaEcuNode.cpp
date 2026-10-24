@@ -30,6 +30,11 @@ namespace {
 /// memory runs out. The script is told when it hits this.
 constexpr std::size_t kMaximumEmitsPerPass = 4096;
 
+/// How many answers can be waiting for their time at once. A bus asked for its claims faster than
+/// they come due would otherwise grow the queue for as long as the flood lasted; what is waiting
+/// is what is answered, and the rest is not.
+constexpr std::size_t kMaximumDelayedAnswers = 256;
+
 /// How many repeating jobs - every() and cyclic() together - one ECU may declare.
 ///
 /// A real ECU has a few dozen cyclic messages. A script that declares one each time it
@@ -38,6 +43,11 @@ constexpr std::size_t kMaximumEmitsPerPass = 4096;
 /// pipeline cannot keep up, and the memory it holds is the script's closures and nothing
 /// the Lua limit would see in time.
 constexpr std::size_t kMaximumRepeatingJobs = 1024;
+
+/// How many parameter groups, each from each address, the node remembers a copy of to answer a
+/// request with. A real ECU sends a few dozen; a script that makes up an identifier for every frame
+/// would otherwise fill a list that is walked for every frame it sends.
+constexpr std::size_t kMaximumRememberedMessages = 256;
 
 } // namespace
 
@@ -74,12 +84,16 @@ Result LuaEcuNode::prepare(std::size_t maximumBatchSize)
     // something else in it.
     m_repeating.clear();
     m_faults.clear();
-    m_claims.clear();
+    m_sent.clear();
+    m_delayed.clear();
+    m_requestsAnswered = 0;
+    m_requestsRefused = 0;
     m_corrupted = 0;
     m_reloads = 0;
     m_reloadsRefused = 0;
 
     m_outgoing.reserve(kMaximumEmitsPerPass);
+    m_delayed.reserve(kMaximumDelayedAnswers);
 
     // The clock is set before the script loads, because get_time_us() is legal
     // at the top level of a script and inside on_enable - tb.ramp() captures it
@@ -94,6 +108,7 @@ Result LuaEcuNode::prepare(std::size_t maximumBatchSize)
     // Cleared before on_enable, not after: a re-prepare must not carry frames
     // from the previous measurement into this one.
     m_outgoing.clear();
+    m_rememberedUpTo = 0;
 
     if (Result result = install(m_source); result.failed()) {
         return result;
@@ -179,6 +194,7 @@ Result LuaEcuNode::install(const std::string& source)
     }
 
     m_hasOnMessage = m_lua->hasFunction("on_message");
+    m_hasOnRequest = m_lua->hasFunction("on_request");
     m_hasOnTimer = m_lua->hasFunction("on_timer");
     m_hasOnUdsRequest = m_lua->hasFunction("on_uds_request");
     m_hasOnSecuritySeed = m_lua->hasFunction("on_security_seed");
@@ -266,9 +282,9 @@ Result LuaEcuNode::reload(std::string source)
     std::vector<Repeating> previousRepeating = std::move(m_repeating);
     std::map<std::uint32_t, Fault> previousFaults = std::move(m_faults);
 
-    // The claims go with the script that made them: the new one announces what it announces, and a
-    // refused one must leave the running script answering for the address it has.
-    std::vector<CanFrame> previousClaims = std::move(m_claims);
+    // What was sent goes with the script that sent it: the new one announces what it announces, and
+    // a refused one must leave the running script answering for the addresses it has.
+    std::vector<Sent> previousSent = std::move(m_sent);
 
     // The diagnostic server goes with it, for a reason that is easy to miss:
     // `uds_did` and `uds_dtc` *add* to the server, so a reload against the same
@@ -286,6 +302,7 @@ Result LuaEcuNode::reload(std::string source)
     }
 
     const bool previousOnMessage = m_hasOnMessage;
+    const bool previousOnRequest = m_hasOnRequest;
     const bool previousOnTimer = m_hasOnTimer;
     const bool previousOnUdsRequest = m_hasOnUdsRequest;
     const bool previousOnSecuritySeed = m_hasOnSecuritySeed;
@@ -295,7 +312,7 @@ Result LuaEcuNode::reload(std::string source)
 
     m_repeating.clear();
     m_faults.clear();
-    m_claims.clear();
+    m_sent.clear();
 
     m_lua = std::make_unique<LuaRuntime>();
 
@@ -314,10 +331,11 @@ Result LuaEcuNode::reload(std::string source)
         m_lua = std::move(previous);
         m_repeating = std::move(previousRepeating);
         m_faults = std::move(previousFaults);
-        m_claims = std::move(previousClaims);
+        m_sent = std::move(previousSent);
         m_server = std::move(previousServer);
 
         m_hasOnMessage = previousOnMessage;
+        m_hasOnRequest = previousOnRequest;
         m_hasOnTimer = previousOnTimer;
         m_hasOnUdsRequest = previousOnUdsRequest;
         m_hasOnSecuritySeed = previousOnSecuritySeed;
@@ -353,6 +371,10 @@ Result LuaEcuNode::reload(std::string source)
     }
 
     m_source = std::move(source);
+
+    // What the new script's on_enable sent is what the ECU says now, whichever pass the reload came
+    // in: filed here and not left to the pass, which may have cleared it first.
+    rememberOutgoing();
 
     return Result::ok();
 }
@@ -417,6 +439,7 @@ void LuaEcuNode::process(NodeContext& context)
     // emit_signal succeeded, the counter went up, and nothing reached the bus.
     if (!m_carryingStartupFrames) {
         m_outgoing.clear();
+        m_rememberedUpTo = 0;
     }
     m_carryingStartupFrames = false;
 
@@ -488,14 +511,16 @@ void LuaEcuNode::process(NodeContext& context)
         m_transport->clearPendingFrames();
     }
 
-    // --- Who is on this address, when the bus asks -----------------------
+    // --- What the bus asks for ---------------------------------------------
     //
     // Before on_message for the same reason as the diagnostics: the request and the answer are one
-    // pass. The script still sees the request; it did nothing to be asked and nothing to answer.
-    if (!m_claims.empty()) {
-        for (const CanFrame& frame : context.in<CanFrame>(0)) {
-            answerClaimRequest(frame);
-        }
+    // pass. What on_enable sent, which no pass has published yet, is filed first so that it can be
+    // asked for at once. The script still sees the request in on_message.
+    rememberOutgoing();
+    releaseDelayedAnswers();
+    answerRequests(context.in<CanFrame>(0));
+    if (m_faulted) {
+        return;
     }
 
     // --- on_message, once per incoming frame -----------------------------
@@ -627,6 +652,8 @@ void LuaEcuNode::process(NodeContext& context)
     }
 
     if (!m_outgoing.empty()) {
+        rememberOutgoing();
+
         // Faults last, so one mechanism covers everything leaving this node:
         // emit(), cyclic(), and the diagnostic responses. Corrupting a UDS
         // answer to see what a tester does is a real experiment, and it would
@@ -1037,50 +1064,193 @@ int LuaEcuNode::luaFault(lua_State* state)
     return 0;
 }
 
-void LuaEcuNode::rememberClaim(const CanFrame& frame)
+void LuaEcuNode::rememberSent(const CanFrame& frame)
 {
-    // A claim with a whole NAME in it, and no other frame: the NAME is what a request is answered
-    // with, and a short one answers nothing.
-    if (!j1939NameFromClaim(frame).has_value()) {
+    const std::optional<J1939Id> id = j1939Decompose(frame);
+    if (!id.has_value()) {
         return;
     }
 
-    const auto address = static_cast<std::uint8_t>(frame.identifier & 0xFFU);
+    const std::uint32_t pgn = id->pgn();
 
-    for (CanFrame& known : m_claims) {
-        if (static_cast<std::uint8_t>(known.identifier & 0xFFU) == address) {
-            known = frame;
+    // The messages of the protocol's own conversations are not things a request is answered with:
+    // a request is not asked for, an acknowledgement answers somebody, and a transfer's packets are
+    // a conversation in progress.
+    if (pgn == kPgnRequest || pgn == kPgnAcknowledgement || pgn == kPgnTransportConnection
+        || pgn == kPgnTransportData) {
+        return;
+    }
+
+    // A claim is remembered with a whole NAME in it, and a short one answers nothing: the NAME is
+    // what a request for the claims of the bus is answered with.
+    if (pgn == kPgnAddressClaimed && !j1939NameFromClaim(frame).has_value()) {
+        return;
+    }
+
+    for (Sent& known : m_sent) {
+        if (known.pgn == pgn && known.source == id->sourceAddress) {
+            known.frame = frame;
             return;
         }
     }
 
-    m_claims.push_back(frame);
+    if (m_sent.size() < kMaximumRememberedMessages) {
+        m_sent.push_back(Sent{pgn, id->sourceAddress, frame});
+    }
 }
 
-void LuaEcuNode::answerClaimRequest(const CanFrame& request)
+void LuaEcuNode::rememberOutgoing()
 {
-    if (j1939RequestedPgn(request) != kPgnAddressClaimed) {
-        return;
+    for (; m_rememberedUpTo < m_outgoing.size(); ++m_rememberedUpTo) {
+        rememberSent(m_outgoing[m_rememberedUpTo]);
     }
+}
 
-    // A request to everyone is answered by every address this ECU claimed; one to an address, by
-    // the ECU that holds it and by nobody else.
-    const std::uint8_t destination = j1939Decompose(request.identifier).destinationAddress();
+bool LuaEcuNode::speaksFrom(std::uint8_t address) const noexcept
+{
+    return std::any_of(m_sent.begin(), m_sent.end(), [address](const Sent& sent) {
+        return sent.source == address;
+    });
+}
 
-    for (const CanFrame& claim : m_claims) {
-        const auto address = static_cast<std::uint8_t>(claim.identifier & 0xFFU);
-
-        if (destination != kJ1939GlobalAddress && destination != address) {
+void LuaEcuNode::answerRequests(std::span<const CanFrame> frames)
+{
+    for (const CanFrame& frame : frames) {
+        const std::optional<std::uint32_t> requested = j1939RequestedPgn(frame);
+        if (!requested.has_value()) {
             continue;
         }
+
+        const J1939Id id = j1939Decompose(frame.identifier);
+        const std::uint8_t destination = id.destinationAddress();
+        const std::uint8_t requester = id.sourceAddress;
+
+        // Its own request, come back off the bus: not something to answer.
+        if (speaksFrom(requester)) {
+            continue;
+        }
+
+        if (m_hasOnRequest) {
+            LuaValue verdict;
+
+            const std::vector<LuaValue> arguments{
+                LuaValue::fromInteger(*requested),
+                LuaValue::fromInteger(destination),
+                LuaValue::fromInteger(requester),
+                LuaValue::fromInteger(frame.channel),
+            };
+
+            if (Result result = m_lua->call("on_request", arguments, verdict); result.failed()) {
+                handleScriptFailure(result, "on_request");
+
+                if (m_faulted) {
+                    return;
+                }
+
+                // A script that threw has not decided anything, so the node answers as it would
+                // have: whoever asked should meet the ECU that was configured, not silence.
+            } else {
+                m_consecutiveErrors = 0;
+
+                // False is the script saying that nothing is to be added to what it did.
+                if (verdict.type == LuaValue::Type::Boolean && !verdict.boolean) {
+                    continue;
+                }
+            }
+        }
+
+        answerRequest(*requested, destination, requester);
+    }
+}
+
+void LuaEcuNode::answerRequest(std::uint32_t pgn, std::uint8_t destination, std::uint8_t requester)
+{
+    const bool toEveryone = destination == kJ1939GlobalAddress;
+    bool answered = false;
+
+    for (const Sent& sent : m_sent) {
+        if (sent.pgn != pgn || (!toEveryone && destination != sent.source)) {
+            continue;
+        }
+
+        answered = true;
 
         if (m_outgoing.size() >= kMaximumEmitsPerPass) {
             return;
         }
 
-        m_outgoing.push_back(claim);
-        ++m_emitted;
+        // Asked of everyone, the claims of a bus come one after the other and not all at once.
+        std::uint64_t delayNs = 0;
+        if (toEveryone && pgn == kPgnAddressClaimed) {
+            if (const std::optional<J1939Name> name = j1939NameFromClaim(sent.frame);
+                name.has_value()) {
+                delayNs = j1939ClaimDelayNs(*name);
+            }
+        }
+
+        // No room to wait in: this one is not answered, and is not counted as answered.
+        if (delayNs != 0 && m_delayed.size() >= kMaximumDelayedAnswers) {
+            continue;
+        }
+
+        ++m_requestsAnswered;
+
+        if (delayNs == 0) {
+            m_outgoing.push_back(sent.frame);
+            ++m_emitted;
+        } else {
+            m_delayed.push_back(DelayedAnswer{
+                std::chrono::steady_clock::now() + std::chrono::nanoseconds{delayNs}, sent.frame});
+        }
     }
+
+    // Asked of everyone, and nothing to say: most ECUs have nothing to say to most requests, and
+    // would answer a bus with a hundred refusals. Asked of this one, by its own address, and
+    // nothing to say: J1939-21 has it say so, so that the one who asked is not left waiting.
+    if (answered || toEveryone || !speaksFrom(destination)
+        || m_outgoing.size() >= kMaximumEmitsPerPass) {
+        return;
+    }
+
+    J1939Acknowledgement refusal;
+    refusal.control = kJ1939AckNegative;
+    refusal.address = requester;
+    refusal.pgn = pgn;
+
+    // From the null address a request cannot be answered to the address it came from: nobody is
+    // there to be addressed.
+    const std::uint8_t to = requester == kJ1939NullAddress ? kJ1939GlobalAddress : requester;
+
+    m_outgoing.push_back(j1939AcknowledgementFrame(refusal, destination, to, m_transmitChannel));
+    ++m_emitted;
+    ++m_requestsRefused;
+}
+
+void LuaEcuNode::releaseDelayedAnswers()
+{
+    if (m_delayed.empty()) {
+        return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+
+    // The answers still waiting move to the front, in the order they came, and the ones that are
+    // due go out in that order too.
+    std::size_t waiting = 0;
+
+    for (std::size_t index = 0; index < m_delayed.size(); ++index) {
+        if (m_delayed[index].due > now) {
+            m_delayed[waiting++] = m_delayed[index];
+            continue;
+        }
+
+        if (m_outgoing.size() < kMaximumEmitsPerPass) {
+            m_outgoing.push_back(m_delayed[index].frame);
+            ++m_emitted;
+        }
+    }
+
+    m_delayed.resize(waiting);
 }
 
 void LuaEcuNode::applyFaults()
@@ -1401,8 +1571,6 @@ int LuaEcuNode::luaEmit(lua_State* state)
     // in the trace that never happened.
     node->m_outgoing.push_back(frame);
     ++node->m_emitted;
-
-    node->rememberClaim(frame);
 
     return 0;
 }

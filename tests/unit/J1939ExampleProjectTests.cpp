@@ -419,14 +419,11 @@ namespace {
 
 TEST(J1939ExampleProjectTests, TheProjectStartsRunsAndFeedsTheCluster)
 {
-    // Until every role has a value to show, which is what the test is about.
-    const Observed run = runProject([](const Observed& seen) {
-        return seen.profile != nullptr
-               && std::all_of(
-                   seen.profile->sources.begin(),
-                   seen.profile->sources.end(),
-                   [&seen](const ClusterSource& source) { return has(seen, source.role); });
-    });
+    // Until the vehicle has said everything it says at once: every role has a value to show, which
+    // is what the test is about, and the scripted verification block of the project - which runs
+    // its cases against the same bus - has had the time to finish them before the measurement is
+    // stopped under it.
+    const Observed run = runProject(settled);
     EXPECT_RUN_CLEAN(run);
 
     ASSERT_TRUE(run.profile != nullptr);
@@ -739,4 +736,83 @@ TEST(J1939ExampleProjectTests, NoSignalOfANormalRunIsReportedAsNotAvailableByMis
 
     SCOPED_TRACE(::testing::Message() << "not available:" << joined(missing));
     EXPECT_TRUE(missing.empty());
+}
+
+TEST(J1939ExampleProjectTests, TheProjectIncludesUdsClientTestSequenceLoggerAndClusterTransmitList)
+{
+    Project project;
+    ASSERT_TRUE(openProject(project).succeeded());
+
+    EXPECT_NE(project.pipeline.find("uds_tester"), nullptr);
+    EXPECT_NE(project.pipeline.find("j1939_test"), nullptr);
+    EXPECT_NE(project.pipeline.find("can_logger"), nullptr);
+    EXPECT_GE(project.transmit.size(), 17U);
+
+    for (const TransmitEntry& entry : project.transmit.entries()) {
+        EXPECT_EQ(entry.trigger, TransmitTrigger::Manual);
+        EXPECT_TRUE(entry.enabled);
+        EXPECT_EQ(entry.frame.length, 8U);
+        EXPECT_FALSE(entry.messageName.empty());
+        if (entry.messageName == "DM1") {
+            EXPECT_EQ(entry.frame.identifier, 0x18FECA00U)
+                << "DM1 entry '" << entry.name << "' must transmit with J1939 CAN-ID 0x18FECA00";
+        }
+    }
+}
+
+TEST(J1939ExampleProjectTests, TransmittingAmberWarningDM1LightsClusterDmWarn)
+{
+    Project project;
+    ASSERT_TRUE(openProject(project).succeeded());
+
+    const auto entries = project.transmit.entries();
+    const auto it = std::find_if(entries.begin(), entries.end(), [](const TransmitEntry& e) {
+        return e.messageName == "DM1" && e.name.find("Amber Warning") != std::string::npos;
+    });
+    ASSERT_NE(it, entries.end());
+    EXPECT_EQ(it->frame.identifier, 0x18FECA00U);
+
+    CanEngine engine;
+    CanChannelConfig config;
+    config.deviceHandle = "virtual:0";
+    config.timing.bitrate = 500'000;
+    ASSERT_TRUE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
+
+    const std::string base = QFileInfo{projectPath()}.absolutePath().toStdString();
+    engine.setGraphDescription(project.pipeline, NodeCatalog::withBuiltinTypes(), base);
+    ASSERT_TRUE(engine.start().succeeded());
+
+    std::this_thread::sleep_for(std::chrono::milliseconds{100});
+
+    // Transmit the amber DM1 frame from the project's transmit list onto CAN channel 0
+    ASSERT_TRUE(engine.transmit(0, it->frame).succeeded());
+
+    const auto began = std::chrono::steady_clock::now();
+    bool lit = false;
+    while (std::chrono::steady_clock::now() - began < std::chrono::seconds{3}) {
+        if (engine.variables().value(std::string{kJ1939LampWarningVariable}) > 0.5) {
+            lit = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{20});
+    }
+
+    engine.stop();
+    EXPECT_TRUE(lit) << "Transmitting DM1 from transmit list must light kJ1939LampWarningVariable";
+}
+
+TEST(J1939ExampleProjectTests, TransmittingLowOilPressureEflLightsClusterOil)
+{
+    Project project;
+    ASSERT_TRUE(openProject(project).succeeded());
+
+    const auto entries = project.transmit.entries();
+    const auto it = std::find_if(entries.begin(), entries.end(), [](const TransmitEntry& e) {
+        return e.messageName == "EFL_P1" && e.name.find("Low Oil Pressure") != std::string::npos;
+    });
+    ASSERT_NE(it, entries.end());
+    EXPECT_EQ(it->frame.identifier, 0x18FEEF00U);
+
+    // Verify low oil pressure byte encoding (byte 3 = 12 -> 48 kPa < 100 kPa)
+    EXPECT_EQ(it->frame.data[3], 12);
 }

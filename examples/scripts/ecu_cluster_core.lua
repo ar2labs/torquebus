@@ -51,6 +51,9 @@ local clock_month = 10
 local clock_year = 2026
 
 local last_tick_us = nil
+local last_sent_vdhr = nil
+local override_vdhr_payload = nil
+local override_vdhr_until_us = nil
 
 local function extract_pgn(id)
     local pf = (id >> 16) & 0xFF
@@ -98,6 +101,9 @@ function on_message(id, data, channel, is_extended)
         if raw_speed <= 0xFAFF then
             current_speed_kmh = raw_speed / 256.0
         end
+    elseif extract_pgn(id) == 0xFEC1 and #data >= 8 and data ~= last_sent_vdhr then
+        override_vdhr_payload = data
+        override_vdhr_until_us = get_time_us() + 5000000
     end
 end
 
@@ -139,10 +145,18 @@ function on_timer()
     -- 1. VDHR (PGN 0xFEC1, 1 s, Prio 6)
     if now >= next_vdhr_us then
         next_vdhr_us = now + kVdhrIntervalUs
-        -- SPN 917 Total Vehicle Distance: 5 m/bit = 0.005 km/bit
-        local odo_raw = math.floor(total_distance_m / 5.0 + 0.5)
-        local trip_raw = math.floor(trip_distance_m / 5.0 + 0.5)
-        send(6, 0xFEC1, kSa, string.pack("<I4I4", odo_raw & 0xFFFFFFFF, trip_raw & 0xFFFFFFFF))
+        local vdhr_payload
+        if override_vdhr_payload ~= nil and override_vdhr_until_us ~= nil and now < override_vdhr_until_us then
+            vdhr_payload = override_vdhr_payload
+        else
+            override_vdhr_payload = nil
+            -- SPN 917 Total Vehicle Distance: 5 m/bit = 0.005 km/bit
+            local odo_raw = math.floor(total_distance_m / 5.0 + 0.5)
+            local trip_raw = math.floor(trip_distance_m / 5.0 + 0.5)
+            vdhr_payload = string.pack("<I4I4", odo_raw & 0xFFFFFFFF, trip_raw & 0xFFFFFFFF)
+        end
+        last_sent_vdhr = vdhr_payload
+        send(6, 0xFEC1, kSa, vdhr_payload)
     end
 
     -- 2. TD (PGN 0xFEE6, 1 s, Prio 6)

@@ -902,10 +902,13 @@ TEST(TinyMlEcuTests, WhateverItFirstHearsOnTheBusMakesItClaim)
 namespace {
 
 /// A Request (PGN 0xEA00) for `pgn`, from a service tool at 0xF9, to `destination`.
-[[nodiscard]] CanFrame requestFor(std::uint32_t pgn, std::uint8_t destination, std::uint64_t atNs)
+[[nodiscard]] CanFrame requestFor(std::uint32_t pgn,
+                                  std::uint8_t destination,
+                                  std::uint64_t atNs,
+                                  std::uint8_t source = 0xF9U)
 {
     CanFrame frame{};
-    frame.identifier = j1939Identifier(kPgnRequest, 0xF9U, destination);
+    frame.identifier = j1939Identifier(kPgnRequest, source, destination);
     frame.format = CanFrameFormat::Extended;
     frame.dlc = 3;
     frame.length = 3;
@@ -914,6 +917,31 @@ namespace {
     frame.data[1] = static_cast<std::uint8_t>((pgn >> 8U) & 0xFFU);
     frame.data[2] = static_cast<std::uint8_t>((pgn >> 16U) & 0xFFU);
     return frame;
+}
+
+/// A frame of the bus that is none of this block's business - Engine Hours - and carries the time
+/// of the bus: what a block with no clock of its own is told the time by.
+[[nodiscard]] CanFrame busTime(std::uint64_t atNs)
+{
+    CanFrame frame{};
+    frame.identifier = 0x18FEE500U;
+    frame.format = CanFrameFormat::Extended;
+    frame.dlc = 8;
+    frame.length = 8;
+    frame.timestampNs = atNs;
+    return frame;
+}
+
+/// How long the NAME of the block as it comes - on-highway, a System Monitor at 0x80 - waits to
+/// answer a request to everyone for the claims of the bus.
+[[nodiscard]] std::uint64_t defaultClaimDelayNs()
+{
+    J1939Name name;
+    name.industryGroup = 1U;
+    name.function = 33U;
+    name.identityNumber = 0x80U;
+
+    return j1939ClaimDelayNs(name);
 }
 
 /// An Address Claimed from `source`, under `name`.
@@ -963,16 +991,115 @@ TEST(TinyMlEcuTests, ARequestForTheClaimsOfTheBusIsAnsweredWithItsClaim)
         return withIdentifier(driver.run(std::vector<CanFrame>{request}), kOwnClaim).size();
     };
 
-    // To every ECU, and to this one: answered.
-    EXPECT_EQ(claimsAnswering(requestFor(kPgnAddressClaimed, kJ1939GlobalAddress, 200 * kMs)), 1U);
+    // To this ECU: answered at once. To every ECU: answered after the time J1939-81 gives it, which
+    // is the next test.
     EXPECT_EQ(claimsAnswering(requestFor(kPgnAddressClaimed, 0x80U, 300 * kMs)), 1U);
 
-    // To another ECU, or for something that is not a claim: not this ECU's to answer.
+    // To another ECU, or for something that is not a claim and that nobody asked this ECU for: not
+    // this ECU's to answer.
     EXPECT_EQ(claimsAnswering(requestFor(kPgnAddressClaimed, 0x00U, 400 * kMs)), 0U);
     EXPECT_EQ(claimsAnswering(requestFor(kPgnDm2, kJ1939GlobalAddress, 500 * kMs)), 0U);
 
     // And none of them is a frame the model reads.
     EXPECT_EQ(driver.node().framesAnalysed(), analysed);
+}
+
+TEST(TinyMlEcuTests, ARequestToEveryoneWaitsItsTimeAndGoesOutWithTheFirstFrameAsLateAsItIsDue)
+{
+    // J1939-81: ECUs asked at one instant do not all answer at one instant. The time comes from the
+    // NAME - so two ECUs differ and a measurement repeats - and the block, which has no clock of
+    // its own, reads it off the frames of the bus.
+    TinyDriver driver{j1939Config()};
+    (void)driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
+
+    const std::uint64_t delay = defaultClaimDelayNs();
+    ASSERT_GT(delay, 0U);
+    ASSERT_LT(delay, 154U * 1'000'000ULL);
+
+    const std::uint64_t asked = 200 * kMs;
+    EXPECT_TRUE(
+        driver
+            .run(std::vector<CanFrame>{requestFor(kPgnAddressClaimed, kJ1939GlobalAddress, asked)})
+            .empty());
+
+    // A frame of the bus a moment before it is due: nothing yet.
+    EXPECT_TRUE(driver.run(std::vector<CanFrame>{busTime(asked + delay - 1U)}).empty());
+
+    // The first one that is as late as the answer is due: out, stamped with the time it was due.
+    const std::vector<CanFrame> out = driver.run(std::vector<CanFrame>{busTime(asked + delay)});
+    ASSERT_EQ(out.size(), 1U);
+    EXPECT_EQ(out.front().identifier, kOwnClaim);
+    EXPECT_EQ(out.front().timestampNs, asked + delay);
+
+    // Once.
+    EXPECT_TRUE(driver.run(std::vector<CanFrame>{busTime(asked + 10U * delay)}).empty());
+}
+
+TEST(TinyMlEcuTests, TwoBlocksAskedAtOnceAnswerAtTheTimesOfTheirOwnNames)
+{
+    // At 0x80 the delay is a few milliseconds and at 0x81 close to a hundred: the same request, and
+    // the ECUs do not come at the same instant.
+    TinyDriver first{j1939Config(0x18FF0080U)};
+    TinyDriver second{j1939Config(0x18FF0081U)};
+
+    const std::vector<CanFrame> startUp{makeJ1939SpeedFrame(60.0, 100 * kMs)};
+    (void)first.run(startUp);
+    (void)second.run(startUp);
+
+    const std::vector<CanFrame> request{
+        requestFor(kPgnAddressClaimed, kJ1939GlobalAddress, 1000 * kMs)};
+    (void)first.run(request);
+    (void)second.run(request);
+
+    // Ten milliseconds on: the first has answered and the second has not.
+    const std::vector<CanFrame> soon{busTime(1010 * kMs)};
+    EXPECT_EQ(withIdentifier(first.run(soon), 0x18EEFF80U).size(), 1U);
+    EXPECT_TRUE(second.run(soon).empty());
+
+    // A hundred and fifty on, it has too.
+    const std::vector<CanFrame> later{busTime(1150 * kMs)};
+    EXPECT_EQ(withIdentifier(second.run(later), 0x18EEFF81U).size(), 1U);
+}
+
+TEST(TinyMlEcuTests, ARequestItSentItselfComingBackOffTheBusIsNotAnsweredByIt)
+{
+    // The bus echoes what is transmitted, so an ECU hears its own requests: from its own address,
+    // to everyone or to itself, for what it has, they are not questions for it.
+    TinyDriver driver{j1939Config()};
+    (void)driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
+
+    EXPECT_TRUE(
+        driver
+            .run(std::vector<CanFrame>{requestFor(kPgnDm1, kJ1939GlobalAddress, 300 * kMs, 0x80U)})
+            .empty());
+    EXPECT_TRUE(
+        driver.run(std::vector<CanFrame>{requestFor(kPgnAddressClaimed, 0x80U, 400 * kMs, 0x80U)})
+            .empty());
+
+    EXPECT_EQ(statistic(driver.node(), "Requests answered"), std::optional<std::uint64_t>{0U});
+    EXPECT_EQ(statistic(driver.node(), "Requests refused"), std::optional<std::uint64_t>{0U});
+}
+
+TEST(TinyMlEcuTests, AFloodOfRequestsForTheClaimsOfTheBusLeavesRoomForOnlyAFewAnswersToWait)
+{
+    // Asked of everyone, an answer waits for its time. Asked two hundred times at one instant, it
+    // must not wait two hundred times over: the room to wait in is limited, what is in it is
+    // answered, and only what was answered is counted.
+    TinyDriver driver{j1939Config()};
+    (void)driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
+
+    const std::vector<CanFrame> flood(
+        200U, requestFor(kPgnAddressClaimed, kJ1939GlobalAddress, 200 * kMs));
+    EXPECT_TRUE(driver.run(flood).empty());
+
+    // Long after every one of them is due.
+    const std::vector<CanFrame> out = driver.run(std::vector<CanFrame>{busTime(1000 * kMs)});
+    const std::vector<CanFrame> claims = withIdentifier(out, kOwnClaim);
+
+    EXPECT_GT(claims.size(), 8U);
+    EXPECT_LT(claims.size(), 64U);
+    EXPECT_EQ(statistic(driver.node(), "Requests answered"),
+              std::optional<std::uint64_t>{claims.size()});
 }
 
 TEST(TinyMlEcuTests, AnEcuWithALowerNameTakesTheAddressAndTheBlockFallsSilentOnTheBus)
@@ -990,10 +1117,15 @@ TEST(TinyMlEcuTests, AnEcuWithALowerNameTakesTheAddressAndTheBlockFallsSilentOnT
     J1939Name lower;
     lower.identityNumber = 7U;
 
-    const std::vector<CanFrame> answer =
-        driver.run(std::vector<CanFrame>{claimOf(0x80U, lower, 200 * kMs)});
+    const std::uint64_t lost = 200 * kMs;
+    const std::vector<CanFrame> contest =
+        driver.run(std::vector<CanFrame>{claimOf(0x80U, lower, lost)});
+    EXPECT_TRUE(contest.empty());
 
-    // It says that it cannot claim an address - from the null address, under its own NAME.
+    // It says that it cannot claim an address - from the null address, under its own NAME - after
+    // the time J1939-81 gives it.
+    const std::vector<CanFrame> answer =
+        driver.run(std::vector<CanFrame>{busTime(lost + defaultClaimDelayNs())});
     const std::vector<CanFrame> cannot = withIdentifier(answer, kCannotClaim);
     ASSERT_EQ(cannot.size(), 1U);
     EXPECT_EQ(answer.size(), 1U);
@@ -1018,16 +1150,20 @@ TEST(TinyMlEcuTests, AnEcuWithALowerNameTakesTheAddressAndTheBlockFallsSilentOnT
     EXPECT_TRUE(sent.empty());
     EXPECT_GT(driver.node().inferencesRun(), inferences);
 
-    // Asked for the claims of the bus, it says again that it has none.
-    const std::vector<CanFrame> asked = driver.run(
-        std::vector<CanFrame>{requestFor(kPgnAddressClaimed, kJ1939GlobalAddress, 3000 * kMs)});
-    ASSERT_EQ(asked.size(), 1U);
-    EXPECT_EQ(asked.front().identifier, kCannotClaim);
+    // Asked for the claims of the bus, it says again that it has none - when its time comes.
+    const std::uint64_t asked = 3000 * kMs;
+    EXPECT_TRUE(
+        driver
+            .run(std::vector<CanFrame>{requestFor(kPgnAddressClaimed, kJ1939GlobalAddress, asked)})
+            .empty());
+    const std::vector<CanFrame> again =
+        driver.run(std::vector<CanFrame>{busTime(asked + defaultClaimDelayNs())});
+    ASSERT_EQ(again.size(), 1U);
+    EXPECT_EQ(again.front().identifier, kCannotClaim);
 
     // And its statistics say why it has gone quiet.
     EXPECT_EQ(statistic(driver.node(), "J1939 address lost"), std::optional<std::uint64_t>{1U});
 }
-
 TEST(TinyMlEcuTests, AnEcuWithAHigherNameIsToldAgainThatTheAddressIsTaken)
 {
     TinyDriver driver{j1939Config()};
@@ -1046,6 +1182,150 @@ TEST(TinyMlEcuTests, AnEcuWithAHigherNameIsToldAgainThatTheAddressIsTaken)
     EXPECT_TRUE(withIdentifier(answer, kCannotClaim).empty());
     EXPECT_FALSE(withIdentifier(answer, 0x18FF0080U).empty());
     EXPECT_EQ(statistic(driver.node(), "J1939 address lost"), std::optional<std::uint64_t>{0U});
+}
+
+TEST(TinyMlEcuTests, ARequestForItsTroubleCodeIsAnsweredWithItsDm1WhetherOrNotTheModelIsSure)
+{
+    SystemVariables variables;
+    TinyDriver driver{j1939Config(), &variables};
+
+    (void)driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs),
+                                           makeJ1939TempFrame(88, 150 * kMs)});
+
+    // The model is calm: J1939-73's "no active fault" - every lamp off, a code of zeroes.
+    const std::vector<CanFrame> calm =
+        driver.run(std::vector<CanFrame>{requestFor(kPgnDm1, kJ1939GlobalAddress, 300 * kMs)});
+    ASSERT_EQ(calm.size(), 1U);
+    EXPECT_EQ(calm.front().identifier, 0x18FECA80U);
+    EXPECT_EQ(calm.front().data[0], 0x00U);
+    EXPECT_EQ(calm.front().data[2], 0x00U);
+
+    // Told to be sure of trouble, it answers with the code it is saying.
+    variables.set("tinyml.inject_fault", 1.5);
+    for (std::uint64_t step = 0; step < 6; ++step) {
+        (void)driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, (400 + step * 100) * kMs),
+                                               makeJ1939TempFrame(95, (450 + step * 100) * kMs)});
+    }
+
+    const std::vector<CanFrame> sure =
+        driver.run(std::vector<CanFrame>{requestFor(kPgnDm1, 0x80U, 2000 * kMs)});
+    const std::vector<CanFrame> dm1 = withIdentifier(sure, 0x18FECA80U);
+    ASSERT_EQ(dm1.size(), 1U);
+    EXPECT_EQ(dm1.front().data[0] & 0x0CU, 0x04U); // the amber lamp, and the red one with it or not
+    EXPECT_EQ(dm1.front().data[2], 110U); // SPN 110, engine coolant temperature
+
+    // FMI 15 under the amber lamp alone, and FMI 16 when the red one is lit as well.
+    const bool redLit = (dm1.front().data[0] & 0x30U) == 0x10U;
+    EXPECT_EQ(dm1.front().data[4] & 0x1FU, redLit ? 16U : 15U);
+
+    EXPECT_EQ(statistic(driver.node(), "Requests answered"), std::optional<std::uint64_t>{2U});
+}
+
+TEST(TinyMlEcuTests, ARequestForItsTelemetryBeforeItHasSentAnyIsRefusedAndNotAnsweredWithNothing)
+{
+    // The first thing this ECU hears is the question: it has not analysed anything, so there is no
+    // frame of its telemetry to send again - and an answer made of zeroes would be a lie.
+    TinyDriver driver{j1939Config()};
+
+    const std::vector<CanFrame> out =
+        driver.run(std::vector<CanFrame>{requestFor(0xFF00U, 0x80U, 100 * kMs)});
+
+    EXPECT_TRUE(withIdentifier(out, 0x18FF0080U).empty());
+
+    const std::vector<CanFrame> refusals = withIdentifier(out, 0x18E8F980U);
+    ASSERT_EQ(refusals.size(), 1U);
+    EXPECT_EQ(refusals.front().data[5], 0x00U); // PGN 0xFF00, least significant byte first
+    EXPECT_EQ(refusals.front().data[6], 0xFFU);
+
+    EXPECT_EQ(statistic(driver.node(), "Requests refused"), std::optional<std::uint64_t>{1U});
+}
+
+TEST(TinyMlEcuTests, ARequestForItsTelemetryIsAnsweredWithTheLatestFrame)
+{
+    TinyDriver driver{j1939Config()};
+
+    const std::vector<CanFrame> out = driver.run(std::vector<CanFrame>{
+        makeJ1939SpeedFrame(60.0, 100 * kMs), makeJ1939TempFrame(88, 150 * kMs)});
+    const std::vector<CanFrame> telemetry = withIdentifier(out, 0x18FF0080U);
+    ASSERT_FALSE(telemetry.empty());
+
+    // Proprietary B, PGN 0xFF00: asked for, it is what it was last, from the time of the request.
+    const std::vector<CanFrame> answer =
+        driver.run(std::vector<CanFrame>{requestFor(0xFF00U, kJ1939GlobalAddress, 400 * kMs)});
+
+    ASSERT_EQ(answer.size(), 1U);
+    EXPECT_EQ(answer.front().identifier, 0x18FF0080U);
+    EXPECT_EQ(answer.front().timestampNs, 400 * kMs);
+    EXPECT_TRUE(std::equal(telemetry.back().data.begin(),
+                           telemetry.back().data.begin() + 8,
+                           answer.front().data.begin()));
+}
+
+TEST(TinyMlEcuTests, ARequestToTheBlockForSomethingItDoesNotSendIsRefusedAndOneToEveryoneIsNot)
+{
+    TinyDriver driver{j1939Config()};
+    (void)driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
+
+    // The tool at 0xF9 asks the block for its DM2, which it has not got: J1939-21 has it say so.
+    const std::vector<CanFrame> refused =
+        driver.run(std::vector<CanFrame>{requestFor(kPgnDm2, 0x80U, 200 * kMs)});
+
+    ASSERT_EQ(refused.size(), 1U);
+    EXPECT_EQ(refused.front().identifier, 0x18E8F980U);
+    EXPECT_EQ(refused.front().timestampNs, 200 * kMs);
+
+    const std::array<std::uint8_t, 8> expected{
+        0x01U, 0xFFU, 0xFFU, 0xFFU, 0xF9U, 0xCBU, 0xFEU, 0x00U};
+    EXPECT_TRUE(std::equal(expected.begin(), expected.end(), refused.front().data.begin()));
+
+    // Asked of everyone, or of somebody else: nothing to say.
+    EXPECT_TRUE(
+        driver.run(std::vector<CanFrame>{requestFor(kPgnDm2, kJ1939GlobalAddress, 300 * kMs)})
+            .empty());
+    EXPECT_TRUE(driver.run(std::vector<CanFrame>{requestFor(kPgnDm2, 0x00U, 400 * kMs)}).empty());
+
+    // From a tool that has no address - the null one, which is what this tool asks from - nobody is
+    // there to be told, and the refusal goes to everyone.
+    const std::vector<CanFrame> anonymous =
+        driver.run(std::vector<CanFrame>{requestFor(kPgnDm2, 0x80U, 500 * kMs, kJ1939NullAddress)});
+
+    ASSERT_EQ(anonymous.size(), 1U);
+    EXPECT_EQ(anonymous.front().identifier, 0x18E8FF80U);
+    EXPECT_EQ(anonymous.front().data[4], kJ1939NullAddress);
+
+    EXPECT_EQ(statistic(driver.node(), "Requests refused"), std::optional<std::uint64_t>{2U});
+    EXPECT_EQ(statistic(driver.node(), "Requests answered"), std::optional<std::uint64_t>{0U});
+}
+
+TEST(TinyMlEcuTests, AnEcuThatLostItsAddressAnswersOnlyTheRequestForTheClaimsOfTheBus)
+{
+    TinyDriver driver{j1939Config()};
+    (void)driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
+
+    J1939Name lower;
+    lower.identityNumber = 7U;
+    (void)driver.run(std::vector<CanFrame>{claimOf(0x80U, lower, 200 * kMs)});
+    (void)driver.run(std::vector<CanFrame>{busTime(300 * kMs)}); // the "cannot claim" goes out
+
+    // Nothing to say about a trouble code it has no address to send from, to one or to everyone.
+    EXPECT_TRUE(
+        driver.run(std::vector<CanFrame>{requestFor(kPgnDm1, kJ1939GlobalAddress, 400 * kMs)})
+            .empty());
+
+    // And to the request that asks every ECU for its claim: that it has none, when its time comes.
+    (void)driver.run(
+        std::vector<CanFrame>{requestFor(kPgnAddressClaimed, kJ1939GlobalAddress, 500 * kMs)});
+    const std::vector<CanFrame> answer =
+        driver.run(std::vector<CanFrame>{busTime(500 * kMs + defaultClaimDelayNs())});
+
+    ASSERT_EQ(answer.size(), 1U);
+    EXPECT_EQ(answer.front().identifier, kCannotClaim);
+
+    // A request addressed to the address it lost is for the ECU that holds it now: this one has no
+    // address, and says nothing.
+    (void)driver.run(std::vector<CanFrame>{requestFor(kPgnAddressClaimed, 0x80U, 1000 * kMs)});
+    EXPECT_TRUE(
+        driver.run(std::vector<CanFrame>{busTime(1000 * kMs + defaultClaimDelayNs())}).empty());
 }
 
 TEST(TinyMlEcuTests, ANewMeasurementClaimsTheAddressAgainAfterOneThatLostIt)
@@ -1236,8 +1516,12 @@ TEST(TinyMlEcuTests, WithNoPlaceLeftItFallsSilentAsOneThatCannotMoveDoes)
     }
     (void)driver.run(crowd);
 
+    const std::uint64_t lost = 200 * kMs;
+    (void)driver.run(std::vector<CanFrame>{claimOf(0x80U, winningName(), lost)});
+
+    // Its NAME has the top bit set, so it waits as long as that NAME says before it says so.
     const std::vector<CanFrame> answer =
-        driver.run(std::vector<CanFrame>{claimOf(0x80U, winningName(), 200 * kMs)});
+        driver.run(std::vector<CanFrame>{busTime(lost + 200U * 1'000'000ULL)});
 
     ASSERT_EQ(answer.size(), 1U);
     EXPECT_EQ(answer.front().identifier, kCannotClaim);
@@ -1247,7 +1531,6 @@ TEST(TinyMlEcuTests, WithNoPlaceLeftItFallsSilentAsOneThatCannotMoveDoes)
         makeJ1939SpeedFrame(60.0, 300 * kMs), makeJ1939TempFrame(95, 350 * kMs)});
     EXPECT_TRUE(after.empty());
 }
-
 TEST(TinyMlEcuTests, ItLooksForAPlaceFromTheBottomOfTheRangeAndMayTakeTheLastAddressOfIt)
 {
     // An ECU that was given an address above the bottom of the range looks from the bottom: the
@@ -1282,14 +1565,26 @@ TEST(TinyMlEcuTests, ItLooksForAPlaceFromTheBottomOfTheRangeAndMayTakeTheLastAdd
 TEST(TinyMlEcuTests, AnEcuThatMovedAnswersARequestFromWhereItIsNow)
 {
     TinyDriver driver{movingConfig()};
-    (void)driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
+    const std::vector<CanFrame> started =
+        driver.run(std::vector<CanFrame>{makeJ1939SpeedFrame(60.0, 100 * kMs)});
     (void)driver.run(std::vector<CanFrame>{claimOf(0x80U, winningName(), 200 * kMs)});
 
-    const auto answers = [&driver](std::uint8_t destination, std::uint8_t from) {
-        return withIdentifier(driver.run(std::vector<CanFrame>{
-                                  requestFor(kPgnAddressClaimed, destination, 300 * kMs)}),
-                              j1939Identifier(kPgnAddressClaimed, from))
-            .size();
+    // What its NAME says it waits, when asked of everyone.
+    const std::optional<J1939Name> name = claimedFrom(started, 0x80U);
+    ASSERT_TRUE(name.has_value());
+    const std::uint64_t delay = j1939ClaimDelayNs(*name);
+
+    const auto answers = [&driver, delay](std::uint8_t destination, std::uint8_t from) {
+        const std::uint64_t asked = 300 * kMs;
+        std::vector<CanFrame> out =
+            driver.run(std::vector<CanFrame>{requestFor(kPgnAddressClaimed, destination, asked)});
+
+        // And the time of the bus moving on, for the answers that wait.
+        const std::vector<CanFrame> later =
+            driver.run(std::vector<CanFrame>{busTime(asked + delay)});
+        out.insert(out.end(), later.begin(), later.end());
+
+        return withIdentifier(out, j1939Identifier(kPgnAddressClaimed, from)).size();
     };
 
     // To everyone, and to the address it has now: from the address it has now.
@@ -1299,7 +1594,6 @@ TEST(TinyMlEcuTests, AnEcuThatMovedAnswersARequestFromWhereItIsNow)
     // To the one it left, which belongs to somebody else now: not its to answer.
     EXPECT_EQ(answers(0x80U, 0x81U), 0U);
 }
-
 TEST(TinyMlEcuTests, AnEcuThatCanMoveStillDefendsTheAddressAgainstAHigherName)
 {
     // Moving is for the one that loses. Against a NAME that is higher than its own - another ECU

@@ -45,8 +45,24 @@ local kLdIntervalUs   = (parameters.ld_interval_ms   or 1000) * 1000
 local kBasIntervalUs  = (parameters.bas_interval_ms  or 1000) * 1000
 local kDm1IntervalUs  = (parameters.dm1_interval_ms  or 1000) * 1000
 
--- The switch panel sends OEL every 200 ms; this many without it and the panel is gone.
-local kOelTimeoutUs = 1000000
+-- The switch panel sends OEL every 200 ms; 5 seconds allows manual one-shot Transmit injections to hold.
+local kOelTimeoutUs = 5000000
+
+local last_sent_bas = nil
+local override_bas_payload = nil
+local override_bas_until_us = nil
+
+local last_sent_vep1 = nil
+local override_vep1_payload = nil
+local override_vep1_until_us = nil
+
+local last_sent_dd1 = nil
+local override_dd1_payload = nil
+local override_dd1_until_us = nil
+
+local last_sent_dm1 = nil
+local override_dm1_payload = nil
+local override_dm1_until_us = nil
 
 local next_dd1_us  = 0
 local next_vep1_us = 0
@@ -111,20 +127,42 @@ end
 -- Byte 2: bits 1-2 hazard button, bits 3-6 turn stalk. A field at 14 or 15 is J1939's "error" or
 -- "not available" and is not a position, so it is taken as no word at all.
 function on_message(id, data, channel, extended)
-    if extended ~= 1 or #data < 2 or pgn_of(id) ~= 0xFDCC then
+    if extended ~= 1 or #data < 2 then
         return
     end
 
-    local b1, b2 = string.unpack("<I1I1", data)
+    local now = get_time_us()
+    local pgn = pgn_of(id)
 
-    local lighting = b1 & 0x0F
-    local turn = (b2 >> 2) & 0x0F
+    if pgn == 0xFDCC then
+        local b1, b2 = string.unpack("<I1I1", data)
 
-    oel_lighting = lighting < 14 and lighting or nil
-    oel_high_beam = (b1 >> 4) & 0x03
-    oel_hazard = b2 & 0x03
-    oel_turn = turn < 14 and turn or nil
-    oel_heard_us = get_time_us()
+        local lighting = b1 & 0x0F
+        local turn = (b2 >> 2) & 0x0F
+
+        oel_lighting = lighting < 14 and lighting or nil
+        oel_high_beam = (b1 >> 4) & 0x03
+        oel_hazard = b2 & 0x03
+        oel_turn = turn < 14 and turn or nil
+        oel_heard_us = now
+    elseif #data == 8 and id == j1939_id(6, 0xFD17, kSa) and data ~= last_sent_bas then
+        override_bas_payload = data
+        override_bas_until_us = now + 5000000
+    elseif #data == 8 and id == j1939_id(6, 0xFEF7, kSa) and data ~= last_sent_vep1 then
+        override_vep1_payload = data
+        override_vep1_until_us = now + 5000000
+    elseif id == j1939_id(6, 0xFEFC, kSa) and data ~= last_sent_dd1 then
+        override_dd1_payload = data
+        override_dd1_until_us = now + 5000000
+    elseif #data == 8 and id == j1939_id(6, 0xFECA, kSa) and data ~= last_sent_dm1 then
+        if data == dm1(0, 0, 0, 0, 0, 0, 0) then
+            override_dm1_payload = nil
+            override_dm1_until_us = nil
+        else
+            override_dm1_payload = data
+            override_dm1_until_us = now + 10000000
+        end
+    end
 end
 
 function on_timer()
@@ -179,20 +217,36 @@ function on_timer()
     -- 1. DD1 (PGN 0xFEFC, 1 s, Prio 6)
     if now >= next_dd1_us then
         next_dd1_us = now + kDd1IntervalUs
-        local b1 = raw(washer_level, 0.4, 0, 1)
-        local b2 = raw(fuel_level, 0.4, 0, 1)
-        send(6, 0xFEFC, kSa, string.pack("<I1I1", b1, b2))
+        local dd1_payload
+        if override_dd1_payload ~= nil and override_dd1_until_us ~= nil and now < override_dd1_until_us then
+            dd1_payload = override_dd1_payload
+        else
+            override_dd1_payload = nil
+            local b1 = raw(washer_level, 0.4, 0, 1)
+            local b2 = raw(fuel_level, 0.4, 0, 1)
+            dd1_payload = string.pack("<I1I1", b1, b2)
+        end
+        last_sent_dd1 = dd1_payload
+        send(6, 0xFEFC, kSa, dd1_payload)
     end
 
     -- 2. VEP1 (PGN 0xFEF7, 1 s, Prio 6)
     if now >= next_vep1_us then
         next_vep1_us = now + kVep1IntervalUs
-        local b1 = raw(net_current, 1, -125, 1)
-        local b2 = raw(alt_current, 1, 0, 1)
-        local b34 = raw(charging_voltage, 0.05, 0, 2)
-        local b56 = raw(battery_voltage, 0.05, 0, 2)
-        local b78 = raw(battery_voltage, 0.05, 0, 2)
-        send(6, 0xFEF7, kSa, string.pack("<I1I1I2I2I2", b1, b2, b34, b56, b78))
+        local vep1_payload
+        if override_vep1_payload ~= nil and override_vep1_until_us ~= nil and now < override_vep1_until_us then
+            vep1_payload = override_vep1_payload
+        else
+            override_vep1_payload = nil
+            local b1 = raw(net_current, 1, -125, 1)
+            local b2 = raw(alt_current, 1, 0, 1)
+            local b34 = raw(charging_voltage, 0.05, 0, 2)
+            local b56 = raw(battery_voltage, 0.05, 0, 2)
+            local b78 = raw(battery_voltage, 0.05, 0, 2)
+            vep1_payload = string.pack("<I1I1I2I2I2", b1, b2, b34, b56, b78)
+        end
+        last_sent_vep1 = vep1_payload
+        send(6, 0xFEF7, kSa, vep1_payload)
     end
 
     -- 3. LD (PGN 0xFE41, 1 s and on every change, Prio 6)
@@ -210,19 +264,35 @@ function on_timer()
     -- them. A seat belt lamp is lit while the belt is NOT fastened.
     if now >= next_bas_us then
         next_bas_us = now + kBasIntervalUs
-        local belt_lamp = (driver_belt == 0) and 1 or 0
-        local bas = (driver_belt & 0x03) | ((passenger_belt & 0x03) << 2) | ((belt_lamp & 0x03) << 4)
-        send(6, 0xFD17, kSa, string.pack("<I1", bas))
+        local bas_payload
+        if override_bas_payload ~= nil and override_bas_until_us ~= nil and now < override_bas_until_us then
+            bas_payload = override_bas_payload
+        else
+            override_bas_payload = nil
+            local belt_lamp = (driver_belt == 0) and 1 or 0
+            local bas = (driver_belt & 0x03) | ((passenger_belt & 0x03) << 2) | ((belt_lamp & 0x03) << 4)
+            bas_payload = string.pack("<I1I1I1I1I1I1I1I1", bas, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
+        end
+        last_sent_bas = bas_payload
+        send(6, 0xFD17, kSa, bas_payload)
     end
 
     -- 5. DM1 (PGN 0xFECA, 1 s, Prio 6)
     if now >= next_dm1_us then
         next_dm1_us = now + kDm1IntervalUs
-        if kScenario == "alternator_failure" then
-            -- Amber warning lamp, SPN 167 (Charging System Potential), FMI 1 (Low severely), OC 1
-            send(6, 0xFECA, kSa, dm1(0, 0, 1, 0, 167, 1, 1))
+        local dm1_payload
+        if override_dm1_payload ~= nil and override_dm1_until_us ~= nil and now < override_dm1_until_us then
+            dm1_payload = override_dm1_payload
         else
-            send(6, 0xFECA, kSa, dm1(0, 0, 0, 0, 0, 0, 0))
+            override_dm1_payload = nil
+            if kScenario == "alternator_failure" then
+                -- Amber warning lamp, SPN 167 (Charging System Potential), FMI 1 (Low severely), OC 1
+                dm1_payload = dm1(0, 0, 1, 0, 167, 1, 1)
+            else
+                dm1_payload = dm1(0, 0, 0, 0, 0, 0, 0)
+            end
         end
+        last_sent_dm1 = dm1_payload
+        send(6, 0xFECA, kSa, dm1_payload)
     end
 end

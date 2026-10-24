@@ -1,40 +1,47 @@
 VERSION "1.0"
 
-NS_ :
-    NS_DESC_
-    CM_
-    BA_DEF_
-    BA_
-    VAL_
-    CAT_DEF_
-    CAT_
-    FILTER
-    BA_DEF_DEF_
-    EV_DATA_
-    ENVVAR_DATA_
-    SGTYPE_
-    SGTYPE_VAL_
-    BA_DEF_SGTYPE_
-    BA_SGTYPE_
-    SIGTYPE_VAL_
-    BA_DEF_REL_
-    BA_REL_
-    BA_DEF_DEF_REL_
-    BU_SG_REL_
-    BU_EV_REL_
-    BU_BO_REL_
-    SG_MUL_VAL_
+
+NS_ : 
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	CAT_DEF_
+	CAT_
+	FILTER
+	BA_DEF_DEF_
+	EV_DATA_
+	ENVVAR_DATA_
+	SGTYPE_
+	SGTYPE_VAL_
+	BA_DEF_SGTYPE_
+	BA_SGTYPE_
+	SIG_TYPE_REF_
+	VAL_TABLE_
+	SIG_GROUP_
+	SIG_VALTYPE_
+	SIGTYPE_VALTYPE_
+	BO_TX_BU_
+	BA_DEF_REL_
+	BA_REL_
+	BA_DEF_DEF_REL_
+	BU_SG_REL_
+	BU_EV_REL_
+	BU_BO_REL_
+	SG_MUL_VAL_
 
 BS_:
 
 BU_: EMS ACM EBS BCM IC COMMANDS TINYML_ECU
+
 
 BO_ 2364539904 EEC1: 8 EMS
  SG_ EngineTorqueMode : 0|4@1+ (1,0) [0|15] "" Vector__XXX
  SG_ DriverDemandTorque : 8|8@1+ (1,-125) [-125|125] "%" Vector__XXX
  SG_ ActualEngineTorque : 16|8@1+ (1,-125) [-125|125] "%" Vector__XXX
  SG_ EngineSpeed : 24|16@1+ (0.125,0) [0|8031.875] "rpm" Vector__XXX
- SG_ SourceAddressEngCtrl : 40|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ SourceAddressEngCtrl : 40|8@1+ (1,0) [0|253] "" Vector__XXX
 
 BO_ 2364539648 EEC2: 8 EMS
  SG_ AccelPedalPos1 : 8|8@1+ (0.4,0) [0|100] "%" Vector__XXX
@@ -73,7 +80,7 @@ BO_ 2566845696 AMB: 8 EMS
 
 BO_ 2566841600 HOURS: 8 EMS
  SG_ TotalEngineHours : 0|32@1+ (0.05,0) [0|210554060] "hr" Vector__XXX
- SG_ TotalEngineRevolutions : 32|32@1+ (1000,0) [0|4294967295000] "rev" Vector__XXX
+ SG_ TotalEngineRevolutions : 32|32@1+ (1000,0) [0|4211081215000] "rev" Vector__XXX
 
 BO_ 2566834688 DM1: 8 EMS
  SG_ ProtectLamp : 0|2@1+ (1,0) [0|3] "" Vector__XXX
@@ -93,6 +100,7 @@ BO_ 2566834688 DM1: 8 EMS
 BO_ 2566805053 AT1T1I1: 8 ACM
  SG_ DieselExhaustFluidTankLevel : 0|8@1+ (0.4,0) [0|100] "%" Vector__XXX
  SG_ DieselExhaustFluidTankTemp : 8|8@1+ (1,-40) [-40|210] "degC" Vector__XXX
+ SG_ DieselExhaustFluidTankLevel2 : 16|16@1+ (0.1,0) [0|6425.5] "mm" Vector__XXX
  SG_ DEFLevelLowIndicator : 32|2@1+ (1,0) [0|3] "" Vector__XXX
  SG_ SCRInducementSeverity : 40|3@1+ (1,0) [0|7] "" Vector__XXX
 
@@ -109,10 +117,10 @@ BO_ 2566827531 AIR1: 8 EBS
  SG_ ServiceBrakeCircuit2AirPress : 24|8@1+ (0.08,0) [0|20] "bar" Vector__XXX
 
 BO_ 2566769719 OEL: 8 COMMANDS
- SG_ LightingCommand : 0|4@1+ (1,0) [0|2] "" Vector__XXX
- SG_ HighBeamCommand : 4|2@1+ (1,0) [0|1] "" Vector__XXX
- SG_ HazardSwitch : 8|2@1+ (1,0) [0|1] "" Vector__XXX
- SG_ TurnSignalSwitch : 10|4@1+ (1,0) [0|2] "" Vector__XXX
+ SG_ LightingCommand : 0|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ HighBeamCommand : 4|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ HazardSwitch : 8|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ TurnSignalSwitch : 10|4@1+ (1,0) [0|15] "" Vector__XXX
 
 BO_ 2566799649 LD: 8 BCM
  SG_ HighBeamHeadlight : 0|2@1+ (1,0) [0|3] "" Vector__XXX
@@ -137,7 +145,7 @@ BO_ 2566846241 VEP1: 8 BCM
 BO_ 2566723361 BAS: 8 BCM
  SG_ DriverSeatBeltSwitch : 0|2@1+ (1,0) [0|3] "" Vector__XXX
  SG_ PassengerSeatBeltSwitch : 2|2@1+ (1,0) [0|3] "" Vector__XXX
- SG_ SeatBeltWarningLamp : 4|2@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ SeatBeltWarningLamp : 4|2@1+ (1,0) [0|3] "" Vector__XXX
 
 BO_ 2566832407 VDHR: 8 IC
  SG_ TotalVehicleDistance : 0|32@1+ (0.005,0) [0|21055406] "km" Vector__XXX
@@ -150,8 +158,8 @@ BO_ 2566841879 TD: 8 IC
  SG_ Month : 24|8@1+ (1,0) [1|12] "month" Vector__XXX
  SG_ Day : 32|8@1+ (0.25,0) [0.25|31.75] "day" Vector__XXX
  SG_ Year : 40|8@1+ (1,1985) [1985|2235] "year" Vector__XXX
- SG_ LocalMinuteOffset : 48|8@1+ (1,-125) [-125|125] "min" Vector__XXX
- SG_ LocalHourOffset : 56|8@1+ (1,-125) [-125|125] "hr" Vector__XXX
+ SG_ LocalMinuteOffset : 48|8@1+ (1,-125) [-59|59] "min" Vector__XXX
+ SG_ LocalHourOffset : 56|8@1+ (1,-125) [-23|23] "hr" Vector__XXX
 
 BO_ 2566848640 TinyML_Proprietary: 8 TINYML_ECU
  SG_ ThermalHealth : 0|8@1+ (0.4,0) [0|100] "%" Vector__XXX
@@ -164,24 +172,441 @@ BO_ 2566848640 TinyML_Proprietary: 8 TINYML_ECU
  SG_ InputAge : 40|8@1+ (0.1,0) [0|25] "s" Vector__XXX
  SG_ InferenceTimeUs : 48|16@1+ (1,0) [0|64255] "us" Vector__XXX
 
-CM_ SG_ 2566834688 SPNLow "SPN bits 15..0. J1939-73 packs the three most significant bits (SPNHigh) above the FMI, so the whole SPN is SPNHigh * 65536 + SPNLow. Several ECUs send DM1, and the J1939 block reads each one's trouble codes; these signals show whichever arrived last.";
-CM_ SG_ 2566834688 SPNHigh "SPN bits 18..16.";
-CM_ SG_ 2566834688 ProtectLamp "Whichever ECU's DM1 arrived last. The lamps of the whole bus - the OR of every ECU's - are the system variables j1939.lamp_stop, j1939.lamp_warning, j1939.lamp_mil and j1939.lamp_protect.";
-CM_ SG_ 2566799649 LeftTurnSignal "Steady while the stalk is in: the cluster does the flashing.";
-CM_ SG_ 2566723361 SeatBeltWarningLamp "1 while the driver's belt is not fastened.";
-CM_ SG_ 2566848640 RegimeClass "What the vehicle is doing as the model sees it. RiskLevel is how worried the model is about it, which is a different question.";
-CM_ SG_ 2566848640 MessageCounter "Counts 0 to 250: above that a byte means error or not available on a J1939 bus.";
+BO_ 2565799680 AC: 8 EMS
+ SG_ IdentityNumber : 0|21@1+ (1,0) [0|2097151] "" Vector__XXX
+ SG_ ManufacturerCode : 21|11@1+ (1,0) [0|2047] "" Vector__XXX
+ SG_ EcuInstance : 32|3@1+ (1,0) [0|7] "" Vector__XXX
+ SG_ FunctionInstance : 35|5@1+ (1,0) [0|31] "" Vector__XXX
+ SG_ Function : 40|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ ReservedBit : 48|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ VehicleSystem : 49|7@1+ (1,0) [0|127] "" Vector__XXX
+ SG_ VehicleSystemInstance : 56|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ IndustryGroup : 60|3@1+ (1,0) [0|7] "" Vector__XXX
+ SG_ ArbitraryAddressCapable : 63|1@1+ (1,0) [0|1] "" Vector__XXX
 
-VAL_ 2566848640 RegimeClass 0 "Idle" 1 "Cruise" 2 "HighLoad" 3 "ThermalStress" 4 "Anomaly" ;
-VAL_ 2566848640 RiskLevel 0 "Low" 1 "Moderate" 2 "High" 3 "Critical" ;
-VAL_ 2566848640 ModelStatus 0 "Waiting" 1 "Running" 2 "Error" 3 "NotAvailable" ;
-VAL_ 2566769719 LightingCommand 0 "Off" 1 "Park" 2 "Headlamps" ;
-VAL_ 2566769719 TurnSignalSwitch 0 "None" 1 "Left" 2 "Right" ;
+BO_ 2565537790 RQST: 3 Vector__XXX
+ SG_ RequestedPGN : 0|24@1+ (1,0) [0|262143] "" Vector__XXX
+
+BO_ 2565406464 ACKM: 8 EMS
+ SG_ ControlByte : 0|8@1+ (1,0) [0|250] "" Vector__XXX
+ SG_ AddressAcknowledged : 32|8@1+ (1,0) [0|253] "" Vector__XXX
+ SG_ ParameterGroupNumber : 40|24@1+ (1,0) [0|262143] "" Vector__XXX
+
+
+CM_ "SAE J1939-71 / J1939-73 Commercial Vehicle Communication Matrix for TorqueBus Studio (examples/projects/j1939-vehicle.tbsproj).";
+CM_ BU_ EMS "Engine Management System (Preferred Source Address 0x00 / 0) - Powertrain speed, torque, gear, temperatures, oil/coolant levels, fuel rate, ambient conditions, and engine hours.";
+CM_ BU_ ACM "Aftertreatment Control Module (Preferred Source Address 0x3D / 61) - SCR catalyst and Diesel Exhaust Fluid (DEF / AdBlue) tank monitoring.";
+CM_ BU_ EBS "Electronic Brake System (Preferred Source Address 0x0B / 11) - Service brakes, ABS/ASR stability control, and pneumatic air supply pressures.";
+CM_ BU_ BCM "Body Control Module (Preferred Source Address 0x21 / 33) - Exterior lighting drivers, dash display tank levels, battery/charging electrical power, and seat belt status.";
+CM_ BU_ IC "Instrument Cluster (Preferred Source Address 0x17 / 23) - High-resolution vehicle odometer, trip distance, and UTC real-time clock.";
+CM_ BU_ COMMANDS "Cab Operator Switch Panel (Preferred Source Address 0x37 / 55) - Driver headlamp switch, high-beam stalk, turn signal stalk, and hazard button commands.";
+CM_ BU_ TINYML_ECU "TinyML On-Edge Virtual ECU (Preferred Source Address 0x80 / 128) - Real-time neural network regime classification, thermal health, and anomaly scoring.";
+
+CM_ BO_ 2364539904 "PGN 61444 (0xF004) - Electronic Engine Controller 1 (EEC1). Transmitted by EMS (SA 0x00) every 20 ms at priority 3. Reports engine speed, driver torque demand, actual engine percent torque, and active torque control mode.";
+CM_ BO_ 2364539648 "PGN 61443 (0xF003) - Electronic Engine Controller 2 (EEC2). Transmitted by EMS (SA 0x00) every 50 ms at priority 3. Reports accelerator pedal position and engine percent load at current speed.";
+CM_ BO_ 2364540160 "PGN 61445 (0xF005) - Electronic Transmission Controller 2 (ETC2). Transmitted by EMS (SA 0x00) every 100 ms at priority 3. Reports selected gear and currently engaged transmission gear.";
+CM_ BO_ 2566844672 "PGN 65265 (0xFEF1) - Cruise Control / Vehicle Speed 1 (CCVS1). Transmitted by EMS (SA 0x00) every 100 ms at priority 6. Reports wheel-based vehicle speed, parking brake switch, service brake switch, and cruise control state.";
+CM_ BO_ 2566843904 "PGN 65262 (0xFEEE) - Engine Temperature 1 (ET1). Transmitted by EMS (SA 0x00) every 1000 ms at priority 6. Reports engine coolant temperature, fuel temperature, and engine oil temperature.";
+CM_ BO_ 2566844160 "PGN 65263 (0xFEEF) - Engine Fluid Level / Pressure 1 (EFL/P1). Transmitted by EMS (SA 0x00) every 500 ms at priority 6. Reports engine oil level, engine oil gauge pressure, and engine coolant level.";
+CM_ BO_ 2566844928 "PGN 65266 (0xFEF2) - Liquid Fuel Economy 1 (LFE1). Transmitted by EMS (SA 0x00) every 100 ms at priority 6. Reports instantaneous fuel consumption rate and instantaneous/average fuel economy.";
+CM_ BO_ 2566845696 "PGN 65269 (0xFEF5) - Ambient Conditions (AMB). Transmitted by EMS (SA 0x00) every 1000 ms at priority 6. Reports barometric pressure, ambient air temperature, and engine air intake temperature.";
+CM_ BO_ 2566841600 "PGN 65253 (0xFEE5) - Engine Hours, Revolutions (HOURS). Transmitted by EMS (SA 0x00) every 1000 ms at priority 6. Reports cumulative engine operating hours and total crankshaft revolutions.";
+CM_ BO_ 2566834688 "PGN 65226 (0xFECA) - Active Diagnostic Trouble Codes (DM1, SAE J1939-73). Transmitted by every active ECU every 1000 ms or on fault change. Carries diagnostic lamp states (Protect, Amber Warning, Red Stop, MIL) and the first active SPN/FMI trouble code.";
+CM_ BO_ 2566805053 "PGN 65110 (0xFE56) - Aftertreatment 1 Diesel Exhaust Fluid Tank 1 Information 1 (AT1T1I1). Transmitted by ACM (SA 0x3D) every 1000 ms at priority 6. Reports DEF (AdBlue) tank level (% and mm), temperature, low-level indicator, and SCR inducement severity.";
+CM_ BO_ 2565865739 "PGN 61441 (0xF001) - Electronic Brake Controller 1 (EBC1). Transmitted by EBS (SA 0x0B) every 100 ms at priority 6. Reports ABS/ASR active regulation flags and ABS amber / EBS red warning lamp requests.";
+CM_ BO_ 2566827531 "PGN 65198 (0xFEAE) - Air Supply Pressure (AIR1). Transmitted by EBS (SA 0x0B) every 1000 ms at priority 6. Reports pneumatic supply pressure and primary/secondary service brake circuit air pressures.";
+CM_ BO_ 2566769719 "PGN 64972 (0xFDCC) - Operators External Light Controls Message (OEL). Transmitted by Operator Switch Panel COMMANDS (SA 0x37) every 200 ms at priority 6. Carries operator switch commands for main lighting, high beam, hazard warning, and turn signals.";
+CM_ BO_ 2566799649 "PGN 65089 (0xFE41) - Lighting Data (LD). Transmitted by Body Control Module BCM (SA 0x21) every 1000 ms (and on lamp change) at priority 6. Reports actual exterior lamp output states (high/low beam, position lights, left/right turn signal arrows, and stop light).";
+CM_ BO_ 2566847521 "PGN 65276 (0xFEFC) - Dash Display 1 (DD1). Transmitted by BCM (SA 0x21) every 1000 ms at priority 6. Reports windshield washer fluid level and primary/secondary fuel tank levels.";
+CM_ BO_ 2566846241 "PGN 65271 (0xFEF7) - Vehicle Electrical Power 1 (VEP1). Transmitted by BCM (SA 0x21) every 1000 ms at priority 6. Reports net battery current, alternator current, charging system potential, battery terminal potential, and key-switch potential.";
+CM_ BO_ 2566723361 "PGN 64791 (0xFD17) - Belt Lock Status (BAS). Transmitted by BCM (SA 0x21) every 1000 ms at priority 6. Reports driver and passenger seat belt buckle switches and the cluster seat belt warning lamp.";
+CM_ BO_ 2566832407 "PGN 65217 (0xFEC1) - High Resolution Vehicle Distance (VDHR). Transmitted by Instrument Cluster IC (SA 0x17) every 1000 ms at priority 6. Reports total accumulated vehicle distance (odometer) and trip distance with 5 m (0.005 km) resolution.";
+CM_ BO_ 2566841879 "PGN 65254 (0xFEE6) - Time / Date (TD). Transmitted by Instrument Cluster IC (SA 0x17) every 1000 ms at priority 6. Reports UTC time (seconds, minutes, hours), calendar date (month, day, year), and local time offsets.";
+CM_ BO_ 2566848640 "PGN 65280 (0xFF00) - TinyML Proprietary B Telemetry (TinyML_Proprietary). Transmitted by TINYML_ECU (SA 0x80) every 100 ms at priority 6. Publishes on-edge neural network thermal health, anomaly score, confidence, risk level, model status, regime class, and inference time.";
+CM_ BO_ 2565799680 "PGN 60928 (0xEE00) - Address Claimed (AC, SAE J1939-81). Broadcast once by each ECU at power-up (or upon Address Claim Request PGN 59904) to announce its 8-bit Source Address and 64-bit J1939 NAME.";
+CM_ BO_ 2565537790 "PGN 59904 (0xEA00) - Request (RQST, SAE J1939-21). Transmitted on demand to query a Parameter Group Number (PGN) from a specific ECU or globally (0xFF).";
+CM_ BO_ 2565406464 "PGN 59392 (0xE800) - Acknowledgement (ACKM, SAE J1939-21). Transmitted by an ECU in response to a directed Request (PGN 59904) to indicate Positive Ack, Negative Ack (unsupported PGN), Access Denied, or Busy.";
+
+CM_ SG_ 2364539904 EngineTorqueMode "SPN 899 - Engine Torque Mode. Operational mode currently governing engine fuel/torque output (0=Low Idle Governor, 1=Accelerator Pedal, 2=Cruise Control; 14=Error, 15=Not Available).";
+CM_ SG_ 2364539904 DriverDemandTorque "SPN 512 - Driver's Demand Engine - Percent Torque. Requested torque by the driver via pedal or cruise control as a percentage of reference engine torque (1 %/bit, offset -125 %).";
+CM_ SG_ 2364539904 ActualEngineTorque "SPN 513 - Actual Engine - Percent Torque. Calculated output torque developed by the engine as a percentage of reference engine torque (1 %/bit, offset -125 %).";
+CM_ SG_ 2364539904 EngineSpeed "SPN 190 - Engine Speed. Crankshaft rotational speed calculated over a minimum crankshaft angle (0.125 rpm/bit, range 0 to 8031.875 rpm).";
+CM_ SG_ 2364539904 SourceAddressEngCtrl "SPN 1483 - Source Address of Controlling Device for Engine Control. J1939 source address of the ECU currently controlling engine torque (0 to 253).";
+
+CM_ SG_ 2364539648 AccelPedalPos1 "SPN 91 - Accelerator Pedal Position 1. Ratio of current accelerator pedal position to maximum pedal travel (0.4 %/bit, range 0 to 100 %).";
+CM_ SG_ 2364539648 PercentLoadAtCurrentSpeed "SPN 92 - Engine Percent Load At Current Speed. Ratio of actual engine percent torque to maximum possible torque attainable at the current engine speed (1 %/bit, range 0 to 125 %).";
+
+CM_ SG_ 2364540160 TransmissionSelectedGear "SPN 524 - Transmission Selected Gear. Gear selected by the operator or shift controller before engagement (1 gear/bit, offset -125; 0=Neutral, -1=Reverse, 1 and up=Forward gears).";
+CM_ SG_ 2364540160 TransmissionCurrentGear "SPN 523 - Transmission Current Gear. -1 is reverse, 0 neutral, 1 and up the forward gears. J1939 sends it with an offset of -125, so reverse is 124 on the wire.";
+
+CM_ SG_ 2566844672 ParkingBrakeSwitch "SPN 70 - Parking Brake Switch. Indicates whether the parking brake is set (0=Off/Released, 1=On/Set; 2=Error, 3=Not Available).";
+CM_ SG_ 2566844672 WheelBasedVehicleSpeed "SPN 84 - Wheel-Based Vehicle Speed. Vehicle road speed calculated from wheel or tailshaft speed sensors (1/256 km/h per bit, range 0 to 250.996 km/h).";
+CM_ SG_ 2566844672 CruiseControlActive "SPN 595 - Cruise Control Active. Indicates whether cruise control is actively regulating vehicle speed (0=Off, 1=On; 2=Error, 3=Not Available).";
+CM_ SG_ 2566844672 BrakeSwitch "SPN 597 - Brake Switch. Indicates whether the service brake pedal is depressed by the driver (0=Released, 1=Depressed; 2=Error, 3=Not Available).";
+CM_ SG_ 2566844672 CruiseControlSetSpeed "SPN 86 - Cruise Control Set Speed. Target road speed stored by the cruise control governor (1 km/h per bit, range 0 to 250 km/h).";
+
+CM_ SG_ 2566843904 EngineCoolantTemperature "SPN 110 - Engine Coolant Temperature. Temperature of liquid found in engine cooling system (1 degC/bit, offset -40 degC, range -40 to 210 degC).";
+CM_ SG_ 2566843904 FuelTemperature "SPN 174 - Engine Fuel Temperature 1. Temperature of fuel entering the fuel injection pump (1 degC/bit, offset -40 degC, range -40 to 210 degC).";
+CM_ SG_ 2566843904 EngineOilTemperature1 "SPN 175 - Engine Oil Temperature 1. Temperature of engine lubricant oil (0.03125 degC/bit, offset -273 degC, range -273 to 1735 degC).";
+
+CM_ SG_ 2566844160 EngineOilLevel "SPN 98 - Engine Oil Level. Ratio of current volume of engine sump oil to maximum required volume (0.4 %/bit, range 0 to 100 %).";
+CM_ SG_ 2566844160 EngineOilPressure "SPN 100 - Engine Oil Pressure. Gauge pressure of oil in engine lubrication system supplied by the oil pump (4 kPa/bit, range 0 to 1000 kPa).";
+CM_ SG_ 2566844160 EngineCoolantLevel "SPN 111 - Engine Coolant Level 1. Ratio of liquid volume in engine cooling system expansion tank to total required volume (0.4 %/bit, range 0 to 100 %).";
+
+CM_ SG_ 2566844928 EngineFuelRate "SPN 183 - Engine Fuel Rate. Volume of fuel consumed by the engine per unit of time (0.05 L/h per bit, range 0 to 3212.75 L/h).";
+CM_ SG_ 2566844928 InstantaneousFuelEconomy "SPN 184 - Engine Instantaneous Fuel Economy. Current ratio of vehicle speed to fuel consumption rate (1/512 km/L per bit, range 0 to 125.5 km/L).";
+CM_ SG_ 2566844928 AverageFuelEconomy "SPN 185 - Engine Average Fuel Economy. Rolling average fuel economy over the operating cycle (1/512 km/L per bit, range 0 to 125.5 km/L).";
+
+CM_ SG_ 2566845696 BarometricPressure "SPN 108 - Barometric Pressure. Absolute atmospheric air pressure surrounding the vehicle (0.5 kPa/bit, range 0 to 125 kPa).";
+CM_ SG_ 2566845696 AmbientAirTemperature "SPN 171 - Ambient Air Temperature. Outdoor air temperature surrounding the vehicle (0.03125 degC/bit, offset -273 degC).";
+CM_ SG_ 2566845696 EngineIntake1AirTemperature "SPN 172 - Engine Air Intake Temperature. Temperature of air entering the engine air induction duct (1 degC/bit, offset -40 degC, range -40 to 210 degC).";
+
+CM_ SG_ 2566841600 TotalEngineHours "SPN 247 - Engine Total Hours of Operation. Accumulated time the engine has been running (0.05 hr/bit, range 0 to 210554060 hr).";
+CM_ SG_ 2566841600 TotalEngineRevolutions "SPN 249 - Engine Total Revolutions. Accumulated number of crankshaft revolutions over engine lifetime (1000 rev/bit).";
+
+CM_ SG_ 2566834688 ProtectLamp "SPN 987 - Protect Lamp Status (DM1 Byte 1 Bits 1-2). Whichever ECU's DM1 arrived last. The lamps of the whole bus - the OR of every ECU's - are the system variables j1939.lamp_stop, j1939.lamp_warning, j1939.lamp_mil and j1939.lamp_protect.";
+CM_ SG_ 2566834688 AmberWarningLamp "SPN 624 - Amber Warning Lamp Status (SAE J1939-73 DM1 Byte 1 Bits 3-4). Indicates a vehicle system fault requiring timely operator attention (0=Off, 1=On; 2=Reserved, 3=Not Available).";
+CM_ SG_ 2566834688 RedStopLamp "SPN 623 - Red Stop Lamp Status (SAE J1939-73 DM1 Byte 1 Bits 5-6). Indicates a severe fault requiring immediate safe vehicle stop and engine shutdown (0=Off, 1=On; 2=Reserved, 3=Not Available).";
+CM_ SG_ 2566834688 MalfunctionIndicatorLamp "SPN 1213 - Malfunction Indicator Lamp Status / MIL (SAE J1939-73 DM1 Byte 1 Bits 7-8). Indicates an emissions-related diagnostic fault (0=Off, 1=On; 2=Reserved, 3=Not Available).";
+CM_ SG_ 2566834688 FlashProtectLamp "SPN 3041 - Flash Protect Lamp (SAE J1939-73 DM1 Byte 2 Bits 1-2). Flash rate for the Protect Lamp (0=Slow Flash 1 Hz, 1=Fast Flash 2 Hz, 3=Unavailable / Do Not Flash).";
+CM_ SG_ 2566834688 FlashAmberWarningLamp "SPN 3040 - Flash Amber Warning Lamp (SAE J1939-73 DM1 Byte 2 Bits 3-4). Flash rate for the Amber Warning Lamp (0=Slow Flash 1 Hz, 1=Fast Flash 2 Hz, 3=Unavailable / Do Not Flash).";
+CM_ SG_ 2566834688 FlashRedStopLamp "SPN 3039 - Flash Red Stop Lamp (SAE J1939-73 DM1 Byte 2 Bits 5-6). Flash rate for the Red Stop Lamp (0=Slow Flash 1 Hz, 1=Fast Flash 2 Hz, 3=Unavailable / Do Not Flash).";
+CM_ SG_ 2566834688 FlashMalfunctionIndicatorLamp "SPN 3038 - Flash Malfunction Indicator Lamp (SAE J1939-73 DM1 Byte 2 Bits 7-8). Flash rate for the MIL Lamp (0=Slow Flash 1 Hz, 1=Fast Flash 2 Hz, 3=Unavailable / Do Not Flash).";
+CM_ SG_ 2566834688 SPNLow "SPN 1214 (LSB) - SPN bits 15..0. J1939-73 packs the three most significant bits (SPNHigh) above the FMI, so the whole SPN is SPNHigh * 65536 + SPNLow. Several ECUs send DM1, and the J1939 block reads each one's trouble codes; these signals show whichever arrived last.";
+CM_ SG_ 2566834688 FMI "SPN 1215 - Failure Mode Identifier (DM1 Byte 5 Bits 1-5). 5-bit SAE J1939-73 code describing the nature of the fault (0..31; e.g. 1=Below Normal Most Severe, 15=Above Normal Least Severe, 16=Above Normal Moderately Severe).";
+CM_ SG_ 2566834688 SPNHigh "SPN 1214 (MSB) - SPN bits 18..16.";
+CM_ SG_ 2566834688 OccurrenceCount "SPN 1216 - Occurrence Count (DM1 Byte 6 Bits 1-7). Number of times the diagnostic fault has transitioned from previously active to active (0..126; 127=Not Available).";
+CM_ SG_ 2566834688 ConversionMethod "SPN 1706 - SPN Conversion Method (DM1 Byte 6 Bit 8). Must be 0 for SAE J1939-73 Version 4 standard Intel byte ordering.";
+
+CM_ SG_ 2566805053 DieselExhaustFluidTankLevel "SPN 1761 - Aftertreatment 1 Diesel Exhaust Fluid Tank Volume. Ratio of current DEF (AdBlue) volume to total tank capacity (0.4 %/bit, range 0 to 100 %).";
+CM_ SG_ 2566805053 DieselExhaustFluidTankTemp "SPN 3031 - Aftertreatment 1 Diesel Exhaust Fluid Tank Temperature 1. Temperature of DEF solution in storage tank (1 degC/bit, offset -40 degC, range -40 to 210 degC).";
+CM_ SG_ 2566805053 DieselExhaustFluidTankLevel2 "SPN 3517 - Aftertreatment 1 Diesel Exhaust Fluid Tank Level 2. Fluid height in the DEF tank measured in millimeters (0.1 mm/bit, range 0 to 6425.5 mm).";
+CM_ SG_ 2566805053 DEFLevelLowIndicator "SPN 5245 - Aftertreatment Selective Catalytic Reduction Operator Inducement Active / DEF Low Lamp (0=Off, 1=On; 2=Error, 3=Not Available).";
+CM_ SG_ 2566805053 SCRInducementSeverity "SPN 5246 - Aftertreatment SCR Operator Inducement Severity. Current severity level of SCR/DEF operator inducement (0=Normal, 1..5=Inducement levels; 6=Error, 7=Not Available).";
+
+CM_ SG_ 2565865739 ASR_EngineControlActive "SPN 561 - ASR Engine Control Active. Indicates whether traction control is actively governing engine torque (0=Passive, 1=Active; 2=Error, 3=Not Available).";
+CM_ SG_ 2565865739 ASR_BrakeControlActive "SPN 562 - ASR Brake Control Active. Indicates whether traction control is actively applying wheel brakes (0=Passive, 1=Active; 2=Error, 3=Not Available).";
+CM_ SG_ 2565865739 AntiLockBrakingActive "SPN 563 - Anti-Lock Braking (ABS) Active. Indicates whether ABS is actively modulating brake pressure to prevent wheel lockup (0=Passive, 1=Active; 2=Error, 3=Not Available).";
+CM_ SG_ 2565865739 ABSAmberWarning "SPN 1438 - ABS/EBS Amber Warning Signal. Requests illumination of the amber ABS fault lamp on the instrument cluster (0=Off, 1=On; 2=Error, 3=Not Available).";
+CM_ SG_ 2565865739 EBSRedWarning "SPN 1439 - EBS Red Warning Signal. Requests illumination of the red brake system stop warning lamp on the instrument cluster (0=Off, 1=On; 2=Error, 3=Not Available).";
+
+CM_ SG_ 2566827531 PneumaticSupplyPressure "SPN 46 - Pneumatic Supply Pressure. Air pressure in the main wet/supply reservoir after the air dryer (0.08 bar/bit, range 0 to 20 bar).";
+CM_ SG_ 2566827531 ServiceBrakeCircuit1AirPress "SPN 1087 - Service Brake Circuit 1 Air Pressure. Pneumatic pressure in the primary service brake circuit (0.08 bar/bit, range 0 to 20 bar).";
+CM_ SG_ 2566827531 ServiceBrakeCircuit2AirPress "SPN 1088 - Service Brake Circuit 2 Air Pressure. Pneumatic pressure in the secondary service brake circuit (0.08 bar/bit, range 0 to 20 bar).";
+
+CM_ SG_ 2566769719 LightingCommand "SPN 2872 - Main Light Switch. Rotary headlamp switch position from the cab panel (0=Off, 1=Park, 2=Headlamps).";
+CM_ SG_ 2566769719 HighBeamCommand "SPN 2874 - High-Low Beam Switch. Stalk switch command for main headlamps (0=Low Beam, 1=High Beam; 2=Error, 3=Not Available).";
+CM_ SG_ 2566769719 HazardSwitch "SPN 2875 - Hazard Light Switch. Four-way hazard warning button state (0=Off, 1=On; 2=Error, 3=Not Available).";
+CM_ SG_ 2566769719 TurnSignalSwitch "SPN 2876 - Turn Signal Switch. Direction indicator stalk switch position (0=None, 1=Left, 2=Right).";
+
+CM_ SG_ 2566799649 HighBeamHeadlight "SPN 2348 - High Beam Head Light Data. Output state of the vehicle high beam headlamps driven by the BCM (0=Off, 1=On; 2=Error, 3=Not Available).";
+CM_ SG_ 2566799649 LowBeamHeadlight "SPN 2350 - Low Beam Head Light Data. Output state of the vehicle dipped/low beam headlamps driven by the BCM (0=Off, 1=On; 2=Error, 3=Not Available).";
+CM_ SG_ 2566799649 PositionLights "SPN 2388 - Marker / Position Light Data. Output state of the exterior parking and marker lights (0=Off, 1=On; 2=Error, 3=Not Available).";
+CM_ SG_ 2566799649 LeftTurnSignal "SPN 2368 - Left Turn Signal Lights. Steady while the stalk is in: the cluster does the flashing (0=Off, 1=On; 2=Error, 3=Not Available).";
+CM_ SG_ 2566799649 RightTurnSignal "SPN 2370 - Right Turn Signal Lights. Instantaneous flashing output state of the right turn indicator lamps (0=Off, 1=On; 2=Error, 3=Not Available).";
+CM_ SG_ 2566799649 StopLight "SPN 2372 - Center Stop Light. Output state of the rear brake stop lamps (0=Off, 1=On; 2=Error, 3=Not Available).";
+
+CM_ SG_ 2566847521 WasherFluidLevel "SPN 80 - Washer Fluid Level. Ratio of windshield washer reservoir fluid volume to total capacity (0.4 %/bit, range 0 to 100 %).";
+CM_ SG_ 2566847521 FuelLevel1 "SPN 96 - Fuel Level 1. Ratio of fuel volume in the primary fuel tank to total tank capacity (0.4 %/bit, range 0 to 100 %).";
+CM_ SG_ 2566847521 FuelLevel2 "SPN 38 - Fuel Level 2. Ratio of fuel volume in the secondary/auxiliary fuel tank to total capacity (0.4 %/bit, range 0 to 100 %; 0xFF when single tank).";
+
+CM_ SG_ 2566846241 NetBatteryCurrent "SPN 114 - Net Battery Current. Net electrical current flowing into (+) or out of (-) the battery bank (1 A/bit, offset -125 A, range -125 to 125 A).";
+CM_ SG_ 2566846241 AlternatorCurrent "SPN 115 - Alternator Current. Electrical output current generated by the alternator (1 A/bit, range 0 to 250 A).";
+CM_ SG_ 2566846241 ChargingSystemPotential "SPN 167 - Charging System Potential (Voltage). Electrical potential measured at the alternator output regulator (0.05 V/bit, range 0 to 3212.75 V).";
+CM_ SG_ 2566846241 BatteryPotential "SPN 168 - Battery Potential / Power Input 1. Electrical potential measured at the main battery input terminals (0.05 V/bit, range 0 to 3212.75 V).";
+CM_ SG_ 2566846241 KeySwitchPotential "SPN 158 - Key Switch Battery Potential. Electrical potential supplied through the ignition key switch (KL15, 0.05 V/bit, range 0 to 3212.75 V).";
+
+CM_ SG_ 2566723361 DriverSeatBeltSwitch "SPN 1856 - Seat Belt Switch (Driver). Indicates whether the driver's seat belt buckle is fastened (0=Unbuckled, 1=Buckled; 2=Error, 3=Not Available).";
+CM_ SG_ 2566723361 PassengerSeatBeltSwitch "SPN 4953 - Passenger Seat Belt Switch. Indicates whether the front passenger's seat belt buckle is fastened (0=Unbuckled, 1=Buckled; 2=Error, 3=Not Available).";
+CM_ SG_ 2566723361 SeatBeltWarningLamp "SPN 5097 - Seat Belt Warning Lamp. 1 while the driver's belt is not fastened (0=Off, 1=On; 2=Error, 3=Not Available).";
+
+CM_ SG_ 2566832407 TotalVehicleDistance "SPN 917 - High Resolution Total Vehicle Distance. Total accumulated odometer distance traveled by the vehicle (0.005 km / 5 m per bit, range 0 to 21055406 km).";
+CM_ SG_ 2566832407 TripDistance "SPN 918 - High Resolution Trip Distance. Accumulated distance traveled since the last trip reset (0.005 km / 5 m per bit, range 0 to 21055406 km).";
+
+CM_ SG_ 2566841879 Seconds "SPN 959 - Seconds. UTC seconds of the minute (0.25 s/bit, range 0 to 59.75 s).";
+CM_ SG_ 2566841879 Minutes "SPN 960 - Minutes. UTC minutes of the hour (1 min/bit, range 0 to 59 min).";
+CM_ SG_ 2566841879 Hours "SPN 961 - Hours. UTC hours of the day in 24-hour format (1 hr/bit, range 0 to 23 hr).";
+CM_ SG_ 2566841879 Month "SPN 963 - Month. Calendar month of the year (1 month/bit, range 1=January to 12=December).";
+CM_ SG_ 2566841879 Day "SPN 962 - Day. Calendar day of the month in quarter-day resolution (0.25 day/bit, range 0.25 to 31.75 day).";
+CM_ SG_ 2566841879 Year "SPN 964 - Year. Calendar year offset from 1985 (1 year/bit, offset 1985, range 1985 to 2235).";
+CM_ SG_ 2566841879 LocalMinuteOffset "SPN 1601 - Local Minute Offset. Offset in minutes from UTC (1 min/bit, offset -125 min, range -59 to +59 min).";
+CM_ SG_ 2566841879 LocalHourOffset "SPN 1602 - Local Hour Offset. Offset in hours from UTC (1 hr/bit, offset -125 hr, range -23 to +23 hr).";
+
+CM_ SG_ 2566848640 ThermalHealth "TinyML Thermal Health Index. Estimated powertrain thermal margin computed by the on-edge neural network (0.4 %/bit, range 0 to 100 %; below 30 % triggers critical DM1).";
+CM_ SG_ 2566848640 AnomalyScore "TinyML Anomaly Score. Real-time multivariate anomaly probability across speed, load, coolant, and ambient features (0.4 %/bit, range 0 to 100 %).";
+CM_ SG_ 2566848640 Confidence "TinyML Classification Confidence. Softmax certainty of the winning operating regime class (0.4 %/bit, range 0 to 100 %).";
+CM_ SG_ 2566848640 RiskLevel "TinyML Risk Band. Discretized risk severity derived from the anomaly score (0=Low <30%, 1=Moderate 30-60%, 2=High 60-80%, 3=Critical >=80%).";
+CM_ SG_ 2566848640 ModelStatus "TinyML Inference Engine Status. Operational state of the virtual neural ECU (0=Waiting, 1=Running, 2=Error, 3=NotAvailable).";
+CM_ SG_ 2566848640 RegimeClass "What the vehicle is doing as the model sees it. RiskLevel is how worried the model is about it, which is a different question (0=Idle, 1=Cruise, 2=HighLoad, 3=ThermalStress, 4=Anomaly).";
+CM_ SG_ 2566848640 MessageCounter "Counts 0 to 250: above that a byte means error or not available on a J1939 bus.";
+CM_ SG_ 2566848640 InputAge "TinyML Input Feature Age. Maximum age of the bus signals fed into the latest inference pass (0.1 s/bit, range 0 to 25 s).";
+CM_ SG_ 2566848640 InferenceTimeUs "TinyML Inference Execution Time. Deterministic forward-pass duration in microseconds (1 us/bit, range 0 to 64255 us).";
+
+CM_ SG_ 2565799680 IdentityNumber "SPN 2837 - Identity Number (NAME Bits 21..1). 21-bit unique serial number assigned by the ECU manufacturer.";
+CM_ SG_ 2565799680 ManufacturerCode "SPN 2838 - Manufacturer Code (NAME Bits 32..22). 11-bit SAE-assigned manufacturer identifier.";
+CM_ SG_ 2565799680 EcuInstance "SPN 2840 - ECU Instance (NAME Bits 35..33). 3-bit instance index distinguishing multiple ECUs performing the same function.";
+CM_ SG_ 2565799680 FunctionInstance "SPN 2839 - Function Instance (NAME Bits 40..36). 5-bit instance number of the J1939 function.";
+CM_ SG_ 2565799680 Function "SPN 2841 - Function (NAME Bits 48..41 / Byte 6). 8-bit SAE J1939 function code (0=Engine, 3=Transmission, 9=System Control Brakes, 19=Instrument Cluster, 26=Body Control, 33=System Monitor, 37=Cab Controller, 41=Operator Controls Lighting, 44=Exhaust Emission Control).";
+CM_ SG_ 2565799680 ReservedBit "SAE J1939-81 Reserved Bit (NAME Bit 49 / Byte 7 Bit 1). Always transmitted as 0.";
+CM_ SG_ 2565799680 VehicleSystem "SPN 2842 - Vehicle System (NAME Bits 56..50). 7-bit vehicle system classification within the industry group.";
+CM_ SG_ 2565799680 VehicleSystemInstance "SPN 2843 - Vehicle System Instance (NAME Bits 60..57). 4-bit instance of the vehicle system.";
+CM_ SG_ 2565799680 IndustryGroup "SPN 2846 - Industry Group (NAME Bits 63..61). 3-bit SAE industry group (0=Global, 1=On-Highway Equipment, 2=Agricultural/Forestry, 3=Construction, 4=Marine, 5=Industrial).";
+CM_ SG_ 2565799680 ArbitraryAddressCapable "SPN 2844 - Arbitrary Address Capable (NAME Bit 64). Indicates whether the ECU can resolve address conflicts by selecting an alternate source address (0=Fixed Address, 1=Self-Configurable).";
+
+CM_ SG_ 2565537790 RequestedPGN "SPN 2540 - Parameter Group Number being requested (24-bit little-endian PGN; e.g. 60928 = 0x00EE00 for Address Claimed, 65253 = 0x00FEE5 for Engine Hours, 65255 = 0x00FEE7 for Vehicle Hours).";
+
+CM_ SG_ 2565406464 ControlByte "SPN 2541 - Acknowledgment Control Byte (0=Positive Acknowledgment, 1=Negative Acknowledgment / NACK, 2=Access Denied, 3=Cannot Respond).";
+CM_ SG_ 2565406464 GroupFunctionValue "Group Function Value or reason code accompanying the acknowledgment (0xFF when not applicable).";
+CM_ SG_ 2565406464 AddressAcknowledged "SPN 3290 - Source Address of the node whose request is being acknowledged.";
+CM_ SG_ 2565406464 ParameterGroupNumber "SPN 3291 - 24-bit Parameter Group Number of the requested message being acknowledged.";
+
+BA_DEF_  "BusType" STRING ;
+BA_DEF_  "ProtocolType" STRING ;
+BA_DEF_  "DBName" STRING ;
+BA_DEF_ BU_  "NmStationAddress" INT 0 255;
+BA_DEF_ BU_  "NmJ1939AAC" INT 0 1;
+BA_DEF_ BU_  "NmJ1939IndustryGroup" INT 0 7;
+BA_DEF_ BU_  "NmJ1939System" INT 0 127;
+BA_DEF_ BU_  "NmJ1939SystemInstance" INT 0 15;
+BA_DEF_ BU_  "NmJ1939Function" INT 0 255;
+BA_DEF_ BU_  "NmJ1939FunctionInstance" INT 0 31;
+BA_DEF_ BU_  "NmJ1939ECUInstance" INT 0 7;
+BA_DEF_ BU_  "NmJ1939ManufacturerCode" INT 0 2047;
+BA_DEF_ BU_  "NmJ1939IdentityNumber" INT 0 2097151;
+BA_DEF_ BO_  "GenMsgCycleTime" INT 0 3600000;
+BA_DEF_ BO_  "GenMsgSendType" ENUM  "Cyclic","NotUsed","NotUsed","NotUsed","NotUsed","NotUsed","NotUsed","IfActive","NoMsgSendType";
+BA_DEF_ BO_  "VFrameFormat" ENUM  "StandardCAN","ExtendedCAN","reserved","J1939PG","reserved","reserved","reserved","reserved","reserved","reserved","reserved","reserved","reserved","reserved","StandardCAN_FD","ExtendedCAN_FD";
+BA_DEF_ SG_  "SPN" INT 0 524287;
+BA_DEF_DEF_  "BusType" "CAN";
+BA_DEF_DEF_  "ProtocolType" "J1939";
+BA_DEF_DEF_  "DBName" "";
+BA_DEF_DEF_  "NmStationAddress" 254;
+BA_DEF_DEF_  "NmJ1939AAC" 0;
+BA_DEF_DEF_  "NmJ1939IndustryGroup" 1;
+BA_DEF_DEF_  "NmJ1939System" 0;
+BA_DEF_DEF_  "NmJ1939SystemInstance" 0;
+BA_DEF_DEF_  "NmJ1939Function" 0;
+BA_DEF_DEF_  "NmJ1939FunctionInstance" 0;
+BA_DEF_DEF_  "NmJ1939ECUInstance" 0;
+BA_DEF_DEF_  "NmJ1939ManufacturerCode" 100;
+BA_DEF_DEF_  "NmJ1939IdentityNumber" 0;
+BA_DEF_DEF_  "GenMsgCycleTime" 0;
+BA_DEF_DEF_  "GenMsgSendType" "Cyclic";
+BA_DEF_DEF_  "VFrameFormat" "J1939PG";
+BA_DEF_DEF_  "SPN" 0;
+BA_ "BusType" "CAN";
+BA_ "ProtocolType" "J1939";
+BA_ "DBName" "j1939";
+BA_ "NmStationAddress" BU_ EMS 0;
+BA_ "NmJ1939Function" BU_ EMS 0;
+BA_ "NmJ1939IdentityNumber" BU_ EMS 1;
+BA_ "NmStationAddress" BU_ ACM 61;
+BA_ "NmJ1939Function" BU_ ACM 44;
+BA_ "NmJ1939IdentityNumber" BU_ ACM 6;
+BA_ "NmStationAddress" BU_ EBS 11;
+BA_ "NmJ1939Function" BU_ EBS 9;
+BA_ "NmJ1939IdentityNumber" BU_ EBS 2;
+BA_ "NmStationAddress" BU_ BCM 33;
+BA_ "NmJ1939Function" BU_ BCM 26;
+BA_ "NmJ1939IdentityNumber" BU_ BCM 3;
+BA_ "NmStationAddress" BU_ IC 23;
+BA_ "NmJ1939Function" BU_ IC 19;
+BA_ "NmJ1939IdentityNumber" BU_ IC 4;
+BA_ "NmStationAddress" BU_ COMMANDS 55;
+BA_ "NmJ1939Function" BU_ COMMANDS 41;
+BA_ "NmJ1939IdentityNumber" BU_ COMMANDS 5;
+BA_ "NmStationAddress" BU_ TINYML_ECU 128;
+BA_ "NmJ1939AAC" BU_ TINYML_ECU 1;
+BA_ "NmJ1939Function" BU_ TINYML_ECU 33;
+BA_ "NmJ1939IdentityNumber" BU_ TINYML_ECU 7;
+BA_ "VFrameFormat" BO_ 2364539904 3;
+BA_ "GenMsgCycleTime" BO_ 2364539904 20;
+BA_ "VFrameFormat" BO_ 2364539648 3;
+BA_ "GenMsgCycleTime" BO_ 2364539648 50;
+BA_ "VFrameFormat" BO_ 2364540160 3;
+BA_ "GenMsgCycleTime" BO_ 2364540160 100;
+BA_ "VFrameFormat" BO_ 2566844672 3;
+BA_ "GenMsgCycleTime" BO_ 2566844672 100;
+BA_ "VFrameFormat" BO_ 2566843904 3;
+BA_ "GenMsgCycleTime" BO_ 2566843904 1000;
+BA_ "VFrameFormat" BO_ 2566844160 3;
+BA_ "GenMsgCycleTime" BO_ 2566844160 500;
+BA_ "VFrameFormat" BO_ 2566844928 3;
+BA_ "GenMsgCycleTime" BO_ 2566844928 100;
+BA_ "VFrameFormat" BO_ 2566845696 3;
+BA_ "GenMsgCycleTime" BO_ 2566845696 1000;
+BA_ "VFrameFormat" BO_ 2566841600 3;
+BA_ "GenMsgCycleTime" BO_ 2566841600 1000;
+BA_ "VFrameFormat" BO_ 2566834688 3;
+BA_ "GenMsgCycleTime" BO_ 2566834688 1000;
+BA_ "VFrameFormat" BO_ 2566805053 3;
+BA_ "GenMsgCycleTime" BO_ 2566805053 1000;
+BA_ "VFrameFormat" BO_ 2565865739 3;
+BA_ "GenMsgCycleTime" BO_ 2565865739 100;
+BA_ "VFrameFormat" BO_ 2566827531 3;
+BA_ "GenMsgCycleTime" BO_ 2566827531 1000;
+BA_ "VFrameFormat" BO_ 2566769719 3;
+BA_ "GenMsgCycleTime" BO_ 2566769719 200;
+BA_ "VFrameFormat" BO_ 2566799649 3;
+BA_ "GenMsgCycleTime" BO_ 2566799649 1000;
+BA_ "VFrameFormat" BO_ 2566847521 3;
+BA_ "GenMsgCycleTime" BO_ 2566847521 1000;
+BA_ "VFrameFormat" BO_ 2566846241 3;
+BA_ "GenMsgCycleTime" BO_ 2566846241 1000;
+BA_ "VFrameFormat" BO_ 2566723361 3;
+BA_ "GenMsgCycleTime" BO_ 2566723361 1000;
+BA_ "VFrameFormat" BO_ 2566832407 3;
+BA_ "GenMsgCycleTime" BO_ 2566832407 1000;
+BA_ "VFrameFormat" BO_ 2566841879 3;
+BA_ "GenMsgCycleTime" BO_ 2566841879 1000;
+BA_ "VFrameFormat" BO_ 2566848640 3;
+BA_ "GenMsgCycleTime" BO_ 2566848640 100;
+BA_ "VFrameFormat" BO_ 2565799680 3;
+BA_ "GenMsgCycleTime" BO_ 2565799680 1000;
+BA_ "GenMsgSendType" BO_ 2565799680 7;
+BA_ "VFrameFormat" BO_ 2565537790 3;
+BA_ "GenMsgCycleTime" BO_ 2565537790 1000;
+BA_ "GenMsgSendType" BO_ 2565537790 7;
+BA_ "VFrameFormat" BO_ 2565406464 3;
+BA_ "GenMsgCycleTime" BO_ 2565406464 1000;
+BA_ "GenMsgSendType" BO_ 2565406464 7;
+BA_ "SPN" SG_ 2364539904 EngineTorqueMode 899;
+BA_ "SPN" SG_ 2364539904 DriverDemandTorque 512;
+BA_ "SPN" SG_ 2364539904 ActualEngineTorque 513;
+BA_ "SPN" SG_ 2364539904 EngineSpeed 190;
+BA_ "SPN" SG_ 2364539904 SourceAddressEngCtrl 1483;
+BA_ "SPN" SG_ 2364539648 AccelPedalPos1 91;
+BA_ "SPN" SG_ 2364539648 PercentLoadAtCurrentSpeed 92;
+BA_ "SPN" SG_ 2364540160 TransmissionSelectedGear 524;
+BA_ "SPN" SG_ 2364540160 TransmissionCurrentGear 523;
+BA_ "SPN" SG_ 2566844672 ParkingBrakeSwitch 70;
+BA_ "SPN" SG_ 2566844672 WheelBasedVehicleSpeed 84;
+BA_ "SPN" SG_ 2566844672 CruiseControlActive 595;
+BA_ "SPN" SG_ 2566844672 BrakeSwitch 597;
+BA_ "SPN" SG_ 2566844672 CruiseControlSetSpeed 86;
+BA_ "SPN" SG_ 2566843904 EngineCoolantTemperature 110;
+BA_ "SPN" SG_ 2566843904 FuelTemperature 174;
+BA_ "SPN" SG_ 2566843904 EngineOilTemperature1 175;
+BA_ "SPN" SG_ 2566844160 EngineOilLevel 98;
+BA_ "SPN" SG_ 2566844160 EngineOilPressure 100;
+BA_ "SPN" SG_ 2566844160 EngineCoolantLevel 111;
+BA_ "SPN" SG_ 2566844928 EngineFuelRate 183;
+BA_ "SPN" SG_ 2566844928 InstantaneousFuelEconomy 184;
+BA_ "SPN" SG_ 2566844928 AverageFuelEconomy 185;
+BA_ "SPN" SG_ 2566845696 BarometricPressure 108;
+BA_ "SPN" SG_ 2566845696 AmbientAirTemperature 171;
+BA_ "SPN" SG_ 2566845696 EngineIntake1AirTemperature 172;
+BA_ "SPN" SG_ 2566841600 TotalEngineHours 247;
+BA_ "SPN" SG_ 2566841600 TotalEngineRevolutions 249;
+BA_ "SPN" SG_ 2566834688 ProtectLamp 987;
+BA_ "SPN" SG_ 2566834688 AmberWarningLamp 624;
+BA_ "SPN" SG_ 2566834688 RedStopLamp 623;
+BA_ "SPN" SG_ 2566834688 MalfunctionIndicatorLamp 1213;
+BA_ "SPN" SG_ 2566834688 FlashProtectLamp 3041;
+BA_ "SPN" SG_ 2566834688 FlashAmberWarningLamp 3040;
+BA_ "SPN" SG_ 2566834688 FlashRedStopLamp 3039;
+BA_ "SPN" SG_ 2566834688 FlashMalfunctionIndicatorLamp 3038;
+BA_ "SPN" SG_ 2566834688 SPNLow 1214;
+BA_ "SPN" SG_ 2566834688 FMI 1215;
+BA_ "SPN" SG_ 2566834688 SPNHigh 1214;
+BA_ "SPN" SG_ 2566834688 OccurrenceCount 1216;
+BA_ "SPN" SG_ 2566834688 ConversionMethod 1706;
+BA_ "SPN" SG_ 2566805053 DieselExhaustFluidTankLevel 1761;
+BA_ "SPN" SG_ 2566805053 DieselExhaustFluidTankTemp 3031;
+BA_ "SPN" SG_ 2566805053 DieselExhaustFluidTankLevel2 3517;
+BA_ "SPN" SG_ 2566805053 DEFLevelLowIndicator 5245;
+BA_ "SPN" SG_ 2566805053 SCRInducementSeverity 5246;
+BA_ "SPN" SG_ 2565865739 ASR_EngineControlActive 561;
+BA_ "SPN" SG_ 2565865739 ASR_BrakeControlActive 562;
+BA_ "SPN" SG_ 2565865739 AntiLockBrakingActive 563;
+BA_ "SPN" SG_ 2565865739 ABSAmberWarning 1438;
+BA_ "SPN" SG_ 2565865739 EBSRedWarning 1439;
+BA_ "SPN" SG_ 2566827531 PneumaticSupplyPressure 46;
+BA_ "SPN" SG_ 2566827531 ServiceBrakeCircuit1AirPress 1087;
+BA_ "SPN" SG_ 2566827531 ServiceBrakeCircuit2AirPress 1088;
+BA_ "SPN" SG_ 2566769719 LightingCommand 2872;
+BA_ "SPN" SG_ 2566769719 HighBeamCommand 2874;
+BA_ "SPN" SG_ 2566769719 HazardSwitch 2875;
+BA_ "SPN" SG_ 2566769719 TurnSignalSwitch 2876;
+BA_ "SPN" SG_ 2566799649 HighBeamHeadlight 2348;
+BA_ "SPN" SG_ 2566799649 LowBeamHeadlight 2350;
+BA_ "SPN" SG_ 2566799649 PositionLights 2388;
+BA_ "SPN" SG_ 2566799649 LeftTurnSignal 2368;
+BA_ "SPN" SG_ 2566799649 RightTurnSignal 2370;
+BA_ "SPN" SG_ 2566799649 StopLight 2372;
+BA_ "SPN" SG_ 2566847521 WasherFluidLevel 80;
+BA_ "SPN" SG_ 2566847521 FuelLevel1 96;
+BA_ "SPN" SG_ 2566847521 FuelLevel2 38;
+BA_ "SPN" SG_ 2566846241 NetBatteryCurrent 114;
+BA_ "SPN" SG_ 2566846241 AlternatorCurrent 115;
+BA_ "SPN" SG_ 2566846241 ChargingSystemPotential 167;
+BA_ "SPN" SG_ 2566846241 BatteryPotential 168;
+BA_ "SPN" SG_ 2566846241 KeySwitchPotential 158;
+BA_ "SPN" SG_ 2566723361 DriverSeatBeltSwitch 1856;
+BA_ "SPN" SG_ 2566723361 PassengerSeatBeltSwitch 4953;
+BA_ "SPN" SG_ 2566723361 SeatBeltWarningLamp 5097;
+BA_ "SPN" SG_ 2566832407 TotalVehicleDistance 917;
+BA_ "SPN" SG_ 2566832407 TripDistance 918;
+BA_ "SPN" SG_ 2566841879 Seconds 959;
+BA_ "SPN" SG_ 2566841879 Minutes 960;
+BA_ "SPN" SG_ 2566841879 Hours 961;
+BA_ "SPN" SG_ 2566841879 Month 963;
+BA_ "SPN" SG_ 2566841879 Day 962;
+BA_ "SPN" SG_ 2566841879 Year 964;
+BA_ "SPN" SG_ 2566841879 LocalMinuteOffset 1601;
+BA_ "SPN" SG_ 2566841879 LocalHourOffset 1602;
+BA_ "SPN" SG_ 2565799680 IdentityNumber 2837;
+BA_ "SPN" SG_ 2565799680 ManufacturerCode 2838;
+BA_ "SPN" SG_ 2565799680 EcuInstance 2840;
+BA_ "SPN" SG_ 2565799680 FunctionInstance 2839;
+BA_ "SPN" SG_ 2565799680 Function 2841;
+BA_ "SPN" SG_ 2565799680 VehicleSystem 2842;
+BA_ "SPN" SG_ 2565799680 VehicleSystemInstance 2843;
+BA_ "SPN" SG_ 2565799680 IndustryGroup 2846;
+BA_ "SPN" SG_ 2565799680 ArbitraryAddressCapable 2844;
+BA_ "SPN" SG_ 2565537790 RequestedPGN 2540;
+BA_ "SPN" SG_ 2565406464 ControlByte 2541;
+BA_ "SPN" SG_ 2565406464 AddressAcknowledged 3290;
+BA_ "SPN" SG_ 2565406464 ParameterGroupNumber 3291;
+
+VAL_ 2364539904 EngineTorqueMode 0 "LowIdleGovernor" 1 "AcceleratorPedal" 2 "CruiseControl" 3 "PTOGovernor" 4 "RoadSpeedGovernor" 5 "ASRControl" 6 "TransmissionControl" 7 "ABSControl" 8 "TorqueLimiting" 9 "HighSpeedGovernor" 10 "BrakingSystem" 11 "RemoteAccelerator" 12 "CabDisplay" 13 "Other" ;
+VAL_ 2566844672 ParkingBrakeSwitch 0 "Off" 1 "On" ;
+VAL_ 2566844672 CruiseControlActive 0 "Off" 1 "On" ;
+VAL_ 2566844672 BrakeSwitch 0 "Released" 1 "Depressed" ;
 VAL_ 2566834688 ProtectLamp 0 "Off" 1 "On" ;
 VAL_ 2566834688 AmberWarningLamp 0 "Off" 1 "On" ;
 VAL_ 2566834688 RedStopLamp 0 "Off" 1 "On" ;
 VAL_ 2566834688 MalfunctionIndicatorLamp 0 "Off" 1 "On" ;
+VAL_ 2566834688 FlashProtectLamp 0 "SlowFlash" 1 "FastFlash" ;
+VAL_ 2566834688 FlashAmberWarningLamp 0 "SlowFlash" 1 "FastFlash" ;
+VAL_ 2566834688 FlashRedStopLamp 0 "SlowFlash" 1 "FastFlash" ;
+VAL_ 2566834688 FlashMalfunctionIndicatorLamp 0 "SlowFlash" 1 "FastFlash" ;
+VAL_ 2566834688 FMI 0 "DataAboveNormalMostSevere" 1 "DataBelowNormalMostSevere" 2 "DataErraticIntermittentOrIncorrect" 3 "VoltageAboveNormalOrShortedHigh" 4 "VoltageBelowNormalOrShortedLow" 5 "CurrentBelowNormalOrOpenCircuit" 6 "CurrentAboveNormalOrGrounded" 7 "MechanicalSystemNotResponding" 8 "AbnormalFrequencyOrPulseWidth" 9 "AbnormalUpdateRate" 10 "AbnormalRateOfChange" 11 "RootCauseNotKnown" 12 "BadIntelligentDeviceOrComponent" 13 "OutOfCalibration" 14 "SpecialInstructions" 15 "DataAboveNormalLeastSevere" 16 "DataAboveNormalModeratelySevere" 17 "DataBelowNormalLeastSevere" 18 "DataBelowNormalModeratelySevere" 19 "ReceivedNetworkDataInError" 20 "DataDriftedHigh" 21 "DataDriftedLow" 31 "ConditionExists" ;
+VAL_ 2566834688 ConversionMethod 0 "Version4_Intel" 1 "LegacyVersion1To3" ;
+VAL_ 2566805053 DEFLevelLowIndicator 0 "Off" 1 "On" ;
+VAL_ 2566805053 SCRInducementSeverity 0 "Normal" 1 "Level1Warning" 2 "Level2TorqueDerate" 3 "Level3SpeedLimitation" 4 "Level4SevereInducement" 5 "FinalInducement" ;
+VAL_ 2565865739 ASR_EngineControlActive 0 "Passive" 1 "Active" ;
+VAL_ 2565865739 ASR_BrakeControlActive 0 "Passive" 1 "Active" ;
+VAL_ 2565865739 AntiLockBrakingActive 0 "Passive" 1 "Active" ;
 VAL_ 2565865739 ABSAmberWarning 0 "Off" 1 "On" ;
 VAL_ 2565865739 EBSRedWarning 0 "Off" 1 "On" ;
+VAL_ 2566769719 LightingCommand 0 "Off" 1 "Park" 2 "Headlamps" ;
+VAL_ 2566769719 HighBeamCommand 0 "Off" 1 "On" ;
+VAL_ 2566769719 HazardSwitch 0 "Off" 1 "On" ;
+VAL_ 2566769719 TurnSignalSwitch 0 "None" 1 "Left" 2 "Right" ;
+VAL_ 2566799649 HighBeamHeadlight 0 "Off" 1 "On" ;
+VAL_ 2566799649 LowBeamHeadlight 0 "Off" 1 "On" ;
+VAL_ 2566799649 PositionLights 0 "Off" 1 "On" ;
+VAL_ 2566799649 LeftTurnSignal 0 "Off" 1 "On" ;
+VAL_ 2566799649 RightTurnSignal 0 "Off" 1 "On" ;
+VAL_ 2566799649 StopLight 0 "Off" 1 "On" ;
+VAL_ 2566723361 DriverSeatBeltSwitch 0 "Unbuckled" 1 "Buckled" ;
+VAL_ 2566723361 PassengerSeatBeltSwitch 0 "Unbuckled" 1 "Buckled" ;
 VAL_ 2566723361 SeatBeltWarningLamp 0 "Off" 1 "On" ;
-CM_ SG_ 2364540160 TransmissionCurrentGear "-1 is reverse, 0 neutral, 1 and up the forward gears. J1939 sends it with an offset of -125, so reverse is 124 on the wire.";
+VAL_ 2566848640 RegimeClass 0 "Idle" 1 "Cruise" 2 "HighLoad" 3 "ThermalStress" 4 "Anomaly" ;
+VAL_ 2566848640 RiskLevel 0 "Low" 1 "Moderate" 2 "High" 3 "Critical" ;
+VAL_ 2566848640 ModelStatus 0 "Waiting" 1 "Running" 2 "Error" 3 "NotAvailable" ;
+VAL_ 2565799680 Function 0 "Engine" 3 "Transmission" 9 "SystemControlBrakes" 19 "InstrumentCluster" 26 "BodyControl" 33 "SystemMonitor" 37 "CabController" 41 "OperatorControlsLighting" 44 "ExhaustEmissionControl" ;
+VAL_ 2565799680 IndustryGroup 0 "Global" 1 "OnHighway" 2 "AgriculturalAndForestry" 3 "Construction" 4 "Marine" 5 "IndustrialProcessControl" ;
+VAL_ 2565799680 ArbitraryAddressCapable 0 "No" 1 "Yes" ;
+VAL_ 2565406464 ControlByte 0 "PositiveAck" 1 "NegativeAck" 2 "AccessDenied" 3 "CannotRespond" ;

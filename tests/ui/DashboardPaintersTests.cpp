@@ -415,24 +415,28 @@ TEST(DashboardPaintersTests, AStateIsTintedByWhatItsNameMeansAndAnUnnamedValueIs
     const double x = chip.left() + 6.0;
     const double y = chip.center().y();
 
+    // The widget is a card in the panel's colour, like a Numeric, with the chip a wash inside it.
     scene.draw(widget, known(2.0), paintState);
     EXPECT_TRUE(
-        isColour(scene.image, x, y, blended(scene.theme.canvas, scene.theme.lampRed, 46), 4));
+        isColour(scene.image, x, y, blended(scene.theme.panel, scene.theme.lampRed, 34), 4));
 
     scene.draw(widget, known(1.0), paintState);
     EXPECT_TRUE(
-        isColour(scene.image, x, y, blended(scene.theme.canvas, scene.theme.success, 46), 4));
+        isColour(scene.image, x, y, blended(scene.theme.panel, scene.theme.success, 34), 4));
 
-    // A name with no opinion is the panel's own colour, and so is a number nobody named.
+    // A name with no opinion is the quiet chip, and so is a number nobody named.
     scene.draw(widget, known(0.0), paintState);
-    EXPECT_TRUE(isColour(scene.image, x, y, scene.theme.panel));
+    EXPECT_TRUE(isColour(scene.image, x, y, scene.theme.panelAlternate));
 
     scene.draw(widget, known(9.0), paintState);
+    EXPECT_TRUE(isColour(scene.image, x, y, scene.theme.panelAlternate));
+
+    // Nothing known is an outline and no fill: the card shows through.
+    scene.draw(widget, DashboardReading{}, paintState);
     EXPECT_TRUE(isColour(scene.image, x, y, scene.theme.panel));
 
-    // Nothing known is an outline and no fill.
-    scene.draw(widget, DashboardReading{}, paintState);
-    EXPECT_TRUE(isColour(scene.image, x, y, scene.theme.canvas));
+    // And the card is there: its own colour, outside the chip.
+    EXPECT_TRUE(isColour(scene.image, 3.0, scene.rect.height() / 2.0, scene.theme.panel));
 }
 
 // ---------------------------------------------------------------------------

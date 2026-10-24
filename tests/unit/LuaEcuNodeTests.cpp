@@ -14,14 +14,21 @@
 
 #include "core/can/CanFrame.h"
 #include "core/j1939/J1939Id.h"
+#include "core/j1939/J1939Name.h"
 #include "core/pipeline/PipelineGraph.h"
 #include "core/pipeline/nodes/FrameNodes.h"
 #include "core/scripting/LuaEcuNode.h"
 #include "core/scripting/LuaRuntime.h"
 
+#include <algorithm>
+#include <array>
 #include <chrono>
+#include <cstdint>
 #include <cstring>
+#include <functional>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -719,68 +726,203 @@ TEST(LuaEcuNodeTests, SendIsStillEmitInAnEcuAndTheJ1939FormIsAlwaysExtended)
     EXPECT_EQ(out[2].data[0], 0xFFU);
 }
 
-TEST(LuaEcuNodeTests, AnEcuThatClaimedAnAddressClaimsItAgainWhenTheBusAsks)
+// ---------------------------------------------------------------------------
+// What an ECU answers when the bus asks
+// ---------------------------------------------------------------------------
+//
+// A request (PGN 59904) asks for a parameter group nobody is sending. The node answers it for the
+// script, the way the network-management layer of a real ECU does: the latest copy of what the
+// script sent for that group - an Address Claimed among the rest - for a request to everyone or to
+// the address it was sent from, and for one to an address the ECU speaks from, for something it
+// never sends, a negative acknowledgement. The claims of the bus, asked of everyone, come after the
+// pseudo-random delay J1939-81 gives them. A script that wants something else defines on_request.
+
+namespace {
+
+/// Runs passes of `graph` until `done`, or two seconds have passed. An answer that waits for its
+/// time arrives on a later pass, and a test that wants it has to be willing to run them.
+[[nodiscard]] bool executeUntil(PipelineGraph& graph, const std::function<bool()>& done)
 {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+
+    while (!done()) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return false;
+        }
+
+        graph.execute();
+        std::this_thread::sleep_for(std::chrono::milliseconds{2});
+    }
+
+    return true;
+}
+
+/// The frames among `frames` that are of the parameter group `pgn`, and from `source` when one is
+/// named.
+[[nodiscard]] std::vector<CanFrame> ofPgn(const std::vector<CanFrame>& frames,
+                                          std::uint32_t pgn,
+                                          std::optional<std::uint8_t> source = std::nullopt)
+{
+    std::vector<CanFrame> found;
+
+    for (const CanFrame& frame : frames) {
+        const std::optional<J1939Id> id = j1939Decompose(frame);
+
+        if (id.has_value() && id->pgn() == pgn
+            && (!source.has_value() || id->sourceAddress == *source)) {
+            found.push_back(frame);
+        }
+    }
+
+    return found;
+}
+
+/// An ECU on a bus: a script, what arrives on its input pass by pass, and what it put on its
+/// output.
+struct EcuOnABus final {
+    EcuOnABus(const std::string& script,
+              std::vector<std::vector<CanFrame>> arriving,
+              std::uint8_t channel = 0U)
+    {
+        const NodeId source = graph.addNode(std::make_unique<SequencedSource>(std::move(arriving)));
+        ecu = graph.addNode(std::make_unique<LuaEcuNode>(script, "ecu.lua", channel));
+        sink = graph.addNode(std::make_unique<Collector>());
+
+        EXPECT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
+        EXPECT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
+        EXPECT_TRUE(graph.compile().succeeded());
+    }
+
+    /// Passes, one after the other, as fast as they come.
+    void pass(int count = 1)
+    {
+        for (int index = 0; index < count; ++index) {
+            graph.execute();
+        }
+    }
+
+    /// Passes for as long as it takes an answer that waits to be due, and a little longer: for a
+    /// test that says nothing more is coming.
+    void passForAWhile()
+    {
+        const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds{250};
+
+        while (std::chrono::steady_clock::now() < until) {
+            graph.execute();
+            std::this_thread::sleep_for(std::chrono::milliseconds{2});
+        }
+    }
+
+    [[nodiscard]] const std::vector<CanFrame>& out()
+    {
+        return graph.nodeAs<Collector>(sink)->frames;
+    }
+    [[nodiscard]] LuaEcuNode& node() { return *graph.nodeAs<LuaEcuNode>(ecu); }
+
+    [[nodiscard]] std::uint64_t statistic(std::string_view label)
+    {
+        for (const NodeStatistic& entry : node().statistics()) {
+            if (entry.label == label) {
+                return entry.value;
+            }
+        }
+
+        return ~std::uint64_t{0};
+    }
+
     PipelineGraph graph;
-    const auto source = graph.addNode(std::make_unique<SequencedSource>(
-        std::vector<std::vector<CanFrame>>{{}, {j1939RequestFrame(kPgnAddressClaimed)}}));
-    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
-        function on_enable() j1939_claim(0x21, 26, 0, nil, 1, false) end
-    )",
-                                                                "claimer.lua"));
-    const auto sink = graph.addNode(std::make_unique<Collector>());
+    NodeId ecu{NodeId::Invalid};
+    NodeId sink{NodeId::Invalid};
+};
 
-    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
-    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
-    ASSERT_TRUE(graph.compile().succeeded());
+/// An ECU at 0x21 that claims its address at power-up and says nothing else.
+constexpr const char* kClaimer = R"(
+    function on_enable() j1939_claim(0x21, 26, 0, nil, 1, false) end
+)";
 
-    const auto& out = graph.nodeAs<Collector>(sink)->frames;
+} // namespace
+
+TEST(LuaEcuNodeTests, AnEcuThatClaimedAnAddressClaimsItAgainWhenTheBusAsksAndAfterTheDelayOfJ1939)
+{
+    EcuOnABus bus{kClaimer, {{}, {j1939RequestFrame(kPgnAddressClaimed)}}};
 
     // The claim at power-up, on a bus nobody has asked anything of yet.
-    graph.execute();
-    ASSERT_EQ(out.size(), 1U);
-    const CanFrame atPowerUp = out.front();
+    bus.pass();
+    ASSERT_EQ(bus.out().size(), 1U);
+    const CanFrame atPowerUp = bus.out().front();
     EXPECT_EQ(atPowerUp.identifier, 0x18EEFF21U);
 
-    // And the same one again when somebody does: nothing in the script was asked to.
-    graph.execute();
-    ASSERT_EQ(out.size(), 2U);
-    EXPECT_EQ(out[1].identifier, atPowerUp.identifier);
-    EXPECT_EQ(out[1].length, 8U);
-    EXPECT_EQ(out[1].direction, CanDirection::Tx);
-    EXPECT_EQ(std::memcmp(out[1].data.data(), atPowerUp.data.data(), 8U), 0);
+    const std::optional<J1939Name> name = j1939NameFromClaim(atPowerUp);
+    ASSERT_TRUE(name.has_value());
+    const auto delay = std::chrono::nanoseconds{j1939ClaimDelayNs(*name)};
+    ASSERT_GT(delay.count(), 0);
+
+    // The request is heard in the pass that has it, and its answer is not in that pass: asked of
+    // everyone, ECUs do not all answer at once.
+    const auto asked = std::chrono::steady_clock::now();
+    bus.pass();
+    EXPECT_EQ(bus.out().size(), 1U);
+
+    // It comes, and not before it is due - and it is the same claim, with nothing in the script
+    // asked to give it.
+    ASSERT_TRUE(executeUntil(bus.graph, [&bus] { return bus.out().size() == 2U; }));
+    EXPECT_GE(std::chrono::steady_clock::now() - asked, delay);
+
+    EXPECT_EQ(bus.out()[1].identifier, atPowerUp.identifier);
+    EXPECT_EQ(bus.out()[1].length, 8U);
+    EXPECT_EQ(bus.out()[1].direction, CanDirection::Tx);
+    EXPECT_EQ(std::memcmp(bus.out()[1].data.data(), atPowerUp.data.data(), 8U), 0);
+}
+
+TEST(LuaEcuNodeTests, AFloodOfRequestsForTheClaimsOfTheBusIsNotAQueueWithNoEnd)
+{
+    // Asked of everyone, a claim waits for its time. Asked a thousand times in one pass it must not
+    // wait a thousand times over: the room there is to wait in is limited, and what is in it is
+    // answered - and counted as answered, which what was left out is not.
+    const std::vector<CanFrame> flood(1000U, j1939RequestFrame(kPgnAddressClaimed));
+    EcuOnABus bus{kClaimer, {{}, flood}};
+
+    bus.pass(2);
+    bus.passForAWhile();
+
+    const std::size_t claims = ofPgn(bus.out(), kPgnAddressClaimed).size();
+
+    // The one at power-up, and answers for some of the requests - a few hundred, not none and not
+    // all a thousand.
+    EXPECT_GT(claims, 100U);
+    EXPECT_LT(claims, 400U);
+    EXPECT_EQ(bus.statistic("Requests answered"), claims - 1U);
+}
+
+TEST(LuaEcuNodeTests, AClaimRequestToTheAddressOfTheEcuIsAnsweredInTheSamePass)
+{
+    // Asked of this ECU and nobody else there is no crowd to spread out.
+    EcuOnABus bus{kClaimer, {{}, {j1939RequestFrame(kPgnAddressClaimed, 0x21U)}}};
+
+    bus.pass(2);
+
+    ASSERT_EQ(bus.out().size(), 2U);
+    EXPECT_EQ(bus.out()[1].identifier, 0x18EEFF21U);
 }
 
 TEST(LuaEcuNodeTests, ARequestToAnotherAddressIsLeftToTheEcuThatHoldsIt)
 {
-    PipelineGraph graph;
-    const auto source = graph.addNode(std::make_unique<SequencedSource>(
-        std::vector<std::vector<CanFrame>>{{},
-                                           {j1939RequestFrame(kPgnAddressClaimed, 0x55U)},
-                                           {j1939RequestFrame(kPgnAddressClaimed, 0x21U)}}));
-    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
-        function on_enable() j1939_claim(0x21, 26, 0, nil, 1, false) end
-    )",
-                                                                "claimer.lua"));
-    const auto sink = graph.addNode(std::make_unique<Collector>());
+    EcuOnABus bus{kClaimer,
+                  {{},
+                   {j1939RequestFrame(kPgnAddressClaimed, 0x55U)},
+                   {j1939RequestFrame(kPgnAddressClaimed, 0x21U)}}};
 
-    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
-    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
-    ASSERT_TRUE(graph.compile().succeeded());
+    bus.pass(); // power-up
+    ASSERT_EQ(bus.out().size(), 1U);
 
-    const auto& out = graph.nodeAs<Collector>(sink)->frames;
+    bus.pass(); // asked of 0x55, which is somebody else: nothing, not even a refusal
+    EXPECT_EQ(bus.out().size(), 1U);
 
-    graph.execute(); // power-up
-    ASSERT_EQ(out.size(), 1U);
-
-    graph.execute(); // asked of 0x55, which is somebody else
-    EXPECT_EQ(out.size(), 1U);
-
-    graph.execute(); // asked of 0x21, which is this ECU
-    EXPECT_EQ(out.size(), 2U);
+    bus.pass(); // asked of 0x21, which is this ECU
+    EXPECT_EQ(bus.out().size(), 2U);
 }
 
-TEST(LuaEcuNodeTests, OnlyARequestForTheClaimItselfIsAnsweredWithOne)
+TEST(LuaEcuNodeTests, ARequestThatIsNotOneForSomethingItHasIsNotAnsweredWithAClaim)
 {
     CanFrame shortRequest = j1939RequestFrame(kPgnAddressClaimed);
     shortRequest.length = 2U;
@@ -798,160 +940,421 @@ TEST(LuaEcuNodeTests, OnlyARequestForTheClaimItselfIsAnsweredWithOne)
     otherClaim.length = 8U;
     otherClaim.dlc = 8U;
 
-    PipelineGraph graph;
-    const auto source =
-        graph.addNode(std::make_unique<SequencedSource>(std::vector<std::vector<CanFrame>>{
-            {}, {j1939RequestFrame(kPgnDm1)}, {shortRequest}, {standard}, {otherClaim}}));
-    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
-        function on_enable() j1939_claim(0x21, 26, 0, nil, 1, false) end
-    )",
-                                                                "claimer.lua"));
-    const auto sink = graph.addNode(std::make_unique<Collector>());
+    EcuOnABus bus{kClaimer,
+                  {{}, {j1939RequestFrame(kPgnDm1)}, {shortRequest}, {standard}, {otherClaim}}};
 
-    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
-    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
-    ASSERT_TRUE(graph.compile().succeeded());
+    bus.pass(5);
+    bus.passForAWhile();
 
-    for (int pass = 0; pass < 5; ++pass) {
-        graph.execute();
-    }
-
-    // The claim at power-up and nothing after it.
-    EXPECT_EQ(graph.nodeAs<Collector>(sink)->frames.size(), 1U);
+    // The claim at power-up and nothing after it: a request to everyone for something it does not
+    // send is not worth a refusal from every ECU of the bus.
+    EXPECT_EQ(bus.out().size(), 1U);
 }
 
-TEST(LuaEcuNodeTests, AScriptThatClaimedTwoAddressesAnswersForEachOfThem)
+TEST(LuaEcuNodeTests, AScriptThatClaimedTwoAddressesAnswersForEachOfThemAfterItsOwnDelay)
 {
-    PipelineGraph graph;
-    const auto source = graph.addNode(std::make_unique<SequencedSource>(
-        std::vector<std::vector<CanFrame>>{{},
-                                           {j1939RequestFrame(kPgnAddressClaimed)},
-                                           {j1939RequestFrame(kPgnAddressClaimed, 0x11U)}}));
-    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
+    EcuOnABus bus{R"(
         function on_enable()
             j1939_claim(0x10, 0, 0, nil, 1, false)
             j1939_claim(0x11, 1, 0, nil, 1, false)
         end
     )",
-                                                                "two.lua"));
-    const auto sink = graph.addNode(std::make_unique<Collector>());
+                  {{}, {j1939RequestFrame(kPgnAddressClaimed)}}};
 
-    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
-    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
-    ASSERT_TRUE(graph.compile().succeeded());
+    bus.pass();
+    ASSERT_EQ(bus.out().size(), 2U);
 
-    const auto& out = graph.nodeAs<Collector>(sink)->frames;
+    // Asked of everyone: both, each when its own NAME says. Which comes first is the NAMEs'
+    // business.
+    bus.pass();
+    ASSERT_TRUE(executeUntil(bus.graph, [&bus] { return bus.out().size() == 4U; }));
 
-    graph.execute();
-    ASSERT_EQ(out.size(), 2U);
+    EXPECT_EQ(ofPgn(bus.out(), kPgnAddressClaimed, std::uint8_t{0x10U}).size(), 2U);
+    EXPECT_EQ(ofPgn(bus.out(), kPgnAddressClaimed, std::uint8_t{0x11U}).size(), 2U);
+}
 
-    // Asked of everyone: both, in the order they were claimed.
-    graph.execute();
-    ASSERT_EQ(out.size(), 4U);
-    EXPECT_EQ(out[2].identifier, 0x18EEFF10U);
-    EXPECT_EQ(out[3].identifier, 0x18EEFF11U);
+TEST(LuaEcuNodeTests, AClaimRequestToOneOfTwoAddressesIsAnsweredForThatOneOnly)
+{
+    EcuOnABus bus{R"(
+        function on_enable()
+            j1939_claim(0x10, 0, 0, nil, 1, false)
+            j1939_claim(0x11, 1, 0, nil, 1, false)
+        end
+    )",
+                  {{}, {j1939RequestFrame(kPgnAddressClaimed, 0x11U)}}};
 
-    // Asked of one: that one.
-    graph.execute();
-    ASSERT_EQ(out.size(), 5U);
-    EXPECT_EQ(out[4].identifier, 0x18EEFF11U);
+    bus.pass(2);
+
+    ASSERT_EQ(bus.out().size(), 3U);
+    EXPECT_EQ(bus.out()[2].identifier, 0x18EEFF11U);
 }
 
 TEST(LuaEcuNodeTests, AnEcuThatNeverClaimedHasNothingToSayWhenAsked)
 {
-    PipelineGraph graph;
-    const auto source = graph.addNode(std::make_unique<SequencedSource>(
-        std::vector<std::vector<CanFrame>>{{}, {j1939RequestFrame(kPgnAddressClaimed)}}));
-
     // Talks on the bus, and has never said who it is - and a short "claim" is not one.
-    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
+    EcuOnABus bus{R"(
         function on_enable()
             emit(0x123, "\1")
             emit(0x18EEFF21, "\1\2\3", { extended = true })
         end
     )",
-                                                                "mute.lua"));
-    const auto sink = graph.addNode(std::make_unique<Collector>());
+                  {{}, {j1939RequestFrame(kPgnAddressClaimed)}}};
 
-    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
-    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
-    ASSERT_TRUE(graph.compile().succeeded());
+    bus.pass(2);
+    bus.passForAWhile();
 
-    graph.execute();
-    graph.execute();
-
-    EXPECT_EQ(graph.nodeAs<Collector>(sink)->frames.size(), 2U);
+    EXPECT_EQ(bus.out().size(), 2U);
 }
 
 TEST(LuaEcuNodeTests, WhatAnEcuSaysWhenAskedIsTheLastClaimItMadeForTheAddress)
 {
-    PipelineGraph graph;
-    const auto source = graph.addNode(std::make_unique<SequencedSource>(
-        std::vector<std::vector<CanFrame>>{{}, {j1939RequestFrame(kPgnAddressClaimed)}}));
-
     // The function is the sixth byte of the NAME: 26 the first time, 41 the second.
-    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
+    EcuOnABus bus{R"(
         function on_enable()
             j1939_claim(0x21, 26, 0, nil, 1, false)
             j1939_claim(0x21, 41, 0, nil, 1, false)
         end
     )",
-                                                                "again.lua"));
-    const auto sink = graph.addNode(std::make_unique<Collector>());
+                  {{}, {j1939RequestFrame(kPgnAddressClaimed)}}};
 
-    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
-    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
-    ASSERT_TRUE(graph.compile().succeeded());
-
-    const auto& out = graph.nodeAs<Collector>(sink)->frames;
-
-    graph.execute();
-    ASSERT_EQ(out.size(), 2U);
-    EXPECT_EQ(out[0].data[5], 26U);
-    EXPECT_EQ(out[1].data[5], 41U);
+    bus.pass();
+    ASSERT_EQ(bus.out().size(), 2U);
+    EXPECT_EQ(bus.out()[0].data[5], 26U);
+    EXPECT_EQ(bus.out()[1].data[5], 41U);
 
     // One answer, not two: the address has one claim, and it is the second.
-    graph.execute();
-    ASSERT_EQ(out.size(), 3U);
-    EXPECT_EQ(out[2].data[5], 41U);
+    bus.pass();
+    ASSERT_TRUE(executeUntil(bus.graph, [&bus] { return bus.out().size() >= 3U; }));
+    bus.passForAWhile();
+
+    ASSERT_EQ(bus.out().size(), 3U);
+    EXPECT_EQ(bus.out()[2].data[5], 41U);
 }
 
-TEST(LuaEcuNodeTests, AReloadedScriptAnswersForItsOwnClaimsAndARefusedOneChangesNothing)
+TEST(LuaEcuNodeTests, AReloadedScriptAnswersForItsOwnAddressesAndARefusedOneChangesNothing)
 {
-    const CanFrame ask = j1939RequestFrame(kPgnAddressClaimed);
+    EcuOnABus bus{kClaimer,
+                  {{},
+                   {j1939RequestFrame(kPgnAddressClaimed, 0x22U)},
+                   {j1939RequestFrame(kPgnAddressClaimed, 0x21U)},
+                   {j1939RequestFrame(kPgnAddressClaimed, 0x22U)}}};
 
-    PipelineGraph graph;
-    const auto source = graph.addNode(std::make_unique<SequencedSource>(
-        std::vector<std::vector<CanFrame>>{{}, {ask}, {ask}, {ask}}));
-    const auto ecu = graph.addNode(std::make_unique<LuaEcuNode>(R"(
-        function on_enable() j1939_claim(0x21, 26, 0, nil, 1, false) end
-    )",
-                                                                "before.lua"));
-    const auto sink = graph.addNode(std::make_unique<Collector>());
+    bus.pass(); // power-up: 0x21
+    ASSERT_EQ(bus.out().size(), 1U);
 
-    ASSERT_TRUE(graph.connect(PortRef{source, 0}, PortRef{ecu, 0}).succeeded());
-    ASSERT_TRUE(graph.connect(PortRef{ecu, 0}, PortRef{sink, 0}).succeeded());
-    ASSERT_TRUE(graph.compile().succeeded());
-
-    auto* node = graph.nodeAs<LuaEcuNode>(ecu);
-    const auto& out = graph.nodeAs<Collector>(sink)->frames;
-
-    graph.execute(); // power-up: 0x21
-    ASSERT_EQ(out.size(), 1U);
-
-    // The new script claims another address, and is the one that answers: the old address is
-    // nobody's any more.
-    ASSERT_TRUE(node->reload(R"(
+    // The new script claims another address, and is the one that answers for it: the old address is
+    // nobody's any more, and a request to it is not this ECU's to answer.
+    ASSERT_TRUE(bus.node()
+                    .reload(R"(
         function on_enable() j1939_claim(0x22, 26, 0, nil, 1, false) end
     )")
                     .succeeded());
-    graph.execute();
-    ASSERT_EQ(out.size(), 2U);
-    EXPECT_EQ(out[1].identifier, 0x18EEFF22U);
+    bus.pass();
+    ASSERT_EQ(bus.out().size(), 2U);
+    EXPECT_EQ(bus.out()[1].identifier, 0x18EEFF22U);
+
+    bus.pass();
+    EXPECT_EQ(bus.out().size(), 2U);
 
     // A script that will not load leaves the running one alone - and what it answers for.
-    ASSERT_TRUE(node->reload("function on_enable( end").failed());
-    graph.execute();
-    ASSERT_EQ(out.size(), 3U);
-    EXPECT_EQ(out[2].identifier, 0x18EEFF22U);
+    ASSERT_TRUE(bus.node().reload("function on_enable( end").failed());
+    bus.pass();
+    ASSERT_EQ(bus.out().size(), 3U);
+    EXPECT_EQ(bus.out()[2].identifier, 0x18EEFF22U);
+}
+
+TEST(LuaEcuNodeTests, AReloadThatIsRefusedLeavesTheHookOfTheScriptThatIsRunning)
+{
+    // A script that decides for itself - here, that nothing is answered - and a reload that will
+    // not load: the one that is running is still the one that decides.
+    EcuOnABus bus{R"(
+        function on_enable() j1939_claim(0x21, 26, 0, nil, 1, false) end
+        function on_request() return false end
+    )",
+                  {{},
+                   {j1939RequestFrame(kPgnAddressClaimed, 0x21U)},
+                   {j1939RequestFrame(kPgnAddressClaimed, 0x21U)}}};
+
+    bus.pass();
+    ASSERT_EQ(bus.out().size(), 1U);
+
+    ASSERT_TRUE(bus.node().reload("function on_enable( end").failed());
+
+    bus.pass(2);
+    EXPECT_EQ(bus.out().size(), 1U);
+}
+
+TEST(LuaEcuNodeTests, AnEcuAnswersARequestForAnyGroupItSendsWithTheLatestCopy)
+{
+    // ET1 at 0x21, once at power-up and again whenever the bus says so: what a request is answered
+    // with is what was sent last, which for a message that cycles is its present value.
+    EcuOnABus bus{R"(
+        function on_enable() j1939_send(6, 0xFEEE, 0x21, "\1") end
+        function on_message(id, data)
+            if id == 0x100 then j1939_send(6, 0xFEEE, 0x21, data) end
+        end
+    )",
+                  {{},
+                   {frame(0x100, {2})},
+                   {j1939RequestFrame(0xFEEEU)},
+                   {j1939RequestFrame(0xFEEEU, 0x21U)},
+                   {j1939RequestFrame(0xFEEEU, 0x55U)}}};
+
+    bus.pass();
+    ASSERT_EQ(bus.out().size(), 1U);
+    EXPECT_EQ(bus.out()[0].identifier, 0x18FEEE21U);
+    EXPECT_EQ(bus.out()[0].data[0], 1U);
+
+    bus.pass(); // the script changes what it sends
+    ASSERT_EQ(bus.out().size(), 2U);
+    EXPECT_EQ(bus.out()[1].data[0], 2U);
+
+    bus.pass(); // asked of everyone: at once, and the present value
+    ASSERT_EQ(bus.out().size(), 3U);
+    EXPECT_EQ(bus.out()[2].identifier, 0x18FEEE21U);
+    EXPECT_EQ(bus.out()[2].data[0], 2U);
+
+    bus.pass(); // asked of this ECU
+    ASSERT_EQ(bus.out().size(), 4U);
+    EXPECT_EQ(bus.out()[3].data[0], 2U);
+
+    bus.pass(); // asked of somebody else
+    EXPECT_EQ(bus.out().size(), 4U);
+
+    EXPECT_EQ(bus.statistic("Requests answered"), 2U);
+    EXPECT_EQ(bus.statistic("Requests refused"), 0U);
+}
+
+TEST(LuaEcuNodeTests, AnEcuRemembersAFewHundredGroupsAndNotMoreThanThat)
+{
+    // A script that sends a new group every pass for ever must not make the node's memory grow for
+    // ever. It keeps the groups it sent first, and answers a request for one of them; for one it
+    // sent after the room was used it has nothing to say - which, asked of everyone, is silence.
+    EcuOnABus bus{R"(
+        function on_enable()
+            for pgn = 0xFD00, 0xFD00 + 299 do j1939_send(6, pgn, 0x21, "\1") end
+        end
+    )",
+                  {{}, {j1939RequestFrame(0xFD00U)}, {j1939RequestFrame(0xFD00U + 299U)}}};
+
+    bus.pass();
+    ASSERT_EQ(bus.out().size(), 300U);
+
+    bus.pass();
+    ASSERT_EQ(bus.out().size(), 301U);
+    EXPECT_EQ(bus.out()[300].identifier, 0x18FD0021U);
+
+    bus.pass();
+    EXPECT_EQ(bus.out().size(), 301U);
+    EXPECT_EQ(bus.statistic("Requests answered"), 1U);
+}
+
+TEST(LuaEcuNodeTests, ARequestToAnEcuForSomethingItNeverSendsIsRefusedWithANegativeAcknowledgement)
+{
+    EcuOnABus bus{kClaimer,
+                  {{},
+                   {j1939RequestFrame(kPgnDm2, 0x21U, 0xF9U)},
+                   {j1939RequestFrame(kPgnDm2, 0x21U, kJ1939NullAddress)},
+                   {j1939RequestFrame(kPgnDm2)},
+                   {j1939RequestFrame(kPgnDm2, 0x55U, 0xF9U)}}};
+
+    bus.pass();
+    ASSERT_EQ(bus.out().size(), 1U);
+
+    // The tool at 0xF9 asked this ECU for its DM2, and it has none: J1939-21 has it say so, to the
+    // tool, with the address and the PGN it is answering at the end.
+    bus.pass();
+    ASSERT_EQ(bus.out().size(), 2U);
+    const CanFrame& refusal = bus.out()[1];
+    EXPECT_EQ(refusal.identifier, 0x18E8F921U);
+    EXPECT_EQ(refusal.length, 8U);
+
+    const std::array<std::uint8_t, 8> expected{
+        0x01U, 0xFFU, 0xFFU, 0xFFU, 0xF9U, 0xCBU, 0xFEU, 0x00U};
+    EXPECT_TRUE(std::equal(expected.begin(), expected.end(), refusal.data.begin()));
+
+    EXPECT_EQ(j1939Acknowledgement(refusal),
+              (std::optional<J1939Acknowledgement>{
+                  J1939Acknowledgement{kJ1939AckNegative, 0xFFU, 0xF9U, kPgnDm2}}));
+
+    // From the null address nobody is there to be told, so the refusal goes to everyone.
+    bus.pass();
+    ASSERT_EQ(bus.out().size(), 3U);
+    EXPECT_EQ(bus.out()[2].identifier, 0x18E8FF21U);
+    EXPECT_EQ(bus.out()[2].data[4], kJ1939NullAddress);
+
+    // Asked of everyone, or of somebody else: not this ECU's to refuse.
+    bus.pass(2);
+    EXPECT_EQ(bus.out().size(), 3U);
+
+    EXPECT_EQ(bus.statistic("Requests refused"), 2U);
+    EXPECT_EQ(bus.statistic("Requests answered"), 0U);
+}
+
+TEST(LuaEcuNodeTests, AScriptThatDefinesOnRequestIsToldOfEveryRequestAndAnswersWhatItWants)
+{
+    // The script reports what it was told on 0x300, answers a request for its DM2 itself and says
+    // that the node has nothing to add; anything else it leaves to the node.
+    EcuOnABus bus{R"(
+        function on_enable() j1939_claim(0x21, 26, 0, nil, 1, false) end
+        function on_request(pgn, destination, source, channel)
+            emit(0x300, string.pack("<I4BBB", pgn, destination, source, channel))
+            if pgn == 0xFECB then
+                j1939_send(6, 0xFECB, 0x21, j1939_dm1(0, 0, 0, 0, 0, 0, 0))
+                return false
+            end
+        end
+    )",
+                  {{},
+                   {j1939RequestFrame(kPgnDm2, 0x21U, 0xF9U, 3U)},
+                   {j1939RequestFrame(0xFEDAU, 0x21U, 0xF9U)},
+                   {j1939RequestFrame(0xFEDAU)}}};
+
+    bus.pass();
+    ASSERT_EQ(bus.out().size(), 1U);
+
+    // Told: the group, to whom, from whom and on which channel. Answered: by the script, and so not
+    // refused by the node.
+    bus.pass();
+    ASSERT_EQ(bus.out().size(), 3U);
+    EXPECT_EQ(bus.out()[1].identifier, 0x300U);
+    EXPECT_EQ(bus.out()[1].data[0], 0xCBU);
+    EXPECT_EQ(bus.out()[1].data[1], 0xFEU);
+    EXPECT_EQ(bus.out()[1].data[4], 0x21U);
+    EXPECT_EQ(bus.out()[1].data[5], 0xF9U);
+    EXPECT_EQ(bus.out()[1].data[6], 3U);
+    EXPECT_EQ(bus.out()[2].identifier, 0x18FECB21U);
+
+    // Told, and the script returns nothing: the node refuses what it does not send.
+    bus.pass();
+    ASSERT_EQ(bus.out().size(), 5U);
+    EXPECT_EQ(bus.out()[3].identifier, 0x300U);
+    EXPECT_EQ(bus.out()[4].identifier, 0x18E8F921U);
+
+    // Told of one to everyone too, and nothing comes of it.
+    bus.pass();
+    ASSERT_EQ(bus.out().size(), 6U);
+    EXPECT_EQ(bus.out()[5].identifier, 0x300U);
+    EXPECT_EQ(bus.out()[5].data[4], kJ1939GlobalAddress);
+}
+
+TEST(LuaEcuNodeTests, AnEcuThatIgnoresRequestsIsOneWhoseOnRequestReturnsFalse)
+{
+    EcuOnABus bus{R"(
+        function on_enable() j1939_claim(0x21, 26, 0, nil, 1, false) end
+        function on_request() return false end
+    )",
+                  {{},
+                   {j1939RequestFrame(kPgnAddressClaimed)},
+                   {j1939RequestFrame(kPgnAddressClaimed, 0x21U)},
+                   {j1939RequestFrame(kPgnDm2, 0x21U, 0xF9U)}}};
+
+    bus.pass(4);
+    bus.passForAWhile();
+
+    // The claim at power-up: not an answer to anything, no refusal either.
+    EXPECT_EQ(bus.out().size(), 1U);
+    EXPECT_EQ(bus.statistic("Requests answered"), 0U);
+}
+
+TEST(LuaEcuNodeTests, AnOnRequestThatFailsLeavesTheNodeAnsweringAsItWould)
+{
+    EcuOnABus bus{R"(
+        function on_enable() j1939_claim(0x21, 26, 0, nil, 1, false) end
+        function on_request() error("boom") end
+    )",
+                  {{}, {j1939RequestFrame(kPgnAddressClaimed, 0x21U)}}};
+
+    bus.pass(2);
+
+    // Whoever asked meets the ECU that was configured, and not silence.
+    ASSERT_EQ(bus.out().size(), 2U);
+    EXPECT_EQ(bus.out()[1].identifier, 0x18EEFF21U);
+    EXPECT_FALSE(bus.node().isFaulted());
+}
+
+TEST(LuaEcuNodeTests, AnOnRequestThatKeepsFailingStopsTheNodeLikeAnyCallbackThatDoes)
+{
+    const std::vector<CanFrame> asked{j1939RequestFrame(kPgnAddressClaimed, 0x21U)};
+    EcuOnABus bus{R"(
+        function on_enable() j1939_claim(0x21, 26, 0, nil, 1, false) end
+        function on_request() error("boom") end
+    )",
+                  {{}, asked, asked, asked, asked, asked}};
+
+    // The claim at power-up and four requests, each answered as the node would have answered it
+    // and each a failure of the hook: the script is still running.
+    bus.pass(5);
+    EXPECT_EQ(bus.out().size(), 5U);
+    EXPECT_FALSE(bus.node().isFaulted());
+
+    // The fifth in a row is the limit every callback has: the script is stopped, and a node that
+    // has stopped does not answer the request that stopped it.
+    bus.pass();
+    EXPECT_TRUE(bus.node().isFaulted());
+    EXPECT_EQ(bus.out().size(), 5U);
+}
+
+TEST(LuaEcuNodeTests, TheMessagesOfAConversationAreNotWhatARequestForThemIsAnsweredWith)
+{
+    // A request, an acknowledgement and the two halves of a transfer are what an ECU says to
+    // somebody in the course of a conversation, and not parameter groups it has. Asked for one -
+    // and it has sent one - the ECU does not send it again: it says that it has no such group.
+    for (const std::uint32_t pgn :
+         {kPgnRequest, kPgnAcknowledgement, kPgnTransportConnection, kPgnTransportData}) {
+        EcuOnABus bus{std::string{R"(
+            function on_enable()
+                j1939_claim(0x21, 26, 0, nil, 1, false)
+                j1939_send(6, )"}
+                          + std::to_string(pgn) + std::string{R"(, 0x21, "\0\0\0\0\0\0\0\0")
+            end
+        )"},
+                      {{}, {j1939RequestFrame(pgn, 0x21U, 0xF9U)}}};
+
+        bus.pass(2);
+
+        // The claim, the message of the conversation, and the refusal.
+        ASSERT_EQ(bus.out().size(), 3U) << std::hex << pgn;
+        EXPECT_EQ(bus.out()[2].identifier, 0x18E8F921U) << std::hex << pgn;
+
+        const std::optional<J1939Acknowledgement> refusal = j1939Acknowledgement(bus.out()[2]);
+        ASSERT_TRUE(refusal.has_value());
+        EXPECT_EQ(refusal->control, kJ1939AckNegative);
+        EXPECT_EQ(refusal->pgn, pgn);
+    }
+}
+
+TEST(LuaEcuNodeTests, WhatAnEcuAnswersLeavesOnTheChannelItTransmitsOn)
+{
+    // An ECU on CAN 4 speaks on CAN 4 - what it said at power-up, its refusal, and what it says
+    // again when it is asked.
+    EcuOnABus bus{R"(
+        function on_enable() j1939_send(6, 0xFEEE, 0x21, "\1") end
+    )",
+                  {{},
+                   {j1939RequestFrame(kPgnDm2, 0x21U, 0xF9U)},
+                   {j1939RequestFrame(0xFEEEU, 0x21U, 0xF9U)}},
+                  3U};
+
+    bus.pass(3);
+    ASSERT_EQ(bus.out().size(), 3U);
+
+    for (const CanFrame& frame : bus.out()) {
+        EXPECT_EQ(frame.channel, 3U) << std::hex << frame.identifier;
+    }
+
+    EXPECT_EQ(bus.out()[1].identifier, 0x18E8F921U); // the refusal
+    EXPECT_EQ(bus.out()[2].identifier, 0x18FEEE21U); // the answer
+}
+
+TEST(LuaEcuNodeTests, AnEcuDoesNotAnswerItsOwnRequestComingBackOffTheBus)
+{
+    // Asked for the claims of the bus by the ECU at 0x21 itself, which hears it come back.
+    EcuOnABus bus{kClaimer,
+                  {{}, {j1939RequestFrame(kPgnAddressClaimed, kJ1939GlobalAddress, 0x21U)}}};
+
+    bus.pass(2);
+    bus.passForAWhile();
+
+    EXPECT_EQ(bus.out().size(), 1U);
 }

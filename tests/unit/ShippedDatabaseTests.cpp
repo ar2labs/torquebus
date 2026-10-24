@@ -21,8 +21,10 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <map>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -259,4 +261,62 @@ TEST(ShippedDatabaseTests, NoSignalNamesAValueJ1939KeepsForErrorOrNotAvailable)
 
     // A loop over nothing passes: a parser that lost every VAL_ line would pass this too.
     EXPECT_GT(names, 0U);
+}
+
+TEST(ShippedDatabaseTests, EveryMessageAndSignalHasADescriptionAndVectorCanDbCompatibleSyntax)
+{
+    for (const std::filesystem::path& file : shippedDatabases()) {
+        std::ifstream stream{file, std::ios::binary};
+        ASSERT_TRUE(stream.is_open()) << file.filename().string();
+        std::ostringstream buffer;
+        buffer << stream.rdbuf();
+        const std::string rawText = buffer.str();
+
+        // Vector CANdb++ 3.1 rejects non-standard C-style /* ... */ block comments.
+        EXPECT_EQ(rawText.find("/*"), std::string::npos)
+            << file.filename().string()
+            << " contains /* ... */ block comments, which Vector CANdb++ 3.1 rejects";
+
+        CanDatabase database;
+        ASSERT_TRUE(DbcParser::parseFile(file.string(), database).succeeded());
+        EXPECT_FALSE(database.nodes.empty()) << file.filename().string();
+
+        for (const CanMessage& message : database.messages()) {
+            const std::string where = file.filename().string() + " / " + message.name;
+
+            EXPECT_FALSE(message.comment.empty()) << where << " has no CM_ BO_ description";
+            EXPECT_GT(message.cycleTimeMs, 0U)
+                << where << " has no BA_ \"GenMsgCycleTime\" BO_ cycle time";
+
+            for (const CanSignal& signal : message.signalList) {
+                const std::string name = where + "." + signal.name;
+                EXPECT_FALSE(signal.comment.empty()) << name << " has no CM_ SG_ description";
+            }
+        }
+    }
+}
+
+TEST(ShippedDatabaseTests, J1939DatabaseFollowsSaeJ1939AndVectorCanDbConventions)
+{
+    const std::filesystem::path j1939Path =
+        std::filesystem::path{TORQUEBUS_EXAMPLE_DATABASE_DIR} / "j1939.dbc";
+    CanDatabase database;
+    ASSERT_TRUE(DbcParser::parseFile(j1939Path.string(), database).succeeded());
+
+    const std::set<std::string> declaredNodes(database.nodes.begin(), database.nodes.end());
+
+    for (const CanMessage& message : database.messages()) {
+        const std::string where = "j1939.dbc / " + message.name;
+        EXPECT_EQ(message.format, CanFrameFormat::Extended)
+            << where << " must use 29-bit extended J1939 identifiers";
+
+        EXPECT_TRUE(message.transmitter.empty() || declaredNodes.contains(message.transmitter))
+            << where << " transmitter '" << message.transmitter << "' is not declared in BU_";
+
+        const std::uint32_t pgn = j1939Decompose(message.identifier).pgn();
+        const std::string pgnDecimal = "PGN " + std::to_string(pgn);
+        EXPECT_NE(message.comment.find(pgnDecimal), std::string::npos)
+            << where << " CM_ BO_ comment '" << message.comment
+            << "' does not match its true J1939 " << pgnDecimal;
+    }
 }

@@ -13,6 +13,8 @@
 //     function on_disable()         -- tear down
 //     function on_timer()           -- periodic behaviour
 //     function on_message(frame)    -- react to the bus
+//     function on_request(pgn, destination, source, channel)
+//                                   -- a J1939 request, before the node answers it
 //
 // and the calls a script can make back:
 //
@@ -39,12 +41,23 @@
 // deal with it, and return false to say *nothing at all* - a dead ECU, which is
 // the case a tester has to survive and the only one nothing else can simulate.
 //
-// **And the ECU says who it is when it is asked.** A script that announced an address - with
-// j1939_claim(), or an emit() of an Address Claimed - is answered for when the bus asks (a Request
-// for Address Claimed, to every ECU or to that address) with the claim it sent, the way the
-// network-management layer of a real ECU answers without its application being involved. The
-// script does nothing to get this. It is what lets a measurement started on a machine that was
-// already running learn who is on it, and what the J1939 Network panel's request relies on.
+// **And the ECU answers when it is asked.** On a J1939 bus a Request (PGN 59904) asks for a
+// parameter group nobody is sending, and the node answers one the way the network-management layer
+// of a real ECU does, without its application being involved:
+//
+//   * the latest copy of what the script sent for that group goes out again - an Address Claimed
+//     among the rest - for a request to everyone or to the address it was sent from;
+//   * a request to an address the ECU speaks from, for something it has never sent, is answered
+//     with a negative Acknowledgement (J1939-21), so that the one who asked is not left waiting;
+//   * a request to everyone for the claims of the bus is answered after the pseudo-random delay of
+//     J1939-81, which here comes from the NAME: ECUs asked at one instant do not all answer at one.
+//
+// The script does nothing to get this. It is what lets a measurement started on a machine that was
+// already running learn who is on it, and what the J1939 Network panel's requests rely on. A script
+// that wants to decide defines on_request(pgn, destination, source, channel), which is told of
+// every request first: it answers by sending the group itself - which the node remembers for the
+// next request - and returns false to say that the node has nothing to add, which is also how an
+// ECU that ignores requests is written.
 //
 // What changed from cansim, and why: `emit` does not reach the bus. It puts a
 // frame on this node's *output port*, and where that goes is the graph's
@@ -189,6 +202,10 @@ public:
             // should find the answer here.
             {"Scripts reloaded", m_reloads},
             {"Reloads refused", m_reloadsRefused},
+            // What a J1939 request came to: answered with the group asked for, or - for a group the
+            // ECU does not send, asked of it by address - refused with a negative acknowledgement.
+            {"Requests answered", m_requestsAnswered},
+            {"Requests refused", m_requestsRefused},
         };
     }
 
@@ -379,17 +396,50 @@ private:
     /// Applies m_faults to everything about to be published.
     void applyFaults();
 
-    /// Keeps `frame` if it is an Address Claimed this script sent, as the claim for its address:
-    /// the last one per address, which is what the ECU would say if it were asked.
-    void rememberClaim(const CanFrame& frame);
+    /// A J1939 message the script sent: the latest copy for one parameter group from one address,
+    /// which is what a request for that group is answered with.
+    struct Sent final {
+        std::uint32_t pgn{0};
+        std::uint8_t source{0};
+        CanFrame frame{};
+    };
 
-    /// Answers `request` with the claims it asks for - every one this ECU has made for a request
-    /// to everyone, the one for its address for a request to it - and does nothing for any other
-    /// frame.
-    void answerClaimRequest(const CanFrame& request);
+    /// Files `frame` as the latest copy of its group from its address, when a request could be
+    /// answered with it: a 29-bit message that is not itself a request, an acknowledgement or part
+    /// of a transfer, and - for an Address Claimed - one with a whole NAME in it.
+    void rememberSent(const CanFrame& frame);
 
-    /// The Address Claimed frames the script has sent, by address. Cleared with the interpreter.
-    std::vector<CanFrame> m_claims;
+    /// Files what has gone into the outgoing buffer since it was last looked at.
+    void rememberOutgoing();
+
+    /// Answers the requests among `frames`: the script is told of each first, when it wants to be.
+    void answerRequests(std::span<const CanFrame> frames);
+
+    /// What the node does about one request, once the script has had its say.
+    void answerRequest(std::uint32_t pgn, std::uint8_t destination, std::uint8_t requester);
+
+    /// Puts out the answers whose delay has run out.
+    void releaseDelayedAnswers();
+
+    /// Whether the script has sent anything from `address`: whether this ECU speaks from it.
+    [[nodiscard]] bool speaksFrom(std::uint8_t address) const noexcept;
+
+    std::vector<Sent> m_sent;
+
+    /// How much of the outgoing buffer has been filed already.
+    std::size_t m_rememberedUpTo{0};
+
+    /// An answer that has to wait, and until when: the claims of the bus asked for by everyone.
+    struct DelayedAnswer final {
+        std::chrono::steady_clock::time_point due;
+        CanFrame frame{};
+    };
+
+    std::vector<DelayedAnswer> m_delayed;
+
+    bool m_hasOnRequest{false};
+    std::uint64_t m_requestsAnswered{0};
+    std::uint64_t m_requestsRefused{0};
 
     std::uint64_t m_corrupted{0};
     LogHandler m_log;

@@ -120,6 +120,38 @@ local kCycleDurationSec = 90.0
 local cycle_start_us = 0
 local last_tick_us = nil
 
+local last_sent_dm1 = nil
+local override_dm1_payload = nil
+local override_dm1_until_us = nil
+
+local last_sent_ccvs1 = nil
+local override_ccvs1_payload = nil
+local override_ccvs1_until_us = nil
+
+local last_sent_efl = nil
+local override_efl_payload = nil
+local override_efl_until_us = nil
+
+local last_sent_et1 = nil
+local override_et1_payload = nil
+local override_et1_until_us = nil
+
+local last_sent_eec1 = nil
+local override_eec1_payload = nil
+local override_eec1_until_us = nil
+
+local last_sent_etc2 = nil
+local override_etc2_payload = nil
+local override_etc2_until_us = nil
+
+local last_sent_amb = nil
+local override_amb_payload = nil
+local override_amb_until_us = nil
+
+local last_sent_hours = nil
+local override_hours_payload = nil
+local override_hours_until_us = nil
+
 local function get_target_speed(elapsed_sec)
     local t = elapsed_sec % kCycleDurationSec
     for i = 1, #kDriveCycle - 1 do
@@ -186,7 +218,80 @@ function on_enable()
         oil_temp = ambient_temp
     end
 
+    if parameters.enable_uds then
+        uds_did(0xF190, "1M8GDM9AXKP042788")
+        uds_did(0xF187, "23418902-EMS")
+        uds_did(0xF195, "J1939-EMS-2.4")
+        uds_did(0x0105, string.char(math.floor((coolant_temp or 85) + 40) & 0xFF))
+        uds_did(0x2001, string.char(0x03, 0xE8), { writable = true, session = 3, security = true })
+        uds_dtc(0x006401, 0x09)
+        uds_dtc(0x006E0F, 0x08)
+    end
+
     set_timer(kTickMs)
+end
+
+function on_security_seed(seed)
+    local key = ""
+    for index = 1, #seed do
+        key = key .. string.char(255 - seed:byte(index))
+    end
+    return key
+end
+
+function on_uds_request(request)
+    local service = request:byte(1)
+    if service == 0x31 and #request >= 4 then
+        return string.char(0x71, request:byte(2), request:byte(3), request:byte(4))
+    end
+end
+
+function on_message(id, data, channel, extended)
+    if extended ~= 1 or #data < 6 then
+        return
+    end
+
+    local now = get_time_us()
+    local dm1_id = j1939_id(6, 0xFECA, kSa)
+    local ccvs1_id = j1939_id(6, 0xFEF1, kSa)
+    local efl_id = j1939_id(6, 0xFEEF, kSa)
+    local et1_id = j1939_id(6, 0xFEEE, kSa)
+    local eec1_id = j1939_id(3, 0xF004, kSa)
+    local etc2_id_ems = j1939_id(3, 0xF005, kSa)
+    local etc2_id_trans = j1939_id(3, 0xF005, 0x03)
+    local amb_id = j1939_id(6, 0xFEF5, kSa)
+    local hours_id = j1939_id(6, 0xFEE5, kSa)
+
+    if id == dm1_id and data ~= last_sent_dm1 then
+        if data == dm1(0, 0, 0, 0, 0, 0, 0) then
+            override_dm1_payload = nil
+            override_dm1_until_us = nil
+        else
+            override_dm1_payload = data
+            override_dm1_until_us = now + 10000000
+        end
+    elseif id == ccvs1_id and data ~= last_sent_ccvs1 then
+        override_ccvs1_payload = data
+        override_ccvs1_until_us = now + 5000000
+    elseif id == efl_id and data ~= last_sent_efl then
+        override_efl_payload = data
+        override_efl_until_us = now + 5000000
+    elseif id == et1_id and data ~= last_sent_et1 then
+        override_et1_payload = data
+        override_et1_until_us = now + 5000000
+    elseif id == eec1_id and data ~= last_sent_eec1 then
+        override_eec1_payload = data
+        override_eec1_until_us = now + 5000000
+    elseif (id == etc2_id_ems or id == etc2_id_trans) and data ~= last_sent_etc2 then
+        override_etc2_payload = data
+        override_etc2_until_us = now + 5000000
+    elseif id == amb_id and data ~= last_sent_amb then
+        override_amb_payload = data
+        override_amb_until_us = now + 5000000
+    elseif id == hours_id and data ~= last_sent_hours then
+        override_hours_payload = data
+        override_hours_until_us = now + 5000000
+    end
 end
 
 function on_disable()
@@ -288,11 +393,19 @@ function on_timer()
     -- 1. EEC1 (PGN 0xF004, 20 ms, Prio 3)
     if now >= next_eec1_us then
         next_eec1_us = now + kEec1IntervalUs
-        local b1 = accelerator_pedal > 0.0 and 1 or 0 -- Torque mode: 1 accelerator pedal, 0 low idle governor
-        local b2 = raw(engine_load, 1, -125, 1) -- Driver demand torque
-        local b3 = raw(actual_torque, 1, -125, 1) -- Actual torque
-        local b45 = raw(engine_rpm, 0.125, 0, 2) -- Engine speed
-        send(3, 0xF004, kSa, string.pack("<I1I1I1I2I1", b1, b2, b3, b45, kSa))
+        local eec1_payload
+        if override_eec1_payload ~= nil and override_eec1_until_us ~= nil and now < override_eec1_until_us then
+            eec1_payload = override_eec1_payload
+        else
+            override_eec1_payload = nil
+            local b1 = accelerator_pedal > 0.0 and 1 or 0 -- Torque mode: 1 accelerator pedal, 0 low idle governor
+            local b2 = raw(engine_load, 1, -125, 1) -- Driver demand torque
+            local b3 = raw(actual_torque, 1, -125, 1) -- Actual torque
+            local b45 = raw(engine_rpm, 0.125, 0, 2) -- Engine speed
+            eec1_payload = string.pack("<I1I1I1I2I1", b1, b2, b3, b45, kSa)
+        end
+        last_sent_eec1 = eec1_payload
+        send(3, 0xF004, kSa, eec1_payload)
     end
 
     -- 2. EEC2 (PGN 0xF003, 50 ms, Prio 3)
@@ -306,21 +419,37 @@ function on_timer()
     -- 3. ETC2 (PGN 0xF005, 100 ms, Prio 3): the gear, which is -1 reverse, 0 neutral, 1.. forward
     if now >= next_etc2_us then
         next_etc2_us = now + kEtc2IntervalUs
-        local gear = raw(current_gear, 1, -125, 1)
-        send(3, 0xF005, kSa, string.pack("<I1I2I1", gear, 0xFFFF, gear))
+        local etc2_payload
+        if override_etc2_payload ~= nil and override_etc2_until_us ~= nil and now < override_etc2_until_us then
+            etc2_payload = override_etc2_payload
+        else
+            override_etc2_payload = nil
+            local gear = raw(current_gear, 1, -125, 1)
+            etc2_payload = string.pack("<I1I2I1", gear, 0xFFFF, gear)
+        end
+        last_sent_etc2 = etc2_payload
+        send(3, 0xF005, kSa, etc2_payload)
     end
 
     -- 4. CCVS1 (PGN 0xFEF1, 100 ms, Prio 6)
     if now >= next_ccvs1_us then
         next_ccvs1_us = now + kCcvs1IntervalUs
-        -- Byte 1: bits 3-4 parking brake switch. Byte 4: bits 1-2 cruise control active, bits 5-6
-        -- brake switch; the bits in between and above are the ones this ECU does not report, and are
-        -- set - "not available" - without touching the two fields it does.
-        local b1 = 0xF3 | ((parking_brake & 0x03) << 2)
-        local b23 = raw(vehicle_speed, 1.0 / 256.0, 0, 2)
-        local b4 = 0xCC | (cruise_active & 0x03) | ((brake_switch & 0x03) << 4)
-        local b6 = raw(cruise_set_speed, 1, 0, 1)
-        send(6, 0xFEF1, kSa, string.pack("<I1I2I1I1I1", b1, b23, b4, 0xFF, b6))
+        local ccvs1_payload
+        if override_ccvs1_payload ~= nil and override_ccvs1_until_us ~= nil and now < override_ccvs1_until_us then
+            ccvs1_payload = override_ccvs1_payload
+        else
+            override_ccvs1_payload = nil
+            -- Byte 1: bits 3-4 parking brake switch. Byte 4: bits 1-2 cruise control active, bits 5-6
+            -- brake switch; the bits in between and above are the ones this ECU does not report, and are
+            -- set - "not available" - without touching the two fields it does.
+            local b1 = 0xF3 | ((parking_brake & 0x03) << 2)
+            local b23 = raw(vehicle_speed, 1.0 / 256.0, 0, 2)
+            local b4 = 0xCC | (cruise_active & 0x03) | ((brake_switch & 0x03) << 4)
+            local b6 = raw(cruise_set_speed, 1, 0, 1)
+            ccvs1_payload = string.pack("<I1I2I1I1I1I1I1", b1, b23, b4, 0xFF, b6, 0xFF, 0xFF)
+        end
+        last_sent_ccvs1 = ccvs1_payload
+        send(6, 0xFEF1, kSa, ccvs1_payload)
     end
 
     -- 5. LFE1 (PGN 0xFEF2, 100 ms, Prio 6)
@@ -335,53 +464,93 @@ function on_timer()
     -- 6. EFL_P1 (PGN 0xFEEF, 500 ms, Prio 6)
     if now >= next_efl_us then
         next_efl_us = now + kEflIntervalUs
-        local b3 = raw(oil_level, 0.4, 0, 1)
-        local b4 = raw(oil_pressure, 4, 0, 1)
-        local b8 = raw(coolant_level, 0.4, 0, 1)
-        send(6, 0xFEEF, kSa, string.pack("<I1I1I1I1I1I1I1I1", 0xFF, 0xFF, b3, b4, 0xFF, 0xFF, 0xFF, b8))
+        local efl_payload
+        if override_efl_payload ~= nil and override_efl_until_us ~= nil and now < override_efl_until_us then
+            efl_payload = override_efl_payload
+        else
+            override_efl_payload = nil
+            local b3 = raw(oil_level, 0.4, 0, 1)
+            local b4 = raw(oil_pressure, 4, 0, 1)
+            local b8 = raw(coolant_level, 0.4, 0, 1)
+            efl_payload = string.pack("<I1I1I1I1I1I1I1I1", 0xFF, 0xFF, b3, b4, 0xFF, 0xFF, 0xFF, b8)
+        end
+        last_sent_efl = efl_payload
+        send(6, 0xFEEF, kSa, efl_payload)
     end
 
     -- 7. ET1 (PGN 0xFEEE, 1 s, Prio 6)
     if now >= next_et1_us then
         next_et1_us = now + kEt1IntervalUs
-        local b1 = raw(coolant_temp, 1, -40, 1)
-        local b2 = raw(fuel_temp, 1, -40, 1)
-        local b34 = raw(oil_temp, 0.03125, -273, 2)
-        send(6, 0xFEEE, kSa, string.pack("<I1I1I2", b1, b2, b34))
+        local et1_payload
+        if override_et1_payload ~= nil and override_et1_until_us ~= nil and now < override_et1_until_us then
+            et1_payload = override_et1_payload
+        else
+            override_et1_payload = nil
+            local b1 = raw(coolant_temp, 1, -40, 1)
+            local b2 = raw(fuel_temp, 1, -40, 1)
+            local b34 = raw(oil_temp, 0.03125, -273, 2)
+            et1_payload = string.pack("<I1I1I2", b1, b2, b34)
+        end
+        last_sent_et1 = et1_payload
+        send(6, 0xFEEE, kSa, et1_payload)
     end
 
     -- 8. AMB (PGN 0xFEF5, 1 s, Prio 6)
     if now >= next_amb_us then
         next_amb_us = now + kAmbIntervalUs
-        local b1 = raw(baro_press, 0.5, 0, 1)
-        local b45 = raw(ambient_temp, 0.03125, -273, 2)
-        local b6 = raw(intake_temp, 1, -40, 1)
-        send(6, 0xFEF5, kSa, string.pack("<I1I1I1I2I1", b1, 0xFF, 0xFF, b45, b6))
+        local amb_payload
+        if override_amb_payload ~= nil and override_amb_until_us ~= nil and now < override_amb_until_us then
+            amb_payload = override_amb_payload
+        else
+            override_amb_payload = nil
+            local b1 = raw(baro_press, 0.5, 0, 1)
+            local b45 = raw(ambient_temp, 0.03125, -273, 2)
+            local b6 = raw(intake_temp, 1, -40, 1)
+            amb_payload = string.pack("<I1I1I1I2I1", b1, 0xFF, 0xFF, b45, b6)
+        end
+        last_sent_amb = amb_payload
+        send(6, 0xFEF5, kSa, amb_payload)
     end
 
     -- 9. HOURS (PGN 0xFEE5, 1 s, Prio 6)
     if now >= next_hours_us then
         next_hours_us = now + kHoursIntervalUs
-        local b14 = raw(engine_hours, 0.05, 0, 4)
-        local b58 = raw(engine_revs / 1000.0, 1, 0, 4)
-        send(6, 0xFEE5, kSa, string.pack("<I4I4", b14, b58))
+        local hours_payload
+        if override_hours_payload ~= nil and override_hours_until_us ~= nil and now < override_hours_until_us then
+            hours_payload = override_hours_payload
+        else
+            override_hours_payload = nil
+            local b14 = raw(engine_hours, 0.05, 0, 4)
+            local b58 = raw(engine_revs / 1000.0, 1, 0, 4)
+            hours_payload = string.pack("<I4I4", b14, b58)
+        end
+        last_sent_hours = hours_payload
+        send(6, 0xFEE5, kSa, hours_payload)
     end
 
     -- 10. DM1 (PGN 0xFECA, 1 s, Prio 6)
     if now >= next_dm1_us then
         next_dm1_us = now + kDm1IntervalUs
-        if kScenario == "low_oil_pressure" then
-            -- MIL=0, Red=1 (Red Stop Lamp), Amber=0, Protect=0, SPN=100 (Oil Pressure), FMI=1 (Low severely), OC=1
-            send(6, 0xFECA, kSa, dm1(0, 1, 0, 0, 100, 1, 1))
-        elseif kScenario == "overheating" and coolant_temp >= 105.0 then
-            -- MIL=1, Red=1, Amber=0, Protect=0, SPN=110 (Coolant Temp), FMI=0 (High severely), OC=1
-            send(6, 0xFECA, kSa, dm1(1, 1, 0, 0, 110, 0, 1))
-        elseif kScenario == "sensor_error" then
-            -- Amber=1, SPN=110 (Coolant Temp), FMI=2 (Data erratic or incorrect), OC=1
-            send(6, 0xFECA, kSa, dm1(0, 0, 1, 0, 110, 2, 1))
+        local dm1_payload
+        if override_dm1_payload ~= nil and override_dm1_until_us ~= nil and now < override_dm1_until_us then
+            dm1_payload = override_dm1_payload
         else
-            -- Clean DM1: all lamps 00, no active DTC
-            send(6, 0xFECA, kSa, dm1(0, 0, 0, 0, 0, 0, 0))
+            override_dm1_payload = nil
+            if kScenario == "low_oil_pressure" then
+                -- MIL=0, Red=1 (Red Stop Lamp), Amber=0, Protect=0, SPN=100 (Oil Pressure), FMI=1 (Low severely), OC=1
+                dm1_payload = dm1(0, 1, 0, 0, 100, 1, 1)
+            elseif kScenario == "overheating" and coolant_temp >= 105.0 then
+                -- MIL=1, Red=1, Amber=0, Protect=0, SPN=110 (Coolant Temp), FMI=0 (High severely), OC=1
+                dm1_payload = dm1(1, 1, 0, 0, 110, 0, 1)
+            elseif kScenario == "sensor_error" then
+                -- Amber=1, SPN=110 (Coolant Temp), FMI=2 (Data erratic or incorrect), OC=1
+                dm1_payload = dm1(0, 0, 1, 0, 110, 2, 1)
+            else
+                -- Clean DM1: all lamps 00, no active DTC
+                dm1_payload = dm1(0, 0, 0, 0, 0, 0, 0)
+            end
         end
+        last_sent_dm1 = dm1_payload
+        send(6, 0xFECA, kSa, dm1_payload)
     end
 end

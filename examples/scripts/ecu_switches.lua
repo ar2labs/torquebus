@@ -43,6 +43,9 @@ local turn_signal_cmd = parameters.turn or 0    -- 0: None, 1: Left, 2: Right
 
 -- Automated scenario cycling (alternates Left, Right, Hazard)
 local scenario_start_us = 0
+local last_sent_oel = nil
+local override_oel_payload = nil
+local override_oel_until_us = nil
 
 function on_enable()
     log_message(string.format("J1939 Switch Panel (SA 0x%02X) active", kSa))
@@ -56,6 +59,16 @@ end
 
 function on_disable()
     log_message("J1939 Switch Panel stopped")
+end
+
+function on_message(id, data, channel, extended)
+    if extended ~= 1 or #data < 8 then
+        return
+    end
+    if id == j1939_id(6, 0xFDCC, kSa) and data ~= last_sent_oel then
+        override_oel_payload = data
+        override_oel_until_us = get_time_us() + 5000000
+    end
 end
 
 function on_timer()
@@ -88,9 +101,17 @@ function on_timer()
     -- Byte 2: bits 1-2 hazard button, bits 3-6 turn stalk.
     if now >= next_oel_us then
         next_oel_us = now + kOelIntervalUs
-        local b1 = (lighting_cmd & 0x0F) | ((high_beam_cmd & 0x03) << 4)
-        local b2 = (hazard_cmd & 0x03) | ((turn_signal_cmd & 0x0F) << 2)
-        send(6, 0xFDCC, kSa, string.pack("<I1I1", b1, b2))
+        local oel_payload
+        if override_oel_payload ~= nil and override_oel_until_us ~= nil and now < override_oel_until_us then
+            oel_payload = override_oel_payload
+        else
+            override_oel_payload = nil
+            local b1 = (lighting_cmd & 0x0F) | ((high_beam_cmd & 0x03) << 4)
+            local b2 = (hazard_cmd & 0x03) | ((turn_signal_cmd & 0x0F) << 2)
+            oel_payload = string.pack("<I1I1I1I1I1I1I1I1", b1, b2, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)
+        end
+        last_sent_oel = oel_payload
+        send(6, 0xFDCC, kSa, oel_payload)
     end
 
     -- 2. DM1 (PGN 0xFECA, 1 s, Prio 6)

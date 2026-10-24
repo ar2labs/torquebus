@@ -24,11 +24,11 @@
 #include "core/dashboard/SignalDictionary.h"
 #include "core/database/CanMessage.h"
 #include "core/database/DbcParser.h"
-#include "core/j1939/J1939ClaimRequest.h"
 #include "core/j1939/J1939Diagnostics.h"
 #include "core/j1939/J1939Id.h"
 #include "core/j1939/J1939NameTables.h"
 #include "core/j1939/J1939Network.h"
+#include "core/j1939/J1939Request.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "core/plot/SignalSeries.h"
@@ -657,7 +657,7 @@ TEST(ExampleDashboardTests, EveryEcuOfTheJ1939ExampleClaimsAgainWhenTheBusIsAske
 
     // How many times each address has been heard claiming, counted on the engine's thread.
     std::array<std::atomic<int>, 256> claims{};
-    J1939ClaimRequestOutcome outcome;
+    J1939RequestOutcome outcome;
     bool asked = false;
 
     const auto allClaimed = [&claims, &ecus](int times) {

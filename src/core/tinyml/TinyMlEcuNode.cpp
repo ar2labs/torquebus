@@ -66,6 +66,10 @@ constexpr std::uint8_t kClaimIndustryGroup = 1U;
 constexpr std::uint8_t kFirstSelfConfigurableAddress = 128U;
 constexpr std::uint8_t kLastSelfConfigurableAddress = 247U;
 
+// How many answers may wait for their time at once: a bus is not asked for its claims dozens of
+// times in 153 ms, and a flood of requests is not a reason to remember every one.
+constexpr std::size_t kMaximumDelayedAnswers = 32;
+
 /// SPN 110, engine coolant temperature: what the model is watching.
 constexpr std::uint32_t kPredictiveSpn = 110U;
 
@@ -233,6 +237,11 @@ Result TinyMlEcuNode::prepare(std::size_t maximumBatchSize)
     m_addressClaimed = false;
     m_addressLost = false;
     m_claimedByOthers.fill(false);
+    m_delayed.clear();
+    m_delayed.reserve(kMaximumDelayedAnswers);
+    m_hasTelemetry = false;
+    m_requestsAnswered = 0;
+    m_requestsRefused = 0;
 
     m_ambientAllowanceDegC = 0.0F;
     m_j1939MessageCounter = 0;
@@ -272,6 +281,17 @@ void TinyMlEcuNode::process(NodeContext& context)
     const std::span<const CanFrame> incoming = context.in<CanFrame>(0);
     if (incoming.empty()) {
         return;
+    }
+
+    // What was waiting for its time has it now, if the bus says so: the frames of a bus are the
+    // only clock this block has.
+    if (m_config.j1939Mode && !m_delayed.empty()) {
+        std::uint64_t newestNs = 0;
+        for (const CanFrame& frame : incoming) {
+            newestNs = std::max(newestNs, frame.timestampNs);
+        }
+
+        releaseDelayedFrames(newestNs);
     }
 
     // The first thing a J1939 ECU does is claim the address it speaks from, so before anything it
@@ -432,13 +452,16 @@ bool TinyMlEcuNode::onNetworkManagement(const CanFrame& frame)
     const J1939Id id = j1939Decompose(frame.identifier);
 
     if (id.pgn() == kPgnRequest) {
-        // A request for the claims of the bus, to every ECU or to this one, is answered with who it
-        // is - or, once it has lost its address, with the news that it has none (J1939-81).
-        const bool toThisEcu =
-            id.destinationAddress() == kJ1939GlobalAddress || id.destinationAddress() == m_address;
+        // A request - for the claims of the bus, for what this ECU sends, for anything - to every
+        // ECU or to this one is answered here, and is not something the model reads.
+        if (const std::optional<std::uint32_t> requested = j1939RequestedPgn(frame);
+            requested.has_value()) {
+            const bool toEveryone = id.destinationAddress() == kJ1939GlobalAddress;
 
-        if (toThisEcu && j1939RequestedPgn(frame) == kPgnAddressClaimed) {
-            appendClaimFrom(m_addressLost ? kJ1939NullAddress : m_address, frame.timestampNs);
+            if ((toEveryone || id.destinationAddress() == m_address)
+                && id.sourceAddress != m_address) {
+                answerRequest(frame, *requested, toEveryone, id.sourceAddress);
+            }
         }
 
         return true;
@@ -486,9 +509,115 @@ bool TinyMlEcuNode::onNetworkManagement(const CanFrame& frame)
     }
 
     m_addressLost = true;
-    appendClaimFrom(kJ1939NullAddress, frame.timestampNs);
+    scheduleClaimFrom(kJ1939NullAddress, frame.timestampNs);
 
     return true;
+}
+
+void TinyMlEcuNode::answerRequest(const CanFrame& request,
+                                  std::uint32_t pgn,
+                                  bool toEveryone,
+                                  std::uint8_t requester)
+{
+    const std::uint64_t at = request.timestampNs;
+
+    // Without an address it has nothing to say but that it has none, which it says to the request
+    // that asks every ECU for its claim: J1939-81.
+    if (m_addressLost) {
+        if (toEveryone && pgn == kPgnAddressClaimed && scheduleClaimFrom(kJ1939NullAddress, at)) {
+            ++m_requestsAnswered;
+        }
+
+        return;
+    }
+
+    if (pgn == kPgnAddressClaimed) {
+        // Counted when it is answered, and not when there was no room to answer in.
+        const bool answered =
+            toEveryone ? scheduleClaimFrom(m_address, at) : appendClaimFrom(m_address, at);
+
+        if (answered) {
+            ++m_requestsAnswered;
+        }
+
+        return;
+    }
+
+    if (pgn == kPgnDm1) {
+        // Its trouble code as it stands: the predictive one while the model is sure of trouble, and
+        // J1939-73's "no active fault" while it is not.
+        const bool red = m_predictiveDtcActive && m_predictiveDtcRed;
+        appendDm1(request, m_predictiveDtcActive, red, red ? 16U : 15U);
+        ++m_requestsAnswered;
+        return;
+    }
+
+    if (m_hasTelemetry && pgn == j1939Decompose(m_outputIdentifier).pgn()) {
+        if (m_outgoingFrames.size() < m_outgoingFrames.capacity()) {
+            CanFrame again = m_lastTelemetry;
+            again.timestampNs = at;
+            m_outgoingFrames.push_back(again);
+            ++m_requestsAnswered;
+        }
+
+        return;
+    }
+
+    // Asked of everyone, and nothing to say: most ECUs have nothing to say to most requests.
+    // Asked of this one, and nothing to say: J1939-21 has it say so, so that the one who asked is
+    // not left waiting.
+    if (toEveryone || m_outgoingFrames.size() >= m_outgoingFrames.capacity()) {
+        return;
+    }
+
+    J1939Acknowledgement refusal;
+    refusal.control = kJ1939AckNegative;
+    refusal.address = requester;
+    refusal.pgn = pgn;
+
+    CanFrame frame =
+        j1939AcknowledgementFrame(refusal,
+                                  m_address,
+                                  requester == kJ1939NullAddress ? kJ1939GlobalAddress : requester,
+                                  m_config.transmitChannel);
+    frame.timestampNs = at;
+
+    m_outgoingFrames.push_back(frame);
+    ++m_requestsRefused;
+}
+
+bool TinyMlEcuNode::scheduleClaimFrom(std::uint8_t source, std::uint64_t timestampNs)
+{
+    if (m_delayed.size() >= kMaximumDelayedAnswers) {
+        return false;
+    }
+
+    const std::uint64_t dueNs = timestampNs + j1939ClaimDelayNs(ownName());
+
+    CanFrame claim = claimFrom(source, dueNs);
+    m_delayed.push_back(Delayed{dueNs, claim});
+
+    return true;
+}
+
+void TinyMlEcuNode::releaseDelayedFrames(std::uint64_t nowNs)
+{
+    // The answers still waiting move to the front, in the order they came, and the ones that are
+    // due go out in that order too.
+    std::size_t waiting = 0;
+
+    for (std::size_t index = 0; index < m_delayed.size(); ++index) {
+        if (m_delayed[index].dueNs > nowNs) {
+            m_delayed[waiting++] = m_delayed[index];
+            continue;
+        }
+
+        if (m_outgoingFrames.size() < m_outgoingFrames.capacity()) {
+            m_outgoingFrames.push_back(m_delayed[index].frame);
+        }
+    }
+
+    m_delayed.resize(waiting);
 }
 
 void TinyMlEcuNode::appendLegacyTelemetry(const CanFrame& cause,
@@ -722,6 +851,12 @@ bool TinyMlEcuNode::appendClaimFrom(std::uint8_t source, std::uint64_t timestamp
         return false;
     }
 
+    m_outgoingFrames.push_back(claimFrom(source, timestampNs));
+    return true;
+}
+
+CanFrame TinyMlEcuNode::claimFrom(std::uint8_t source, std::uint64_t timestampNs) const
+{
     CanFrame claim{};
     claim.identifier = j1939Identifier(kPgnAddressClaimed, source);
     claim.channel = m_config.transmitChannel;
@@ -738,8 +873,7 @@ bool TinyMlEcuNode::appendClaimFrom(std::uint8_t source, std::uint64_t timestamp
         claim.data[byte] = static_cast<std::uint8_t>((bits >> (8U * byte)) & 0xFFU);
     }
 
-    m_outgoingFrames.push_back(claim);
-    return true;
+    return claim;
 }
 
 void TinyMlEcuNode::appendJ1939Telemetry(const CanFrame& cause,
@@ -800,6 +934,10 @@ void TinyMlEcuNode::appendJ1939Telemetry(const CanFrame& cause,
     telemetry.data[7] = static_cast<std::uint8_t>((timeUs >> 8U) & 0xFFU);
 
     m_outgoingFrames.push_back(telemetry);
+
+    // What a request for its group is answered with: the latest.
+    m_lastTelemetry = telemetry;
+    m_hasTelemetry = true;
 
     updatePredictiveDtc(cause, result);
 }
@@ -987,6 +1125,11 @@ std::vector<NodeStatistic> TinyMlEcuNode::statistics() const
     // has no addresses, and a number that was the low byte of an identifier would read as one.
     if (m_config.j1939Mode) {
         entries.push_back({"J1939 address", m_address});
+
+        // What a request came to: answered with what the ECU sends, or - for something it does not
+        // send, asked of it by address - refused with a negative acknowledgement.
+        entries.push_back({"Requests answered", m_requestsAnswered});
+        entries.push_back({"Requests refused", m_requestsRefused});
     }
 
     return entries;

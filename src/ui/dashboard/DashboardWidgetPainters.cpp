@@ -159,7 +159,7 @@ QRectF barTrackRect(const QRectF& rect)
 
 QRectF stateChipRect(const QRectF& rect)
 {
-    return rect.adjusted(4.0, 4.0, -4.0, -std::max(16.0, rect.height() * 0.28));
+    return rect.adjusted(6.0, 6.0, -6.0, -std::max(16.0, rect.height() * 0.28));
 }
 
 QRectF trendPlotRect(const QRectF& rect)
@@ -373,6 +373,11 @@ void paintState(QPainter& painter, const PaintContext& c)
     const Theme& theme = c.theme;
     const DashboardWidget& widget = c.widget;
 
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(theme.border);
+    painter.setBrush(theme.panel);
+    painter.drawRoundedRect(c.rect, 4.0, 4.0);
+
     const QRectF chip = stateChipRect(c.rect);
     const bool known = c.reading.known;
 
@@ -380,20 +385,28 @@ void paintState(QPainter& painter, const PaintContext& c)
     const DashboardTone tone = state != nullptr ? state->tone : DashboardTone::Neutral;
     const bool tinted = known && tone != DashboardTone::Neutral;
 
-    const QColor line = !known ? theme.border : (tinted ? toneColor(theme, tone) : theme.border);
-    const QColor wash = tinted ? withAlpha(toneColor(theme, tone), 46) : theme.panel;
-    const QColor ink = !known ? theme.textMuted : (tinted ? toneColor(theme, tone) : theme.text);
+    const QColor toneCol = toneColor(theme, tone);
+    const QColor line = !known ? theme.border : (tinted ? withAlpha(toneCol, 115) : theme.border);
+    const QColor wash = tinted ? withAlpha(toneCol, 34) : theme.panelAlternate;
+    const QColor ink = !known ? theme.textMuted : (tinted ? toneCol : theme.text);
 
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setPen(QPen{line, tinted ? 2.0 : 1.0});
+    painter.setPen(QPen{line, 1.0});
     painter.setBrush(known ? QBrush{wash} : QBrush{Qt::NoBrush});
-    painter.drawRoundedRect(chip, 8.0, 8.0);
+    painter.drawRoundedRect(chip, 4.0, 4.0);
 
-    painter.setFont(sized(painter.font(), std::clamp(chip.height() * 0.40, 9.0, 22.0), true));
+    const QString text = formatReading(widget, c.reading);
+    const double room = std::max(12.0, chip.width() - 12.0);
+    double points = std::clamp(chip.height() * 0.38, 9.0, 16.0);
+
+    while (points > 8.0
+           && QFontMetricsF{sized(painter.font(), points, true)}.horizontalAdvance(text) > room) {
+        points *= 0.92;
+    }
+
+    painter.setFont(sized(painter.font(), points, true));
     painter.setPen(ink);
-    painter.drawText(chip.adjusted(6.0, 0.0, -6.0, 0.0),
-                     Qt::AlignCenter,
-                     elided(painter, formatReading(widget, c.reading), chip.width() - 12.0));
+    painter.drawText(
+        chip.adjusted(6.0, 0.0, -6.0, 0.0), Qt::AlignCenter, elided(painter, text, room));
 
     drawCaption(painter, c, footBand(c.rect), Qt::AlignHCenter);
 }
@@ -409,11 +422,14 @@ void paintImage(QPainter& painter, const PaintContext& c)
 
     // The picture of the state the value is in, or the widget's own for a value no state pictures.
     std::string path = widget.image;
+    const DashboardState* activeState = nullptr;
 
     if (bound && c.reading.known) {
-        if (const DashboardState* state = widget.stateOf(c.reading.value);
-            state != nullptr && !state->image.empty()) {
-            path = state->image;
+        if (const DashboardState* state = widget.stateOf(c.reading.value); state != nullptr) {
+            activeState = state;
+            if (!state->image.empty()) {
+                path = state->image;
+            }
         }
     }
 
@@ -434,12 +450,34 @@ void paintImage(QPainter& painter, const PaintContext& c)
     QRectF target = c.rect.adjusted(2.0, 2.0, -2.0, -2.0);
 
     if (captioned) {
-        target.setBottom(footBand(c.rect).top());
+        const Theme& theme = c.theme;
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        painter.setPen(theme.border);
+        painter.setBrush(theme.panel);
+        painter.drawRoundedRect(c.rect, 4.0, 4.0);
+
+        const QRectF chip = stateChipRect(c.rect);
+        const bool known = c.reading.known || !bound;
+        const DashboardTone tone =
+            activeState != nullptr ? activeState->tone : DashboardTone::Neutral;
+        const bool tinted = known && tone != DashboardTone::Neutral;
+        const QColor toneCol = toneColor(theme, tone);
+        const QColor line =
+            !known ? theme.border : (tinted ? withAlpha(toneCol, 115) : theme.border);
+        const QColor wash = tinted ? withAlpha(toneCol, 34) : theme.panelAlternate;
+
+        painter.setPen(QPen{line, 1.0});
+        painter.setBrush(known ? QBrush{wash} : QBrush{Qt::NoBrush});
+        painter.drawRoundedRect(chip, 4.0, 4.0);
+
+        target = chip.adjusted(4.0, 3.0, -4.0, -3.0);
     }
 
     if (path.empty()) {
         if (c.editing) {
             drawPlaceholder(painter, c, QObject::tr("Image\nDrop a PNG here"), c.theme.textMuted);
+        } else if (captioned) {
+            drawCaption(painter, c, footBand(c.rect), Qt::AlignHCenter);
         }
 
         return;
