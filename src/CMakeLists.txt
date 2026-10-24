@@ -90,8 +90,8 @@ add_library(torquebus_core STATIC
     core/j1939/J1939AddressTable.cpp
     core/j1939/J1939Diagnostics.h
     core/j1939/J1939Diagnostics.cpp
-    core/j1939/J1939ClaimRequest.h
-    core/j1939/J1939ClaimRequest.cpp
+    core/j1939/J1939Request.h
+    core/j1939/J1939Request.cpp
     core/j1939/J1939Network.h
     core/j1939/J1939Network.cpp
     core/j1939/J1939Node.h
@@ -377,6 +377,8 @@ qt_add_library(torquebus_ui STATIC
     ui/testing/TestPanel.cpp
     ui/j1939/J1939NetworkPanel.h
     ui/j1939/J1939NetworkPanel.cpp
+    ui/j1939/J1939RequestDialog.h
+    ui/j1939/J1939RequestDialog.cpp
     ui/plugins/PluginsDialog.h
     ui/plugins/PluginsDialog.cpp
     ui/dashboard/DashboardPanel.h

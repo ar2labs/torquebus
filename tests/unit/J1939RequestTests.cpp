@@ -3,18 +3,19 @@
 // TorqueBus Studio
 // Copyright (C) TorqueBus contributors
 //
-// Asking a bus who is on it.
+// Asking a bus, or an ECU on it, for something.
 //
 // A claim is made once, at power-up, so a measurement started on a machine that was already running
-// has none to read; the request is the remedy. What matters is where it goes (every channel, from
-// the null address, once, and only when pressed), what happens when it cannot go (a channel that is
-// not running says so and the others are still asked), and that an ECU on the bus answers it
-// through the real path - the engine, the channel, the bus block and the node - and not only in a
-// unit test of the node.
+// has none to read; the request is the remedy - and, asked of one ECU, the way to read what an ECU
+// has but does not send. What matters is where it goes (every channel or one, to everyone or to one
+// ECU, from the null address, once, and only when pressed), what happens when it cannot go (a
+// channel that is not running says so and the others are still asked), and that an ECU on the bus
+// answers it through the real path - the engine, the channel, the bus block and the node - and not
+// only in a unit test of the node.
 
 #include "core/can/CanEngine.h"
-#include "core/j1939/J1939ClaimRequest.h"
 #include "core/j1939/J1939Id.h"
+#include "core/j1939/J1939Request.h"
 #include "core/pipeline/GraphDescription.h"
 #include "core/pipeline/NodeCatalog.h"
 #include "drivers/virtual/VirtualCanBackend.h"
@@ -26,6 +27,8 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
@@ -93,23 +96,23 @@ private:
 
 } // namespace
 
-TEST(J1939ClaimRequestTests, AnEngineWithNoChannelsHasNobodyToAsk)
+TEST(J1939RequestTests, AnEngineWithNoChannelsHasNobodyToAsk)
 {
     CanEngine engine;
 
-    const J1939ClaimRequestOutcome outcome = j1939RequestAddressClaims(engine);
+    const J1939RequestOutcome outcome = j1939RequestAddressClaims(engine);
 
     EXPECT_TRUE(outcome.sent.empty());
     EXPECT_TRUE(outcome.refused.empty());
 }
 
-TEST(J1939ClaimRequestTests, AMeasurementThatIsNotRunningRefusesOnEveryChannelAndSaysWhich)
+TEST(J1939RequestTests, AMeasurementThatIsNotRunningRefusesOnEveryChannelAndSaysWhich)
 {
     CanEngine engine;
     ASSERT_TRUE(addVirtualChannel(engine, 0U).succeeded());
     ASSERT_TRUE(addVirtualChannel(engine, 1U).succeeded());
 
-    const J1939ClaimRequestOutcome outcome = j1939RequestAddressClaims(engine);
+    const J1939RequestOutcome outcome = j1939RequestAddressClaims(engine);
 
     EXPECT_TRUE(outcome.sent.empty());
     ASSERT_EQ(outcome.refused.size(), 2U);
@@ -119,7 +122,7 @@ TEST(J1939ClaimRequestTests, AMeasurementThatIsNotRunningRefusesOnEveryChannelAn
     EXPECT_EQ(outcome.refused[1].rfind("CAN 2: ", 0U), 0U) << outcome.refused[1];
 }
 
-TEST(J1939ClaimRequestTests, ARunningMeasurementIsAskedOnEveryChannelFromTheNullAddress)
+TEST(J1939RequestTests, ARunningMeasurementIsAskedOnEveryChannelFromTheNullAddress)
 {
     CanEngine engine;
     ASSERT_TRUE(addVirtualChannel(engine, 0U).succeeded());
@@ -131,7 +134,7 @@ TEST(J1939ClaimRequestTests, ARunningMeasurementIsAskedOnEveryChannelFromTheNull
     const Result started = engine.start();
     ASSERT_TRUE(started.succeeded()) << std::string{started.message()};
 
-    const J1939ClaimRequestOutcome outcome = j1939RequestAddressClaims(engine);
+    const J1939RequestOutcome outcome = j1939RequestAddressClaims(engine);
 
     EXPECT_EQ(outcome.sent, (std::vector<std::uint8_t>{0U, 1U}));
     EXPECT_TRUE(outcome.refused.empty());
@@ -152,7 +155,110 @@ TEST(J1939ClaimRequestTests, ARunningMeasurementIsAskedOnEveryChannelFromTheNull
     EXPECT_NE(requests[0].channel, requests[1].channel);
 }
 
-TEST(J1939ClaimRequestTests, AScriptedEcuOnTheBusClaimsAgainThroughTheEngine)
+TEST(J1939RequestTests, AnyGroupCanBeAskedOfOneEcuOnOneChannel)
+{
+    CanEngine engine;
+    ASSERT_TRUE(addVirtualChannel(engine, 0U).succeeded());
+    ASSERT_TRUE(addVirtualChannel(engine, 1U).succeeded());
+
+    Heard heard;
+    engine.addFrameSink([&heard](std::span<const CanFrame> frames) { heard.add(frames); });
+
+    const Result started = engine.start();
+    ASSERT_TRUE(started.succeeded()) << std::string{started.message()};
+
+    // The DM2 of the ECU at 0x21, on CAN 2.
+    const J1939RequestOutcome outcome = j1939RequestPgn(engine, kPgnDm2, 0x21U, std::uint8_t{1U});
+
+    EXPECT_EQ(outcome.sent, (std::vector<std::uint8_t>{1U}));
+    EXPECT_TRUE(outcome.refused.empty());
+
+    ASSERT_TRUE(waitUntil([&heard] { return !heard.of(kPgnRequest).empty(); }));
+    engine.stop();
+
+    // One frame, on that channel and not the other: to 0x21, from the null address, for 65227.
+    const std::vector<CanFrame> requests = heard.of(kPgnRequest);
+    ASSERT_EQ(requests.size(), 1U);
+    EXPECT_EQ(requests.front().channel, 1U);
+    EXPECT_EQ(requests.front().identifier, 0x18EA21FEU);
+    EXPECT_EQ(j1939RequestedPgn(requests.front()), kPgnDm2);
+    EXPECT_EQ(requests.front().data[0], 0xCBU);
+    EXPECT_EQ(requests.front().data[1], 0xFEU);
+    EXPECT_EQ(requests.front().data[2], 0x00U);
+}
+
+TEST(J1939RequestTests, AChannelThatIsNotThereIsRefusedByItsNameAndNoOtherIsAsked)
+{
+    CanEngine engine;
+    ASSERT_TRUE(addVirtualChannel(engine, 0U).succeeded());
+
+    Heard heard;
+    engine.addFrameSink([&heard](std::span<const CanFrame> frames) { heard.add(frames); });
+
+    ASSERT_TRUE(engine.start().succeeded());
+
+    const J1939RequestOutcome outcome =
+        j1939RequestPgn(engine, kPgnDm2, kJ1939GlobalAddress, std::uint8_t{5U});
+
+    EXPECT_TRUE(outcome.sent.empty());
+    ASSERT_EQ(outcome.refused.size(), 1U);
+    EXPECT_EQ(outcome.refused.front().rfind("CAN 6: ", 0U), 0U) << outcome.refused.front();
+
+    // And nothing went out on the one that is there.
+    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+    engine.stop();
+    EXPECT_TRUE(heard.of(kPgnRequest).empty());
+}
+
+TEST(J1939RequestTests, AScriptedEcuAskedForWhatItDoesNotSendRefusesThroughTheEngine)
+{
+    // The whole path, as a project builds it: a Lua ECU on a CAN Bus, a request from the tool -
+    // which has no address - and the refusal J1939-21 has an ECU send to a request it cannot meet.
+    // It goes to everyone, because the tool has no address to be told at.
+    CanEngine engine;
+    ASSERT_TRUE(addVirtualChannel(engine, 0U).succeeded());
+
+    GraphDescription description;
+    description.addNode(NodeDescription{
+        .id = "can_1",
+        .typeName = "can.bus",
+        .parameters = {{"channel", ParameterValue::fromInteger(0)}},
+    });
+    description.addNode(NodeDescription{
+        .id = "ecu",
+        .typeName = "lua.ecu",
+        .parameters = {{"channel", ParameterValue::fromInteger(0)},
+                       {"script",
+                        ParameterValue::fromText(
+                            "function on_enable() j1939_claim(0x21, 26, 0, nil, 1, false) end")}},
+    });
+    description.addEdge(EdgeDescription{"ecu", 0, "can_1", 0});
+    description.addEdge(EdgeDescription{"can_1", 0, "ecu", 0});
+
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+    ASSERT_TRUE(description.validate(catalog).succeeded());
+    engine.setGraphDescription(description, catalog);
+
+    Heard heard;
+    engine.addFrameSink([&heard](std::span<const CanFrame> frames) { heard.add(frames); });
+
+    ASSERT_TRUE(engine.start().succeeded());
+    ASSERT_TRUE(waitUntil([&heard] { return !heard.of(kPgnAddressClaimed).empty(); }));
+
+    ASSERT_TRUE(j1939RequestPgn(engine, kPgnDm2, 0x21U).refused.empty());
+
+    ASSERT_TRUE(waitUntil([&heard] { return !heard.of(kPgnAcknowledgement).empty(); }));
+    engine.stop();
+
+    const std::vector<CanFrame> refusals = heard.of(kPgnAcknowledgement, std::uint8_t{0x21U});
+    ASSERT_EQ(refusals.size(), 1U);
+    EXPECT_EQ(refusals.front().identifier, 0x18E8FF21U);
+    EXPECT_EQ(j1939Acknowledgement(refusals.front()),
+              (std::optional<J1939Acknowledgement>{
+                  J1939Acknowledgement{kJ1939AckNegative, 0xFFU, kJ1939NullAddress, kPgnDm2}}));
+}
+
+TEST(J1939RequestTests, AScriptedEcuOnTheBusClaimsAgainThroughTheEngine)
 {
     // The ECU announces itself at power-up and says nothing more about it. Asked, it announces
     // itself again, with the same claim - through a CAN Bus block, a channel and the engine, as in
@@ -193,7 +299,7 @@ TEST(J1939ClaimRequestTests, AScriptedEcuOnTheBusClaimsAgainThroughTheEngine)
     // it.
     ASSERT_TRUE(waitUntil([&claims] { return claims().size() == 1U; }));
 
-    const J1939ClaimRequestOutcome outcome = j1939RequestAddressClaims(engine);
+    const J1939RequestOutcome outcome = j1939RequestAddressClaims(engine);
     EXPECT_EQ(outcome.sent, (std::vector<std::uint8_t>{0U}));
 
     EXPECT_TRUE(waitUntil([&claims] { return claims().size() == 2U; }));

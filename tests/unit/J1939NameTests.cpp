@@ -15,7 +15,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <set>
 
 using namespace torquebus;
 
@@ -231,4 +233,66 @@ TEST(J1939NameTests, TheIndustryGroupsAreNamedAndTheReservedOnesSaySo)
     // Not blank: a blank cell reads as a decoding failure, and this decoded.
     EXPECT_TRUE(j1939IndustryGroupName(6U) == "Reserved");
     EXPECT_TRUE(j1939IndustryGroupName(7U) == "Reserved");
+}
+
+TEST(J1939NameTests, TheClaimDelayIsTheMultipleOfSixTenthsOfAMillisecondJ1939AllowsAtMost)
+{
+    // J1939-81: 0.6 ms times a number from 0 to 255 - never more than 153 ms.
+    for (std::uint32_t serial = 0U; serial < 2048U; ++serial) {
+        J1939Name name;
+        name.industryGroup = 1U;
+        name.function = 33U;
+        name.identityNumber = serial;
+
+        const std::uint64_t delay = j1939ClaimDelayNs(name);
+
+        EXPECT_EQ(delay % kJ1939ClaimDelayStepNs, 0U) << serial;
+        EXPECT_LE(delay, 255U * kJ1939ClaimDelayStepNs) << serial;
+    }
+}
+
+TEST(J1939NameTests, TheClaimDelayIsTheTopByteOfTheNameSpreadByTheConstantTheDocumentationNames)
+{
+    // The formula, written out once more and independently: what the documentation promises, so
+    // that a measurement recorded today is the one that is repeated tomorrow.
+    for (std::uint32_t serial = 0U; serial < 64U; ++serial) {
+        J1939Name name;
+        name.industryGroup = 1U;
+        name.function = 33U;
+        name.identityNumber = serial * 7919U;
+
+        const std::uint64_t spread = name.value() * 0x9E3779B97F4A7C15ULL;
+        EXPECT_EQ(j1939ClaimDelayNs(name), (spread >> 56U) * 600'000U) << serial;
+    }
+}
+
+TEST(J1939NameTests, TheClaimDelayIsTheSameForTheSameNameAndSpreadsNamesOneSerialNumberApart)
+{
+    // Repeatable: the one thing a simulation that is to be run again needs of a pseudo-random
+    // number.
+    J1939Name name;
+    name.industryGroup = 1U;
+    name.function = 33U;
+    name.identityNumber = 0x80U;
+
+    EXPECT_EQ(j1939ClaimDelayNs(name), j1939ClaimDelayNs(name));
+
+    // And different for ECUs that differ, which is what it is for: serial numbers one apart - the
+    // ECUs of one bench - land all over the range, and not in a heap at one end.
+    std::set<std::uint64_t> delays;
+    std::uint64_t latest = 0U;
+    std::uint64_t earliest = ~std::uint64_t{0};
+
+    for (std::uint32_t serial = 0U; serial < 256U; ++serial) {
+        name.identityNumber = serial;
+        const std::uint64_t delay = j1939ClaimDelayNs(name);
+
+        delays.insert(delay);
+        latest = std::max(latest, delay);
+        earliest = std::min(earliest, delay);
+    }
+
+    EXPECT_GT(delays.size(), 120U);
+    EXPECT_LT(earliest, 20U * kJ1939ClaimDelayStepNs);
+    EXPECT_GT(latest, 235U * kJ1939ClaimDelayStepNs);
 }

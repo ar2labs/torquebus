@@ -23,8 +23,9 @@
 //     a measurement started on a running machine sees none of them. The column
 //     says what was observed since Start, and the tooltip says so in words - and
 //     says what to do about it: the Request claims button asks every ECU to claim
-//     again (J1939ClaimRequest.h), which is the one thing here that transmits, and
-//     only when pressed.
+//     again (J1939Request.h). That, and asking an ECU or everyone for any other
+//     group - Request PGN, or the menu of an ECU's row - are the only things here
+//     that transmit, and only when pressed.
 //   * **An ECU reporting no faults is not an ECU that has not answered.** The
 //     first is a diagnosis and the second is a question still open.
 //   * **What an ECU last said is not what the bus is reporting now.** The tree
@@ -43,13 +44,16 @@
 
 #pragma once
 
+#include <QPoint>
 #include <QSet>
 #include <QString>
 #include <QWidget>
 
 #include <cstdint>
 
+class QAction;
 class QLabel;
+class QMenu;
 class QPushButton;
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -77,14 +81,25 @@ public:
     /// machine can legitimately have none.
     void setNameTables(const J1939NameTables* tables);
 
-    /// Whether Request claims can be pressed: while a measurement runs, and not before it or
-    /// after it, when every channel would refuse. Off until told.
+    /// Whether the requests can be made: while a measurement runs, and not before it or after it,
+    /// when every channel would refuse. Off until told.
     void setRequestAvailable(bool available);
+
+    /// What can be asked of the ECU at `address` on the bus of `channel` - or of every ECU on it,
+    /// for the address 255: the groups worth asking for by name, and the rest through a dialog.
+    /// A new menu, parented to `parent`: a line that says whom, then the groups, with their entries
+    /// off while requests are not available. What a right click on a row shows, public so that a
+    /// test can read it and trigger it.
+    [[nodiscard]] QMenu* requestMenu(int channel, int address, QWidget* parent = nullptr);
 
 Q_SIGNALS:
     /// The Request claims button was pressed. The panel reads a bus and does not own one, so what
     /// to ask on is for whoever owns the engine to say.
     void claimsRequested();
+
+    /// A group was asked for, of `destination` - an address, or 255 for every ECU - on `channel`,
+    /// or on every channel when it is -1.
+    void pgnRequested(quint32 pgn, int destination, int channel);
 
 protected:
     void showEvent(QShowEvent* event) override;
@@ -96,8 +111,16 @@ private Q_SLOTS:
 
     void onThemeChanged();
 
+    /// A right click on a row: the requests that can be made of the ECU it is, or of every ECU on
+    /// the bus it heads.
+    void onContextMenu(const QPoint& position);
+
 private:
     void buildUi();
+
+    /// The dialog that names a group, a destination and a channel; what it is accepted with is
+    /// asked for.
+    void askForAGroup(int channel, int address);
 
     void rebuild(const J1939NetworkSnapshot& snapshot);
 
@@ -113,7 +136,11 @@ private:
 
     QLabel* m_summary{nullptr};
     QPushButton* m_requestClaims{nullptr};
+    QPushButton* m_requestGroup{nullptr};
     QTreeWidget* m_nodes{nullptr};
+
+    /// Whether a measurement is running to ask on.
+    bool m_requestAvailable{false};
 
     /// The revision already on screen. Zero means nothing has been shown, which
     /// is also what the network reports before a measurement has published

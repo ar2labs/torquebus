@@ -5,13 +5,17 @@
 
 #include "ui/j1939/J1939NetworkPanel.h"
 
+#include "core/j1939/J1939Id.h"
 #include "core/j1939/J1939NameTables.h"
 #include "core/j1939/J1939Network.h"
+#include "ui/j1939/J1939RequestDialog.h"
 #include "ui/theme/ThemeManager.h"
 
+#include <QAction>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
+#include <QMenu>
 #include <QPushButton>
 #include <QSet>
 #include <QShowEvent>
@@ -20,8 +24,10 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <memory>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 namespace torquebus::ui {
 namespace {
@@ -51,10 +57,10 @@ enum Column : int {
 /// database says 249 and a trace says 0xF9 and they are the same ECU.
 [[nodiscard]] QString addressText(std::uint8_t address)
 {
+    // The digits are upper-cased and the "0x" in front of them is not.
     return QStringLiteral("%1  (0x%2)")
         .arg(address)
-        .arg(address, 2, 16, QLatin1Char('0'))
-        .toUpper();
+        .arg(QString::number(address, 16).toUpper(), 2, QLatin1Char('0'));
 }
 
 /// The industry group by name. One of the few J1939 tables small enough and
@@ -149,6 +155,46 @@ enum Column : int {
 constexpr int kRowKeyRole = Qt::UserRole;
 constexpr int kBusHeadingRole = Qt::UserRole + 1;
 
+/// What a row can be asked: the channel of its bus and the address it stands for - 255 for the
+/// heading of a bus, which is every ECU on it.
+constexpr int kChannelRole = Qt::UserRole + 2;
+constexpr int kAddressRole = Qt::UserRole + 3;
+constexpr int kEveryEcu = 255;
+
+/// Whom a request is addressed to, in a sentence.
+[[nodiscard]] QString whomText(int address)
+{
+    return address == kEveryEcu
+               ? QObject::tr("every ECU")
+               : QObject::tr("the ECU at %1").arg(addressText(static_cast<std::uint8_t>(address)));
+}
+
+/// What an ECU last said to a request it could not meet, in a few words.
+[[nodiscard]] QString answerText(const J1939Acknowledgement& answer)
+{
+    QString what;
+
+    switch (answer.control) {
+    case kJ1939AckPositive:
+        what = QObject::tr("acknowledged");
+        break;
+    case kJ1939AckNegative:
+        what = QObject::tr("not supported");
+        break;
+    case kJ1939AckAccessDenied:
+        what = QObject::tr("access denied");
+        break;
+    case kJ1939AckCannotRespond:
+        what = QObject::tr("cannot respond");
+        break;
+    default:
+        what = QObject::tr("answer %1").arg(answer.control);
+        break;
+    }
+
+    return QObject::tr("last answer: PGN %1 %2").arg(J1939RequestDialog::pgnText(answer.pgn), what);
+}
+
 [[nodiscard]] QString busKey(std::uint8_t channel)
 {
     return QStringLiteral("bus %1").arg(channel);
@@ -221,12 +267,22 @@ void J1939NetworkPanel::buildUi()
 
     m_summary = new QLabel;
     m_summary->setTextInteractionFlags(Qt::TextSelectableByMouse);
+
+    // It may wrap: with two buttons beside it, a line that cannot would keep the panel as wide as
+    // the whole of it, in a dock that is meant to be a column.
+    m_summary->setWordWrap(true);
     header->addWidget(m_summary, 1);
 
     m_requestClaims = new QPushButton(tr("Request claims"));
     m_requestClaims->setObjectName(QStringLiteral("requestClaimsButton"));
     connect(m_requestClaims, &QPushButton::clicked, this, &J1939NetworkPanel::claimsRequested);
     header->addWidget(m_requestClaims);
+
+    m_requestGroup = new QPushButton(tr("Request PGN..."));
+    m_requestGroup->setObjectName(QStringLiteral("requestPgnButton"));
+    connect(m_requestGroup, &QPushButton::clicked, this, [this] { askForAGroup(-1, kEveryEcu); });
+    header->addWidget(m_requestGroup);
+
     setRequestAvailable(false);
 
     layout->addLayout(header);
@@ -254,6 +310,11 @@ void J1939NetworkPanel::buildUi()
     m_nodes->header()->setSectionResizeMode(ColumnDetail, QHeaderView::Stretch);
     m_nodes->setColumnWidth(ColumnName, 260);
 
+    // A right click on an ECU asks it for something; on a bus, every ECU on it.
+    m_nodes->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(
+        m_nodes, &QTreeWidget::customContextMenuRequested, this, &J1939NetworkPanel::onContextMenu);
+
     layout->addWidget(m_nodes, 1);
 }
 
@@ -264,16 +325,28 @@ void J1939NetworkPanel::setNameTables(const J1939NameTables* tables)
 
 void J1939NetworkPanel::setRequestAvailable(bool available)
 {
+    m_requestAvailable = available;
+
     m_requestClaims->setEnabled(available);
+    m_requestGroup->setEnabled(available);
 
-    const QString what = tr("Asks every ECU on every channel to announce its address and NAME "
-                            "again, with a Request for Address Claimed sent from the null "
-                            "address. Use it when the measurement started on a machine that was "
-                            "already running: claims are made at power-up, so the ECUs that have "
-                            "not claimed since Start are listed as not seen claiming.");
+    const QString claims = tr("Asks every ECU on every channel to announce its address and NAME "
+                              "again, with a Request for Address Claimed sent from the null "
+                              "address. Use it when the measurement started on a machine that was "
+                              "already running: claims are made at power-up, so the ECUs that have "
+                              "not claimed since Start are listed as not seen claiming.");
 
-    m_requestClaims->setToolTip(
-        available ? what : tr("%1 Available while a measurement is running.").arg(what));
+    const QString group =
+        tr("Asks one ECU, or every ECU, for a parameter group: the codes that were "
+           "active (DM2), what an ECU and its software are called, or any other "
+           "PGN. The same is in the menu of a right click on an ECU. It is sent "
+           "from the null address, 254, as the tool has none of its own. What an "
+           "ECU does not have, it says so: its last answer is on its row.");
+
+    const QString unavailable = tr(" Available while a measurement is running.");
+
+    m_requestClaims->setToolTip(available ? claims : claims + unavailable);
+    m_requestGroup->setToolTip(available ? group : group + unavailable);
 }
 
 void J1939NetworkPanel::setNetwork(J1939Network* network)
@@ -352,6 +425,8 @@ void J1939NetworkPanel::rebuild(const J1939NetworkSnapshot& snapshot)
             heading = new QTreeWidgetItem(m_nodes);
             heading->setData(ColumnAddress, kRowKeyRole, busKey(bus.channel));
             heading->setData(ColumnAddress, kBusHeadingRole, true);
+            heading->setData(ColumnAddress, kChannelRole, static_cast<int>(bus.channel));
+            heading->setData(ColumnAddress, kAddressRole, kEveryEcu);
             heading->setText(ColumnAddress, busText(bus.channel));
             heading->setText(ColumnName,
                              tr("%n ECU(s)", nullptr, static_cast<int>(bus.nodes.size())));
@@ -391,12 +466,21 @@ void J1939NetworkPanel::addBus(QTreeWidgetItem* heading,
         QTreeWidgetItem* row = newRow();
         const QString key = ecuKey(bus.channel, node.address);
         row->setData(ColumnAddress, kRowKeyRole, key);
+        row->setData(ColumnAddress, kChannelRole, static_cast<int>(bus.channel));
+        row->setData(ColumnAddress, kAddressRole, static_cast<int>(node.address));
         row->setText(ColumnAddress, addressText(node.address));
         row->setText(ColumnFrames, QString::number(node.framesSeen));
 
-        row->setText(ColumnDetail,
-                     tr("first seen %1, last %2")
-                         .arg(elapsedText(node.firstSeenNs), elapsedText(node.lastSeenNs)));
+        QString detail = tr("first seen %1, last %2")
+                             .arg(elapsedText(node.firstSeenNs), elapsedText(node.lastSeenNs));
+
+        // What it said to a request it could not meet, when it has: it is not a code and it is not
+        // a fault, and it would be nowhere else on the screen.
+        if (node.lastAnswer.has_value()) {
+            detail += QStringLiteral("; ") + answerText(*node.lastAnswer);
+        }
+
+        row->setText(ColumnDetail, detail);
 
         if (node.name.has_value()) {
             row->setText(ColumnName, nameText(*node.name, m_names));
@@ -582,6 +666,108 @@ void J1939NetworkPanel::updateSummary(const J1939NetworkSnapshot& snapshot)
     m_summary->setText(text);
     m_summary->setStyleSheet(
         QStringLiteral("color: %1;").arg((faults > 0 ? theme.error : theme.text).name()));
+}
+
+QMenu* J1939NetworkPanel::requestMenu(int channel, int address, QWidget* parent)
+{
+    auto* menu = new QMenu(parent);
+
+    const QString where =
+        channel < 0 ? tr("every bus") : busText(static_cast<std::uint8_t>(channel));
+
+    menu->setTitle(address == kEveryEcu ? tr("Ask every ECU on %1").arg(where)
+                                        : tr("Ask %1").arg(whomText(address)));
+
+    // A popup does not show its title, and what follows are groups with no object: "Address claim"
+    // asks nobody until a line above it says whom.
+    QAction* heading = menu->addAction(menu->title());
+    heading->setObjectName(QStringLiteral("requestMenuHeading"));
+    heading->setEnabled(false);
+    menu->addSeparator();
+
+    for (const J1939RequestPreset& preset : J1939RequestDialog::presets()) {
+        // Named, and not numbered: the number is on the dialog's list, and the name is what it is.
+        QAction* action = menu->addAction(preset.label);
+        action->setEnabled(m_requestAvailable);
+
+        connect(action, &QAction::triggered, this, [this, pgn = preset.pgn, address, channel] {
+            Q_EMIT pgnRequested(pgn, address, channel);
+        });
+    }
+
+    menu->addSeparator();
+
+    QAction* other = menu->addAction(tr("Another group..."));
+    other->setEnabled(m_requestAvailable);
+    connect(other, &QAction::triggered, this, [this, channel, address] {
+        askForAGroup(channel, address);
+    });
+
+    return menu;
+}
+
+void J1939NetworkPanel::onContextMenu(const QPoint& position)
+{
+    // The row, or the ECU or bus a row under it belongs to: a fault is asked about by asking its
+    // ECU.
+    const QTreeWidgetItem* item = m_nodes->itemAt(position);
+    while (item != nullptr && !item->data(ColumnAddress, kAddressRole).isValid()) {
+        item = item->parent();
+    }
+
+    if (item == nullptr) {
+        return;
+    }
+
+    const int channel = item->data(ColumnAddress, kChannelRole).toInt();
+    const int address = item->data(ColumnAddress, kAddressRole).toInt();
+
+    // Read before the menu opens: the tree is rebuilt while it is open, and the row is gone.
+    const std::unique_ptr<QMenu> menu{requestMenu(channel, address, this)};
+    menu->exec(m_nodes->viewport()->mapToGlobal(position));
+}
+
+void J1939NetworkPanel::askForAGroup(int channel, int address)
+{
+    // Whom and where can be chosen from what the panel has heard.
+    std::vector<J1939RequestDialog::Ecu> ecus;
+    std::vector<J1939RequestDialog::Bus> buses;
+
+    if (m_network != nullptr) {
+        for (const J1939BusView& bus : m_network->snapshot().buses) {
+            buses.push_back({static_cast<int>(bus.channel), busText(bus.channel)});
+
+            for (const J1939NetworkNode& node : bus.nodes) {
+                const bool listed =
+                    std::any_of(ecus.begin(), ecus.end(), [&node](const auto& known) {
+                        return known.address == node.address;
+                    });
+
+                if (!listed) {
+                    ecus.push_back({static_cast<int>(node.address),
+                                    tr("ECU at %1").arg(addressText(node.address))});
+                }
+            }
+        }
+    }
+
+    J1939RequestDialog dialog{std::move(ecus), std::move(buses), this};
+
+    if (address != kEveryEcu) {
+        dialog.setDestination(address);
+    }
+
+    if (channel >= 0) {
+        dialog.setChannel(channel);
+    }
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    if (const std::optional<std::uint32_t> pgn = dialog.pgn(); pgn.has_value()) {
+        Q_EMIT pgnRequested(*pgn, dialog.destination(), dialog.channel());
+    }
 }
 
 void J1939NetworkPanel::onThemeChanged()

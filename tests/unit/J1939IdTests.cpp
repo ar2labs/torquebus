@@ -14,7 +14,10 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
+#include <optional>
 
 using namespace torquebus;
 
@@ -287,4 +290,65 @@ TEST(J1939IdTests, OnlyARequestLongEnoughToNameAPgnIsOne)
     standard.format = CanFrameFormat::Standard;
     standard.identifier = 0x7E0U;
     EXPECT_FALSE(j1939RequestedPgn(standard).has_value());
+}
+
+TEST(J1939IdTests, AnAcknowledgementIsEightBytesWithTheAddressAndThePgnAtTheEnd)
+{
+    // What the ECU at 0x21 says to the tool at 0xF9 that asked it for a DM2 it has not got: control
+    // negative, the group function not used, two bytes not used, the tool's address, and the PGN
+    // asked for - 65227 - least significant byte first.
+    const CanFrame refusal = j1939AcknowledgementFrame(
+        J1939Acknowledgement{kJ1939AckNegative, 0xFFU, 0xF9U, kPgnDm2}, 0x21U, 0xF9U, 2U);
+
+    EXPECT_EQ(refusal.identifier, 0x18E8F921U);
+    EXPECT_TRUE(refusal.isExtended());
+    EXPECT_EQ(refusal.direction, CanDirection::Tx);
+    EXPECT_EQ(refusal.channel, 2U);
+    EXPECT_EQ(refusal.length, 8U);
+    EXPECT_EQ(refusal.dlc, 8U);
+
+    const std::array<std::uint8_t, 8> expected{
+        0x01U, 0xFFU, 0xFFU, 0xFFU, 0xF9U, 0xCBU, 0xFEU, 0x00U};
+    EXPECT_TRUE(std::equal(expected.begin(), expected.end(), refusal.data.begin()));
+
+    // To everyone by default, which is where one goes when the asker has no address to be told at.
+    EXPECT_EQ(j1939AcknowledgementFrame(J1939Acknowledgement{}, 0x21U).identifier, 0x18E8FF21U);
+
+    // A PGN has eighteen bits, and what is above them is not put on the wire.
+    const CanFrame cut = j1939AcknowledgementFrame(
+        J1939Acknowledgement{kJ1939AckNegative, 0xFFU, 0xF9U, 0xFFFFFFFFU}, 0x21U);
+    EXPECT_EQ(cut.data[5], 0xFFU);
+    EXPECT_EQ(cut.data[6], 0xFFU);
+    EXPECT_EQ(cut.data[7], 0x03U);
+}
+
+TEST(J1939IdTests, AnAcknowledgementIsReadBackFromItsFrameAndOnlyFromThat)
+{
+    const J1939Acknowledgement sent{kJ1939AckAccessDenied, 0x05U, 0x33U, 0x1FF01U};
+    const CanFrame frame = j1939AcknowledgementFrame(sent, 0x21U, 0x33U);
+
+    // The data page is in the third byte of the PGN, and the control byte is kept as it was sent.
+    EXPECT_EQ(frame.data[7], 0x01U);
+    EXPECT_EQ(j1939Acknowledgement(frame), std::optional<J1939Acknowledgement>{sent});
+
+    // The six bits above a PGN are nobody's.
+    CanFrame reserved = frame;
+    reserved.data[7] = 0xFDU;
+    ASSERT_TRUE(j1939Acknowledgement(reserved).has_value());
+    EXPECT_EQ(j1939Acknowledgement(reserved)->pgn, 0x1FF01U);
+
+    // Not one: another PGN, one too short, and an 11-bit frame.
+    CanFrame other = frame;
+    other.identifier = 0x18FECA21U;
+    EXPECT_FALSE(j1939Acknowledgement(other).has_value());
+
+    CanFrame shortOne = frame;
+    shortOne.length = 7U;
+    shortOne.dlc = 7U;
+    EXPECT_FALSE(j1939Acknowledgement(shortOne).has_value());
+
+    CanFrame standard = frame;
+    standard.format = CanFrameFormat::Standard;
+    standard.identifier = 0x7E0U;
+    EXPECT_FALSE(j1939Acknowledgement(standard).has_value());
 }

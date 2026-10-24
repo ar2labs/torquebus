@@ -3,7 +3,7 @@
 add_executable(torquebus_ui_tests DockingTests.cpp TransmitPanelTests.cpp CanvasPanelTests.cpp CanvasBusTests.cpp
     CanvasRobustnessTests.cpp NodePropertiesRangeTests.cpp CanvasArrangeTests.cpp TracePanelTests.cpp GraphPanelTests.cpp ScriptEditorPanelTests.cpp IconImageProviderTests.cpp ClusterThemeSyncTests.cpp ClusterViewTests.cpp ClusterHostTests.cpp EngineControllerTests.cpp DiagnosticsPanelTests.cpp
     DashboardPaintersTests.cpp DashboardPanelTests.cpp DashboardWidgetEditorTests.cpp SignalPickerDialogTests.cpp
-    MainWindowDashboardTests.cpp J1939NetworkPanelTests.cpp)
+    MainWindowDashboardTests.cpp J1939NetworkPanelTests.cpp J1939RequestDialogTests.cpp)
 target_link_libraries(torquebus_ui_tests
     PRIVATE torquebus::ui torquebus_clusterplugin torquebus::warnings GTest::gtest
 )

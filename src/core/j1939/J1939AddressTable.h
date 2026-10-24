@@ -30,7 +30,11 @@
 //
 // The way to turn one into the other is to ask - a Request for Address Claimed,
 // which every ECU answers. That is a transmission, so it belongs with the
-// explicit opt-in above rather than here.
+// explicit opt-in above rather than here: J1939Request.h, behind a button.
+//
+// What an ECU answers to a request it cannot meet - a negative Acknowledgement -
+// is the other thing seen here, because it is traffic like any other: it is kept
+// on the row of the ECU that said it.
 //
 // What this does catch, and what makes it worth having: an address that starts
 // transmitting after a claim was already seen for it, a second NAME arriving on
@@ -40,6 +44,7 @@
 #pragma once
 
 #include "core/can/CanFrame.h"
+#include "core/j1939/J1939Id.h"
 #include "core/j1939/J1939Name.h"
 
 #include <cstdint>
@@ -73,6 +78,11 @@ struct J1939NetworkNode final {
     /// Frames seen from this address, claims included. A rough measure of how
     /// busy an ECU is, and enough to tell a chatty node from a silent one.
     std::uint32_t framesSeen{0U};
+
+    /// The latest Acknowledgement this ECU sent: what it said to the last request it could not
+    /// meet - or a command it would not obey - and when.
+    std::optional<J1939Acknowledgement> lastAnswer;
+    std::uint64_t lastAnswerNs{0U};
 };
 
 /// An ECU that announced it could not get an address.
@@ -103,6 +113,11 @@ struct J1939NetworkEvent final {
         /// per address - see the note at the top of this file about what this
         /// does and does not mean.
         UnclaimedTraffic,
+
+        /// An ECU sent an Acknowledgement: it said that it did, or could not, do what it was
+        /// asked. Not a change of who is on the bus, and reported for the same reason the others
+        /// are: it is something a panel would show.
+        Answered,
     };
 
     Kind kind{Kind::AddressClaimed};

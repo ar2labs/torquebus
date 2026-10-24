@@ -63,6 +63,22 @@ bool J1939AddressTable::onFrame(const CanFrame& frame, std::uint64_t nowNs)
         m_events.push_back(event);
     }
 
+    // What this ECU says to a request it cannot meet stays on its row.
+    if (id->pgn() == kPgnAcknowledgement) {
+        if (const std::optional<J1939Acknowledgement> answer = j1939Acknowledgement(frame);
+            answer.has_value()) {
+            node.lastAnswer = answer;
+            node.lastAnswerNs = nowNs;
+
+            J1939NetworkEvent event;
+            event.kind = J1939NetworkEvent::Kind::Answered;
+            event.address = node.address;
+            event.timestampNs = nowNs;
+
+            m_events.push_back(event);
+        }
+    }
+
     return true;
 }
 

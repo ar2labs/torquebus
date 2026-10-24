@@ -146,6 +146,23 @@ struct J1939Name final {
     return result;
 }
 
+/// How long J1939-81 has an ECU wait before it answers a request for the claims of the bus that
+/// was sent to everyone, or says it cannot claim an address: 0.6 ms times a number from 0 to 255,
+/// up to 153 ms. It is there so that the ECUs of a bus, all asked at the same instant, do not all
+/// answer at the same instant.
+///
+/// The standard calls the number pseudo-random and leaves where it comes from to the ECU. Here it
+/// comes from the NAME: two ECUs differ, which is what the delay is for, and one measurement is the
+/// same as the next, which a simulation that is to be repeated needs.
+inline constexpr std::uint64_t kJ1939ClaimDelayStepNs = 600'000U;
+
+[[nodiscard]] constexpr std::uint64_t j1939ClaimDelayNs(const J1939Name& name) noexcept
+{
+    // The top byte of the NAME multiplied by an odd constant (the golden ratio of 2^64), which
+    // spreads NAMEs that differ in one bit - serial numbers one apart - over the whole range.
+    return (((name.value() * 0x9E37'79B9'7F4A'7C15ULL) >> 56U) & 0xFFU) * kJ1939ClaimDelayStepNs;
+}
+
 /// Reads the eight payload bytes of an Address Claimed as a 64-bit NAME.
 ///
 /// Least significant byte first, which is how J1939 puts multi-byte values on

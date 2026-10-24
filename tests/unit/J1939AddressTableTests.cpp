@@ -289,3 +289,51 @@ TEST(J1939AddressTableTests, StartingAMeasurementForgetsTheBus)
     EXPECT_TRUE(table.defeated().empty());
     EXPECT_TRUE(table.events().empty());
 }
+
+TEST(J1939AddressTableTests, WhatAnEcuAnswersToARequestItCannotMeetIsKeptOnItsRow)
+{
+    // The ECU at 0x21 says to the tool at 0xF9 that it has no DM2.
+    const J1939Acknowledgement refusal{kJ1939AckNegative, 0xFFU, 0xF9U, kPgnDm2};
+
+    J1939AddressTable table;
+    EXPECT_TRUE(table.onFrame(j1939AcknowledgementFrame(refusal, 0x21U, 0xF9U), 5000U));
+
+    const J1939NetworkNode* node = table.find(0x21U);
+    ASSERT_NE(node, nullptr);
+    ASSERT_TRUE(node->lastAnswer.has_value());
+    EXPECT_EQ(*node->lastAnswer, refusal);
+    EXPECT_EQ(node->lastAnswerNs, 5000U);
+
+    // It is traffic like any other, and the panel is told there is something new on the row.
+    EXPECT_TRUE(node->trafficSeen);
+    ASSERT_FALSE(table.events().empty());
+    EXPECT_EQ(table.events().back().kind, J1939NetworkEvent::Kind::Answered);
+    EXPECT_EQ(table.events().back().address, 0x21U);
+
+    // A later answer replaces it.
+    table.clearEvents();
+    const J1939Acknowledgement denied{kJ1939AckAccessDenied, 0xFFU, 0xF9U, 0xFEDAU};
+    EXPECT_TRUE(table.onFrame(j1939AcknowledgementFrame(denied, 0x21U, 0xF9U), 9000U));
+
+    EXPECT_EQ(*table.find(0x21U)->lastAnswer, denied);
+    EXPECT_EQ(table.find(0x21U)->lastAnswerNs, 9000U);
+}
+
+TEST(J1939AddressTableTests, AnAcknowledgementFromTheNullAddressIsNotASeat)
+{
+    // Nobody is at 254: whoever says it has no address is not an occupant of one.
+    J1939AddressTable table;
+    EXPECT_TRUE(
+        table.onFrame(j1939AcknowledgementFrame(J1939Acknowledgement{}, kJ1939NullAddress), 1000U));
+
+    EXPECT_TRUE(table.nodes().empty());
+}
+
+TEST(J1939AddressTableTests, AnEcuThatNeverRefusedAnythingHasNoAnswerOnItsRow)
+{
+    J1939AddressTable table;
+    table.onFrame(trafficFrame(kEngine), 1000U);
+
+    ASSERT_NE(table.find(kEngine), nullptr);
+    EXPECT_FALSE(table.find(kEngine)->lastAnswer.has_value());
+}

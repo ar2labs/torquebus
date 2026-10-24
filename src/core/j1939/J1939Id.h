@@ -63,6 +63,10 @@ inline constexpr std::uint32_t kJ1939MaxPgn = 0x3'FFFFU;
 /// Request for a PGN (PDU1). 59904.
 inline constexpr std::uint32_t kPgnRequest = 0x0'EA00U;
 
+/// Acknowledgement, positive or negative: what an ECU answers with when it cannot do what it was
+/// asked - a request for something it does not have. 59392.
+inline constexpr std::uint32_t kPgnAcknowledgement = 0x0'E800U;
+
 /// Transport protocol, connection management: RTS, CTS, BAM, Abort. 60416.
 inline constexpr std::uint32_t kPgnTransportConnection = 0x0'EC00U;
 
@@ -182,6 +186,46 @@ struct J1939Id final {
 /// The PGN a Request asks for. Nothing for a frame that is not a Request, for one too short to name
 /// a PGN, and for an 11-bit frame, which is not J1939 at all.
 [[nodiscard]] std::optional<std::uint32_t> j1939RequestedPgn(const CanFrame& frame) noexcept;
+
+/// The values of the control byte of an Acknowledgement.
+inline constexpr std::uint8_t kJ1939AckPositive = 0U;
+inline constexpr std::uint8_t kJ1939AckNegative = 1U; ///< "I do not have that."
+inline constexpr std::uint8_t kJ1939AckAccessDenied = 2U;
+inline constexpr std::uint8_t kJ1939AckCannotRespond = 3U;
+
+/// What an Acknowledgement (PGN 59392) says: that the ECU which sent it did - or could not - what
+/// the one at `address` asked for `pgn`.
+///
+/// A request addressed to one ECU for something it does not send is answered, J1939-21 says, with
+/// one of these and the control byte *negative*: silence would leave the asker waiting for an
+/// answer that is not coming, and a request to everyone is not answered this way, because most ECUs
+/// have nothing to say to it.
+struct J1939Acknowledgement final {
+    std::uint8_t control{kJ1939AckNegative};
+
+    /// Not used by a request: 0xFF.
+    std::uint8_t groupFunction{0xFFU};
+
+    /// The ECU whose request this answers.
+    std::uint8_t address{kJ1939GlobalAddress};
+
+    std::uint32_t pgn{0U};
+
+    [[nodiscard]] friend bool operator==(const J1939Acknowledgement&,
+                                         const J1939Acknowledgement&) = default;
+};
+
+/// The Acknowledgement frame from `source` to `destination`: eight bytes, the control byte first,
+/// the address and the PGN at the end.
+[[nodiscard]] CanFrame j1939AcknowledgementFrame(const J1939Acknowledgement& acknowledgement,
+                                                 std::uint8_t source,
+                                                 std::uint8_t destination = kJ1939GlobalAddress,
+                                                 std::uint8_t channel = 0U) noexcept;
+
+/// What an Acknowledgement says. Nothing for a frame that is not one, for one too short, and for an
+/// 11-bit frame.
+[[nodiscard]] std::optional<J1939Acknowledgement>
+j1939Acknowledgement(const CanFrame& frame) noexcept;
 
 /// Builds an identifier from a PGN and the two addresses.
 ///

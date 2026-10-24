@@ -2390,6 +2390,115 @@ TEST(J1939NodeTests, OneBlockReadingARecordingOfTwoBusesReportsBothThroughTheEng
     EXPECT_EQ(snapshot.bus(1U)->activeFaults[0].code.spn, 4096U);
 }
 
+TEST(J1939NodeTests, OneBlockReadingTwoLiveBusesThroughAFrameMergeReportsBothThroughTheEngine)
+{
+    // The whole path with live buses, as a project draws it: a CAN Channel on each of two channels,
+    // a Frame Merge, and one J1939 block behind it. An input takes one wire, so before the merge
+    // two live buses were two blocks - and the recording above was the only way to one.
+    CanEngine engine;
+
+    for (std::uint8_t channel = 0U; channel < 2U; ++channel) {
+        CanChannelConfig config;
+        config.deviceHandle = "virtual:" + std::to_string(channel);
+        config.applicationChannel = channel;
+        config.timing.bitrate = 250'000;
+        ASSERT_TRUE(engine.addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
+    }
+
+    GraphDescription description;
+    description.addNode(NodeDescription{
+        .id = "can_1",
+        .typeName = "can.source",
+        .parameters = {{"channel", ParameterValue::fromInteger(0)}},
+    });
+    description.addNode(NodeDescription{
+        .id = "can_2",
+        .typeName = "can.source",
+        .parameters = {{"channel", ParameterValue::fromInteger(1)}},
+    });
+    description.addNode(NodeDescription{.id = "merge", .typeName = "can.merge"});
+    description.addNode(NodeDescription{.id = "j1939", .typeName = "j1939.decoder"});
+    description.addEdge(EdgeDescription{"can_1", 0, "merge", 0});
+    description.addEdge(EdgeDescription{"can_2", 0, "merge", 1});
+    description.addEdge(EdgeDescription{"merge", 0, "j1939", 0});
+
+    const NodeCatalog catalog = NodeCatalog::withBuiltinTypes();
+    ASSERT_TRUE(description.validate(catalog).succeeded());
+    engine.setGraphDescription(description, catalog);
+
+    const Result started = engine.start();
+    ASSERT_TRUE(started.succeeded()) << std::string{started.message()};
+
+    // The same address on both buses and a different code on each, and an ECU that is only on
+    // CAN 2.
+    ASSERT_TRUE(
+        engine.transmit(0, faultFrom(kEngine, kRedStop, 100U, 1U, 1U, kSecond)).succeeded());
+    ASSERT_TRUE(
+        engine.transmit(1, faultFrom(kEngine, kAmberWarning, 4096U, 4U, 1U, kSecond)).succeeded());
+    ASSERT_TRUE(engine.transmit(1, diagnosticFrom(kPgnDm1, kBody, 0x00U, kSecond)).succeeded());
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{10};
+    J1939NetworkSnapshot snapshot;
+
+    while (std::chrono::steady_clock::now() < deadline) {
+        snapshot = engine.j1939Network().snapshot();
+
+        if (snapshot.buses.size() == 2U && snapshot.bus(0U) != nullptr
+            && snapshot.bus(1U) != nullptr && snapshot.bus(0U)->nodes.size() == 1U
+            && snapshot.bus(1U)->nodes.size() == 2U && !snapshot.bus(0U)->activeFaults.empty()
+            && !snapshot.bus(1U)->activeFaults.empty()) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+    }
+
+    // What the merge said of itself, while the measurement is still running: the statistics are
+    // taken a window at a time, so they are waited for as well.
+    const auto passedByTheMerge = [&engine]() -> std::uint64_t {
+        for (const CanEngine::NodeReport& report : engine.nodeStatistics()) {
+            if (report.typeName == "can.merge") {
+                for (const NodeStatistic& statistic : report.statistics) {
+                    if (statistic.label == "Frames passed") {
+                        return statistic.value;
+                    }
+                }
+            }
+        }
+
+        return 0U;
+    };
+
+    while (passedByTheMerge() < 3U && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+    }
+
+    const std::uint64_t merged = passedByTheMerge();
+
+    engine.stop();
+
+    ASSERT_EQ(snapshot.buses.size(), 2U);
+    ASSERT_NE(snapshot.bus(0U), nullptr);
+    ASSERT_NE(snapshot.bus(1U), nullptr);
+
+    // Each ECU is on the bus its frames came from: the engine is at 0 on both, and the body
+    // controller is on CAN 2 only.
+    ASSERT_EQ(snapshot.bus(0U)->nodes.size(), 1U);
+    ASSERT_EQ(snapshot.bus(1U)->nodes.size(), 2U);
+    EXPECT_EQ(snapshot.bus(0U)->nodes[0].address, kEngine);
+    EXPECT_EQ(snapshot.bus(1U)->nodes[0].address, kEngine);
+    EXPECT_EQ(snapshot.bus(1U)->nodes[1].address, kBody);
+
+    ASSERT_EQ(snapshot.bus(0U)->activeFaults.size(), 1U);
+    ASSERT_EQ(snapshot.bus(1U)->activeFaults.size(), 1U);
+    EXPECT_EQ(snapshot.bus(0U)->activeFaults[0].code.spn, 100U);
+    EXPECT_EQ(snapshot.bus(1U)->activeFaults[0].code.spn, 4096U);
+
+    // And the merge counted what went through it - three frames, though the other two buses may
+    // have shown more, and at least the ones sent.
+    EXPECT_GE(merged, 3U);
+}
+
 // ---------------------------------------------------------------------------
 // "Error" and "not available", and the signals that are not about either
 // ---------------------------------------------------------------------------
