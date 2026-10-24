@@ -23,6 +23,7 @@ add_executable(torquebus_unit_tests
     TraceLogTests.cpp
     CanSignalTests.cpp
     DbcDecoderNodeTests.cpp
+    FrameMergeNodeTests.cpp
     DbcParserTests.cpp
     CanFilterTests.cpp
     CanStatisticsTests.cpp

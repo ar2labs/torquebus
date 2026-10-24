@@ -17,7 +17,9 @@
 #include "ui/canvas/CanvasPainters.h"
 #include "ui/canvas/CanvasPanel.h"
 #include "ui/canvas/PipelineGraphModel.h"
+#include "ui/common/NodeAppearance.h"
 #include "ui/theme/Theme.h"
+#include "ui/theme/ThemeManager.h"
 
 #include <QtNodes/BasicGraphicsScene>
 #include <QtNodes/GraphicsView>
@@ -302,6 +304,135 @@ TEST_F(BusModelTest, TheInputOfAModuleThatHearsSomethingElseKeepsItsOneWire)
     EXPECT_TRUE(hasEdge(description, "can_source", 0, "lua_ecu", 0));
     EXPECT_FALSE(hasEdge(description, "can_bus", 0, "lua_ecu", 0));
     EXPECT_TRUE(hasEdge(description, "lua_ecu", 0, "can_bus", 0));
+}
+
+TEST_F(BusModelTest, EachBusDroppedOnAFrameMergeIsWiredToTheNextInputItHas)
+{
+    // The one block with several inputs for frames: a bus on each, and the block behind it - a
+    // J1939 block, say - reads them all. Each drop lands on an input of its own, and none is
+    // refused for the one that the first took.
+    const auto first = add("can.bus");
+    const auto second = add("can.bus");
+    const auto third = add("can.bus");
+    const auto merge = add("can.merge");
+
+    ASSERT_TRUE(model.attachToBus(merge, first));
+    ASSERT_TRUE(model.attachToBus(merge, second));
+    ASSERT_TRUE(model.attachToBus(merge, third));
+
+    const char* mergeId = block(merge).id.c_str();
+    EXPECT_TRUE(hasEdge(description, block(first).id.c_str(), 0, mergeId, 0));
+    EXPECT_TRUE(hasEdge(description, block(second).id.c_str(), 0, mergeId, 1));
+    EXPECT_TRUE(hasEdge(description, block(third).id.c_str(), 0, mergeId, 2));
+
+    // Listening only: a merge does not speak, and what it puts out fed back onto a bus would be a
+    // loop, which is not what dropping it on a bus means.
+    EXPECT_EQ(description.edges().size(), 3U);
+
+    for (const auto bus : {first, second, third}) {
+        EXPECT_TRUE(model.busDirection(merge, bus).listens);
+        EXPECT_FALSE(model.busDirection(merge, bus).talks);
+    }
+}
+
+TEST_F(BusModelTest, AFrameMergeHasFourInputsAndAFifthBusIsRefused)
+{
+    const auto merge = add("can.merge");
+
+    std::vector<QtNodes::NodeId> buses;
+    for (int index = 0; index < 5; ++index) {
+        buses.push_back(add("can.bus"));
+    }
+
+    for (std::size_t index = 0; index < 4U; ++index) {
+        ASSERT_TRUE(model.attachToBus(merge, buses[index])) << index;
+    }
+
+    EXPECT_FALSE(model.attachToBus(merge, buses[4]));
+    EXPECT_EQ(description.edges().size(), 4U);
+    EXPECT_TRUE(model.tapsBetween(merge, buses[4]).empty());
+
+    // And it did not take the merge's output for a way to be heard on that bus.
+    EXPECT_FALSE(hasEdge(description, block(merge).id.c_str(), 0, block(buses[4]).id.c_str(), 0));
+}
+
+TEST_F(BusModelTest, AnInputThatAFrameMergeLetGoOfIsTheNextOneAWireTakes)
+{
+    const auto merge = add("can.merge");
+    const auto first = add("can.bus");
+    const auto second = add("can.bus");
+    const auto third = add("can.bus");
+    const auto fourth = add("can.bus");
+
+    ASSERT_TRUE(model.attachToBus(merge, first));
+    ASSERT_TRUE(model.attachToBus(merge, second));
+    ASSERT_TRUE(model.attachToBus(merge, third));
+
+    // The second bus goes, and with it the wire into the second input: the next to be dropped on
+    // takes that one and not the fourth.
+    model.detachFromBus(merge, second);
+    EXPECT_EQ(description.edges().size(), 2U);
+
+    ASSERT_TRUE(model.attachToBus(merge, fourth));
+    EXPECT_TRUE(hasEdge(description, block(fourth).id.c_str(), 0, block(merge).id.c_str(), 1));
+    EXPECT_EQ(description.edges().size(), 3U);
+}
+
+TEST_F(BusModelTest, AWireDrawnToAnInputOfAFrameMergeByHandStaysWhereItWasDrawn)
+{
+    const auto merge = add("can.merge");
+    const auto first = add("can.bus");
+    const auto second = add("can.bus");
+
+    // To the third input, by hand.
+    model.addConnection(QtNodes::ConnectionId{first, 0, merge, 2});
+    EXPECT_TRUE(hasEdge(description, block(first).id.c_str(), 0, block(merge).id.c_str(), 2));
+    EXPECT_EQ(description.edges().size(), 1U);
+
+    // And the drop that follows is on the first, which is free.
+    ASSERT_TRUE(model.attachToBus(merge, second));
+    EXPECT_TRUE(hasEdge(description, block(second).id.c_str(), 0, block(merge).id.c_str(), 0));
+
+    // A second wire to the input that is taken is refused, as everywhere.
+    EXPECT_FALSE(model.connectionPossible(QtNodes::ConnectionId{second, 0, merge, 2}));
+}
+
+TEST_F(BusModelTest, AFrameMergeCanBeMadeToListenToASecondBusByItsDirection)
+{
+    const auto merge = add("can.merge");
+    const auto first = add("can.bus");
+    const auto second = add("can.bus");
+
+    ASSERT_TRUE(model.attachToBus(merge, first));
+
+    // The direction control of the properties: listening to a bus that is not wired is wiring it,
+    // to an input that is free.
+    model.setBusDirection(merge, second, PipelineGraphModel::BusDirection{true, false});
+
+    EXPECT_TRUE(hasEdge(description, block(second).id.c_str(), 0, block(merge).id.c_str(), 1));
+    EXPECT_TRUE(model.busDirection(merge, second).listens);
+}
+
+TEST_F(BusModelTest, AFrameMergeFeedsTheBlockBehindItAndTheGraphIsOneThatBuilds)
+{
+    // What the project holds: a bus on each channel, the merge, and a J1939 block that reads what
+    // the merge puts out. The description the canvas makes is one the catalog accepts.
+    const auto first = add("can.bus");
+    const auto second = add("can.bus");
+    const auto merge = add("can.merge");
+    const auto j1939 = add("j1939.decoder");
+
+    ASSERT_TRUE(model.attachToBus(merge, first));
+    ASSERT_TRUE(model.attachToBus(merge, second));
+
+    // The merge's output to the block, by hand: frames to frames.
+    ASSERT_TRUE(model.connectionPossible(QtNodes::ConnectionId{merge, 0, j1939, 0}));
+    model.addConnection(QtNodes::ConnectionId{merge, 0, j1939, 0});
+
+    EXPECT_TRUE(hasEdge(description, block(merge).id.c_str(), 0, block(j1939).id.c_str(), 0));
+    EXPECT_EQ(description.edges().size(), 3U);
+
+    EXPECT_TRUE(description.validate(catalog).succeeded());
 }
 
 TEST_F(BusModelTest, AModuleCanListenOnlyOrSpeakOnlyAndNeverNeither)
@@ -1570,4 +1701,28 @@ TEST_F(CanvasBusTest, TheSameHoldsForAProjectThatIsOpenedWithEitherOrderOfTheTwo
 
         opened.releaseGraph();
     }
+}
+
+TEST(FrameMergeAppearanceTest, TheBlockHasAnIconOfItsOwnABadgeAndTheAccentOfTheOtherTransforms)
+{
+    // Not the fallbacks every unknown block gets - a block that looked like any other would be the
+    // one nobody could find on a canvas of twenty.
+    EXPECT_EQ(iconNameForNodeType(QStringLiteral("can.merge")).toStdString(), "merge");
+    EXPECT_TRUE(ThemeManager::hasIconResource(QStringLiteral("merge")));
+    EXPECT_NE(iconNameForNodeType(QStringLiteral("can.merge")),
+              iconNameForNodeType(QStringLiteral("no.such.type")));
+
+    EXPECT_EQ(shortTypeBadge("can.merge").toStdString(), "MERGE");
+
+    const Theme theme = Theme::dark();
+    EXPECT_EQ(accentForNodeType("can.merge", theme), accentForNodeType("can.filter", theme));
+    EXPECT_NE(accentForNodeType("can.merge", theme), accentForNodeType("can.source", theme));
+
+    NodeDescription merge;
+    merge.id = "merge";
+    merge.typeName = "can.merge";
+    EXPECT_EQ(nodeSubtitle(merge).toStdString(), "By timestamp");
+
+    // The palette's group for it is the one the filter is in.
+    EXPECT_EQ(iconNameForCategory(QStringLiteral("Transforms")).toStdString(), "transform");
 }

@@ -14,6 +14,7 @@
 #include "core/j1939/J1939Node.h"
 #include "core/log/LogNodes.h"
 #include "core/pipeline/nodes/DbcDecoderNode.h"
+#include "core/pipeline/nodes/FrameMergeNode.h"
 #include "core/pipeline/nodes/FrameNodes.h"
 #include "core/plot/SignalPlotNode.h"
 #include "core/scripting/LuaEcuNode.h"
@@ -818,6 +819,30 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             return Result::ok();
         },
         checkFilterParameters);
+
+    // The policy for the one thing an input will not do by itself: take two wires. See
+    // FrameMergeNode.h for what it puts in order and what it does not.
+    catalog.registerType(
+        NodeTypeInfo{
+            .typeName = "can.merge",
+            .displayName = "Frame Merge",
+            .category = "Transforms",
+            .description =
+                "Joins the frames of up to four wires into one, in the order of their "
+                "timestamps. Every frame keeps the channel it was received on, so a block that "
+                "reads several buses - the J1939 block - still knows which bus each came from.",
+            .inputs = std::vector<PortDescriptor>(FrameMergeNode::kInputPorts.begin(),
+                                                  FrameMergeNode::kInputPorts.end()),
+            .outputs = {PortDescriptor{"frames", PortType::Frames}},
+            .parameters = {},
+        },
+        [](const NodeParameters&,
+           const NodeBuildContext&,
+           std::string_view,
+           std::unique_ptr<IPipelineNode>& out) -> Result {
+            out = std::make_unique<FrameMergeNode>();
+            return Result::ok();
+        });
 
     // --- Simulation -------------------------------------------------------
 

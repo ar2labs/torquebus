@@ -212,13 +212,18 @@ Result GraphDescription::validate(const NodeCatalog& catalog) const
         // in - see PortDescriptor::fanIn - and so no stream is ever merged by a
         // rule nobody chose.
         if (!toType->inputs[edge.toPort].fanIn && ++arrivals[{to->id, edge.toPort}] > 1) {
+            // Frames have the policy written down, in a block of its own (FrameMergeNode.h); the
+            // other kinds of stream have none yet, and the message does not pretend otherwise.
+            const bool frames = toType->inputs[edge.toPort].type == PortType::Frames;
+
             return Result::error(
                 ErrorCode::InvalidArgument,
                 std::format("Two wires arrive at '{}' port {}. An input takes one, because "
-                            "merging two streams needs a policy - put a merge node between "
-                            "them when there is one.",
+                            "merging two streams needs a policy{}.",
                             to->id,
-                            edge.toPort));
+                            edge.toPort,
+                            frames ? " - wire both into a Frame Merge block and its output here"
+                                   : ""));
         }
     }
 

@@ -42,6 +42,8 @@ add_library(torquebus_core STATIC
     core/pipeline/PipelineGraph.h
     core/pipeline/PipelineGraph.cpp
     core/pipeline/nodes/FrameNodes.h
+    core/pipeline/nodes/FrameMergeNode.h
+    core/pipeline/nodes/FrameMergeNode.cpp
     core/pipeline/nodes/SignalNodes.h
     core/pipeline/nodes/DbcDecoderNode.h
     core/pipeline/nodes/DbcDecoderNode.cpp

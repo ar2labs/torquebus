@@ -263,6 +263,12 @@ private:
     /// The first frames input and output a module has, or npos.
     [[nodiscard]] std::size_t firstFramesPort(QtNodes::NodeId nodeId, bool input) const;
 
+    /// The first frames input of a module that can take a wire: one with none on it, or one that
+    /// takes any number. The first frames input when every one is taken, so that a drop on a module
+    /// with a single input is tried - and refused - as it always was; npos when it has none. A
+    /// Frame Merge has four, and each bus dropped on it is wired to the next.
+    [[nodiscard]] std::size_t firstFreeFramesInput(QtNodes::NodeId nodeId) const;
+
     [[nodiscard]] double blockWidth(const NodeDescription& block) const;
 
     /// The furthest right a rail may start so that it still covers its modules.

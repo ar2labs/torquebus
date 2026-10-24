@@ -52,6 +52,9 @@ QString iconNameForNodeType(const QString& typeName)
     if (typeName == QLatin1String("can.filter")) {
         return QStringLiteral("filter");
     }
+    if (typeName == QLatin1String("can.merge")) {
+        return QStringLiteral("merge");
+    }
     if (typeName == QLatin1String("dbc.decoder")) {
         return QStringLiteral("database");
     }
@@ -120,6 +123,9 @@ QString shortTypeBadge(std::string_view typeName)
     if (typeName == "can.filter") {
         return QStringLiteral("FILTER");
     }
+    if (typeName == "can.merge") {
+        return QStringLiteral("MERGE");
+    }
     if (typeName == "uds.client") {
         return QStringLiteral("UDS");
     }
@@ -158,7 +164,8 @@ QColor accentForNodeType(std::string_view typeName, const Theme& theme)
     if (typeName == "dbc.decoder" || typeName == "j1939.decoder" || typeName == "signal.plot") {
         return theme.success;
     }
-    if (typeName == "can.filter" || typeName == "uds.client" || typeName == "isotp.transport") {
+    if (typeName == "can.filter" || typeName == "can.merge" || typeName == "uds.client"
+        || typeName == "isotp.transport") {
         return theme.warning;
     }
     return theme.accent;
@@ -275,6 +282,9 @@ QString nodeSubtitle(const NodeDescription& node)
     }
     if (node.typeName == "signal.plot") {
         return QStringLiteral("Time-Series Sink");
+    }
+    if (node.typeName == "can.merge") {
+        return QStringLiteral("By timestamp");
     }
     return {};
 }

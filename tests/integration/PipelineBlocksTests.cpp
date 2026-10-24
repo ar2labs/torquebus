@@ -173,6 +173,25 @@ producer(const std::string& type, NodeParameters parameters, std::set<std::uint3
                               false);
          }},
 
+        {"can.merge",
+         // Two producers into two of its four inputs - not the first two - and what comes out
+         // onto the bus: the transmit list's 0x400 and the recording's 0x555, which nothing else
+         // puts there.
+         [](const Files& files) {
+             Recipe recipe;
+             recipe.mustAppear = {0x400, 0x555};
+             recipe.transmitRow = true;
+
+             recipe.graph.addNode(block("list", "transmit.list", {}, 0, 0));
+             recipe.graph.addNode(block("replay", "log.source", text("path", files.log), 0, 140));
+             recipe.graph.addNode(block("under_test", "can.merge", {}, 200, 70));
+             recipe.graph.addNode(block("sink", "can.transmit", {}, 400, 70));
+             recipe.graph.addEdge(EdgeDescription{"list", 0, "under_test", 1});
+             recipe.graph.addEdge(EdgeDescription{"replay", 0, "under_test", 3});
+             recipe.graph.addEdge(EdgeDescription{"under_test", 0, "sink", 0});
+             return recipe;
+         }},
+
         {"can.bus",
          [](const Files&) {
              Recipe recipe;
@@ -488,6 +507,11 @@ TEST_F(BlocksTest, TraceSink)
 TEST_F(BlocksTest, CanFilter)
 {
     run("can.filter");
+}
+
+TEST_F(BlocksTest, CanMerge)
+{
+    run("can.merge");
 }
 
 TEST_F(BlocksTest, LuaEcu)

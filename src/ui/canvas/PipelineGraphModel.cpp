@@ -335,6 +335,33 @@ std::size_t PipelineGraphModel::firstFramesPort(QtNodes::NodeId nodeId, bool inp
     return kNoPort;
 }
 
+std::size_t PipelineGraphModel::firstFreeFramesInput(QtNodes::NodeId nodeId) const
+{
+    const NodeTypeInfo* type = typeInfo(nodeId);
+    if (type == nullptr) {
+        return kNoPort;
+    }
+
+    std::size_t first = kNoPort;
+
+    for (std::size_t index = 0; index < type->inputs.size(); ++index) {
+        const PortDescriptor& port = type->inputs[index];
+        if (port.type != PortType::Frames) {
+            continue;
+        }
+
+        first = first == kNoPort ? index : first;
+
+        if (port.fanIn
+            || connections(nodeId, QtNodes::PortType::In, static_cast<QtNodes::PortIndex>(index))
+                   .empty()) {
+            return index;
+        }
+    }
+
+    return first;
+}
+
 bool PipelineGraphModel::completionOf(QtNodes::ConnectionId connectionId,
                                       QtNodes::ConnectionId& completion) const
 {
@@ -979,7 +1006,9 @@ bool PipelineGraphModel::attachToBus(QtNodes::NodeId module, QtNodes::NodeId bus
         return true; // Already on it.
     }
 
-    const std::size_t input = firstFramesPort(module, true);
+    // The first input with room on it: a module with several - the Frame Merge - is wired to the
+    // next one by each bus it is dropped on, and not refused for the one that the first took.
+    const std::size_t input = firstFreeFramesInput(module);
     const std::size_t output = firstFramesPort(module, false);
 
     // Listening first, because every module that is on a bus is listening to it
@@ -1053,7 +1082,7 @@ void PipelineGraphModel::setBusDirection(QtNodes::NodeId module,
         direction.listens = true;
     }
 
-    const std::size_t input = firstFramesPort(module, true);
+    const std::size_t input = firstFreeFramesInput(module);
     const std::size_t output = firstFramesPort(module, false);
     const BusDirection now = busDirection(module, bus);
 
