@@ -210,7 +210,8 @@ namespace {
         return TransmitTreeModel::tr("multiplexer switch");
     }
     if (signal.multiplexerValue.has_value()) {
-        return TransmitTreeModel::tr("present when the switch reads %1").arg(*signal.multiplexerValue);
+        return TransmitTreeModel::tr("present when the switch reads %1")
+            .arg(*signal.multiplexerValue);
     }
     return {};
 }
@@ -506,8 +507,8 @@ QVariant TransmitTreeModel::data(const QModelIndex& index, int role) const
             } else {
                 parentName = tr("Message");
             }
-            return QStringLiteral("%1 · %2")
-                .arg(parentName, QString::fromStdString(node->dbSignal->name));
+            return QStringLiteral("%1 · %2").arg(parentName,
+                                                 QString::fromStdString(node->dbSignal->name));
         }
         return {};
     }
@@ -521,7 +522,7 @@ QVariant TransmitTreeModel::data(const QModelIndex& index, int role) const
             const CanMessage* dbMsg = node->dbMessage;
             QStringList metaParts;
             QString fmtStr = entry.frame.isExtended() ? QStringLiteral("Extended (29-bit)")
-                                                     : QStringLiteral("Standard (11-bit)");
+                                                      : QStringLiteral("Standard (11-bit)");
             if (entry.frame.fd) {
                 fmtStr += QStringLiteral(" FD");
             }
@@ -533,11 +534,13 @@ QVariant TransmitTreeModel::data(const QModelIndex& index, int role) const
             } else {
                 metaParts << tr("Trigger: Manual");
             }
-            if (dbMsg != nullptr && !dbMsg->transmitter.empty() && dbMsg->transmitter != "Vector__XXX") {
+            if (dbMsg != nullptr && !dbMsg->transmitter.empty()
+                && dbMsg->transmitter != "Vector__XXX") {
                 metaParts << tr("Sent by %1").arg(QString::fromStdString(dbMsg->transmitter));
             }
             if (dbMsg != nullptr && !dbMsg->signalList.empty()) {
-                metaParts << tr("%n signal(s)", nullptr, static_cast<int>(dbMsg->signalList.size()));
+                metaParts << tr(
+                    "%n signal(s)", nullptr, static_cast<int>(dbMsg->signalList.size()));
             }
             return metaParts.join(QStringLiteral(" · "));
         }
@@ -615,7 +618,9 @@ QVariant TransmitTreeModel::data(const QModelIndex& index, int role) const
                 }
                 QString preview = tr("Signals: %1").arg(sigNames.join(QStringLiteral(", ")));
                 if (static_cast<int>(dbMsg->signalList.size()) > kMaxPreviewSignals) {
-                    preview += tr(" (+%1 more)").arg(static_cast<int>(dbMsg->signalList.size()) - kMaxPreviewSignals);
+                    preview +=
+                        tr(" (+%1 more)")
+                            .arg(static_cast<int>(dbMsg->signalList.size()) - kMaxPreviewSignals);
                 }
                 return preview;
             }

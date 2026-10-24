@@ -27,8 +27,8 @@
 #include <QScrollBar>
 #include <QStringList>
 #include <QTimer>
-#include <QToolTip>
 #include <QToolBar>
+#include <QToolTip>
 #include <QTreeView>
 #include <QVBoxLayout>
 
@@ -197,9 +197,7 @@ void TransmitPanel::buildUi()
     connect(m_treeView->horizontalScrollBar(), &QScrollBar::valueChanged, this, [this] {
         hideSymbolCard();
     });
-    connect(m_filterEdit, &QLineEdit::textChanged, this, [this] {
-        hideSymbolCard();
-    });
+    connect(m_filterEdit, &QLineEdit::textChanged, this, [this] { hideSymbolCard(); });
 
     m_status = new QLabel(this);
     m_status->setObjectName(QStringLiteral("panelStatus"));
@@ -429,9 +427,9 @@ void TransmitPanel::keyPressEvent(QKeyEvent* event)
 {
     if (event->key() == Qt::Key_Space) {
         const QWidget* focus = QApplication::focusWidget();
-        const bool isEditorActive = (m_treeView != nullptr && focus != nullptr
-                                     && focus != m_treeView && focus != m_treeView->viewport()
-                                     && m_treeView->isAncestorOf(focus));
+        const bool isEditorActive =
+            (m_treeView != nullptr && focus != nullptr && focus != m_treeView
+             && focus != m_treeView->viewport() && m_treeView->isAncestorOf(focus));
         if (!isEditorActive) {
             onSendSelected();
             event->accept();
@@ -440,9 +438,9 @@ void TransmitPanel::keyPressEvent(QKeyEvent* event)
     }
     if (event->key() == Qt::Key_Delete) {
         const QWidget* focus = QApplication::focusWidget();
-        const bool isEditorActive = (m_treeView != nullptr && focus != nullptr
-                                     && focus != m_treeView && focus != m_treeView->viewport()
-                                     && m_treeView->isAncestorOf(focus));
+        const bool isEditorActive =
+            (m_treeView != nullptr && focus != nullptr && focus != m_treeView
+             && focus != m_treeView->viewport() && m_treeView->isAncestorOf(focus));
         if (!isEditorActive) {
             onRemove();
             event->accept();
@@ -524,8 +522,8 @@ void TransmitPanel::onThemeChanged()
 void TransmitPanel::buildSymbolCard()
 {
     m_symbolCard = new QFrame(this,
-                               Qt::ToolTip | Qt::FramelessWindowHint | Qt::WindowTransparentForInput
-                                   | Qt::WindowDoesNotAcceptFocus);
+                              Qt::ToolTip | Qt::FramelessWindowHint | Qt::WindowTransparentForInput
+                                  | Qt::WindowDoesNotAcceptFocus);
     m_symbolCard->setObjectName(QStringLiteral("transmitSymbolCard"));
     m_symbolCard->setAttribute(Qt::WA_ShowWithoutActivating, true);
     m_symbolCard->setAttribute(Qt::WA_TransparentForMouseEvents, true);
@@ -659,18 +657,18 @@ bool TransmitPanel::eventFilter(QObject* watched, QEvent* event)
                 auto* keyEvent = static_cast<QKeyEvent*>(event);
                 if (keyEvent->key() == Qt::Key_Space) {
                     const QWidget* focus = QApplication::focusWidget();
-                    const bool isEditorActive = (focus != nullptr && focus != m_treeView
-                                                 && focus != m_treeView->viewport()
-                                                 && m_treeView->isAncestorOf(focus));
+                    const bool isEditorActive =
+                        (focus != nullptr && focus != m_treeView && focus != m_treeView->viewport()
+                         && m_treeView->isAncestorOf(focus));
                     if (!isEditorActive) {
                         onSendSelected();
                         return true;
                     }
                 } else if (keyEvent->key() == Qt::Key_Delete) {
                     const QWidget* focus = QApplication::focusWidget();
-                    const bool isEditorActive = (focus != nullptr && focus != m_treeView
-                                                 && focus != m_treeView->viewport()
-                                                 && m_treeView->isAncestorOf(focus));
+                    const bool isEditorActive =
+                        (focus != nullptr && focus != m_treeView && focus != m_treeView->viewport()
+                         && m_treeView->isAncestorOf(focus));
                     if (!isEditorActive) {
                         onRemove();
                         return true;

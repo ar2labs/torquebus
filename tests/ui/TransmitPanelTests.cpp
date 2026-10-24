@@ -468,10 +468,12 @@ TEST_F(TransmitPanelTest, SymbolCardHoverProvidesRichDetailsForMessageAndSignal)
         model()->index(2, TransmitTreeModel::ColumnSymbol, model()->index(0, 0));
     ASSERT_TRUE(sigMonthIdx.isValid());
 
-    const QString sigTitle = model()->data(sigMonthIdx, TransmitTreeModel::kCardTitleRole).toString();
+    const QString sigTitle =
+        model()->data(sigMonthIdx, TransmitTreeModel::kCardTitleRole).toString();
     const QString sigMeta = model()->data(sigMonthIdx, TransmitTreeModel::kCardMetaRole).toString();
     const QString sigBody = model()->data(sigMonthIdx, TransmitTreeModel::kCardBodyRole).toString();
-    const QString sigValues = model()->data(sigMonthIdx, TransmitTreeModel::kCardValuesRole).toString();
+    const QString sigValues =
+        model()->data(sigMonthIdx, TransmitTreeModel::kCardValuesRole).toString();
 
     EXPECT_EQ(sigTitle, QStringLiteral("Out_RTC_SetTime · RTC_SetMonth"));
     EXPECT_TRUE(sigMeta.contains("40|8 Intel unsigned"));
@@ -559,7 +561,8 @@ TEST_F(TransmitPanelTest, SpaceKeyOnSignalChildRowSendsParentMessage)
     const QModelIndex sigIdx = model()->index(0, 0, parentIdx);
     ASSERT_TRUE(sigIdx.isValid());
     tree()->setCurrentIndex(sigIdx);
-    tree()->selectionModel()->select(sigIdx, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+    tree()->selectionModel()->select(
+        sigIdx, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
     settle();
 
     QStringList reports;
