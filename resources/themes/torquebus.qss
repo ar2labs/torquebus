@@ -838,6 +838,46 @@ QLabel[torquebusRole="panelHeading"] {
     padding: 3px 6px;
 }
 
+/* Hover card in the DBC Explorer and Transmit Panel when reading symbol / comment descriptions. */
+QFrame#dbcCommentCard,
+QFrame#transmitSymbolCard {
+    background-color: @toolbar;
+    border: 1px solid @accent;
+    border-radius: 3px;
+}
+
+QFrame#dbcCommentCard QLabel,
+QFrame#transmitSymbolCard QLabel {
+    background: transparent;
+    border: none;
+}
+
+QLabel#dbcCommentCardTitle,
+QLabel#transmitSymbolCardTitle {
+    color: @text;
+    font-weight: 600;
+}
+
+QLabel#dbcCommentCardMeta,
+QLabel#transmitSymbolCardMeta {
+    color: @textMuted;
+    border-bottom: 1px solid @border;
+    padding-bottom: 4px;
+}
+
+QLabel#dbcCommentCardBody,
+QLabel#transmitSymbolCardBody {
+    color: @text;
+    padding-top: 2px;
+}
+
+QLabel#dbcCommentCardValues,
+QLabel#transmitSymbolCardValues {
+    color: @textMuted;
+    border-top: 1px solid @border;
+    padding-top: 4px;
+}
+
 /* ------------------------------------------------------- preferences --- */
 /*
  * The one dialog in the application that is not dense. Everywhere else the

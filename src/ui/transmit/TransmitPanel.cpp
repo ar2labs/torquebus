@@ -13,13 +13,21 @@
 #include "ui/transmit/TransmitTreeModel.h"
 
 #include <QAction>
+#include <QApplication>
+#include <QFrame>
+#include <QGuiApplication>
 #include <QHeaderView>
+#include <QHelpEvent>
 #include <QInputDialog>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMouseEvent>
+#include <QScreen>
+#include <QScrollBar>
 #include <QStringList>
 #include <QTimer>
+#include <QToolTip>
 #include <QToolBar>
 #include <QTreeView>
 #include <QVBoxLayout>
@@ -98,6 +106,8 @@ void TransmitPanel::buildUi()
 
     m_actionSend = new QAction(icon("transmit"), tr("Send"), this);
     m_actionSend->setToolTip(tr("Send the selected row once, now (Space)."));
+    m_actionSend->setShortcut(QKeySequence(Qt::Key_Space));
+    m_actionSend->setShortcutContext(Qt::WidgetShortcut);
     connect(m_actionSend, &QAction::triggered, this, &TransmitPanel::onSendSelected);
 
     m_actionEditSignals = new QAction(icon("properties"), tr("Signals..."), this);
@@ -164,6 +174,11 @@ void TransmitPanel::buildUi()
     m_treeView->setExpandsOnDoubleClick(true);
     m_treeView->header()->setStretchLastSection(true);
     m_treeView->header()->setHighlightSections(false);
+    m_treeView->setMouseTracking(true);
+    m_treeView->viewport()->setMouseTracking(true);
+    m_treeView->viewport()->installEventFilter(this);
+    m_treeView->installEventFilter(this);
+    m_treeView->addAction(m_actionSend);
 
     for (int col = 0; col < TransmitColumnCount; ++col) {
         m_treeView->setColumnWidth(col, kTransmitColumnWidths[col]);
@@ -171,6 +186,19 @@ void TransmitPanel::buildUi()
 
     connect(m_treeView->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this] {
         updateActionState();
+    });
+    connect(m_treeView->selectionModel(), &QItemSelectionModel::currentChanged, this, [this] {
+        updateActionState();
+    });
+
+    connect(m_treeView->verticalScrollBar(), &QScrollBar::valueChanged, this, [this] {
+        hideSymbolCard();
+    });
+    connect(m_treeView->horizontalScrollBar(), &QScrollBar::valueChanged, this, [this] {
+        hideSymbolCard();
+    });
+    connect(m_filterEdit, &QLineEdit::textChanged, this, [this] {
+        hideSymbolCard();
     });
 
     m_status = new QLabel(this);
@@ -182,6 +210,8 @@ void TransmitPanel::buildUi()
     layout->addWidget(m_toolBar);
     layout->addWidget(m_treeView, 1);
     layout->addWidget(m_status);
+
+    buildSymbolCard();
 }
 
 void TransmitPanel::setDatabases(std::vector<std::shared_ptr<const CanDatabase>> databases)
@@ -194,9 +224,28 @@ void TransmitPanel::setDatabases(std::vector<std::shared_ptr<const CanDatabase>>
 
 void TransmitPanel::reload()
 {
+    hideSymbolCard();
     m_treeModel->reload();
     m_status->setText(tr("%n row(s)", nullptr, static_cast<int>(m_list.size())));
     updateActionState();
+}
+
+void TransmitPanel::selectEntry(int index)
+{
+    if (m_treeView == nullptr || m_treeModel == nullptr || m_proxyModel == nullptr) {
+        return;
+    }
+
+    const QModelIndex srcIdx = m_treeModel->index(index, 0);
+    if (!srcIdx.isValid()) {
+        return;
+    }
+
+    const QModelIndex proxyIdx = m_proxyModel->mapFromSource(srcIdx);
+    if (proxyIdx.isValid()) {
+        m_treeView->setCurrentIndex(proxyIdx);
+        m_treeView->scrollTo(proxyIdx, QAbstractItemView::PositionAtCenter);
+    }
 }
 
 void TransmitPanel::refreshCounters()
@@ -281,6 +330,7 @@ void TransmitPanel::onAddFromMessage()
 
 void TransmitPanel::onRemove()
 {
+    hideSymbolCard();
     const int row = selectedMessageIndex();
     if (row < 0) {
         return;
@@ -361,6 +411,7 @@ void TransmitPanel::onEditSignals()
 
 void TransmitPanel::onExpandAll()
 {
+    hideSymbolCard();
     if (m_treeView != nullptr) {
         m_treeView->expandAll();
     }
@@ -368,6 +419,7 @@ void TransmitPanel::onExpandAll()
 
 void TransmitPanel::onCollapseAll()
 {
+    hideSymbolCard();
     if (m_treeView != nullptr) {
         m_treeView->collapseAll();
     }
@@ -376,14 +428,26 @@ void TransmitPanel::onCollapseAll()
 void TransmitPanel::keyPressEvent(QKeyEvent* event)
 {
     if (event->key() == Qt::Key_Space) {
-        onSendSelected();
-        event->accept();
-        return;
+        const QWidget* focus = QApplication::focusWidget();
+        const bool isEditorActive = (m_treeView != nullptr && focus != nullptr
+                                     && focus != m_treeView && focus != m_treeView->viewport()
+                                     && m_treeView->isAncestorOf(focus));
+        if (!isEditorActive) {
+            onSendSelected();
+            event->accept();
+            return;
+        }
     }
     if (event->key() == Qt::Key_Delete) {
-        onRemove();
-        event->accept();
-        return;
+        const QWidget* focus = QApplication::focusWidget();
+        const bool isEditorActive = (m_treeView != nullptr && focus != nullptr
+                                     && focus != m_treeView && focus != m_treeView->viewport()
+                                     && m_treeView->isAncestorOf(focus));
+        if (!isEditorActive) {
+            onRemove();
+            event->accept();
+            return;
+        }
     }
     QWidget::keyPressEvent(event);
 }
@@ -407,12 +471,21 @@ int TransmitPanel::selectedMessageIndex() const
         return -1;
     }
 
+    QModelIndex proxyIdx;
     const QModelIndexList selected = m_treeView->selectionModel()->selectedRows();
-    if (selected.isEmpty()) {
+    if (!selected.isEmpty()) {
+        proxyIdx = selected.front();
+    } else if (!m_treeView->selectionModel()->selectedIndexes().isEmpty()) {
+        proxyIdx = m_treeView->selectionModel()->selectedIndexes().front();
+    } else {
+        proxyIdx = m_treeView->currentIndex();
+    }
+
+    if (!proxyIdx.isValid()) {
         return -1;
     }
 
-    const QModelIndex srcIdx = m_proxyModel->mapToSource(selected.front());
+    const QModelIndex srcIdx = m_proxyModel->mapToSource(proxyIdx);
     if (!srcIdx.isValid()) {
         return -1;
     }
@@ -421,8 +494,11 @@ int TransmitPanel::selectedMessageIndex() const
     if (nodeType == 1) {
         return srcIdx.data(TransmitTreeModel::kEntryIndexRole).toInt();
     }
-    if (nodeType == 2 && srcIdx.parent().isValid()) {
-        return srcIdx.parent().data(TransmitTreeModel::kEntryIndexRole).toInt();
+    if (nodeType == 2) {
+        if (srcIdx.parent().isValid()) {
+            return srcIdx.parent().data(TransmitTreeModel::kEntryIndexRole).toInt();
+        }
+        return srcIdx.data(TransmitTreeModel::kEntryIndexRole).toInt();
     }
 
     return -1;
@@ -443,6 +519,202 @@ void TransmitPanel::onThemeChanged()
     if (m_treeView != nullptr) {
         m_treeView->viewport()->update();
     }
+}
+
+void TransmitPanel::buildSymbolCard()
+{
+    m_symbolCard = new QFrame(this,
+                               Qt::ToolTip | Qt::FramelessWindowHint | Qt::WindowTransparentForInput
+                                   | Qt::WindowDoesNotAcceptFocus);
+    m_symbolCard->setObjectName(QStringLiteral("transmitSymbolCard"));
+    m_symbolCard->setAttribute(Qt::WA_ShowWithoutActivating, true);
+    m_symbolCard->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    m_symbolCard->setMinimumWidth(300);
+    m_symbolCard->setMaximumWidth(440);
+
+    auto* cardLayout = new QVBoxLayout(m_symbolCard);
+    cardLayout->setContentsMargins(10, 8, 10, 8);
+    cardLayout->setSpacing(4);
+
+    m_cardTitle = new QLabel(m_symbolCard);
+    m_cardTitle->setObjectName(QStringLiteral("transmitSymbolCardTitle"));
+    m_cardTitle->setWordWrap(true);
+    m_cardTitle->setTextFormat(Qt::PlainText);
+
+    m_cardMeta = new QLabel(m_symbolCard);
+    m_cardMeta->setObjectName(QStringLiteral("transmitSymbolCardMeta"));
+    m_cardMeta->setWordWrap(true);
+    m_cardMeta->setTextFormat(Qt::PlainText);
+
+    m_cardBody = new QLabel(m_symbolCard);
+    m_cardBody->setObjectName(QStringLiteral("transmitSymbolCardBody"));
+    m_cardBody->setWordWrap(true);
+    m_cardBody->setTextFormat(Qt::PlainText);
+
+    m_cardValues = new QLabel(m_symbolCard);
+    m_cardValues->setObjectName(QStringLiteral("transmitSymbolCardValues"));
+    m_cardValues->setWordWrap(true);
+    m_cardValues->setTextFormat(Qt::PlainText);
+
+    cardLayout->addWidget(m_cardTitle);
+    cardLayout->addWidget(m_cardMeta);
+    cardLayout->addWidget(m_cardBody);
+    cardLayout->addWidget(m_cardValues);
+
+    m_symbolCard->hide();
+}
+
+void TransmitPanel::updateSymbolCardAt(const QPoint& viewportPos)
+{
+    if (m_treeView == nullptr || m_symbolCard == nullptr) {
+        return;
+    }
+
+    const QModelIndex proxyIndex = m_treeView->indexAt(viewportPos);
+    if (!proxyIndex.isValid() || proxyIndex.column() != ColumnSymbol) {
+        hideSymbolCard();
+        return;
+    }
+
+    const QString title = proxyIndex.data(TransmitTreeModel::kCardTitleRole).toString();
+    const QString meta = proxyIndex.data(TransmitTreeModel::kCardMetaRole).toString();
+    const QString body = proxyIndex.data(TransmitTreeModel::kCardBodyRole).toString();
+    const QString values = proxyIndex.data(TransmitTreeModel::kCardValuesRole).toString();
+
+    if (title.isEmpty() && meta.isEmpty() && body.isEmpty() && values.isEmpty()) {
+        hideSymbolCard();
+        return;
+    }
+
+    if (m_hoveredSymbolIndex != proxyIndex) {
+        m_hoveredSymbolIndex = proxyIndex;
+
+        m_cardTitle->setText(title);
+        m_cardTitle->setVisible(!title.isEmpty());
+
+        m_cardMeta->setText(meta);
+        m_cardMeta->setVisible(!meta.isEmpty());
+
+        if (!body.isEmpty()) {
+            m_cardBody->setText(body);
+            m_cardBody->setVisible(true);
+            m_cardValues->setText(values);
+            m_cardValues->setVisible(!values.isEmpty());
+        } else if (!values.isEmpty()) {
+            m_cardBody->setText(values);
+            m_cardBody->setVisible(true);
+            m_cardValues->clear();
+            m_cardValues->setVisible(false);
+        } else {
+            m_cardBody->clear();
+            m_cardBody->setVisible(false);
+            m_cardValues->clear();
+            m_cardValues->setVisible(false);
+        }
+
+        if (m_symbolCard->layout() != nullptr) {
+            m_symbolCard->layout()->activate();
+        }
+        m_symbolCard->adjustSize();
+    }
+
+    const QRect cellRect = m_treeView->visualRect(proxyIndex);
+    const QPoint globalCursor = m_treeView->viewport()->mapToGlobal(viewportPos);
+    const QPoint cellBottomLeft = m_treeView->viewport()->mapToGlobal(cellRect.bottomLeft());
+    const QPoint cellTopLeft = m_treeView->viewport()->mapToGlobal(cellRect.topLeft());
+
+    const QSize cardSize = m_symbolCard->sizeHint().expandedTo(m_symbolCard->minimumSize());
+    int x = std::max(cellBottomLeft.x(), globalCursor.x() - 24);
+    int y = cellBottomLeft.y() + 6;
+
+    if (const QScreen* screen = QGuiApplication::screenAt(globalCursor)) {
+        const QRect avail = screen->availableGeometry();
+        if (x + cardSize.width() > avail.right() - 8) {
+            x = std::max(avail.left() + 8, avail.right() - cardSize.width() - 8);
+        }
+        if (y + cardSize.height() > avail.bottom() - 8) {
+            y = std::max(avail.top() + 8, cellTopLeft.y() - cardSize.height() - 6);
+        }
+    }
+
+    m_symbolCard->move(x, y);
+    if (!m_symbolCard->isVisible()) {
+        m_symbolCard->show();
+    }
+}
+
+void TransmitPanel::hideSymbolCard()
+{
+    m_hoveredSymbolIndex = {};
+    if (m_symbolCard != nullptr && m_symbolCard->isVisible()) {
+        m_symbolCard->hide();
+    }
+}
+
+bool TransmitPanel::eventFilter(QObject* watched, QEvent* event)
+{
+    if (m_treeView != nullptr && event != nullptr) {
+        if (watched == m_treeView || watched == m_treeView->viewport()) {
+            if (event->type() == QEvent::KeyPress) {
+                auto* keyEvent = static_cast<QKeyEvent*>(event);
+                if (keyEvent->key() == Qt::Key_Space) {
+                    const QWidget* focus = QApplication::focusWidget();
+                    const bool isEditorActive = (focus != nullptr && focus != m_treeView
+                                                 && focus != m_treeView->viewport()
+                                                 && m_treeView->isAncestorOf(focus));
+                    if (!isEditorActive) {
+                        onSendSelected();
+                        return true;
+                    }
+                } else if (keyEvent->key() == Qt::Key_Delete) {
+                    const QWidget* focus = QApplication::focusWidget();
+                    const bool isEditorActive = (focus != nullptr && focus != m_treeView
+                                                 && focus != m_treeView->viewport()
+                                                 && m_treeView->isAncestorOf(focus));
+                    if (!isEditorActive) {
+                        onRemove();
+                        return true;
+                    }
+                }
+            }
+        }
+
+        if (watched == m_treeView->viewport()) {
+            switch (event->type()) {
+            case QEvent::MouseMove: {
+                const auto* mouseEvent = static_cast<QMouseEvent*>(event);
+                updateSymbolCardAt(mouseEvent->pos());
+                break;
+            }
+            case QEvent::ToolTip: {
+                const auto* helpEvent = static_cast<QHelpEvent*>(event);
+                const QModelIndex idx = m_treeView->indexAt(helpEvent->pos());
+                if (idx.isValid() && idx.column() == ColumnSymbol) {
+                    updateSymbolCardAt(helpEvent->pos());
+                    QToolTip::hideText();
+                    return true;
+                }
+                hideSymbolCard();
+                break;
+            }
+            case QEvent::Leave:
+            case QEvent::Wheel:
+            case QEvent::Hide:
+                hideSymbolCard();
+                break;
+            default:
+                break;
+            }
+        }
+    }
+
+    return QWidget::eventFilter(watched, event);
+}
+
+void TransmitPanel::hideEvent(QHideEvent* event)
+{
+    hideSymbolCard();
+    QWidget::hideEvent(event);
 }
 
 } // namespace torquebus::ui

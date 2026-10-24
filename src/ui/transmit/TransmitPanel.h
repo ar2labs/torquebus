@@ -10,6 +10,7 @@
 #include "core/database/CanMessage.h"
 #include "core/transmit/TransmitEntry.h"
 
+#include <QPersistentModelIndex>
 #include <QString>
 #include <QWidget>
 
@@ -17,6 +18,7 @@
 #include <vector>
 
 class QAction;
+class QFrame;
 class QLabel;
 class QLineEdit;
 class QTimer;
@@ -45,6 +47,9 @@ public:
     /// Rebuilds every row from the list.
     void reload();
 
+    /// Selects and scrolls to the row at `index` in the transmit list.
+    void selectEntry(int index);
+
     /// Tells the panel whether a measurement is running. Send only transmits on
     /// a running bus; without this the button would queue a frame that is
     /// dropped when the measurement starts, and appear to do nothing.
@@ -59,6 +64,8 @@ Q_SIGNALS:
 
 protected:
     void keyPressEvent(QKeyEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private Q_SLOTS:
     void onAdd();
@@ -73,6 +80,9 @@ private Q_SLOTS:
 
 private:
     void buildUi();
+    void buildSymbolCard();
+    void updateSymbolCardAt(const QPoint& viewportPos);
+    void hideSymbolCard();
     void updateActionState();
     [[nodiscard]] int selectedMessageIndex() const;
 
@@ -83,6 +93,13 @@ private:
     TransmitTreeModel* m_treeModel{nullptr};
     TransmitTreeFilterModel* m_proxyModel{nullptr};
     QTreeView* m_treeView{nullptr};
+
+    QFrame* m_symbolCard{nullptr};
+    QLabel* m_cardTitle{nullptr};
+    QLabel* m_cardMeta{nullptr};
+    QLabel* m_cardBody{nullptr};
+    QLabel* m_cardValues{nullptr};
+    QPersistentModelIndex m_hoveredSymbolIndex;
 
     QToolBar* m_toolBar{nullptr};
     QLineEdit* m_filterEdit{nullptr};

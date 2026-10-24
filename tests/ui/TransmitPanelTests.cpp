@@ -11,6 +11,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QKeyEvent>
 #include <QLineEdit>
 #include <QStringList>
 #include <QTreeView>
@@ -37,6 +38,9 @@ std::shared_ptr<CanDatabase> makeTestDatabase()
     msg.format = CanFrameFormat::Standard;
     msg.name = "Out_RTC_SetTime";
     msg.length = 8;
+    msg.comment = "Time synchronization broadcast frame.";
+    msg.transmitter = "RTC_ECU";
+    msg.cycleTimeMs = 500;
 
     CanSignal sigSec;
     sigSec.name = "RTC_SetSec";
@@ -57,6 +61,7 @@ std::shared_ptr<CanDatabase> makeTestDatabase()
     sigMonth.startBit = 40;
     sigMonth.bitLength = 8;
     sigMonth.byteOrder = ByteOrder::Intel;
+    sigMonth.comment = "Current month of year (1-12).";
     sigMonth.valueNames.push_back(SignalValueName{11, "November"});
     msg.signalList.push_back(sigMonth);
 
@@ -419,4 +424,161 @@ TEST_F(TransmitPanelTest, EditingSignalValueWithUnitUpdatesMessageBytesAndDispla
     EXPECT_EQ(model()->data(sigData, Qt::DisplayRole).toString(), QStringLiteral("= 1000 rpm"));
     EXPECT_TRUE(
         model()->data(msgData, Qt::DisplayRole).toString().startsWith(QStringLiteral("40 1F 00")));
+}
+
+TEST_F(TransmitPanelTest, SymbolCardHoverProvidesRichDetailsForMessageAndSignal)
+{
+    auto db = makeTestDatabase();
+    panel.setDatabases({db});
+
+    TransmitEntry entry;
+    entry.name = "Out_RTC_SetTime";
+    entry.messageName = "Out_RTC_SetTime";
+    entry.frame.identifier = 0x655;
+    entry.frame.length = 8;
+    entry.cycleMs = 500;
+    entry.trigger = TransmitTrigger::Periodic;
+    list.add(entry);
+    panel.reload();
+    settle();
+
+    ASSERT_EQ(model()->rowCount(), 1);
+    const QModelIndex msgIdx = model()->index(0, TransmitTreeModel::ColumnSymbol, QModelIndex());
+    ASSERT_TRUE(msgIdx.isValid());
+
+    // Message row checks
+    const QString msgTitle = model()->data(msgIdx, TransmitTreeModel::kCardTitleRole).toString();
+    const QString msgMeta = model()->data(msgIdx, TransmitTreeModel::kCardMetaRole).toString();
+    const QString msgBody = model()->data(msgIdx, TransmitTreeModel::kCardBodyRole).toString();
+    const QString msgValues = model()->data(msgIdx, TransmitTreeModel::kCardValuesRole).toString();
+
+    EXPECT_TRUE(msgTitle.contains("Out_RTC_SetTime"));
+    EXPECT_TRUE(msgTitle.contains("655"));
+    EXPECT_TRUE(msgMeta.contains("Standard (11-bit)"));
+    EXPECT_TRUE(msgMeta.contains("Bus 1"));
+    EXPECT_TRUE(msgMeta.contains("8 bytes"));
+    EXPECT_TRUE(msgMeta.contains("500 ms"));
+    EXPECT_TRUE(msgMeta.contains("RTC_ECU"));
+    EXPECT_TRUE(msgMeta.contains("3 signal(s)"));
+    EXPECT_EQ(msgBody, QStringLiteral("Time synchronization broadcast frame."));
+    EXPECT_TRUE(msgValues.contains("RTC_SetSec"));
+
+    // Signal row checks (sigMonth has comment and valueNames)
+    const QModelIndex sigMonthIdx =
+        model()->index(2, TransmitTreeModel::ColumnSymbol, model()->index(0, 0));
+    ASSERT_TRUE(sigMonthIdx.isValid());
+
+    const QString sigTitle = model()->data(sigMonthIdx, TransmitTreeModel::kCardTitleRole).toString();
+    const QString sigMeta = model()->data(sigMonthIdx, TransmitTreeModel::kCardMetaRole).toString();
+    const QString sigBody = model()->data(sigMonthIdx, TransmitTreeModel::kCardBodyRole).toString();
+    const QString sigValues = model()->data(sigMonthIdx, TransmitTreeModel::kCardValuesRole).toString();
+
+    EXPECT_EQ(sigTitle, QStringLiteral("Out_RTC_SetTime · RTC_SetMonth"));
+    EXPECT_TRUE(sigMeta.contains("40|8 Intel unsigned"));
+    EXPECT_EQ(sigBody, QStringLiteral("Current month of year (1-12)."));
+    EXPECT_TRUE(sigValues.contains("11 = November"));
+
+    // Tooltip role provides combined multi-line content
+    const QString sigToolTip = model()->data(sigMonthIdx, Qt::ToolTipRole).toString();
+    EXPECT_TRUE(sigToolTip.contains("Out_RTC_SetTime · RTC_SetMonth"));
+    EXPECT_TRUE(sigToolTip.contains("11 = November"));
+
+    // Verify hover card widget exists and can be looked up
+    auto* card = panel.findChild<QFrame*>(QStringLiteral("transmitSymbolCard"));
+    ASSERT_NE(card, nullptr);
+    EXPECT_FALSE(card->isVisible());
+}
+
+TEST_F(TransmitPanelTest, SendActionHasSpaceShortcut)
+{
+    QAction* send = action(QStringLiteral("Send"));
+    ASSERT_NE(send, nullptr);
+    EXPECT_EQ(send->shortcut(), QKeySequence(Qt::Key_Space));
+}
+
+TEST_F(TransmitPanelTest, SpaceKeyShortcutSendsSelectedRowWhenMeasurementIsRunning)
+{
+    QAction* add = action(QStringLiteral("Add"));
+    ASSERT_NE(add, nullptr);
+    ASSERT_NE(tree(), nullptr);
+
+    add->trigger();
+    settle();
+
+    QStringList reports;
+    QObject::connect(&panel, &TransmitPanel::reported, &panel, [&reports](const QString& text) {
+        reports.push_back(text);
+    });
+
+    // When stopped: space on the tree view notifies that no measurement is running
+    tree()->setFocus();
+    settle();
+
+    QKeyEvent spaceEvent(QEvent::KeyPress, Qt::Key_Space, Qt::NoModifier);
+    QApplication::sendEvent(tree(), &spaceEvent);
+    settle();
+
+    ASSERT_EQ(reports.size(), 1);
+    EXPECT_TRUE(reports.front().contains(QStringLiteral("no measurement is running")));
+
+    // When running: space sends the frame
+    panel.setMeasurementRunning(true);
+    QApplication::sendEvent(tree(), &spaceEvent);
+    settle();
+
+    std::vector<CanFrame> out;
+    list.collectDue(1000, 0, out);
+    ASSERT_EQ(out.size(), 1U);
+
+    TransmitEntry entry;
+    ASSERT_TRUE(list.entryAt(0, entry));
+    EXPECT_EQ(entry.sentCount, 1U);
+}
+
+TEST_F(TransmitPanelTest, SpaceKeyOnSignalChildRowSendsParentMessage)
+{
+    panel.setDatabases({makeTestDatabase()});
+
+    TransmitEntry entry;
+    entry.name = "Out_RTC_SetTime";
+    entry.messageName = "Out_RTC_SetTime";
+    entry.frame.identifier = 0x655;
+    entry.frame.length = 8;
+    list.add(entry);
+    panel.reload();
+    settle();
+
+    panel.setMeasurementRunning(true);
+
+    // Expand message and select a child signal row
+    const QModelIndex parentIdx = model()->index(0, 0, QModelIndex());
+    ASSERT_TRUE(parentIdx.isValid());
+    tree()->expand(parentIdx);
+    settle();
+
+    const QModelIndex sigIdx = model()->index(0, 0, parentIdx);
+    ASSERT_TRUE(sigIdx.isValid());
+    tree()->setCurrentIndex(sigIdx);
+    tree()->selectionModel()->select(sigIdx, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+    settle();
+
+    QStringList reports;
+    QObject::connect(&panel, &TransmitPanel::reported, &panel, [&reports](const QString& text) {
+        reports.push_back(text);
+    });
+
+    QKeyEvent spaceEvent(QEvent::KeyPress, Qt::Key_Space, Qt::NoModifier);
+    QApplication::sendEvent(tree(), &spaceEvent);
+    settle();
+
+    EXPECT_TRUE(reports.isEmpty());
+
+    std::vector<CanFrame> out;
+    list.collectDue(1000, 0, out);
+    ASSERT_EQ(out.size(), 1U);
+    EXPECT_EQ(out.front().identifier, 0x655U);
+
+    TransmitEntry sent;
+    ASSERT_TRUE(list.entryAt(0, sent));
+    EXPECT_EQ(sent.sentCount, 1U);
 }

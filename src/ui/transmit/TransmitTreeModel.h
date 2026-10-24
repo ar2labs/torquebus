@@ -70,6 +70,10 @@ public:
     static constexpr int kNodeTypeRole = Qt::UserRole + 1;
     static constexpr int kSignalPointerRole = Qt::UserRole + 2;
     static constexpr int kEntryIndexRole = Qt::UserRole + 3;
+    static constexpr int kCardTitleRole = Qt::UserRole + 10;
+    static constexpr int kCardMetaRole = Qt::UserRole + 11;
+    static constexpr int kCardBodyRole = Qt::UserRole + 12;
+    static constexpr int kCardValuesRole = Qt::UserRole + 13;
 
     explicit TransmitTreeModel(TransmitList& list, QObject* parent = nullptr);
     ~TransmitTreeModel() override;

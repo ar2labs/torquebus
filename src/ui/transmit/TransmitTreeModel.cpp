@@ -160,6 +160,104 @@ namespace {
     return false;
 }
 
+[[nodiscard]] QString formatPosition(const CanSignal& signal)
+{
+    return QStringLiteral("%1|%2 %3 %4")
+        .arg(signal.startBit)
+        .arg(signal.bitLength)
+        .arg(signal.byteOrder == ByteOrder::Motorola ? QStringLiteral("Motorola")
+                                                     : QStringLiteral("Intel"))
+        .arg(signal.isSigned ? QStringLiteral("signed") : QStringLiteral("unsigned"));
+}
+
+[[nodiscard]] QString formatScaling(const CanSignal& signal)
+{
+    if (signal.factor == 1.0 && signal.offset == 0.0) {
+        return {};
+    }
+
+    QString text = QStringLiteral("x%1").arg(signal.factor, 0, 'g', 10);
+    if (signal.offset != 0.0) {
+        text += QStringLiteral(" %1%2")
+                    .arg(signal.offset < 0 ? QStringLiteral("-") : QStringLiteral("+"))
+                    .arg(std::abs(signal.offset), 0, 'g', 10);
+    }
+    return text;
+}
+
+[[nodiscard]] QString formatRange(const CanSignal& signal)
+{
+    if (signal.minimum == 0.0 && signal.maximum == 0.0) {
+        return formatScaling(signal);
+    }
+
+    QString text =
+        QStringLiteral("%1 .. %2").arg(signal.minimum, 0, 'g', 10).arg(signal.maximum, 0, 'g', 10);
+
+    if (const QString scaling = formatScaling(signal); !scaling.isEmpty()) {
+        text += QStringLiteral("  (%1)").arg(scaling);
+    }
+    return text;
+}
+
+[[nodiscard]] QString formatMultiplexing(const CanSignal& signal)
+{
+    if (signal.isMultiplexer && signal.multiplexerValue.has_value()) {
+        return TransmitTreeModel::tr("switch, and present when it reads %1")
+            .arg(*signal.multiplexerValue);
+    }
+    if (signal.isMultiplexer) {
+        return TransmitTreeModel::tr("multiplexer switch");
+    }
+    if (signal.multiplexerValue.has_value()) {
+        return TransmitTreeModel::tr("present when the switch reads %1").arg(*signal.multiplexerValue);
+    }
+    return {};
+}
+
+constexpr int kCommentCardLineWidth = 54;
+
+[[nodiscard]] QString wrapCommentLines(const QString& text,
+                                       int maxLineChars = kCommentCardLineWidth)
+{
+    const QString trimmed = text.trimmed();
+    if (trimmed.isEmpty()) {
+        return {};
+    }
+
+    QStringList wrappedParagraphs;
+    const QStringList paragraphs = trimmed.split(QLatin1Char('\n'));
+
+    for (const QString& rawParagraph : paragraphs) {
+        const QString paragraph = rawParagraph.simplified();
+        if (paragraph.isEmpty()) {
+            continue;
+        }
+        if (paragraph.size() <= maxLineChars) {
+            wrappedParagraphs << paragraph;
+            continue;
+        }
+
+        const QStringList words = paragraph.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        QString currentLine;
+        for (const QString& word : words) {
+            if (currentLine.isEmpty()) {
+                currentLine = word;
+            } else if (currentLine.size() + 1 + word.size() <= maxLineChars) {
+                currentLine += QLatin1Char(' ') + word;
+            } else {
+                wrappedParagraphs << currentLine;
+                currentLine = word;
+            }
+        }
+        if (!currentLine.isEmpty()) {
+            wrappedParagraphs << currentLine;
+        }
+    }
+
+    return wrappedParagraphs.join(QLatin1Char('\n'));
+}
+
 } // namespace
 
 using enum TransmitTreeModel::Column;
@@ -372,6 +470,199 @@ QVariant TransmitTreeModel::data(const QModelIndex& index, int role) const
 
     case kSignalPointerRole:
         return QVariant::fromValue(reinterpret_cast<quintptr>(node->dbSignal));
+
+    case kCardTitleRole: {
+        if (node->type == TransmitNodeType::Message) {
+            TransmitEntry entry;
+            const bool hasEntry = m_list.entryAt(node->entryIndex, entry);
+            const CanMessage* dbMsg = node->dbMessage;
+            QString displayName;
+            if (hasEntry && !entry.name.empty()) {
+                displayName = QString::fromStdString(entry.name);
+            } else if (dbMsg != nullptr && !dbMsg->name.empty()) {
+                displayName = QString::fromStdString(dbMsg->name);
+            } else if (hasEntry) {
+                displayName = tr("Message 0x%1").arg(formatIdentifier(entry.frame));
+            } else {
+                displayName = tr("CAN Message");
+            }
+            if (hasEntry) {
+                const QString hexId = formatIdentifier(entry.frame);
+                if (!displayName.contains(hexId, Qt::CaseInsensitive)) {
+                    return QStringLiteral("%1 (0x%2)").arg(displayName, hexId);
+                }
+            }
+            return displayName;
+        }
+        if (node->type == TransmitNodeType::Signal && node->dbSignal != nullptr) {
+            TransmitEntry entry;
+            const bool hasEntry = m_list.entryAt(node->entryIndex, entry);
+            const CanMessage* parentMsg = node->parent ? node->parent->dbMessage : nullptr;
+            QString parentName;
+            if (parentMsg != nullptr && !parentMsg->name.empty()) {
+                parentName = QString::fromStdString(parentMsg->name);
+            } else if (hasEntry && !entry.name.empty()) {
+                parentName = QString::fromStdString(entry.name);
+            } else {
+                parentName = tr("Message");
+            }
+            return QStringLiteral("%1 · %2")
+                .arg(parentName, QString::fromStdString(node->dbSignal->name));
+        }
+        return {};
+    }
+
+    case kCardMetaRole: {
+        if (node->type == TransmitNodeType::Message) {
+            TransmitEntry entry;
+            if (!m_list.entryAt(node->entryIndex, entry)) {
+                return {};
+            }
+            const CanMessage* dbMsg = node->dbMessage;
+            QStringList metaParts;
+            QString fmtStr = entry.frame.isExtended() ? QStringLiteral("Extended (29-bit)")
+                                                     : QStringLiteral("Standard (11-bit)");
+            if (entry.frame.fd) {
+                fmtStr += QStringLiteral(" FD");
+            }
+            metaParts << fmtStr;
+            metaParts << tr("Bus %1").arg(entry.channel + 1);
+            metaParts << tr("%1 bytes").arg(entry.frame.length);
+            if (entry.isPeriodic()) {
+                metaParts << tr("Cycle: %1 ms").arg(entry.cycleMs);
+            } else {
+                metaParts << tr("Trigger: Manual");
+            }
+            if (dbMsg != nullptr && !dbMsg->transmitter.empty() && dbMsg->transmitter != "Vector__XXX") {
+                metaParts << tr("Sent by %1").arg(QString::fromStdString(dbMsg->transmitter));
+            }
+            if (dbMsg != nullptr && !dbMsg->signalList.empty()) {
+                metaParts << tr("%n signal(s)", nullptr, static_cast<int>(dbMsg->signalList.size()));
+            }
+            return metaParts.join(QStringLiteral(" · "));
+        }
+        if (node->type == TransmitNodeType::Signal && node->dbSignal != nullptr) {
+            const CanSignal& sig = *node->dbSignal;
+            QStringList signalMetaParts;
+            const QString positionText = formatPosition(sig);
+            const QString rangeText = formatRange(sig);
+            const QString unitText = QString::fromStdString(sig.unit);
+
+            signalMetaParts << positionText;
+            if (!rangeText.isEmpty()) {
+                signalMetaParts << (unitText.isEmpty()
+                                        ? rangeText
+                                        : QStringLiteral("%1 %2").arg(rangeText, unitText));
+            } else if (!unitText.isEmpty()) {
+                signalMetaParts << unitText;
+            }
+
+            if (!sig.receivers.empty()) {
+                QStringList rx;
+                for (const auto& r : sig.receivers) {
+                    if (!r.empty() && r != "Vector__XXX") {
+                        rx << QString::fromStdString(r);
+                    }
+                }
+                if (!rx.isEmpty()) {
+                    signalMetaParts << tr("Rx: %1").arg(rx.join(QStringLiteral(", ")));
+                }
+            }
+            return signalMetaParts.join(QStringLiteral(" · "));
+        }
+        return {};
+    }
+
+    case kCardBodyRole: {
+        if (node->type == TransmitNodeType::Message) {
+            const CanMessage* dbMsg = node->dbMessage;
+            if (dbMsg != nullptr && !dbMsg->comment.empty()) {
+                return wrapCommentLines(QString::fromStdString(dbMsg->comment));
+            }
+            TransmitEntry entry;
+            if (m_list.entryAt(node->entryIndex, entry) && !entry.name.empty()) {
+                const QString nameStr = QString::fromStdString(entry.name);
+                if (dbMsg == nullptr || nameStr != QString::fromStdString(dbMsg->name)) {
+                    if (nameStr.size() > 10) {
+                        return wrapCommentLines(nameStr);
+                    }
+                }
+            }
+            return {};
+        }
+        if (node->type == TransmitNodeType::Signal && node->dbSignal != nullptr) {
+            const CanSignal& sig = *node->dbSignal;
+            const QString signalComment = QString::fromStdString(sig.comment);
+            const QString multiplexingText = formatMultiplexing(sig);
+            const QString rawBody = !signalComment.isEmpty() ? signalComment : multiplexingText;
+            return wrapCommentLines(rawBody);
+        }
+        return {};
+    }
+
+    case kCardValuesRole: {
+        if (node->type == TransmitNodeType::Message) {
+            const CanMessage* dbMsg = node->dbMessage;
+            if (dbMsg != nullptr && !dbMsg->signalList.empty()) {
+                QStringList sigNames;
+                constexpr int kMaxPreviewSignals = 8;
+                int count = 0;
+                for (const CanSignal& sig : dbMsg->signalList) {
+                    if (++count > kMaxPreviewSignals) {
+                        break;
+                    }
+                    sigNames << QString::fromStdString(sig.name);
+                }
+                QString preview = tr("Signals: %1").arg(sigNames.join(QStringLiteral(", ")));
+                if (static_cast<int>(dbMsg->signalList.size()) > kMaxPreviewSignals) {
+                    preview += tr(" (+%1 more)").arg(static_cast<int>(dbMsg->signalList.size()) - kMaxPreviewSignals);
+                }
+                return preview;
+            }
+            return {};
+        }
+        if (node->type == TransmitNodeType::Signal && node->dbSignal != nullptr) {
+            const CanSignal& sig = *node->dbSignal;
+            const QString signalComment = QString::fromStdString(sig.comment);
+            const QString multiplexingText = formatMultiplexing(sig);
+            QStringList extraCardLines;
+            if (!signalComment.isEmpty() && !multiplexingText.isEmpty()) {
+                extraCardLines << multiplexingText;
+            }
+            for (const SignalValueName& value : sig.valueNames) {
+                extraCardLines << QStringLiteral("%1 = %2")
+                                      .arg(value.value)
+                                      .arg(QString::fromStdString(value.name));
+            }
+            return extraCardLines.join(QLatin1Char('\n'));
+        }
+        return {};
+    }
+
+    case Qt::ToolTipRole: {
+        if (index.column() == ColumnSymbol) {
+            const QString title = data(index, kCardTitleRole).toString();
+            const QString meta = data(index, kCardMetaRole).toString();
+            const QString body = data(index, kCardBodyRole).toString();
+            const QString values = data(index, kCardValuesRole).toString();
+
+            QStringList sections;
+            if (!title.isEmpty()) {
+                sections << title;
+            }
+            if (!meta.isEmpty()) {
+                sections << meta;
+            }
+            if (!body.isEmpty()) {
+                sections << body;
+            }
+            if (!values.isEmpty()) {
+                sections << values;
+            }
+            return sections.join(QStringLiteral("\n\n"));
+        }
+        return {};
+    }
 
     case Qt::CheckStateRole:
         if (index.column() == ColumnEnabled && node->type == TransmitNodeType::Message) {
