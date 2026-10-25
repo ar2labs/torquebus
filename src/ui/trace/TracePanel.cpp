@@ -12,10 +12,14 @@
 #include "ui/trace/TraceTreeModel.h"
 
 #include <QAction>
+#include <QClipboard>
 #include <QComboBox>
+#include <QGuiApplication>
 #include <QHeaderView>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QScrollBar>
 #include <QShowEvent>
 #include <QSignalBlocker>
@@ -115,6 +119,11 @@ void TracePanel::createViews()
     m_treeView->setExpandsOnDoubleClick(true);
     m_treeView->header()->setStretchLastSection(true);
     m_treeView->header()->setHighlightSections(false);
+    m_treeView->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_treeView,
+            &QTreeView::customContextMenuRequested,
+            this,
+            &TracePanel::onTreeContextMenu);
 
     connect(
         m_treeModel, &TraceTreeModel::groupPopulated, this, [this](const QModelIndex& groupIdx) {
@@ -147,6 +156,11 @@ void TracePanel::createViews()
     m_view->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     m_view->horizontalHeader()->setStretchLastSection(true);
     m_view->horizontalHeader()->setHighlightSections(false);
+    m_view->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_view,
+            &QTableView::customContextMenuRequested,
+            this,
+            &TracePanel::onTableContextMenu);
 
     connect(m_model, &TraceModel::rowsAppended, this, &TracePanel::onRowsAppended);
     connect(m_view->verticalScrollBar(), &QScrollBar::valueChanged, this, &TracePanel::onScrolled);
@@ -459,6 +473,246 @@ void TracePanel::refreshStatus()
         m_statusLabel->setText(
             tr("%L1 frames  ·  %L2 unique IDs").arg(total).arg(m_store->identifiers().size()));
     }
+}
+
+void TracePanel::keyPressEvent(QKeyEvent* event)
+{
+    if (event->key() == Qt::Key_Space) {
+        if (m_filterEdit == nullptr || !m_filterEdit->hasFocus()) {
+            if (m_actionFreeze != nullptr) {
+                m_actionFreeze->toggle();
+                event->accept();
+                return;
+            }
+        }
+    }
+    QWidget::keyPressEvent(event);
+}
+
+void TracePanel::onTreeContextMenu(const QPoint& pos)
+{
+    if (m_treeView == nullptr || m_proxyModel == nullptr || m_treeModel == nullptr) {
+        return;
+    }
+
+    const QModelIndex proxyIdx = m_treeView->indexAt(pos);
+    if (!proxyIdx.isValid()) {
+        return;
+    }
+
+    const QModelIndex srcIdx = m_proxyModel->mapToSource(proxyIdx);
+    const TraceTreeNode* node = m_treeModel->nodeFromIndex(srcIdx);
+    if (node == nullptr) {
+        return;
+    }
+
+    QMenu menu(this);
+    ThemeManager* themes = ThemeManager::instance();
+    const auto icon = [themes](const char* name) {
+        return themes != nullptr ? themes->icon(QString::fromLatin1(name)) : QIcon{};
+    };
+
+    if (node->type == TreeNodeType::Message) {
+        const QString name =
+            node->dbMessage != nullptr
+                ? QString::fromStdString(node->dbMessage->name)
+                : tr("0x%1")
+                      .arg(node->identifier,
+                           (node->format == CanFrameFormat::Extended ? 8 : 3),
+                           16,
+                           QLatin1Char('0'))
+                      .toUpper();
+        const QString hexId = QStringLiteral("%1")
+                                  .arg(node->identifier,
+                                       (node->format == CanFrameFormat::Extended ? 8 : 3),
+                                       16,
+                                       QLatin1Char('0'))
+                                  .toUpper();
+
+        QAction* title = menu.addAction(tr("Message: %1").arg(name));
+        title->setEnabled(false);
+        menu.addSeparator();
+
+        QAction* filterAction = menu.addAction(icon("search"), tr("Filter by ID (%1)").arg(hexId));
+        connect(filterAction, &QAction::triggered, this, [this, hexId] {
+            if (m_filterEdit != nullptr) {
+                m_filterEdit->setText(hexId);
+            }
+        });
+
+        QAction* copyIdAction = menu.addAction(tr("Copy Identifier (%1)").arg(hexId));
+        connect(copyIdAction, &QAction::triggered, this, [hexId] {
+            if (QClipboard* clip = QGuiApplication::clipboard()) {
+                clip->setText(hexId);
+            }
+        });
+
+        const auto optFrame = m_treeModel->frameForNode(node);
+        if (optFrame.has_value()) {
+            const CanFrame& frame = *optFrame;
+            QStringList hexBytes;
+            for (std::size_t i = 0; i < frame.payloadSize(); ++i) {
+                hexBytes << QStringLiteral("%1").arg(frame.data[i], 2, 16, QLatin1Char('0')).toUpper();
+            }
+            const QString dataStr = hexBytes.join(QLatin1Char(' '));
+
+            QAction* copyDataAction = menu.addAction(tr("Copy Data Bytes"));
+            connect(copyDataAction, &QAction::triggered, this, [dataStr] {
+                if (QClipboard* clip = QGuiApplication::clipboard()) {
+                    clip->setText(dataStr);
+                }
+            });
+
+            menu.addSeparator();
+
+            QAction* transmitAction = menu.addAction(icon("transmit"), tr("Send to Transmit List"));
+            connect(transmitAction, &QAction::triggered, this, [this, frame, name] {
+                Q_EMIT sendToTransmitRequested(frame, name);
+            });
+        }
+    } else if (node->type == TreeNodeType::Signal && node->dbSignal != nullptr) {
+        const QString sigName = QString::fromStdString(node->dbSignal->name);
+
+        QAction* title = menu.addAction(tr("Signal: %1").arg(sigName));
+        title->setEnabled(false);
+        menu.addSeparator();
+
+        QAction* plotAction = menu.addAction(icon("graph"), tr("Plot in Graph"));
+        connect(plotAction, &QAction::triggered, this, [this, sigName] {
+            Q_EMIT plotSignalRequested(sigName);
+        });
+
+        QAction* filterAction = menu.addAction(icon("search"), tr("Filter by Signal Name"));
+        connect(filterAction, &QAction::triggered, this, [this, sigName] {
+            if (m_filterEdit != nullptr) {
+                m_filterEdit->setText(sigName);
+            }
+        });
+
+        QAction* copySigNameAction = menu.addAction(tr("Copy Signal Name"));
+        connect(copySigNameAction, &QAction::triggered, this, [sigName] {
+            if (QClipboard* clip = QGuiApplication::clipboard()) {
+                clip->setText(sigName);
+            }
+        });
+
+        const QModelIndex valIdx =
+            m_proxyModel->index(proxyIdx.row(), ColumnData, proxyIdx.parent());
+        const QString valText = m_proxyModel->data(valIdx, Qt::DisplayRole).toString();
+        if (!valText.isEmpty()) {
+            QAction* copyValAction = menu.addAction(tr("Copy Value (%1)").arg(valText));
+            connect(copyValAction, &QAction::triggered, this, [valText] {
+                if (QClipboard* clip = QGuiApplication::clipboard()) {
+                    clip->setText(valText);
+                }
+            });
+        }
+
+        if (node->parent != nullptr) {
+            const auto optFrame = m_treeModel->frameForNode(node->parent);
+            if (optFrame.has_value()) {
+                const CanFrame& parentFrame = *optFrame;
+                const QString parentName =
+                    node->parent->dbMessage != nullptr
+                        ? QString::fromStdString(node->parent->dbMessage->name)
+                        : QStringLiteral("0x%1").arg(parentFrame.identifier, 0, 16).toUpper();
+
+                menu.addSeparator();
+                QAction* transmitAction =
+                    menu.addAction(icon("transmit"), tr("Send Parent Message to Transmit List"));
+                connect(transmitAction, &QAction::triggered, this, [this, parentFrame, parentName] {
+                    Q_EMIT sendToTransmitRequested(parentFrame, parentName);
+                });
+            }
+        }
+    }
+
+    if (!menu.actions().isEmpty()) {
+        menu.exec(m_treeView->viewport()->mapToGlobal(pos));
+    }
+}
+
+void TracePanel::onTableContextMenu(const QPoint& pos)
+{
+    if (m_view == nullptr || m_model == nullptr) {
+        return;
+    }
+
+    const QModelIndex index = m_view->indexAt(pos);
+    if (!index.isValid()) {
+        return;
+    }
+
+    const auto optRow = m_model->rowAt(index.row());
+    if (!optRow.has_value()) {
+        return;
+    }
+
+    const TraceRow& trRow = *optRow;
+    const CanFrame& frame = trRow.frame;
+
+    const QString hexId = QStringLiteral("%1")
+                              .arg(frame.identifier,
+                                   (frame.format == CanFrameFormat::Extended ? 8 : 3),
+                                   16,
+                                   QLatin1Char('0'))
+                              .toUpper();
+    const QString name =
+        m_model->data(m_model->index(index.row(), TraceModel::Name), Qt::DisplayRole).toString();
+    const QString displayTitle =
+        name.isEmpty() ? tr("Frame: 0x%1").arg(hexId) : tr("%1 (0x%2)").arg(name, hexId);
+
+    QMenu menu(this);
+    ThemeManager* themes = ThemeManager::instance();
+    const auto icon = [themes](const char* name) {
+        return themes != nullptr ? themes->icon(QString::fromLatin1(name)) : QIcon{};
+    };
+
+    QAction* title = menu.addAction(displayTitle);
+    title->setEnabled(false);
+    menu.addSeparator();
+
+    QAction* filterAction = menu.addAction(icon("search"), tr("Filter by ID (%1)").arg(hexId));
+    connect(filterAction, &QAction::triggered, this, [this, hexId] {
+        if (m_filterEdit != nullptr) {
+            m_filterEdit->setText(hexId);
+            if (m_viewMode == ViewMode::Chronological) {
+                setViewMode(ViewMode::Grouped);
+                if (m_modeCombo != nullptr) {
+                    m_modeCombo->setCurrentIndex(0);
+                }
+            }
+        }
+    });
+
+    QAction* copyIdAction = menu.addAction(tr("Copy Identifier (%1)").arg(hexId));
+    connect(copyIdAction, &QAction::triggered, this, [hexId] {
+        if (QClipboard* clip = QGuiApplication::clipboard()) {
+            clip->setText(hexId);
+        }
+    });
+
+    QStringList hexBytes;
+    for (std::size_t i = 0; i < frame.payloadSize(); ++i) {
+        hexBytes << QStringLiteral("%1").arg(frame.data[i], 2, 16, QLatin1Char('0')).toUpper();
+    }
+    const QString dataStr = hexBytes.join(QLatin1Char(' '));
+
+    QAction* copyDataAction = menu.addAction(tr("Copy Data Bytes"));
+    connect(copyDataAction, &QAction::triggered, this, [dataStr] {
+        if (QClipboard* clip = QGuiApplication::clipboard()) {
+            clip->setText(dataStr);
+        }
+    });
+
+    menu.addSeparator();
+
+    QAction* transmitAction = menu.addAction(icon("transmit"), tr("Send to Transmit List"));
+    connect(transmitAction, &QAction::triggered, this, [this, frame, name] {
+        Q_EMIT sendToTransmitRequested(frame, name);
+    });
+
+    menu.exec(m_view->viewport()->mapToGlobal(pos));
 }
 
 } // namespace torquebus::ui

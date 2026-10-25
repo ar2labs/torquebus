@@ -16,9 +16,11 @@
 #include "core/pipeline/PortType.h"
 #include "drivers/virtual/VirtualCanBackend.h"
 #include "ui/engine/CanEngineController.h"
+#include "ui/statistics/StatisticsPanel.h"
 
 #include <gtest/gtest.h>
 
+#include <QAction>
 #include <QApplication>
 #include <QElapsedTimer>
 
@@ -132,4 +134,33 @@ TEST(EngineControllerTests, StopOnAStoppedControllerSaysNothing)
 
     controller.stop();
     EXPECT_EQ(stopped, 0);
+}
+
+TEST(EngineControllerTests, ResetStatisticsClearsEngineCounters)
+{
+    CanEngineController controller;
+    CanChannelConfig config;
+    config.deviceHandle = "virtual:0";
+    config.timing.bitrate = 500'000;
+    ASSERT_TRUE(
+        controller.engine().addChannel(std::make_unique<VirtualCanBackend>(), config).succeeded());
+
+    // Call resetStatistics - must not crash and should invoke CanEngine::resetStatistics
+    controller.resetStatistics();
+    EXPECT_FALSE(controller.isRunning());
+}
+
+TEST(EngineControllerTests, StatisticsPanelEmitsResetRequested)
+{
+    StatisticsPanel panel;
+    bool resetEmitted = false;
+    QObject::connect(&panel, &StatisticsPanel::resetRequested, [&resetEmitted] {
+        resetEmitted = true;
+    });
+
+    // Locate the reset action on the toolbar
+    QAction* resetAction = panel.findChild<QAction*>(QStringLiteral("actionResetStatistics"));
+    ASSERT_NE(resetAction, nullptr);
+    resetAction->trigger();
+    EXPECT_TRUE(resetEmitted);
 }

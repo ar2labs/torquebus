@@ -86,6 +86,9 @@ Q_SIGNALS:
                         const QString& messageName,
                         const QString& signalName);
 
+    void sendToTransmitRequested(const CanMessage& message);
+    void plotSignalRequested(const QString& signalName);
+
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
     void hideEvent(QHideEvent* event) override;

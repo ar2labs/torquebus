@@ -5,7 +5,10 @@
 
 #include "ui/transmit/TransmitPanel.h"
 
+#include "core/dashboard/SignalDictionary.h"
 #include "core/transmit/TransmitList.h"
+#include "ui/dashboard/SignalMime.h"
+#include "ui/dashboard/SignalPickerDialog.h"
 #include "ui/theme/ThemeManager.h"
 #include "ui/transmit/SignalValueDialog.h"
 #include "ui/transmit/TransmitTreeDelegate.h"
@@ -14,6 +17,9 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QClipboard>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QFrame>
 #include <QGuiApplication>
 #include <QHeaderView>
@@ -22,6 +28,7 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QScreen>
 #include <QScrollBar>
@@ -179,6 +186,14 @@ void TransmitPanel::buildUi()
     m_treeView->viewport()->installEventFilter(this);
     m_treeView->installEventFilter(this);
     m_treeView->addAction(m_actionSend);
+    m_treeView->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_treeView,
+            &QTreeView::customContextMenuRequested,
+            this,
+            &TransmitPanel::onTreeContextMenu);
+
+    setAcceptDrops(true);
+    m_treeView->setAcceptDrops(true);
 
     for (int col = 0; col < TransmitColumnCount; ++col) {
         m_treeView->setColumnWidth(col, kTransmitColumnWidths[col]);
@@ -273,44 +288,46 @@ void TransmitPanel::onAdd()
 
 void TransmitPanel::onAddFromMessage()
 {
-    QStringList choices;
-    std::vector<const CanMessage*> messages;
-
-    for (const auto& database : m_databases) {
-        for (const CanMessage& message : database->messages()) {
-            choices << QStringLiteral("%1  (%2)")
-                           .arg(QString::fromStdString(message.name),
-                                formatIdentifier(message.makeFrame()));
-            messages.push_back(&message);
-        }
-    }
-
-    if (choices.isEmpty()) {
+    if (m_databases.empty()) {
         Q_EMIT reported(tr("No messages: import a database first."));
         return;
     }
 
-    bool accepted = false;
-    const QString picked = QInputDialog::getItem(
-        this, tr("Add from message"), tr("Message:"), choices, 0, false, &accepted);
-    if (!accepted) {
+    SignalDictionary dict;
+    dict.rebuild(m_databases);
+
+    SignalPickerDialog dialog{dict, SignalPickerDialog::Mode::ChooseMessage, this};
+    dialog.setWindowTitle(tr("Add from Message"));
+    if (dialog.exec() != QDialog::Accepted) {
         return;
     }
 
-    const int index = choices.indexOf(picked);
-    if (index < 0) {
+    const auto picked = dialog.chosenMessages();
+    if (picked.empty()) {
         return;
     }
 
-    const CanMessage* message = messages[static_cast<std::size_t>(index)];
+    for (const std::string& name : picked) {
+        for (const auto& database : m_databases) {
+            for (const CanMessage& message : database->messages()) {
+                if (message.name == name) {
+                    addEntryFromMessage(message);
+                    return;
+                }
+            }
+        }
+    }
+}
 
+void TransmitPanel::addEntryFromMessage(const CanMessage& message)
+{
     TransmitEntry entry;
-    entry.name = message->name;
-    entry.messageName = message->name;
-    entry.frame = message->makeFrame();
+    entry.name = message.name;
+    entry.messageName = message.name;
+    entry.frame = message.makeFrame();
 
-    if (message->cycleTimeMs > 0) {
-        entry.cycleMs = message->cycleTimeMs;
+    if (message.cycleTimeMs > 0) {
+        entry.cycleMs = message.cycleTimeMs;
     }
 
     (void)m_list.add(std::move(entry));
@@ -318,11 +335,180 @@ void TransmitPanel::onAddFromMessage()
     Q_EMIT modified();
 
     const int newRow = static_cast<int>(m_list.size()) - 1;
-    const QModelIndex srcIdx = m_treeModel->index(newRow, 0);
-    const QModelIndex proxyIdx = m_proxyModel->mapFromSource(srcIdx);
-    if (proxyIdx.isValid()) {
-        m_treeView->setCurrentIndex(proxyIdx);
-        m_treeView->expand(proxyIdx);
+    selectEntry(newRow);
+}
+
+void TransmitPanel::addEntryFromFrame(const CanFrame& frame, const QString& name)
+{
+    TransmitEntry entry;
+    entry.name = name.isEmpty()
+                     ? tr("Frame 0x%1").arg(formatIdentifier(frame)).toStdString()
+                     : name.toStdString();
+    entry.frame = frame;
+    entry.trigger = TransmitTrigger::Manual;
+
+    for (const auto& database : m_databases) {
+        if (const CanMessage* msg = database->find(frame.identifier, frame.format)) {
+            entry.messageName = msg->name;
+            if (entry.name.empty()) {
+                entry.name = msg->name;
+            }
+            if (msg->cycleTimeMs > 0) {
+                entry.cycleMs = msg->cycleTimeMs;
+            }
+            break;
+        }
+    }
+
+    (void)m_list.add(std::move(entry));
+    reload();
+    Q_EMIT modified();
+
+    const int newRow = static_cast<int>(m_list.size()) - 1;
+    selectEntry(newRow);
+}
+
+void TransmitPanel::duplicateSelected()
+{
+    onDuplicateSelected();
+}
+
+void TransmitPanel::onDuplicateSelected()
+{
+    const int row = selectedMessageIndex();
+    if (row < 0) {
+        return;
+    }
+    TransmitEntry entry;
+    if (!m_list.entryAt(static_cast<std::size_t>(row), entry)) {
+        return;
+    }
+
+    entry.name = tr("%1 (Copy)").arg(QString::fromStdString(entry.name)).toStdString();
+    entry.sentCount = 0;
+    entry.lastSentUs = 0;
+
+    (void)m_list.add(std::move(entry));
+    reload();
+    Q_EMIT modified();
+
+    const int newRow = static_cast<int>(m_list.size()) - 1;
+    selectEntry(newRow);
+}
+
+void TransmitPanel::dragEnterEvent(QDragEnterEvent* event)
+{
+    if (hasSignalReferences(event->mimeData())) {
+        event->acceptProposedAction();
+    } else {
+        event->ignore();
+    }
+}
+
+void TransmitPanel::dragMoveEvent(QDragMoveEvent* event)
+{
+    if (hasSignalReferences(event->mimeData())) {
+        event->acceptProposedAction();
+    } else {
+        event->ignore();
+    }
+}
+
+void TransmitPanel::dropEvent(QDropEvent* event)
+{
+    if (!hasSignalReferences(event->mimeData())) {
+        event->ignore();
+        return;
+    }
+
+    const QList<SignalReference> references = signalReferencesOf(event->mimeData());
+    int addedCount = 0;
+
+    for (const SignalReference& ref : references) {
+        const std::string msgName = ref.message.toStdString();
+        for (const auto& db : m_databases) {
+            for (const CanMessage& msg : db->messages()) {
+                if (msg.name == msgName) {
+                    addEntryFromMessage(msg);
+                    ++addedCount;
+                    goto next_ref;
+                }
+            }
+        }
+    next_ref:;
+    }
+
+    if (addedCount > 0) {
+        event->acceptProposedAction();
+    }
+}
+
+void TransmitPanel::onTreeContextMenu(const QPoint& pos)
+{
+    if (m_treeView == nullptr) {
+        return;
+    }
+
+    const int row = selectedMessageIndex();
+
+    QMenu menu(this);
+    ThemeManager* themes = ThemeManager::instance();
+    const auto icon = [themes](const char* name) {
+        return themes != nullptr ? themes->icon(QString::fromLatin1(name)) : QIcon{};
+    };
+
+    if (row >= 0) {
+        TransmitEntry entry;
+        if (m_list.entryAt(static_cast<std::size_t>(row), entry)) {
+            const QString name = QString::fromStdString(entry.name);
+            QAction* title = menu.addAction(tr("Message: %1").arg(name));
+            title->setEnabled(false);
+            menu.addSeparator();
+
+            QAction* sendAction = menu.addAction(icon("transmit"), tr("Send Now (Space)"));
+            connect(sendAction, &QAction::triggered, this, &TransmitPanel::onSendSelected);
+
+            QAction* duplicateAction = menu.addAction(tr("Duplicate (Ctrl+D)"));
+            connect(duplicateAction, &QAction::triggered, this, &TransmitPanel::onDuplicateSelected);
+
+            if (m_actionEditSignals != nullptr && m_actionEditSignals->isEnabled()) {
+                QAction* editSignalsAction =
+                    menu.addAction(icon("properties"), tr("Edit Signals..."));
+                connect(
+                    editSignalsAction, &QAction::triggered, this, &TransmitPanel::onEditSignals);
+            }
+
+            QStringList hexBytes;
+            for (std::size_t i = 0; i < entry.frame.payloadSize(); ++i) {
+                hexBytes << QStringLiteral("%1")
+                                .arg(entry.frame.data[i], 2, 16, QLatin1Char('0'))
+                                .toUpper();
+            }
+            const QString dataStr = hexBytes.join(QLatin1Char(' '));
+
+            QAction* copyDataAction = menu.addAction(tr("Copy Data Bytes"));
+            connect(copyDataAction, &QAction::triggered, this, [dataStr] {
+                if (QClipboard* clip = QGuiApplication::clipboard()) {
+                    clip->setText(dataStr);
+                }
+            });
+
+            menu.addSeparator();
+            QAction* removeAction = menu.addAction(icon("clear"), tr("Remove (Delete)"));
+            connect(removeAction, &QAction::triggered, this, &TransmitPanel::onRemove);
+        }
+    } else {
+        QAction* addAction = menu.addAction(icon("add"), tr("Add New Frame"));
+        connect(addAction, &QAction::triggered, this, &TransmitPanel::onAdd);
+
+        if (m_actionAddFromMessage != nullptr && m_actionAddFromMessage->isEnabled()) {
+            QAction* addFromMsgAction = menu.addAction(icon("database"), tr("Add from Message..."));
+            connect(addFromMsgAction, &QAction::triggered, this, &TransmitPanel::onAddFromMessage);
+        }
+    }
+
+    if (!menu.actions().isEmpty()) {
+        menu.exec(m_treeView->viewport()->mapToGlobal(pos));
     }
 }
 
@@ -443,6 +629,17 @@ void TransmitPanel::keyPressEvent(QKeyEvent* event)
              && focus != m_treeView->viewport() && m_treeView->isAncestorOf(focus));
         if (!isEditorActive) {
             onRemove();
+            event->accept();
+            return;
+        }
+    }
+    if (event->key() == Qt::Key_D && event->modifiers().testFlag(Qt::ControlModifier)) {
+        const QWidget* focus = QApplication::focusWidget();
+        const bool isEditorActive =
+            (m_treeView != nullptr && focus != nullptr && focus != m_treeView
+             && focus != m_treeView->viewport() && m_treeView->isAncestorOf(focus));
+        if (!isEditorActive) {
+            onDuplicateSelected();
             event->accept();
             return;
         }

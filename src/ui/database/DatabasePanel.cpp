@@ -10,6 +10,7 @@
 #include "ui/theme/ThemeManager.h"
 
 #include <QAbstractItemView>
+#include <QClipboard>
 #include <QEvent>
 #include <QFileInfo>
 #include <QFrame>
@@ -320,25 +321,132 @@ void DatabasePanel::buildUi()
         if (item == nullptr && m_databases.empty()) {
             return;
         }
-        const QString targetPath =
-            item != nullptr
-                ? item->data(0, kPathRole).toString()
-                : (m_databases.size() == 1 ? QString::fromStdString(m_databases.front()->sourcePath)
-                                           : QString{});
-        if (targetPath.isEmpty()) {
-            return;
-        }
 
         QMenu menu(this);
-        QAction* removeAction =
-            menu.addAction(tr("Remove '%1' from Project").arg(QFileInfo{targetPath}.fileName()));
-        if (ThemeManager* themes = ThemeManager::instance()) {
-            removeAction->setIcon(themes->icon(QStringLiteral("clear")));
+        ThemeManager* themes = ThemeManager::instance();
+        const auto icon = [themes](const char* name) {
+            return themes != nullptr ? themes->icon(QString::fromLatin1(name)) : QIcon{};
+        };
+
+        if (item != nullptr) {
+            const int kind = item->data(0, kKindRole).toInt();
+            if (kind == KindMessage) {
+                const QString msgName = item->data(0, kMessageRole).toString();
+                const QString dbPath = item->data(0, kPathRole).toString();
+
+                const CanMessage* foundMsg = nullptr;
+                for (const auto& db : m_databases) {
+                    if (QString::fromStdString(db->sourcePath) == dbPath) {
+                        for (const auto& msg : db->messages()) {
+                            if (QString::fromStdString(msg.name) == msgName) {
+                                foundMsg = &msg;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                QAction* title = menu.addAction(tr("Message: %1").arg(msgName));
+                title->setEnabled(false);
+                menu.addSeparator();
+
+                if (foundMsg != nullptr) {
+                    QAction* addTx = menu.addAction(icon("transmit"), tr("Add to Transmit List"));
+                    connect(addTx, &QAction::triggered, this, [this, foundMsg] {
+                        Q_EMIT sendToTransmitRequested(*foundMsg);
+                    });
+
+                    QAction* plotAll = menu.addAction(icon("graph"), tr("Plot All Signals in Graph"));
+                    connect(plotAll, &QAction::triggered, this, [this, foundMsg] {
+                        for (const auto& sig : foundMsg->signalList) {
+                            Q_EMIT plotSignalRequested(QString::fromStdString(sig.name));
+                        }
+                    });
+                }
+
+                QAction* copyName = menu.addAction(tr("Copy Message Name"));
+                connect(copyName, &QAction::triggered, this, [msgName] {
+                    if (QClipboard* clip = QGuiApplication::clipboard()) {
+                        clip->setText(msgName);
+                    }
+                });
+
+                if (foundMsg != nullptr) {
+                    const QString hexId =
+                        QStringLiteral("0x%1").arg(foundMsg->identifier, 0, 16).toUpper();
+                    QAction* copyId = menu.addAction(tr("Copy Identifier (%1)").arg(hexId));
+                    connect(copyId, &QAction::triggered, this, [hexId] {
+                        if (QClipboard* clip = QGuiApplication::clipboard()) {
+                            clip->setText(hexId);
+                        }
+                    });
+                }
+            } else if (kind == KindSignal) {
+                const QString sigName = item->data(0, kSignalRole).toString();
+                const QString msgName = item->data(0, kMessageRole).toString();
+                const QString dbPath = item->data(0, kPathRole).toString();
+
+                QAction* title = menu.addAction(tr("Signal: %1").arg(sigName));
+                title->setEnabled(false);
+                menu.addSeparator();
+
+                QAction* plot = menu.addAction(icon("graph"), tr("Plot in Graph"));
+                connect(plot, &QAction::triggered, this, [this, sigName] {
+                    Q_EMIT plotSignalRequested(sigName);
+                });
+
+                const CanMessage* foundMsg = nullptr;
+                for (const auto& db : m_databases) {
+                    if (QString::fromStdString(db->sourcePath) == dbPath) {
+                        for (const auto& msg : db->messages()) {
+                            if (QString::fromStdString(msg.name) == msgName) {
+                                foundMsg = &msg;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (foundMsg != nullptr) {
+                    QAction* addTx = menu.addAction(
+                        icon("transmit"), tr("Add Message '%1' to Transmit List").arg(msgName));
+                    connect(addTx, &QAction::triggered, this, [this, foundMsg] {
+                        Q_EMIT sendToTransmitRequested(*foundMsg);
+                    });
+                }
+
+                QAction* copyName = menu.addAction(tr("Copy Signal Name"));
+                connect(copyName, &QAction::triggered, this, [sigName] {
+                    if (QClipboard* clip = QGuiApplication::clipboard()) {
+                        clip->setText(sigName);
+                    }
+                });
+            } else if (kind == KindDatabase) {
+                const QString targetPath = item->data(0, kPathRole).toString();
+                QAction* removeAction = menu.addAction(
+                    icon("clear"),
+                    tr("Remove '%1' from Project").arg(QFileInfo{targetPath}.fileName()));
+                connect(removeAction, &QAction::triggered, this, [this, targetPath] {
+                    (void)removeDatabase(targetPath);
+                });
+            }
+        } else if (!m_databases.empty()) {
+            const QString targetPath =
+                m_databases.size() == 1 ? QString::fromStdString(m_databases.front()->sourcePath)
+                                        : QString{};
+            if (!targetPath.isEmpty()) {
+                QAction* removeAction = menu.addAction(
+                    icon("clear"),
+                    tr("Remove '%1' from Project").arg(QFileInfo{targetPath}.fileName()));
+                connect(removeAction, &QAction::triggered, this, [this, targetPath] {
+                    (void)removeDatabase(targetPath);
+                });
+            }
         }
-        connect(removeAction, &QAction::triggered, this, [this, targetPath] {
-            (void)removeDatabase(targetPath);
-        });
-        menu.exec(m_tree->viewport()->mapToGlobal(pos));
+
+        if (!menu.actions().isEmpty()) {
+            menu.exec(m_tree->viewport()->mapToGlobal(pos));
+        }
     });
 
     // Several at once, so that the signals of one message can be dragged to the Dashboard together.

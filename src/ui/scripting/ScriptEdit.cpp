@@ -8,11 +8,15 @@
 #include "ui/theme/Theme.h"
 #include "ui/theme/ThemeManager.h"
 
+#include <QAbstractItemView>
+#include <QCompleter>
 #include <QKeyEvent>
 #include <QPaintEvent>
 #include <QPainter>
 #include <QRegularExpression>
 #include <QResizeEvent>
+#include <QScrollBar>
+#include <QStringListModel>
 #include <QTextBlock>
 #include <QWheelEvent>
 
@@ -74,6 +78,85 @@ ScriptEdit::ScriptEdit(QWidget* parent)
 
     updateLineNumberAreaWidth();
     highlightLines();
+
+    const QStringList defaultWords = {
+        QStringLiteral("and"), QStringLiteral("break"), QStringLiteral("do"),
+        QStringLiteral("else"), QStringLiteral("elseif"), QStringLiteral("end"),
+        QStringLiteral("false"), QStringLiteral("for"), QStringLiteral("function"),
+        QStringLiteral("if"), QStringLiteral("in"), QStringLiteral("local"),
+        QStringLiteral("nil"), QStringLiteral("not"), QStringLiteral("or"),
+        QStringLiteral("repeat"), QStringLiteral("return"), QStringLiteral("then"),
+        QStringLiteral("true"), QStringLiteral("until"), QStringLiteral("while"),
+        QStringLiteral("emit"), QStringLiteral("emit_signal"), QStringLiteral("cyclic"),
+        QStringLiteral("set_timer"), QStringLiteral("on_frame"), QStringLiteral("on_timer"),
+        QStringLiteral("on_start"), QStringLiteral("on_stop"), QStringLiteral("on_request"),
+        QStringLiteral("on_security_seed"), QStringLiteral("on_uds_request"),
+        QStringLiteral("can_send"), QStringLiteral("can_receive"),
+        QStringLiteral("sysvar_get"), QStringLiteral("sysvar_set"),
+        QStringLiteral("log_message"), QStringLiteral("get_signal"), QStringLiteral("set_signal"),
+        QStringLiteral("j1939_send"), QStringLiteral("bus_statistics"), QStringLiteral("inject_error")
+    };
+    setCompletionWords(defaultWords);
+}
+
+void ScriptEdit::setCompletionWords(const QStringList& words)
+{
+    m_completionWords = words;
+    m_completionWords.removeDuplicates();
+    m_completionWords.sort(Qt::CaseInsensitive);
+
+    if (m_completer == nullptr) {
+        m_completer = new QCompleter(this);
+        m_completer->setWidget(this);
+        m_completer->setCompletionMode(QCompleter::PopupCompletion);
+        m_completer->setCaseSensitivity(Qt::CaseInsensitive);
+        m_completer->setWrapAround(false);
+        connect(m_completer,
+                qOverload<const QString&>(&QCompleter::activated),
+                this,
+                &ScriptEdit::insertCompletion);
+    }
+
+    if (auto* existingModel = qobject_cast<QStringListModel*>(m_completer->model())) {
+        existingModel->setStringList(m_completionWords);
+    } else {
+        auto* model = new QStringListModel(m_completionWords, m_completer);
+        m_completer->setModel(model);
+    }
+}
+
+void ScriptEdit::addCompletionWords(const QStringList& words)
+{
+    bool added = false;
+    for (const QString& w : words) {
+        if (!w.isEmpty() && !m_completionWords.contains(w)) {
+            m_completionWords.append(w);
+            added = true;
+        }
+    }
+    if (added) {
+        setCompletionWords(m_completionWords);
+    }
+}
+
+void ScriptEdit::insertCompletion(const QString& completion)
+{
+    if (m_completer == nullptr) {
+        return;
+    }
+    QTextCursor tc = textCursor();
+    const int extra = completion.length() - m_completer->completionPrefix().length();
+    tc.movePosition(QTextCursor::Left);
+    tc.movePosition(QTextCursor::EndOfWord);
+    tc.insertText(completion.right(extra));
+    setTextCursor(tc);
+}
+
+QString ScriptEdit::textUnderCursor() const
+{
+    QTextCursor tc = textCursor();
+    tc.select(QTextCursor::WordUnderCursor);
+    return tc.selectedText();
 }
 
 void ScriptEdit::applyTheme()
@@ -252,6 +335,20 @@ void ScriptEdit::paintLineNumbers(QPaintEvent* event)
 
 void ScriptEdit::keyPressEvent(QKeyEvent* event)
 {
+    if (m_completer != nullptr && m_completer->popup()->isVisible()) {
+        switch (event->key()) {
+        case Qt::Key_Enter:
+        case Qt::Key_Return:
+        case Qt::Key_Escape:
+        case Qt::Key_Tab:
+        case Qt::Key_Backtab:
+            event->ignore();
+            return;
+        default:
+            break;
+        }
+    }
+
     // Toggle comment with Ctrl+/
     if (event->key() == Qt::Key_Slash && (event->modifiers() & Qt::ControlModifier)) {
         toggleComment();
@@ -334,7 +431,32 @@ void ScriptEdit::keyPressEvent(QKeyEvent* event)
         return;
     }
 
+    const bool isShortcut =
+        (event->modifiers().testFlag(Qt::ControlModifier) && event->key() == Qt::Key_Space);
+
     QPlainTextEdit::keyPressEvent(event);
+
+    if (m_completer == nullptr) {
+        return;
+    }
+
+    const QString prefix = textUnderCursor();
+    const bool ctrlOrShift =
+        event->modifiers().testFlag(Qt::ControlModifier) || event->modifiers().testFlag(Qt::ShiftModifier);
+    if (!isShortcut && (ctrlOrShift || event->text().isEmpty() || prefix.length() < 2)) {
+        m_completer->popup()->hide();
+        return;
+    }
+
+    if (prefix != m_completer->completionPrefix()) {
+        m_completer->setCompletionPrefix(prefix);
+        m_completer->popup()->setCurrentIndex(m_completer->completionModel()->index(0, 0));
+    }
+
+    QRect cr = cursorRect();
+    cr.setWidth(m_completer->popup()->sizeHintForColumn(0)
+                + m_completer->popup()->verticalScrollBar()->sizeHint().width());
+    m_completer->complete(cr);
 }
 
 void ScriptEdit::wheelEvent(QWheelEvent* event)

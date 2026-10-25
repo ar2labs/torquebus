@@ -11,8 +11,10 @@
 #include <QAbstractButton>
 #include <QAction>
 #include <QApplication>
+#include <QCompleter>
 #include <QLabel>
 #include <QLineEdit>
+#include <QStringListModel>
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTextCursor>
@@ -93,6 +95,31 @@ TEST(ScriptEditTests, FindAndReplace)
         editor.replaceAll(QStringLiteral("foo"), QStringLiteral("speed"), true, false);
     EXPECT_EQ(count, 3);
     EXPECT_FALSE(editor.toPlainText().contains(QStringLiteral("foo")));
+}
+
+TEST(ScriptEditTests, AutocompletionProvidesLuaKeywordsAndTorqueBusApi)
+{
+    ScriptEdit editor;
+    QCompleter* completer = editor.completer();
+    ASSERT_NE(completer, nullptr);
+
+    auto* model = qobject_cast<QStringListModel*>(completer->model());
+    ASSERT_NE(model, nullptr);
+
+    const QStringList words = model->stringList();
+    EXPECT_TRUE(words.contains(QStringLiteral("function")));
+    EXPECT_TRUE(words.contains(QStringLiteral("emit")));
+    EXPECT_TRUE(words.contains(QStringLiteral("cyclic")));
+    EXPECT_TRUE(words.contains(QStringLiteral("on_frame")));
+    EXPECT_TRUE(words.contains(QStringLiteral("set_timer")));
+
+    // Adding dynamic completion words (e.g. from DBC)
+    editor.addCompletionWords({QStringLiteral("EngineSpeed"), QStringLiteral("VehicleSpeed")});
+    auto* currentModel = qobject_cast<QStringListModel*>(editor.completer()->model());
+    ASSERT_NE(currentModel, nullptr);
+    const QStringList updatedWords = currentModel->stringList();
+    EXPECT_TRUE(updatedWords.contains(QStringLiteral("EngineSpeed")));
+    EXPECT_TRUE(updatedWords.contains(QStringLiteral("VehicleSpeed")));
 }
 
 TEST(ScriptEditTests, DocumentMetrics)

@@ -361,6 +361,31 @@ QModelIndex TraceTreeModel::txGroupIndex() const
     return (m_txGroup != nullptr) ? createIndex(1, 0, m_txGroup) : QModelIndex{};
 }
 
+const TraceTreeNode* TraceTreeModel::nodeFromIndex(const QModelIndex& index) const
+{
+    if (!index.isValid()) {
+        return nullptr;
+    }
+    return static_cast<const TraceTreeNode*>(index.internalPointer());
+}
+
+std::optional<CanFrame> TraceTreeModel::frameForNode(const TraceTreeNode* node) const
+{
+    if (node == nullptr || m_store == nullptr) {
+        return std::nullopt;
+    }
+
+    const TraceTreeNode* msgNode = (node->type == TreeNodeType::Message) ? node : node->parent;
+    if (msgNode == nullptr || msgNode->type != TreeNodeType::Message) {
+        return std::nullopt;
+    }
+
+    if (msgNode->statsIndex < m_store->identifiers().size()) {
+        return m_store->identifiers()[msgNode->statsIndex].lastFrame;
+    }
+    return std::nullopt;
+}
+
 QModelIndex TraceTreeModel::index(int row, int column, const QModelIndex& parent) const
 {
     if (column < 0 || column >= TreeColumnCount) {

@@ -22,6 +22,7 @@
 #include <QApplication>
 #include <QImage>
 #include <QKeyEvent>
+#include <QLineEdit>
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QToolBar>
@@ -855,6 +856,47 @@ TEST_F(CanvasPanelTest, DeleteSelectedIsOfferedOnlyWhileSomethingIsSelected)
     settleCanvas();
     EXPECT_TRUE(description.nodes().empty());
     EXPECT_FALSE(remove->isEnabled());
+}
+
+TEST_F(CanvasPanelTest, PaletteFilterHidesNonMatchingBlocksAndShowsMatching)
+{
+    auto* palette = panel.findChild<QTreeWidget*>();
+    ASSERT_NE(palette, nullptr);
+
+    auto* filter = panel.findChild<QLineEdit*>();
+    ASSERT_NE(filter, nullptr);
+
+    // Initial state: all top-level categories visible
+    ASSERT_GT(palette->topLevelItemCount(), 0);
+    for (int i = 0; i < palette->topLevelItemCount(); ++i) {
+        EXPECT_FALSE(palette->topLevelItem(i)->isHidden());
+    }
+
+    // Filter with "J1939"
+    filter->setText(QStringLiteral("J1939"));
+    settleCanvas();
+
+    bool foundVisibleChild = false;
+    for (int i = 0; i < palette->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* group = palette->topLevelItem(i);
+        for (int j = 0; j < group->childCount(); ++j) {
+            QTreeWidgetItem* child = group->child(j);
+            if (!child->isHidden()) {
+                foundVisibleChild = true;
+                const bool matches = child->text(0).contains(QStringLiteral("J1939"), Qt::CaseInsensitive)
+                                  || child->toolTip(0).contains(QStringLiteral("J1939"), Qt::CaseInsensitive);
+                EXPECT_TRUE(matches);
+            }
+        }
+    }
+    EXPECT_TRUE(foundVisibleChild);
+
+    // Clear filter: all categories should be visible again
+    filter->clear();
+    settleCanvas();
+    for (int i = 0; i < palette->topLevelItemCount(); ++i) {
+        EXPECT_FALSE(palette->topLevelItem(i)->isHidden());
+    }
 }
 
 } // namespace

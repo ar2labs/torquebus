@@ -32,10 +32,12 @@
 #include <QString>
 #include <QWidget>
 
+class QAction;
 class QLabel;
 class QShowEvent;
 class QSplitter;
 class QTableWidget;
+class QToolBar;
 class QTreeWidget;
 class QTreeWidgetItem;
 
@@ -74,8 +76,14 @@ protected:
     /// most wants to read the final counts.
     void showEvent(QShowEvent* event) override;
 
+Q_SIGNALS:
+    void resetRequested();
+
 private Q_SLOTS:
     void onThemeChanged();
+    void onResetTriggered();
+    void onCopyAll();
+    void onChannelsContextMenu(const QPoint& pos);
 
 private:
     void buildUi();
@@ -99,6 +107,9 @@ private:
     void rebuildTree(const QList<NodeStatus>& nodes);
 
     QSplitter* m_splitter{nullptr};
+    QToolBar* m_toolBar{nullptr};
+    QAction* m_actionReset{nullptr};
+    QAction* m_actionCopy{nullptr};
     QTableWidget* m_channels{nullptr};
     QTreeWidget* m_nodes{nullptr};
     QLabel* m_status{nullptr};

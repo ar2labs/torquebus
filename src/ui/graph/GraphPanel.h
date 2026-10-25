@@ -27,6 +27,7 @@
 #include <QByteArray>
 #include <QColor>
 #include <QHash>
+#include <QSet>
 #include <QString>
 #include <QWidget>
 #include <QtGlobal>
@@ -61,8 +62,14 @@ public:
 
     [[nodiscard]] PlotView* plotView() const noexcept { return m_plot; }
 
+    /// Activates a signal for plotting by name.
+    void enableSignal(const QString& signalName);
+
 protected:
     void showEvent(QShowEvent* event) override;
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dragMoveEvent(QDragMoveEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
 private Q_SLOTS:
     void refresh();
@@ -159,6 +166,7 @@ private:
     std::vector<SeriesWindow> m_windows;
     QHash<QString, SeriesId> m_listed;
     QHash<SeriesId, SignalCustomStyle> m_customStyles;
+    QSet<QString> m_pendingSignals;
 
     bool m_frozen{false};
     bool m_userInteracting{false};

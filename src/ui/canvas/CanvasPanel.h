@@ -61,6 +61,7 @@ class QAction;
 class QEvent;
 class QGraphicsItem;
 class QHideEvent;
+class QLineEdit;
 class QMenu;
 class QPainter;
 class QPushButton;
@@ -373,6 +374,7 @@ private:
     QtNodes::GraphicsView* m_view{nullptr};
     QSplitter* m_splitter{nullptr};
     QTreeWidget* m_palette{nullptr};
+    QLineEdit* m_paletteFilter{nullptr};
 
     QWidget* m_hudBar{nullptr};
     QToolBar* m_navToolBar{nullptr};

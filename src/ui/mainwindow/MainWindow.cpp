@@ -689,6 +689,59 @@ void MainWindow::createPanels()
     m_graphDock =
         createDockWidget(dockName(kDockGraph), tr("Plot Viewer"), m_graphPanel, icon("graph"));
 
+    // Cross-panel shortcuts: Trace and Database -> Transmit & Graph
+    if (m_tracePanel != nullptr) {
+        connect(m_tracePanel,
+                &TracePanel::sendToTransmitRequested,
+                this,
+                [this](const CanFrame& frame, const QString& name) {
+                    if (m_transmitPanel != nullptr) {
+                        m_transmitPanel->addEntryFromFrame(frame, name);
+                        if (m_transmitDock != nullptr) {
+                            m_transmitDock->raise();
+                        }
+                    }
+                });
+
+        connect(m_tracePanel,
+                &TracePanel::plotSignalRequested,
+                this,
+                [this](const QString& signalName) {
+                    if (m_graphPanel != nullptr) {
+                        m_graphPanel->enableSignal(signalName);
+                        if (m_graphDock != nullptr) {
+                            m_graphDock->raise();
+                        }
+                    }
+                });
+    }
+
+    if (m_databasePanel != nullptr) {
+        connect(m_databasePanel,
+                &DatabasePanel::sendToTransmitRequested,
+                this,
+                [this](const CanMessage& message) {
+                    if (m_transmitPanel != nullptr) {
+                        m_transmitPanel->addEntryFromMessage(message);
+                        if (m_transmitDock != nullptr) {
+                            m_transmitDock->raise();
+                        }
+                    }
+                });
+
+        connect(m_databasePanel,
+                &DatabasePanel::plotSignalRequested,
+                this,
+                [this](const QString& signalName) {
+                    if (m_graphPanel != nullptr) {
+                        m_graphPanel->enableSignal(signalName);
+                        if (m_graphDock != nullptr) {
+                            m_graphDock->raise();
+                        }
+                    }
+                });
+    }
+
     m_playbackPanel = new PlaybackPanel;
     m_playbackPanel->setControl(&m_controller->engine().replayControl());
 
@@ -705,6 +758,11 @@ void MainWindow::createPanels()
             &CanEngineController::nodeStatisticsUpdated,
             m_statisticsPanel,
             &StatisticsPanel::setNodes);
+    connect(m_statisticsPanel, &StatisticsPanel::resetRequested, this, [this] {
+        if (m_controller != nullptr) {
+            m_controller->resetStatistics();
+        }
+    });
 
     m_statisticsDock = createDockWidget(
         dockName(kDockStatistics), tr("Statistics"), m_statisticsPanel, icon("statistics"));

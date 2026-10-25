@@ -11,6 +11,7 @@
 
 #include <QPlainTextEdit>
 
+class QCompleter;
 class QKeyEvent;
 class QPaintEvent;
 class QResizeEvent;
@@ -45,6 +46,11 @@ public:
     void unindentSelection();
     void insertSnippet(const QString& snippet);
 
+    /// Autocompletion words
+    void setCompletionWords(const QStringList& words);
+    void addCompletionWords(const QStringList& words);
+    [[nodiscard]] QCompleter* completer() const noexcept { return m_completer; }
+
     /// Zoom controls
     void zoomIn(qreal delta = 1.0);
     void zoomOut(qreal delta = 1.0);
@@ -77,7 +83,12 @@ private Q_SLOTS:
     void highlightLines();
 
 private:
+    void insertCompletion(const QString& completion);
+    [[nodiscard]] QString textUnderCursor() const;
+
     QWidget* m_lineNumbers{nullptr};
+    QCompleter* m_completer{nullptr};
+    QStringList m_completionWords;
 
     /// 1-based, or 0 for "no error".
     int m_errorLine{0};

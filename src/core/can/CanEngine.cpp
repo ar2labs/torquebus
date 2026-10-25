@@ -132,6 +132,16 @@ void CanEngine::clearChannels()
     m_channels.clear();
 }
 
+void CanEngine::resetStatistics()
+{
+    const std::lock_guard lock{m_channelsMutex};
+    for (auto& ch : m_channels) {
+        if (ch != nullptr) {
+            ch->resetStatistics();
+        }
+    }
+}
+
 std::size_t CanEngine::channelCount() const
 {
     const std::lock_guard lock{m_channelsMutex};

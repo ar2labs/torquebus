@@ -16,6 +16,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QComboBox>
+#include <QKeyEvent>
 #include <QLineEdit>
 #include <QTableView>
 #include <QTreeView>
@@ -351,4 +352,61 @@ TEST(TracePanelTests, IdentifiesJ1939AddressClaimAndSharedPgnFramesAcrossMultipl
         const QModelIndex msgIndex = treeModel->index(row, 0, rxGroup);
         EXPECT_EQ(treeModel->rowCount(msgIndex), 10);
     }
+}
+
+TEST(TracePanelTests, SpaceKeyTogglesFreeze)
+{
+    TraceStore store{100};
+    TracePanel panel;
+    panel.setStore(&store);
+    panel.show();
+    settle();
+
+    QKeyEvent spaceEvent(QEvent::KeyPress, Qt::Key_Space, Qt::NoModifier);
+    QApplication::sendEvent(&panel, &spaceEvent);
+    settle();
+
+    QKeyEvent spaceEvent2(QEvent::KeyPress, Qt::Key_Space, Qt::NoModifier);
+    QApplication::sendEvent(&panel, &spaceEvent2);
+    settle();
+}
+
+TEST(TracePanelTests, ContextMenuSignalsSendToTransmitAndPlot)
+{
+    auto db = makeTestDatabase();
+    TraceStore store{100};
+    TracePanel panel;
+    panel.setStore(&store);
+    panel.setDatabases({db});
+    panel.resize(1000, 600);
+    panel.show();
+    settle();
+
+    CanFrame frame = makeFrame(0x100, CanDirection::Rx, CanFrameFormat::Standard, 8);
+    store.append(std::span<const CanFrame>{&frame, 1});
+    panel.poll();
+    settle();
+
+    bool transmitRequested = false;
+    QObject::connect(
+        &panel,
+        &TracePanel::sendToTransmitRequested,
+        &panel,
+        [&](const CanFrame& f, const QString& name) {
+            transmitRequested = true;
+            EXPECT_EQ(f.identifier, 0x100U);
+            EXPECT_EQ(name, QStringLiteral("EngineData"));
+        });
+
+    bool plotRequested = false;
+    QObject::connect(&panel, &TracePanel::plotSignalRequested, &panel, [&](const QString& sig) {
+        plotRequested = true;
+        EXPECT_EQ(sig, QStringLiteral("EngineSpeed"));
+    });
+
+    Q_EMIT panel.sendToTransmitRequested(frame, QStringLiteral("EngineData"));
+    EXPECT_TRUE(transmitRequested);
+
+    Q_EMIT panel.plotSignalRequested(QStringLiteral("EngineSpeed"));
+    EXPECT_TRUE(plotRequested);
 }

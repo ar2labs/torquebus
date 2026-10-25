@@ -330,3 +330,48 @@ TEST(GraphPanelTests, ASampleThatIsNotANumberIsAGapInTheLineAndNotASpike)
     EXPECT_GT(lineRows, 0) << "the line is not there at all";
     EXPECT_EQ(middleRows, 0) << "something was drawn at the middle of the plot";
 }
+
+TEST(GraphPanelTests, EnableSignalChecksItemOrSavesPending)
+{
+    SignalSeriesStore store{100};
+    GraphPanel panel;
+    panel.show();
+    settle();
+
+    // Enabling a signal before it appears queues it in pending
+    panel.enableSignal(QStringLiteral("MotorSpeed"));
+    settle();
+
+    // Add sample series to store using DecodedSignal
+    CanMessage msg;
+    msg.name = "Motor";
+    CanSignal sig;
+    sig.name = "MotorSpeed";
+    sig.unit = "rpm";
+
+    DecodedSignal ds;
+    ds.message = &msg;
+    ds.signal = &sig;
+    ds.timestampNs = 1000;
+    ds.value = 1500.0;
+
+    std::vector<DecodedSignal> batch{ds};
+    store.append(batch);
+
+    panel.setStore(&store);
+    settle();
+
+    auto* list = panel.findChild<QListWidget*>("torquebus.list.plotSignals");
+    ASSERT_NE(list, nullptr);
+    ASSERT_GT(list->count(), 0);
+
+    bool foundChecked = false;
+    for (int i = 0; i < list->count(); ++i) {
+        if (list->item(i)->text().contains(QStringLiteral("MotorSpeed"))
+            && list->item(i)->checkState() == Qt::Checked) {
+            foundChecked = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(foundChecked);
+}

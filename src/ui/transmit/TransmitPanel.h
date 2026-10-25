@@ -50,6 +50,15 @@ public:
     /// Selects and scrolls to the row at `index` in the transmit list.
     void selectEntry(int index);
 
+    /// Adds a frame to the transmit list (e.g. from Trace or Database).
+    void addEntryFromFrame(const CanFrame& frame, const QString& name = {});
+
+    /// Adds a message definition to the transmit list.
+    void addEntryFromMessage(const CanMessage& message);
+
+    /// Duplicates the selected entry.
+    void duplicateSelected();
+
     /// Tells the panel whether a measurement is running. Send only transmits on
     /// a running bus; without this the button would queue a frame that is
     /// dropped when the measurement starts, and appear to do nothing.
@@ -66,10 +75,14 @@ protected:
     void keyPressEvent(QKeyEvent* event) override;
     void hideEvent(QHideEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dragMoveEvent(QDragMoveEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
 private Q_SLOTS:
     void onAdd();
     void onAddFromMessage();
+    void onDuplicateSelected();
     void onRemove();
     void onSendSelected();
     void onEditSignals();
@@ -77,6 +90,7 @@ private Q_SLOTS:
     void onCollapseAll();
     void refreshCounters();
     void onThemeChanged();
+    void onTreeContextMenu(const QPoint& pos);
 
 private:
     void buildUi();

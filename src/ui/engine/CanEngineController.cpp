@@ -252,6 +252,14 @@ void CanEngineController::stop()
     Q_EMIT stopped();
 }
 
+void CanEngineController::resetStatistics()
+{
+    if (m_engine) {
+        m_engine->resetStatistics();
+    }
+    publishToUi();
+}
+
 // ---------------------------------------------------------------------------
 // Publishing to the UI
 // ---------------------------------------------------------------------------

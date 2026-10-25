@@ -8,11 +8,15 @@
 #include "ui/theme/ThemeManager.h"
 
 #include <QAbstractItemView>
+#include <QAction>
 #include <QApplication>
+#include <QClipboard>
 #include <QColor>
 #include <QFrame>
+#include <QGuiApplication>
 #include <QHeaderView>
 #include <QLabel>
+#include <QMenu>
 #include <QModelIndex>
 #include <QPainter>
 #include <QPalette>
@@ -23,6 +27,7 @@
 #include <QStyledItemDelegate>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QToolBar>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
@@ -224,6 +229,11 @@ void StatisticsPanel::buildUi()
     m_channels->setFrameShape(QFrame::NoFrame);
     m_channels->verticalHeader()->setVisible(false);
     m_channels->horizontalHeader()->setStretchLastSection(false);
+    m_channels->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_channels,
+            &QTableWidget::customContextMenuRequested,
+            this,
+            &StatisticsPanel::onChannelsContextMenu);
     m_channels->setColumnWidth(ColumnChannel, 70);
     m_channels->setColumnWidth(ColumnInterface, 170);
     m_channels->setColumnWidth(ColumnState, 90);
@@ -268,9 +278,34 @@ void StatisticsPanel::buildUi()
     m_status = new QLabel(this);
     m_status->setObjectName(QStringLiteral("panelStatus"));
 
+    m_toolBar = new QToolBar(this);
+    m_toolBar->setObjectName(QStringLiteral("torquebus.toolbar.statistics"));
+    m_toolBar->setIconSize(QSize{16, 16});
+    m_toolBar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+
+    ThemeManager* themes = ThemeManager::instance();
+    const auto icon = [themes](const char* name) {
+        return themes != nullptr ? themes->icon(QString::fromLatin1(name)) : QIcon{};
+    };
+
+    m_actionReset = new QAction(icon("clear"), tr("Reset"), this);
+    m_actionReset->setObjectName(QStringLiteral("actionResetStatistics"));
+    m_actionReset->setToolTip(tr("Clears counters and resets peak bus load to zero."));
+    connect(m_actionReset, &QAction::triggered, this, &StatisticsPanel::onResetTriggered);
+
+    m_actionCopy = new QAction(icon("copy"), tr("Copy All"), this);
+    m_actionCopy->setObjectName(QStringLiteral("actionCopyStatistics"));
+    m_actionCopy->setToolTip(
+        tr("Copies channel and node statistics to clipboard as tab-separated text."));
+    connect(m_actionCopy, &QAction::triggered, this, &StatisticsPanel::onCopyAll);
+
+    m_toolBar->addAction(m_actionReset);
+    m_toolBar->addAction(m_actionCopy);
+
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 6, 4);
     layout->setSpacing(2);
+    layout->addWidget(m_toolBar);
     layout->addWidget(m_splitter, 1);
     layout->addWidget(m_status);
 
@@ -500,6 +535,62 @@ void StatisticsPanel::onThemeChanged()
     // have nothing new to say anyway.
     m_channels->viewport()->update();
     m_nodes->viewport()->update();
+}
+
+void StatisticsPanel::onResetTriggered()
+{
+    for (auto& ch : m_lastChannels) {
+        ch.rxFrames = 0;
+        ch.txFrames = 0;
+        ch.errorFrames = 0;
+        ch.filteredFrames = 0;
+        ch.droppedFrames = 0;
+        ch.peakBusLoadPercent = 0.0;
+        ch.busLoadPercent = 0.0;
+        ch.framesPerSecond = 0.0;
+    }
+    for (auto& n : m_lastNodes) {
+        for (auto& c : n.counters) {
+            c.value = 0;
+        }
+    }
+    applyChannels();
+    applyNodes();
+    Q_EMIT resetRequested();
+}
+
+void StatisticsPanel::onCopyAll()
+{
+    QString text;
+    text += tr("=== CAN Channel Statistics ===\n");
+    for (int r = 0; r < m_channels->rowCount(); ++r) {
+        QStringList cells;
+        for (int c = 0; c < m_channels->columnCount(); ++c) {
+            const QTableWidgetItem* item = m_channels->item(r, c);
+            cells << (item != nullptr ? item->text() : QString{});
+        }
+        text += cells.join(QLatin1Char('\t')) + QLatin1Char('\n');
+    }
+    if (QClipboard* clip = QGuiApplication::clipboard()) {
+        clip->setText(text);
+    }
+}
+
+void StatisticsPanel::onChannelsContextMenu(const QPoint& pos)
+{
+    QMenu menu(this);
+    ThemeManager* themes = ThemeManager::instance();
+    const auto icon = [themes](const char* name) {
+        return themes != nullptr ? themes->icon(QString::fromLatin1(name)) : QIcon{};
+    };
+
+    QAction* resetAct = menu.addAction(icon("clear"), tr("Reset Counters & Peak Load"));
+    connect(resetAct, &QAction::triggered, this, &StatisticsPanel::onResetTriggered);
+
+    QAction* copyAct = menu.addAction(tr("Copy All Statistics"));
+    connect(copyAct, &QAction::triggered, this, &StatisticsPanel::onCopyAll);
+
+    menu.exec(m_channels->viewport()->mapToGlobal(pos));
 }
 
 } // namespace torquebus::ui

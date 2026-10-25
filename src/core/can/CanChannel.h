@@ -118,6 +118,9 @@ public:
 
     [[nodiscard]] CanStatisticsSnapshot statistics() const { return m_statistics.snapshot(); }
 
+    /// Resets statistics and peak load counters.
+    void resetStatistics() noexcept { m_statistics.reset(); }
+
     /// Closes the current statistics sampling window. Engine thread only.
     void closeStatisticsWindow(std::uint64_t elapsedNs);
 

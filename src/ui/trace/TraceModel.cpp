@@ -163,6 +163,26 @@ void TraceModel::reset()
     endResetModel();
 }
 
+std::optional<TraceRow> TraceModel::rowAt(int row) const
+{
+    if (row < 0 || m_store == nullptr) {
+        return std::nullopt;
+    }
+    const auto urow = static_cast<std::size_t>(row);
+    if (urow >= m_visibleRows) {
+        return std::nullopt;
+    }
+
+    const std::uint64_t discarded = m_store->discarded();
+    const std::uint64_t firstGlobal = std::max(m_clearedUpTo, discarded);
+    const std::size_t storeIndex = static_cast<std::size_t>(firstGlobal - discarded) + urow;
+    if (storeIndex >= m_store->size()) {
+        return std::nullopt;
+    }
+
+    return m_store->row(storeIndex);
+}
+
 void TraceModel::pollStore()
 {
     if (m_store == nullptr || m_frozen) {

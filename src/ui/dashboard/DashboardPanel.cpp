@@ -812,6 +812,33 @@ void DashboardPanel::keyPressEvent(QKeyEvent* event)
         return;
     }
 
+    if (m_editing && !m_selected.empty()) {
+        double dx = 0.0;
+        double dy = 0.0;
+        const double step = event->modifiers().testFlag(Qt::ShiftModifier) ? 10.0 : 1.0;
+
+        if (event->key() == Qt::Key_Left) {
+            dx = -step;
+        } else if (event->key() == Qt::Key_Right) {
+            dx = step;
+        } else if (event->key() == Qt::Key_Up) {
+            dy = -step;
+        } else if (event->key() == Qt::Key_Down) {
+            dy = step;
+        }
+
+        if (dx != 0.0 || dy != 0.0) {
+            if (auto* widget = const_cast<DashboardWidget*>(m_dashboard.find(m_selected))) {
+                widget->x = std::max(0.0, widget->x + dx);
+                widget->y = std::max(0.0, widget->y + dy);
+                Q_EMIT dashboardEdited();
+                update();
+                event->accept();
+                return;
+            }
+        }
+    }
+
     QWidget::keyPressEvent(event);
 }
 

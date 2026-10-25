@@ -1593,3 +1593,39 @@ TEST(DashboardPanelTests, TheJ1939ExampleListsItsEnginesOilPressureFaultAndEmpti
 
     EXPECT_TRUE(waitFor([&] { return panel.faultRows().empty() && !panel.faultLamps().stop; }));
 }
+
+TEST(DashboardPanelTests, KeyboardArrowKeysNudgeSelectedWidget)
+{
+    Bench bench;
+    DictionaryEntry entry;
+    entry.database = "test.dbc";
+    entry.message = "EEC1";
+    entry.signal = "EngineSpeed";
+    entry.unit = "rpm";
+
+    const auto ids = bench.panel.addSignals({entry}, DashboardWidgetKind::Numeric, QPoint{100, 100});
+    ASSERT_EQ(ids.size(), 1U);
+    const std::string id = ids.front();
+
+    bench.panel.select(id);
+    settle();
+
+    const auto* widget = bench.dashboard.find(id);
+    ASSERT_NE(widget, nullptr);
+    const double initialX = widget->x;
+    const double initialY = widget->y;
+
+    // Normal Arrow key: 1px step
+    QKeyEvent rightEvent{QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier};
+    QApplication::sendEvent(&bench.panel, &rightEvent);
+    settle();
+    EXPECT_DOUBLE_EQ(widget->x, initialX + 1.0);
+    EXPECT_DOUBLE_EQ(widget->y, initialY);
+
+    // Shift + Arrow key: 10px step
+    QKeyEvent downEvent{QEvent::KeyPress, Qt::Key_Down, Qt::ShiftModifier};
+    QApplication::sendEvent(&bench.panel, &downEvent);
+    settle();
+    EXPECT_DOUBLE_EQ(widget->x, initialX + 1.0);
+    EXPECT_DOUBLE_EQ(widget->y, initialY + 10.0);
+}

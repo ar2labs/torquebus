@@ -40,6 +40,7 @@
 
 #include <QVariant>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <cstddef>
@@ -113,6 +114,9 @@ public:
 
     /// Discards everything and starts from an empty view.
     void reset();
+
+    /// Returns the trace row at visible row index, or nullopt if invalid.
+    [[nodiscard]] std::optional<TraceRow> rowAt(int row) const;
 
     // --- QAbstractTableModel ----------------------------------------------
 

@@ -5,6 +5,7 @@
 
 #include "ui/graph/GraphPanel.h"
 
+#include "ui/dashboard/SignalMime.h"
 #include "ui/graph/PlotSettingsDialog.h"
 #include "ui/graph/PlotView.h"
 #include "ui/theme/AccentColor.h"
@@ -16,6 +17,8 @@
 #include <QClipboard>
 #include <QColorDialog>
 #include <QComboBox>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QFile>
 #include <QFileDialog>
 #include <QFrame>
@@ -87,6 +90,7 @@ GraphPanel::GraphPanel(QWidget* parent)
     : QWidget{parent}
 {
     buildUi();
+    setAcceptDrops(true);
 
     m_timer = new QTimer(this);
     m_timer->setInterval(kRefreshMs);
@@ -465,7 +469,19 @@ void GraphPanel::syncSignalList()
 
             auto* item = new QListWidgetItem(name);
             item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable);
-            item->setCheckState(Qt::Unchecked);
+
+            bool shouldCheck = false;
+            for (auto it = m_pendingSignals.begin(); it != m_pendingSignals.end();) {
+                if (it->compare(name, Qt::CaseInsensitive) == 0
+                    || name.endsWith(QLatin1Char('.') + *it, Qt::CaseInsensitive)) {
+                    shouldCheck = true;
+                    it = m_pendingSignals.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+
+            item->setCheckState(shouldCheck ? Qt::Checked : Qt::Unchecked);
             item->setData(kSeriesIdRole, QVariant::fromValue(static_cast<qulonglong>(info.id)));
 
             if (!info.unit.empty()) {
@@ -1105,6 +1121,70 @@ void GraphPanel::onThemeChanged()
 
     m_plot->update();
     refresh();
+}
+
+void GraphPanel::enableSignal(const QString& signalName)
+{
+    m_pendingSignals.insert(signalName);
+
+    if (m_signals != nullptr) {
+        for (int i = 0; i < m_signals->count(); ++i) {
+            QListWidgetItem* item = m_signals->item(i);
+            if (item != nullptr) {
+                const QString itemText = item->text();
+                const bool match =
+                    (itemText.compare(signalName, Qt::CaseInsensitive) == 0)
+                    || itemText.endsWith(QLatin1Char('.') + signalName, Qt::CaseInsensitive);
+                if (match) {
+                    if (item->checkState() != Qt::Checked) {
+                        item->setCheckState(Qt::Checked);
+                    }
+                    m_pendingSignals.remove(signalName);
+                    m_tracesDirty = true;
+                    return;
+                }
+            }
+        }
+    }
+}
+
+void GraphPanel::dragEnterEvent(QDragEnterEvent* event)
+{
+    if (hasSignalReferences(event->mimeData())) {
+        event->acceptProposedAction();
+    } else {
+        event->ignore();
+    }
+}
+
+void GraphPanel::dragMoveEvent(QDragMoveEvent* event)
+{
+    if (hasSignalReferences(event->mimeData())) {
+        event->acceptProposedAction();
+    } else {
+        event->ignore();
+    }
+}
+
+void GraphPanel::dropEvent(QDropEvent* event)
+{
+    if (!hasSignalReferences(event->mimeData())) {
+        event->ignore();
+        return;
+    }
+
+    const QList<SignalReference> references = signalReferencesOf(event->mimeData());
+    int added = 0;
+    for (const SignalReference& ref : references) {
+        if (!ref.signal.isEmpty()) {
+            enableSignal(ref.signal);
+            ++added;
+        }
+    }
+
+    if (added > 0) {
+        event->acceptProposedAction();
+    }
 }
 
 } // namespace torquebus::ui

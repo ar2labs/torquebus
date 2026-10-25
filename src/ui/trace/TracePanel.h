@@ -67,8 +67,13 @@ public:
     /// Polls both models immediately against the store.
     void poll();
 
+Q_SIGNALS:
+    void sendToTransmitRequested(const CanFrame& frame, const QString& name);
+    void plotSignalRequested(const QString& signalName);
+
 protected:
     void showEvent(QShowEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
 
 private Q_SLOTS:
     void onRowsAppended(int firstRow, int lastRow);
@@ -80,6 +85,8 @@ private Q_SLOTS:
     void onExpandAll();
     void onCollapseAll();
     void onViewModeChanged(int index);
+    void onTreeContextMenu(const QPoint& pos);
+    void onTableContextMenu(const QPoint& pos);
 
 private:
     void createToolBar();

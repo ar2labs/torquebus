@@ -1286,6 +1286,22 @@ void ScriptEditorPanel::setDatabases(
 {
     m_databases = databases;
     populateSignalsTree();
+
+    if (m_editor != nullptr) {
+        QStringList names;
+        for (const auto& db : databases) {
+            if (db == nullptr) {
+                continue;
+            }
+            for (const auto& msg : db->messages()) {
+                names.append(QString::fromStdString(msg.name));
+                for (const auto& sig : msg.signalList) {
+                    names.append(QString::fromStdString(sig.name));
+                }
+            }
+        }
+        m_editor->addCompletionWords(names);
+    }
 }
 
 void ScriptEditorPanel::setVariables(SystemVariables* variables)

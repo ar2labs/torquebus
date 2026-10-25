@@ -585,3 +585,84 @@ TEST_F(TransmitPanelTest, SpaceKeyOnSignalChildRowSendsParentMessage)
     ASSERT_TRUE(list.entryAt(0, sent));
     EXPECT_EQ(sent.sentCount, 1U);
 }
+
+TEST_F(TransmitPanelTest, AddEntryFromFrameAddsRow)
+{
+    CanFrame frame;
+    frame.identifier = 0x250;
+    frame.format = CanFrameFormat::Standard;
+    frame.length = 8;
+    frame.data = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+
+    panel.addEntryFromFrame(frame, QStringLiteral("CustomFrame"));
+    settle();
+
+    EXPECT_EQ(list.size(), 1U);
+    TransmitEntry entry;
+    ASSERT_TRUE(list.entryAt(0, entry));
+    EXPECT_EQ(entry.name, "CustomFrame");
+    EXPECT_EQ(entry.frame.identifier, 0x250U);
+}
+
+TEST_F(TransmitPanelTest, AddEntryFromMessagePreservesCycleAndTime)
+{
+    auto db = makeTestDatabase();
+    panel.setDatabases({db});
+    settle();
+
+    ASSERT_FALSE(db->messages().empty());
+    const CanMessage& msg = db->messages().front();
+
+    panel.addEntryFromMessage(msg);
+    settle();
+
+    EXPECT_EQ(list.size(), 1U);
+    TransmitEntry entry;
+    ASSERT_TRUE(list.entryAt(0, entry));
+    EXPECT_EQ(entry.name, msg.name);
+    EXPECT_EQ(entry.frame.identifier, msg.identifier);
+    EXPECT_EQ(entry.cycleMs, msg.cycleTimeMs);
+}
+
+TEST_F(TransmitPanelTest, DuplicateSelectedClonesRowWithCopyName)
+{
+    CanFrame frame;
+    frame.identifier = 0x300;
+    frame.length = 4;
+    panel.addEntryFromFrame(frame, QStringLiteral("SensorMsg"));
+    settle();
+
+    EXPECT_EQ(list.size(), 1U);
+    panel.selectEntry(0);
+    settle();
+
+    panel.duplicateSelected();
+    settle();
+
+    EXPECT_EQ(list.size(), 2U);
+    TransmitEntry copyEntry;
+    ASSERT_TRUE(list.entryAt(1, copyEntry));
+    EXPECT_EQ(copyEntry.name, "SensorMsg (Copy)");
+    EXPECT_EQ(copyEntry.frame.identifier, 0x300U);
+}
+
+TEST_F(TransmitPanelTest, CtrlDShortcutDuplicatesSelectedRow)
+{
+    CanFrame frame;
+    frame.identifier = 0x400;
+    panel.addEntryFromFrame(frame, QStringLiteral("TorqueCmd"));
+    settle();
+
+    EXPECT_EQ(list.size(), 1U);
+    panel.selectEntry(0);
+    settle();
+
+    QKeyEvent ctrlDEvent(QEvent::KeyPress, Qt::Key_D, Qt::ControlModifier);
+    QApplication::sendEvent(&panel, &ctrlDEvent);
+    settle();
+
+    EXPECT_EQ(list.size(), 2U);
+    TransmitEntry copyEntry;
+    ASSERT_TRUE(list.entryAt(1, copyEntry));
+    EXPECT_EQ(copyEntry.name, "TorqueCmd (Copy)");
+}

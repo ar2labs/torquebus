@@ -120,6 +120,9 @@ public:
     /// Removes every channel. Only valid while stopped.
     void clearChannels();
 
+    /// Resets statistics and peak counters on every configured channel.
+    void resetStatistics();
+
     [[nodiscard]] std::size_t channelCount() const;
 
     /// Nullptr when `index` is not bound.

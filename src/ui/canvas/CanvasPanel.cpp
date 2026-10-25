@@ -44,6 +44,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QKeyEvent>
+#include <QLineEdit>
 #include <QLinearGradient>
 #include <QMap>
 #include <QMenu>
@@ -1326,9 +1327,44 @@ CanvasPanel::CanvasPanel(GraphDescription& description, const NodeCatalog& catal
     canvasRow->addWidget(m_view, 1);
     rightLayout->addLayout(canvasRow, 1);
 
+    auto* paletteContainer = new QWidget{this};
+    paletteContainer->setMinimumWidth(160);
+    paletteContainer->setMaximumWidth(260);
+    auto* paletteLayout = new QVBoxLayout{paletteContainer};
+    paletteLayout->setContentsMargins(4, 4, 4, 4);
+    paletteLayout->setSpacing(4);
+
+    m_paletteFilter = new QLineEdit{paletteContainer};
+    m_paletteFilter->setPlaceholderText(tr("Search blocks..."));
+    m_paletteFilter->setClearButtonEnabled(true);
+    connect(m_paletteFilter, &QLineEdit::textChanged, this, [this](const QString& text) {
+        const QString query = text.trimmed();
+        for (int i = 0; i < m_palette->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* group = m_palette->topLevelItem(i);
+            int visibleChildren = 0;
+            for (int j = 0; j < group->childCount(); ++j) {
+                QTreeWidgetItem* child = group->child(j);
+                const bool match = query.isEmpty()
+                                   || child->text(0).contains(query, Qt::CaseInsensitive)
+                                   || child->toolTip(0).contains(query, Qt::CaseInsensitive);
+                child->setHidden(!match);
+                if (match) {
+                    ++visibleChildren;
+                }
+            }
+            group->setHidden(!query.isEmpty() && visibleChildren == 0);
+            if (!query.isEmpty() && visibleChildren > 0) {
+                group->setExpanded(true);
+            }
+        }
+    });
+
+    paletteLayout->addWidget(m_paletteFilter);
+    paletteLayout->addWidget(m_palette, 1);
+
     m_splitter = new QSplitter{Qt::Horizontal, this};
     m_splitter->setObjectName(QStringLiteral("torquebus.splitter.canvas"));
-    m_splitter->addWidget(m_palette);
+    m_splitter->addWidget(paletteContainer);
     m_splitter->addWidget(rightPane);
     m_splitter->setStretchFactor(0, 0);
     m_splitter->setStretchFactor(1, 1);

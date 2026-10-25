@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -118,6 +119,9 @@ public:
 
     [[nodiscard]] QModelIndex rxGroupIndex() const;
     [[nodiscard]] QModelIndex txGroupIndex() const;
+
+    [[nodiscard]] const TraceTreeNode* nodeFromIndex(const QModelIndex& index) const;
+    [[nodiscard]] std::optional<CanFrame> frameForNode(const TraceTreeNode* node) const;
 
 public Q_SLOTS:
     void pollStore();

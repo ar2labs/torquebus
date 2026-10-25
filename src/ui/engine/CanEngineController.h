@@ -146,6 +146,9 @@ public Q_SLOTS:
     /// threw and the engine stopped the loop - which isRunning() already reports as stopped.
     void stop();
 
+    /// Resets bus statistics and peak counters on the channels.
+    void resetStatistics();
+
 Q_SIGNALS:
     void started();
     void stopped();
