@@ -7,7 +7,9 @@
 
 #include "ui/theme/ThemeManager.h"
 
+#include <QAction>
 #include <QDateTime>
+#include <QMenu>
 #include <QPlainTextEdit>
 #include <QScrollBar>
 #include <QTextBlock>
@@ -68,6 +70,19 @@ OutputPanel::OutputPanel(QWidget* parent)
     m_view->setMaximumBlockCount(5000);
     m_view->setFrameShape(QFrame::NoFrame);
 
+    m_clearAction = new QAction(tr("Clear Output"), this);
+    m_clearAction->setObjectName(QStringLiteral("actionClearOutput"));
+    m_clearAction->setToolTip(tr("Clear all text from the output terminal"));
+    m_clearAction->setEnabled(false);
+    if (ThemeManager* themes = ThemeManager::instance()) {
+        m_clearAction->setIcon(themes->icon(QStringLiteral("clear")));
+    }
+    connect(m_clearAction, &QAction::triggered, this, &OutputPanel::clear);
+    m_view->addAction(m_clearAction);
+
+    m_view->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_view, &QWidget::customContextMenuRequested, this, &OutputPanel::showContextMenu);
+
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(m_view);
@@ -113,10 +128,20 @@ void OutputPanel::append(Level level, const QString& message)
     if (wasAtBottom) {
         scrollBar->setValue(scrollBar->maximum());
     }
+
+    if (m_clearAction != nullptr) {
+        m_clearAction->setEnabled(true);
+    }
 }
 
 void OutputPanel::onThemeChanged()
 {
+    if (const ThemeManager* themes = ThemeManager::instance()) {
+        if (m_clearAction != nullptr) {
+            m_clearAction->setIcon(themes->icon(QStringLiteral("clear")));
+        }
+    }
+
     QTextDocument* document = m_view->document();
 
     // One undo-less edit rather than one per line: without this the view
@@ -163,6 +188,35 @@ void OutputPanel::appendError(const QString& message)
 void OutputPanel::clear()
 {
     m_view->clear();
+    if (m_clearAction != nullptr) {
+        m_clearAction->setEnabled(false);
+    }
+}
+
+QMenu* OutputPanel::createContextMenu() const
+{
+    QMenu* menu = m_view->createStandardContextMenu();
+    if (menu == nullptr) {
+        menu = new QMenu();
+    }
+
+    menu->addSeparator();
+
+    if (m_clearAction != nullptr) {
+        m_clearAction->setEnabled(!m_view->document()->isEmpty());
+        menu->addAction(m_clearAction);
+    }
+
+    return menu;
+}
+
+void OutputPanel::showContextMenu(const QPoint& pos)
+{
+    QMenu* menu = createContextMenu();
+    const QPoint globalPos =
+        (pos.x() >= 0 && pos.y() >= 0) ? m_view->viewport()->mapToGlobal(pos) : QCursor::pos();
+    menu->exec(globalPos);
+    delete menu;
 }
 
 } // namespace torquebus::ui

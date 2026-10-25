@@ -15,6 +15,8 @@
 #include <QString>
 #include <QWidget>
 
+class QAction;
+class QMenu;
 class QPlainTextEdit;
 
 namespace torquebus::ui {
@@ -31,6 +33,12 @@ public:
     /// Maximum number of lines kept in the view. Older lines are discarded;
     /// the file log keeps everything.
     void setMaximumLines(int lines);
+
+    /// Action that clears all text from the output terminal.
+    [[nodiscard]] QAction* clearAction() const { return m_clearAction; }
+
+    /// Creates the context menu containing standard text actions and the Clear action.
+    [[nodiscard]] QMenu* createContextMenu() const;
 
 public Q_SLOTS:
     void append(torquebus::ui::OutputPanel::Level level, const QString& message);
@@ -55,8 +63,11 @@ private Q_SLOTS:
     /// be stored twice and the text itself is never rebuilt.
     void onThemeChanged();
 
+    void showContextMenu(const QPoint& pos);
+
 private:
     QPlainTextEdit* m_view{nullptr};
+    QAction* m_clearAction{nullptr};
 };
 
 } // namespace torquebus::ui
