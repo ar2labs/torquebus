@@ -120,10 +120,8 @@ void TracePanel::createViews()
     m_treeView->header()->setStretchLastSection(true);
     m_treeView->header()->setHighlightSections(false);
     m_treeView->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_treeView,
-            &QTreeView::customContextMenuRequested,
-            this,
-            &TracePanel::onTreeContextMenu);
+    connect(
+        m_treeView, &QTreeView::customContextMenuRequested, this, &TracePanel::onTreeContextMenu);
 
     connect(
         m_treeModel, &TraceTreeModel::groupPopulated, this, [this](const QModelIndex& groupIdx) {
@@ -157,10 +155,7 @@ void TracePanel::createViews()
     m_view->horizontalHeader()->setStretchLastSection(true);
     m_view->horizontalHeader()->setHighlightSections(false);
     m_view->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_view,
-            &QTableView::customContextMenuRequested,
-            this,
-            &TracePanel::onTableContextMenu);
+    connect(m_view, &QTableView::customContextMenuRequested, this, &TracePanel::onTableContextMenu);
 
     connect(m_model, &TraceModel::rowsAppended, this, &TracePanel::onRowsAppended);
     connect(m_view->verticalScrollBar(), &QScrollBar::valueChanged, this, &TracePanel::onScrolled);
@@ -513,15 +508,14 @@ void TracePanel::onTreeContextMenu(const QPoint& pos)
     };
 
     if (node->type == TreeNodeType::Message) {
-        const QString name =
-            node->dbMessage != nullptr
-                ? QString::fromStdString(node->dbMessage->name)
-                : tr("0x%1")
-                      .arg(node->identifier,
-                           (node->format == CanFrameFormat::Extended ? 8 : 3),
-                           16,
-                           QLatin1Char('0'))
-                      .toUpper();
+        const QString name = node->dbMessage != nullptr
+                                 ? QString::fromStdString(node->dbMessage->name)
+                                 : tr("0x%1")
+                                       .arg(node->identifier,
+                                            (node->format == CanFrameFormat::Extended ? 8 : 3),
+                                            16,
+                                            QLatin1Char('0'))
+                                       .toUpper();
         const QString hexId = QStringLiteral("%1")
                                   .arg(node->identifier,
                                        (node->format == CanFrameFormat::Extended ? 8 : 3),
@@ -552,7 +546,8 @@ void TracePanel::onTreeContextMenu(const QPoint& pos)
             const CanFrame& frame = *optFrame;
             QStringList hexBytes;
             for (std::size_t i = 0; i < frame.payloadSize(); ++i) {
-                hexBytes << QStringLiteral("%1").arg(frame.data[i], 2, 16, QLatin1Char('0')).toUpper();
+                hexBytes
+                    << QStringLiteral("%1").arg(frame.data[i], 2, 16, QLatin1Char('0')).toUpper();
             }
             const QString dataStr = hexBytes.join(QLatin1Char(' '));
 

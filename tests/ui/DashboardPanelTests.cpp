@@ -1603,7 +1603,8 @@ TEST(DashboardPanelTests, KeyboardArrowKeysNudgeSelectedWidget)
     entry.signal = "EngineSpeed";
     entry.unit = "rpm";
 
-    const auto ids = bench.panel.addSignals({entry}, DashboardWidgetKind::Numeric, QPoint{100, 100});
+    const auto ids =
+        bench.panel.addSignals({entry}, DashboardWidgetKind::Numeric, QPoint{100, 100});
     ASSERT_EQ(ids.size(), 1U);
     const std::string id = ids.front();
 

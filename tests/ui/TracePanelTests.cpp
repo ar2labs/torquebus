@@ -388,15 +388,14 @@ TEST(TracePanelTests, ContextMenuSignalsSendToTransmitAndPlot)
     settle();
 
     bool transmitRequested = false;
-    QObject::connect(
-        &panel,
-        &TracePanel::sendToTransmitRequested,
-        &panel,
-        [&](const CanFrame& f, const QString& name) {
-            transmitRequested = true;
-            EXPECT_EQ(f.identifier, 0x100U);
-            EXPECT_EQ(name, QStringLiteral("EngineData"));
-        });
+    QObject::connect(&panel,
+                     &TracePanel::sendToTransmitRequested,
+                     &panel,
+                     [&](const CanFrame& f, const QString& name) {
+                         transmitRequested = true;
+                         EXPECT_EQ(f.identifier, 0x100U);
+                         EXPECT_EQ(name, QStringLiteral("EngineData"));
+                     });
 
     bool plotRequested = false;
     QObject::connect(&panel, &TracePanel::plotSignalRequested, &panel, [&](const QString& sig) {

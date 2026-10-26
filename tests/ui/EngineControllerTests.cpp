@@ -154,9 +154,8 @@ TEST(EngineControllerTests, StatisticsPanelEmitsResetRequested)
 {
     StatisticsPanel panel;
     bool resetEmitted = false;
-    QObject::connect(&panel, &StatisticsPanel::resetRequested, [&resetEmitted] {
-        resetEmitted = true;
-    });
+    QObject::connect(
+        &panel, &StatisticsPanel::resetRequested, [&resetEmitted] { resetEmitted = true; });
 
     // Locate the reset action on the toolbar
     QAction* resetAction = panel.findChild<QAction*>(QStringLiteral("actionResetStatistics"));

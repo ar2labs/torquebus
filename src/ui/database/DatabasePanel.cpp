@@ -356,7 +356,8 @@ void DatabasePanel::buildUi()
                         Q_EMIT sendToTransmitRequested(*foundMsg);
                     });
 
-                    QAction* plotAll = menu.addAction(icon("graph"), tr("Plot All Signals in Graph"));
+                    QAction* plotAll =
+                        menu.addAction(icon("graph"), tr("Plot All Signals in Graph"));
                     connect(plotAll, &QAction::triggered, this, [this, foundMsg] {
                         for (const auto& sig : foundMsg->signalList) {
                             Q_EMIT plotSignalRequested(QString::fromStdString(sig.name));
@@ -431,9 +432,9 @@ void DatabasePanel::buildUi()
                 });
             }
         } else if (!m_databases.empty()) {
-            const QString targetPath =
-                m_databases.size() == 1 ? QString::fromStdString(m_databases.front()->sourcePath)
-                                        : QString{};
+            const QString targetPath = m_databases.size() == 1
+                                           ? QString::fromStdString(m_databases.front()->sourcePath)
+                                           : QString{};
             if (!targetPath.isEmpty()) {
                 QAction* removeAction = menu.addAction(
                     icon("clear"),

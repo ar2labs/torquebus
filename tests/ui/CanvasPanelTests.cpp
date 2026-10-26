@@ -883,8 +883,9 @@ TEST_F(CanvasPanelTest, PaletteFilterHidesNonMatchingBlocksAndShowsMatching)
             QTreeWidgetItem* child = group->child(j);
             if (!child->isHidden()) {
                 foundVisibleChild = true;
-                const bool matches = child->text(0).contains(QStringLiteral("J1939"), Qt::CaseInsensitive)
-                                  || child->toolTip(0).contains(QStringLiteral("J1939"), Qt::CaseInsensitive);
+                const bool matches =
+                    child->text(0).contains(QStringLiteral("J1939"), Qt::CaseInsensitive)
+                    || child->toolTip(0).contains(QStringLiteral("J1939"), Qt::CaseInsensitive);
                 EXPECT_TRUE(matches);
             }
         }

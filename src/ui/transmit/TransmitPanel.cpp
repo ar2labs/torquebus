@@ -341,9 +341,8 @@ void TransmitPanel::addEntryFromMessage(const CanMessage& message)
 void TransmitPanel::addEntryFromFrame(const CanFrame& frame, const QString& name)
 {
     TransmitEntry entry;
-    entry.name = name.isEmpty()
-                     ? tr("Frame 0x%1").arg(formatIdentifier(frame)).toStdString()
-                     : name.toStdString();
+    entry.name = name.isEmpty() ? tr("Frame 0x%1").arg(formatIdentifier(frame)).toStdString()
+                                : name.toStdString();
     entry.frame = frame;
     entry.trigger = TransmitTrigger::Manual;
 
@@ -469,7 +468,8 @@ void TransmitPanel::onTreeContextMenu(const QPoint& pos)
             connect(sendAction, &QAction::triggered, this, &TransmitPanel::onSendSelected);
 
             QAction* duplicateAction = menu.addAction(tr("Duplicate (Ctrl+D)"));
-            connect(duplicateAction, &QAction::triggered, this, &TransmitPanel::onDuplicateSelected);
+            connect(
+                duplicateAction, &QAction::triggered, this, &TransmitPanel::onDuplicateSelected);
 
             if (m_actionEditSignals != nullptr && m_actionEditSignals->isEnabled()) {
                 QAction* editSignalsAction =

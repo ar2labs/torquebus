@@ -79,23 +79,48 @@ ScriptEdit::ScriptEdit(QWidget* parent)
     updateLineNumberAreaWidth();
     highlightLines();
 
-    const QStringList defaultWords = {
-        QStringLiteral("and"), QStringLiteral("break"), QStringLiteral("do"),
-        QStringLiteral("else"), QStringLiteral("elseif"), QStringLiteral("end"),
-        QStringLiteral("false"), QStringLiteral("for"), QStringLiteral("function"),
-        QStringLiteral("if"), QStringLiteral("in"), QStringLiteral("local"),
-        QStringLiteral("nil"), QStringLiteral("not"), QStringLiteral("or"),
-        QStringLiteral("repeat"), QStringLiteral("return"), QStringLiteral("then"),
-        QStringLiteral("true"), QStringLiteral("until"), QStringLiteral("while"),
-        QStringLiteral("emit"), QStringLiteral("emit_signal"), QStringLiteral("cyclic"),
-        QStringLiteral("set_timer"), QStringLiteral("on_frame"), QStringLiteral("on_timer"),
-        QStringLiteral("on_start"), QStringLiteral("on_stop"), QStringLiteral("on_request"),
-        QStringLiteral("on_security_seed"), QStringLiteral("on_uds_request"),
-        QStringLiteral("can_send"), QStringLiteral("can_receive"),
-        QStringLiteral("sysvar_get"), QStringLiteral("sysvar_set"),
-        QStringLiteral("log_message"), QStringLiteral("get_signal"), QStringLiteral("set_signal"),
-        QStringLiteral("j1939_send"), QStringLiteral("bus_statistics"), QStringLiteral("inject_error")
-    };
+    const QStringList defaultWords = {QStringLiteral("and"),
+                                      QStringLiteral("break"),
+                                      QStringLiteral("do"),
+                                      QStringLiteral("else"),
+                                      QStringLiteral("elseif"),
+                                      QStringLiteral("end"),
+                                      QStringLiteral("false"),
+                                      QStringLiteral("for"),
+                                      QStringLiteral("function"),
+                                      QStringLiteral("if"),
+                                      QStringLiteral("in"),
+                                      QStringLiteral("local"),
+                                      QStringLiteral("nil"),
+                                      QStringLiteral("not"),
+                                      QStringLiteral("or"),
+                                      QStringLiteral("repeat"),
+                                      QStringLiteral("return"),
+                                      QStringLiteral("then"),
+                                      QStringLiteral("true"),
+                                      QStringLiteral("until"),
+                                      QStringLiteral("while"),
+                                      QStringLiteral("emit"),
+                                      QStringLiteral("emit_signal"),
+                                      QStringLiteral("cyclic"),
+                                      QStringLiteral("set_timer"),
+                                      QStringLiteral("on_frame"),
+                                      QStringLiteral("on_timer"),
+                                      QStringLiteral("on_start"),
+                                      QStringLiteral("on_stop"),
+                                      QStringLiteral("on_request"),
+                                      QStringLiteral("on_security_seed"),
+                                      QStringLiteral("on_uds_request"),
+                                      QStringLiteral("can_send"),
+                                      QStringLiteral("can_receive"),
+                                      QStringLiteral("sysvar_get"),
+                                      QStringLiteral("sysvar_set"),
+                                      QStringLiteral("log_message"),
+                                      QStringLiteral("get_signal"),
+                                      QStringLiteral("set_signal"),
+                                      QStringLiteral("j1939_send"),
+                                      QStringLiteral("bus_statistics"),
+                                      QStringLiteral("inject_error")};
     setCompletionWords(defaultWords);
 }
 
@@ -441,8 +466,8 @@ void ScriptEdit::keyPressEvent(QKeyEvent* event)
     }
 
     const QString prefix = textUnderCursor();
-    const bool ctrlOrShift =
-        event->modifiers().testFlag(Qt::ControlModifier) || event->modifiers().testFlag(Qt::ShiftModifier);
+    const bool ctrlOrShift = event->modifiers().testFlag(Qt::ControlModifier)
+                             || event->modifiers().testFlag(Qt::ShiftModifier);
     if (!isShortcut && (ctrlOrShift || event->text().isEmpty() || prefix.length() < 2)) {
         m_completer->popup()->hide();
         return;
