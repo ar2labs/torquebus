@@ -523,13 +523,22 @@ This keeps the GPLv3 distribution clean.
 
 ## 5. Testing without hardware
 
-Three levels, as laid out in `PLAN.md` section 32.
+The test suite has four groups. CI runs the unit and UI suites, then the
+integration suite, on both build configurations. Hardware tests are available
+locally but excluded from CI because the hosted runners do not have vendor
+adapters. The supplied CTest presets also exclude the `hardware` label; a direct
+CTest invocation with `--test-dir` can include it.
 
-| Level | What it covers | Needs hardware | Runs in CI |
+| Suite | What it covers | Hardware needed | CI |
 |---|---|---|---|
-| Unit | `CanFrame`, DLC maths, `Result`, queue, filters, statistics, settings | No | Always |
-| Integration | The virtual backend and the engine, end to end, including throughput | No | Always |
-| Hardware | Kvaser (and later PEAK) through the real vendor driver | Driver, not necessarily an adapter | Labelled `hardware`, excluded by default |
+| Unit | `CanFrame`, DLC maths, `Result`, queues, filters, statistics, settings, and other isolated behavior | No | Yes |
+| UI | Widgets, QML, dashboards, pipeline canvas, and docking | No | Yes |
+| Integration | The virtual backend and engine end to end, including throughput | No | Yes |
+| Hardware | Kvaser and PEAK driver and adapter behavior | Driver; some tests also need an adapter | No |
+
+When included, hardware cases skip with a reason if the required driver or
+adapter is unavailable. The pre-push script and CI explicitly exclude the
+`hardware` label.
 
 `tests/hardware/KvaserVirtualTests.cpp` makes the same assertions as
 `tests/integration/VirtualBusTests.cpp`, against the Kvaser virtual channels
@@ -539,8 +548,8 @@ difference in outcome is a difference in the driver rather than in what
 TorqueBus expects of one. Each test skips itself, rather than failing, when the
 Kvaser driver is not installed.
 
-`VirtualCanBackend` exists specifically so that levels 1 and 2 cover the real
-pipeline. `tests/integration/VirtualBusTests.cpp` is already written in the
+`VirtualCanBackend` exists specifically so that unit and integration tests cover
+the real pipeline. `tests/integration/VirtualBusTests.cpp` is already written in the
 shape of the v0.3 acceptance test — *Kvaser Virtual 0 → TorqueBus → Kvaser
 Virtual 1* — so the assertions are green before any vendor SDK is involved.
 

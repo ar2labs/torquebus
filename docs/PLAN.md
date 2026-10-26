@@ -2,6 +2,12 @@
 
 TorqueBus Studio — Open Automotive Network & Diagnostics Workbench
 
+> **Document status:** this is the original project-planning document, written
+> in Portuguese. It preserves historical proposals and decisions; it is not a
+> specification of every feature in the current build. For current architecture
+> rules, see [`ARCHITECTURE.md`](ARCHITECTURE.md). For completed changes, see
+> [`CHANGELOG.md`](../CHANGELOG.md).
+
 O nome remete imediatamente a automotivo + barramentos, mas não nos limita a CAN no futuro podemos incorporar LIN, J1939, UDS, DoIP, XCP, Automotive Ethernet etc. Não há registro de produto automotivo de software relevante usando exatamente o nome “TorqueBus Studio”.
 
 A proposta seria posicioná-lo como uma alternativa comunitária a ferramentas como TSMaster, CANalyzerCANoe e PCAN-Explorer.

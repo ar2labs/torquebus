@@ -1,335 +1,118 @@
 # TorqueBus Studio
 
-**Open Automotive Network & Diagnostics Workbench**
+**Open automotive network and diagnostics workbench**
 
 [![CI](https://github.com/ar2labs/torquebus/actions/workflows/ci.yml/badge.svg)](https://github.com/ar2labs/torquebus/actions/workflows/ci.yml)
-[![Google Test](https://img.shields.io/badge/Google_Test-1504_tests-2ea44f?logo=google)](https://github.com/ar2labs/torquebus/actions)
-[![Tests Passing](https://img.shields.io/badge/tests-100%25_passing-brightgreen)](https://github.com/ar2labs/torquebus/actions)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
 [![Qt 6.11](https://img.shields.io/badge/Qt-6.11.2-brightgreen.svg)](https://www.qt.io/)
 
-An open source platform for analysing, simulating, diagnosing and automating
-automotive networks — a community alternative to TSMaster, CANalyzer/CANoe and
-PCAN-Explorer.
+TorqueBus Studio is an open-source workbench for working with automotive
+networks. It brings CAN capture and transmission, database decoding,
+diagnostics, simulation, automation, and dashboards into one extensible
+application. The project is a community alternative to tools such as
+TSMaster, CANalyzer/CANoe, and PCAN-Explorer.
 
-> **Status: v0.17 — the vendor SDKs leave the binary.** Kvaser and PEAK are
-> plugins now, loaded from a `plugins` directory beside the executable, so a GPL
-> build carries no proprietary SDK in its own image and a machine without the
-> driver is simply a machine with one fewer file.
->
-> Connect an interface, press Start, read the bus: the trace holds **1,000,000
-> frames** and fills itself, with no wiring to do first. Beyond that, the
-> Pipeline panel is where you draw one — blocks and wires, edited straight into
-> the project. Simulated ECUs are Lua scripts that live on that pipeline as
-> nodes, at ~260 ns per frame, so dozens fit on a bus that carries 4,000
-> frames/s.
+The application can run against its built-in virtual CAN bus without physical
+hardware. Kvaser and PEAK interfaces are optional plugins loaded from the
+`plugins` directory beside the executable.
 
----
+## What you can do
 
-## What it is
-
-The ergonomics of professional automotive tooling — the panel layout, the
-information density, the workflow an engineer already knows — with its own
-visual identity, an open architecture and a GPLv3 licence.
-
-- **A pipeline you draw, not a fixed set of panels.** Sources, decoders,
-  filters and sinks are blocks you wire together on the Pipeline canvas:
-  `[Kvaser CAN 1] → [DBC Decoder] → [J1939 Decoder] → [PGN Filter] → [Signal Plot]`.
-  The graph *is* the data path, not a picture of it — and it builds itself for
-  the simple case, so reading a bus never costs a canvas visit. It is drawn the
-  way a network is: the **CAN Bus** is two wires, every ECU hangs off it by a drop
-  (the two wires, amber and green, carried down to it), and a drop can be limited
-  to the 11-bit or the 29-bit frames.
-- **Simulated ECUs in Lua.** A script, a lifecycle, and frames on the wire.
-  Editing a script and pressing Start is the whole edit-run loop.
-- **Vendor-neutral core.** One frame type, one driver interface. Kvaser, PEAK
-  and every future adapter are implementations, not special cases.
-- **Built for throughput.** The pipeline carries **150,000 frames/s with zero
-  loss**, and that is asserted by a test rather than quoted afterwards.
-  Unthrottled, an optimised build delivers **~2,100,000 frames/s** on an
-  i7-11700K — and drops what will not fit, because the queues are bounded on
-  purpose and say how much they discarded. Both numbers are printed by the
-  tests that measure them, in the configuration named: `cmake --build --preset
-  windows-msvc-release`, then
-  `ctest --preset windows-msvc-release -R Throughput -V -j1` (`-V` because a
-  passing test prints nothing otherwise, `-j1` so they do not compete for cores).
-- **A Dashboard built from your database.** Drag a signal out of the DBC Explorer onto
-  the Dashboard and it becomes the widget it suits - a lamp for a two-state signal, a bar
-  for a percentage, a state chip for a value table - already bound, with its unit, range,
-  the names of its values and a time-out filled in. Alarm limits turn a reading amber and
-  red, a PNG, JPEG or SVG can stand for each state of a value, a signal that goes quiet says
-  so instead of holding its last number, and a misspelled one is marked and corrected:
-  *Did you mean EngineSpeed?* A **fault list** shows the J1939 trouble codes of the whole bus beside the
-  cluster - SPN, the failure mode in words, how often, which ECU - worst first under the four DM1 lamps.
-  See [`docs/development/dashboard.md`](docs/development/dashboard.md).
-- **Recording outlives the UI.** Close the Trace panel; the log keeps writing.
-- **Protocols above the frame.** ISO-TP and UDS, and J1939/ISOBUS with address
-  claiming, requests - ask a bus, or one ECU on it, for any parameter group and read
-  its answer or its refusal - transport (BAM, RTS/CTS, ETP) and DM1/DM2 — checked
-  line by line against SAE J1939-21, J1939-73 and ISO 11783-3 rather than against memory.
-- **Extensible without a fork.** A plugin registers backends and pipeline block
-  types through the same calls the built-in code uses. There is no second API
-  for outsiders, because the second API is the one that rots.
-
----
+- Capture, inspect, filter, record, replay, and transmit CAN traffic.
+- Decode DBC databases and use decoded signals in pipelines and dashboards.
+- Build visual dataflow pipelines from sources, decoders, filters, simulated
+  ECUs, and output blocks.
+- Simulate ECUs and automate test sequences with sandboxed Lua scripts.
+- Work with ISO-TP, UDS, SAE J1939, and ISOBUS features.
+- Create dashboards with signal widgets, trends, alarms, and J1939 fault
+  information.
+- Extend the application with plugins for hardware backends and pipeline block
+  types.
 
 ## Requirements
 
-| | |
-|---|---|
-| Platform | Windows 11 x64 |
-| Compiler | MSVC 2022 (x64), C++23 — Visual Studio 2022 or just its Build Tools |
-| Qt | **6.11.2 exactly**, with the **Qt SerialBus** module |
-| Build | CMake ≥ 3.25, Ninja (both ship with Visual Studio 2022) |
-| Contributing | clang-format **21.1.0** (the version CI pins) and PowerShell 7, for `tools\check-before-push.ps1` |
+| Component | Requirement |
+| --- | --- |
+| Platform | Windows 11, x64 |
+| Compiler | Visual Studio 2022 / MSVC 2022, x64, C++23 |
+| Qt | Qt 6.11.2 for MSVC 2022 x64, including Qt SerialBus |
+| Build tools | CMake 3.25 or newer and Ninja, or the Visual Studio CMake generator |
 
-KDDockWidgets, GoogleTest and Lua are built for you — nothing else to install.
-Not sure what you have? [`docs/development/getting-started.md`](docs/development/getting-started.md#check-what-you-have)
-has a short check to run before the first configure.
-
-The Qt version is an exact pin, not a minimum: KDDockWidgets uses Qt's private
-modules, which tie the binary to the Qt build it was compiled against.
-
-**Hardware is optional.** The built-in virtual bus runs the whole application
-with no adapter attached — a build with zero plugins still opens, builds a graph
-and runs a measurement.
-
-Kvaser and PEAK arrive as plugins beside the executable. Each is built whenever
-its SDK is present and is *loaded*, never linked, so the application binary
-depends on neither: `dumpbin /DEPENDENTS` on `TorqueBusStudio.exe` finds no
-`canlib32.dll` and no Qt SerialBus. Vendor SDKs are never bundled — they come
-from the driver you install. A plugin that is refused says so by name in the
-Output panel, because the ordinary symptom of a plugin problem is an empty list
-and an empty list diagnoses nothing.
-
----
+KDDockWidgets, GoogleTest, and Lua are provided by the build. See the
+[Getting Started guide](docs/development/getting-started.md) for installation,
+configuration, optional hardware SDKs, and troubleshooting.
 
 ## Build
 
-```bat
-tools\torquebus-prompt.bat
+Open a Visual Studio developer environment with Qt configured, then run:
 
+```bat
 cmake --preset windows-msvc-debug
 cmake --build --preset windows-msvc-debug
-ctest --preset windows-msvc-debug
-```
-
-`torquebus-prompt.bat` opens a prompt with **both** halves of the environment:
-`vcvars64.bat` for MSVC and `qtenv2.bat` for Qt. A Qt prompt alone is not
-enough — it sets up Qt and nothing else, and the build then fails at link time
-with errors that look like a broken Windows SDK.
-
-From *any* prompt, with no setup at all:
-
-```bat
-cmake --preset windows-msvc-vs
-cmake --build --preset windows-msvc-vs
-ctest --preset windows-msvc-vs
-```
-
-Each build preset has a test preset of the same name, and `ctest` needs the one
-that matches the preset you built: every preset has its own build directory.
-
-The Visual Studio generator finds its own toolchain, and CMake finds Qt at
-`C:\Qt\6.11.2\msvc2022_64` or wherever `QTDIR` points. Slower to build than
-Ninja; immune to whatever is on your `PATH`.
-
-The executable lands in `build/<preset>/bin/`, with the Qt it needs copied
-beside it — so it runs from there with nothing set up, which is the point of the
-preset above. Run it with `--reset-layout` if a panel ends up somewhere
-unreachable.
-
-Build options, CANlib in a custom location, and what to do when something goes
-wrong: [`docs/development/getting-started.md`](docs/development/getting-started.md).
-To check a build actually works, follow
-[`docs/development/validation.md`](docs/development/validation.md) — it is the
-acceptance pass, ordered so the cheapest failures surface first.
-
----
-
-## Testing & Quality Assurance (Google Test)
-
-TorqueBus enforces a **100% automated test pass contract**. Every pull request and build runs **1504 automated tests** powered by [Google Test](https://github.com/google/googletest) (v1.15.2) and CTest across four architectural layers:
-
-* **Unit Tests (1071 tests):** CAN engine core, DBC parser, J1939 codecs, ISO-TP, UDS, TinyML inference, the Lua runtime and its limits, and a seeded fuzz of every reader.
-* **UI Tests (353 tests):** QML Instrument Cluster, the Dashboard's widgets, form and signal picker, the Pipeline canvas and its CAN Bus, docking layouts, widgets, and property bindings.
-* **Integration Tests (69 tests):** Multi-node virtual CAN bus, Lua ECU lifecycles, every block of the catalog built and run on an engine, and dataflow throughput (asserting 150,000 frames/s with zero loss).
-* **Hardware Loopback Tests (11 tests):** Physical PEAK and Kvaser adapter validation (cleanly skipped via `GTEST_SKIP()` when hardware is detached).
-
-Run the full Google Test suite locally:
-
-```bat
-# Run through CTest
 ctest --preset windows-msvc-debug --output-on-failure
-
-# Or execute the Google Test binary directly with colored output
-build\windows-msvc-debug\bin\torquebus_unit_tests.exe
 ```
 
-Continuous Integration automatically executes all tests and publishes test summaries on GitHub Actions. See [`docs/development/testing-framework.md`](docs/development/testing-framework.md) for test architecture, writing custom test cases, and exporting formal XML/JUnit reports.
+The repository also provides `tools\torquebus-prompt.bat` to open a prompt
+configured for both MSVC and Qt. The executable is created under
+`build\windows-msvc-debug\bin\`. For other presets and first-run instructions,
+see [Getting Started](docs/development/getting-started.md). The ordered
+[validation checklist](docs/development/validation.md) covers the application
+and packaged build.
 
----
+## Try the examples
 
-## Writing an ECU
+- Open [`examples/projects/virtual-vehicle.tbsproj`](examples/projects/virtual-vehicle.tbsproj)
+  to run a virtual vehicle with Lua ECUs and a TinyML ECU.
+- Open [`examples/projects/j1939-vehicle.tbsproj`](examples/projects/j1939-vehicle.tbsproj)
+  to explore a simulated J1939 vehicle, instrument cluster, and fault display.
+- Browse sample [Lua scripts](examples/scripts/) and [DBC databases](examples/databases/).
 
-A simulated ECU is a Lua script. Four optional callbacks, four calls back:
-
-```lua
-function on_enable()
-    set_timer(100)                       -- on_timer every 100 ms
-end
-
-function on_timer()
-    emit(0x101, string.pack("<I2", 850)) -- 85.0 km/h, 0.1 factor
-end
-
-function on_message(id, data, channel, extended)
-    if id == 0x7DF then
-        emit(0x7E8, "\2\1\0")            -- answer a diagnostic request
-    end
-end
-```
-
-Reference automotive ECU scripts live in [`examples/scripts/`](examples/scripts), and
-[`examples/projects/virtual-vehicle.tbsproj`](examples/projects) is a working
-pipeline you can open straight away — `File > Open Project` — with a simulated
-vehicle ECU and TinyML Virtual ECU transmitting on CAN 1. The full contract — the
-sandbox, error handling, and measured execution cost — is in
-[`docs/development/scripting.md`](docs/development/scripting.md).
-
-[`examples/projects/j1939-vehicle.tbsproj`](examples/projects) is the same idea on a J1939 truck: six Lua ECUs
-(engine, aftertreatment, body, brakes, a switch panel and the cluster's own core), the TinyML Virtual ECU, a J1939
-block and, on the Dashboard, the instrument cluster with bars, trends, a table and a picture for each AI regime
-beside it, and a list of the faults on the bus. Each ECU takes a `scenario` parameter - `low_oil_pressure`,
-`overheating`, `abs_fault`, `hazard`... - and the cluster answers with the lamp it would light on a vehicle; see
-[`docs/development/j1939-pipeline.md`](docs/development/j1939-pipeline.md) and
-[`docs/development/cluster.md`](docs/development/cluster.md#the-j1939-example).
-
----
-
-## Databases
-
-**File → Import Database…** reads a `.dbc`, and from that moment the trace stops
-being hex. The **Name** column carries the message name and the **Signals**
-column the decoded values — including for frames already captured, because a
-database imported halfway through a measurement should explain what has already
-been seen.
-
-```text
-0x101   VehicleSpeed   52 03   SpeedKmh = 85 km/h
-0x102   EngineTemp     6E      EngTemp = 70 degC
-```
-
-Multiplexing, value tables, extended identifiers, signed and unsigned, Motorola
-and Intel. A **DBC Decoder** block puts the same thing in a pipeline, on a
-`Signals` edge that the graph will not let you wire to a channel transmit.
-
-This is the part of the project where being wrong is silent — a decoder off by
-one bit shows a plausible number and nothing complains — so the implementation
-is written against the specification and the tests are anchored to vectors
-published by someone else. [`docs/development/databases.md`](docs/development/databases.md)
-has the bit numbering, what the parser reads, and the three cases where the
-honest answer is not the obvious one. Two example databases are in
-[`examples/databases/`](examples/databases).
-
----
-
-## Architecture
-
-Nothing in the UI talks to hardware; nothing in a driver knows the UI exists.
-Between them sits a trivially copyable `CanFrame` that belongs to no vendor, and
-an `ICanBackend` every adapter implements. Each channel owns a bounded lock-free
-queue; one thread drains them all and runs a **typed dataflow graph** whose
-nodes are the sources, decoders, filters, ECUs and panels. The graph is compiled
-before a measurement starts and moves *batches*, never single frames — the only
-way a visual pipeline survives bus speed. The canvas edits that graph; it does
-not own it, and a headless run needs no GUI at all.
-
-```
-src/core/       vendor-neutral, Qt-free domain model
-src/drivers/    ICanBackend and the built-in virtual bus
-src/plugins/    the loader, the plugin ABI, and the vendor backends
-src/services/   settings, projects, workspaces
-src/ui/         widgets, theming, docking
-tests/          unit / integration / hardware
-```
-
-Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before your first pull
-request — it is short, and it is the contract.
-
-TorqueBus takes its workbench from TSMaster and CANoe, and its visual pipeline
-from [CANdevStudio](https://github.com/GENIVI/CANdevStudio), which solved that
-idea first. No code is shared — CANdevStudio is Qt5/C++17 on QtNodes 2.x, an
-incompatible API generation — but the debt is real and worth naming.
-
----
+The [Lua ECU scripting guide](docs/development/scripting.md) explains the
+script API and lifecycle. The [J1939 simulation guide](docs/development/j1939-pipeline.md)
+and [instrument cluster guide](docs/development/cluster.md) describe the truck
+example.
 
 ## Documentation
 
-Full architectural specifications and development manuals are organized in the [`docs/`](docs/) directory:
+Start at the **[TorqueBus Studio Documentation Hub](docs/INDEX.md)** for the
+complete guide catalog. Key references:
 
-* 🧭 **[Documentation Hub](docs/INDEX.md)** — Master index and navigation map.
-* 🏛️ **[Architecture Guide](docs/ARCHITECTURE.md)** — Threading model, bounded queues, and zero-allocation rules.
-* 🛠️ **[Getting Started](docs/development/getting-started.md)** — Toolchain setup and local build guide.
-* 🧪 **[Google Test & QA Framework](docs/development/testing-framework.md)** — Unit, integration, and UI testing guide.
-* 🚛 **[J1939 Protocol & Cluster](docs/development/j1939-pipeline.md)** — Heavy-duty simulation and QML instrument cluster.
-* 🩺 **[DTC Diagnostics Guide (OBD-II, UDS & J1939)](docs/development/dtc-diagnostics.md)** — `L D D D D` structure, J1939 `SPN/FMI` bridge, and troubleshooting workflows.
-* 📜 **[Lua ECU Scripting](docs/development/scripting.md)** — Writing simulated ECUs and sandbox lifecycle.
-* 📊 **[DBC Database Engine](docs/development/databases.md)** — Signal decoding, bit numbering, and multiplexing.
-* 🤖 **[TinyML Anomaly Detection](docs/development/tinyml.md)** — Machine learning models on CAN bus.
-* ✅ **[Validation Checklist](docs/development/validation.md)** — Step-by-step acceptance testing pass.
+- [Architecture](docs/ARCHITECTURE.md) — layering, threading, dataflow, drivers,
+  persistence, and architectural decisions.
+- [Pipeline canvas](docs/development/pipeline-canvas.md) — graph concepts,
+  CAN bus wiring, and project representation.
+- [Databases](docs/development/databases.md) — DBC parsing, signal decoding,
+  bit numbering, and multiplexing.
+- [Diagnostics](docs/development/dtc-diagnostics.md) — OBD-II, UDS, and J1939
+  trouble-code workflows.
+- [Dashboard](docs/development/dashboard.md) — dashboard widgets, signal
+  binding, alarms, trends, and fault lists.
+- [Testing framework](docs/development/testing-framework.md) — test structure,
+  local execution, reports, and CI.
+- [Robustness](docs/development/robustness.md) — failure boundaries, limits,
+  and robustness coverage.
+- [Validation](docs/development/validation.md) — hands-on acceptance steps for
+  a build and packaged application.
 
----
+## Project status
 
-## Roadmap
-
-| | Milestone | Status |
-|---|---|---|
-| v0.1 | Foundation: shell, docking, themes, driver API, virtual bus | done |
-| v0.2 | CAN core: engine, channels, queues, filtering, statistics | done |
-| v0.3 | Kvaser CANlib backend | done |
-| v0.4 | CAN Trace, on the pipeline graph beneath it | done |
-| v0.5 | PEAK-System backend | done |
-| v0.6 | Transmit, and the QtNodes canvas | done |
-| v0.7 | DBC decoder node, `Signals` port | done |
-| v0.8 | Plot Viewer (first called Graph) and Statistics | done |
-| v0.9 | Logger and Playback (`.tblog`, ASC, CSV) | done |
-| v0.10 | Projects and workspaces | done |
-| v0.11 | ISO-TP | done |
-| v0.12 | UDS and the Diagnostic Console | done |
-| v0.13 | Lua: simulated ECUs, test sequences, headless runs | done |
-| v0.14 | Dashboard Designer | done |
-| v0.15 | Bus simulation: the rest of it | done |
-| v0.16 | J1939 and ISOBUS | done |
-| **v0.17** | **Plugin system; Kvaser and PEAK leave the binary** | **done** |
-| v0.18+ | LIN, XCP/CCP, A2L, ARXML, DoIP, FlexRay, Linux | |
-
-The numbers are the plan's, not a build order: the canvas and the Lua engine
-were both built earlier than their milestone, deliberately — the Lua engine
-because it could be measured, and it meant the canvas would edit a graph that
-already ran rather than being the only way to find out whether it ran.
-
-Everything the v1.0 list asks for is now in (`docs/PLAN.md`, section 35). What
-stands between here and 1.0 is not a feature: it is validation against real
-hardware, which no amount of virtual bus substitutes for.
-
-The full plan is in [`docs/PLAN.md`](docs/PLAN.md), and what each milestone
-actually brought is in [`CHANGELOG.md`](CHANGELOG.md) — including the things
-that turned out to be broken, which is the half a roadmap never records.
-
----
+The repository is in active development. The current development milestone is
+v0.17, which introduced plugin loading for the Kvaser and PEAK backends. No
+public release has been published yet; the project changelog records completed
+work and the remaining validation goals. See the [changelog](CHANGELOG.md) and
+[engineering plan](docs/PLAN.md) for project history and roadmap context.
 
 ## Contributing
 
-Pull requests are welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) and
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) first — most review feedback here
-is about layering, not style.
+Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and
+read the [architecture contract](docs/ARCHITECTURE.md) before changing the
+codebase.
 
-## Licence
+## License
 
-GNU General Public License v3.0 or later — see [`LICENSE`](LICENSE).
-
-TorqueBus Studio is not affiliated with, endorsed by, or derived from TOSUN,
-Vector Informatik, PEAK-System or Kvaser. Product names are the trademarks of
-their respective owners and are referenced only to describe interoperability.
+TorqueBus Studio is licensed under the GNU General Public License v3.0 or later;
+see [LICENSE](LICENSE). TorqueBus Studio is not affiliated with, endorsed by,
+or derived from TOSUN, Vector Informatik, PEAK-System, or Kvaser. Product names
+are trademarks of their respective owners and are referenced only to describe
+interoperability.

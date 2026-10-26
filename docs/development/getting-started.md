@@ -151,11 +151,14 @@ ctest --test-dir build/windows-msvc-vs -C Debug --output-on-failure
 A Ninja preset has one configuration, so there is no `-C`:
 `ctest --test-dir build/windows-msvc-debug --output-on-failure`.
 
-Tests that need a physical CAN adapter carry the `hardware` label and are
-excluded by default. To run only the integration level:
+The supplied CTest presets exclude tests with the `hardware` label. If you run
+CTest directly with `--test-dir`, without a preset, hardware tests may be
+included; they skip with a reason when the required driver or adapter is
+unavailable. The pre-push script and CI also exclude that label. To run only
+the integration suite:
 
 ```powershell
-ctest --test-dir build/windows-msvc-vs -C Debug --label-regex integration
+ctest --test-dir build/windows-msvc-vs -C Debug --label-regex integration --output-on-failure
 ```
 
 **No CAN hardware is required.** The built-in virtual bus covers the whole

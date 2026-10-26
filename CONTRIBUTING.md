@@ -34,24 +34,28 @@ Every pull request must pass, on Windows x64 with MSVC:
 4. Integration tests
 5. The package check, on a release build
 
-One command runs all of it the way CI would:
+Use the local check script to catch issues before pushing. By default it checks
+the strict Debug preset; `-All` also builds and tests Release and checks the
+package when the Release build is available:
 
 ```powershell
 pwsh tools\check-before-push.ps1        # Debug, with warnings as errors
 pwsh tools\check-before-push.ps1 -All   # and Release, which is what ships
 ```
 
-Run it from `tools\torquebus-prompt.bat`, and run it **before** pushing rather
-than after: it uses the `windows-msvc-strict` preset, which turns warnings into
-errors, and passing Debug while failing strict is the usual way a change looks
-fine locally and is rejected remotely.
+Run it from `tools\torquebus-prompt.bat`. The strict preset treats warnings as
+errors, matching CI's warning policy. `-Tidy` adds an optional local
+`clang-tidy` pass; CI currently gates formatting, not `clang-tidy`.
 
-Tests that need a physical adapter carry the `hardware` label and are excluded
-from the default run.
+Tests that need a physical adapter carry the `hardware` label. The supplied
+CTest presets, pre-push script, and CI exclude that label. Running CTest
+directly with `--test-dir` instead of a preset can include hardware tests;
+unavailable cases skip with a reason. To run the hardware suite on a bench, use
+`ctest --test-dir build/windows-msvc-strict -L hardware`.
 
-CI (`.github/workflows/ci.yml`) runs the same gates on every pull request. The
-script is for finding out sooner, on your own machine, instead of from a red
-check a few minutes after the push.
+CI (`.github/workflows/ci.yml`) runs the required build, test, formatting, and
+package checks on every pull request. The local script helps find issues on
+your machine before CI reports them.
 
 ---
 

@@ -89,18 +89,23 @@ one is a new mistake.
 
 ## 3. Tests
 
-Step 2 has to have run. `ctest` on an unbuilt tree reports three failures named
-`<target>_NOT_BUILT` - that is GoogleTest's placeholder for "this executable
-does not exist yet", not a broken test.
+Step 2 has to have run. `ctest` on an unbuilt tree reports failures named
+`<target>_NOT_BUILT` - that is CTest's placeholder for "this executable does
+not exist yet", not a broken test.
 
 ```bat
 ctest --preset windows-msvc-debug
 ```
 
-Runs the unit and integration suites; hardware tests are excluded by label.
+Runs the unit, UI, and integration tests. The supplied test preset excludes the
+`hardware` label, as does CI. To include hardware tests on a suitable bench, run
+`ctest --test-dir build/windows-msvc-debug -L hardware --output-on-failure`;
+cases that cannot access a required driver or adapter report a skip.
 
-**Worked:** every test passes, roughly 60 cases. The ones worth knowing by name,
-because each pins something that was got wrong once:
+**Worked:** all tests pass, with any unavailable hardware cases reported as
+skipped. CTest discovers individual cases from the test binaries, so the total
+changes as coverage grows. These named tests pin behaviors that have regressed
+before:
 
 | Suite | What it would catch |
 |---|---|
@@ -592,7 +597,7 @@ reason the header carries no frame count.
 
 ---
 
-## 5k. The Playback panel
+## 5i. The Playback panel
 
 The transport, and the last thing v0.9 was missing. A recording that can only
 be played from the beginning at one speed is a file being poured through a
@@ -661,7 +666,7 @@ here that was a real bug rather than a check.
 
 ---
 
-## 5i. Exporting the trace
+## 5k. Exporting the trace
 
 A log only this tool reads is stuck here. This is the step that gets a
 measurement out to a supplier, a colleague's CANalyzer, or a spreadsheet.
