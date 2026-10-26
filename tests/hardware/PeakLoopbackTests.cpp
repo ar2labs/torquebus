@@ -25,6 +25,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <iostream>
 
 #include <chrono>
@@ -193,6 +194,44 @@ TEST(PeakLoopbackTests, AChannelOpensStartsStopsAndClosesInThatOrder)
     // Closing twice is a no-op, not a crash. The destructor closes too, so any
     // path that survives only one close would take the process down on exit.
     backend.close();
+}
+
+TEST(PeakLoopbackTests, ListenOnlyOpensSafelyAndRejectsTransmit)
+{
+    if (!peakUsable()) {
+        GTEST_SKIP() << "no peakcan plugin";
+    }
+
+    const CanDeviceInfoList devices = PeakCanBackend{}.enumerate();
+    const auto device = std::find_if(devices.begin(), devices.end(), [](const CanDeviceInfo& info) {
+        return info.capabilities.listenOnly;
+    });
+    if (device == devices.end()) {
+        GTEST_SKIP() << "no connected PCAN-USB channel with PCAN-Basic listen-only support";
+    }
+
+    PeakCanBackend backend;
+    CanChannelConfig config;
+    config.deviceHandle = device->handle;
+    config.listenOnly = true;
+    config.timing.bitrate = kDefaultBitrate;
+
+    const Result opened = backend.open(config);
+    SCOPED_TRACE(::testing::Message() << "open: " << std::string{opened.message()});
+    ASSERT_TRUE(opened.succeeded());
+    ASSERT_TRUE(backend.start().succeeded());
+
+    CanFrame frame;
+    frame.identifier = 0x123;
+    frame.length = 1;
+    frame.dlc = 1;
+    frame.data[0] = 0x5A;
+    const Result sent = backend.transmit(frame);
+    EXPECT_TRUE(sent.failed());
+    EXPECT_TRUE(sent.code() == ErrorCode::UnsupportedFeature);
+
+    backend.close();
+    EXPECT_FALSE(backend.isOpen());
 }
 
 TEST(PeakLoopbackTests, FramesSentOnABusWithNoOtherNodeComeBackAsOurOwnEcho)

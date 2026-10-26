@@ -12,6 +12,7 @@
 #include <chrono>
 #include <format>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -23,6 +24,7 @@
 #include <QCanBusDeviceInfo>
 #include <QCanBusFrame>
 #include <QEventLoop>
+#include <QLibrary>
 #include <QList>
 #include <QMetaObject>
 #include <QObject>
@@ -45,6 +47,128 @@ constexpr auto kPlugin = "peakcan";
 /// Qt SerialBus uses. Persisted in .tbsproj files, so the interface name has to
 /// be exactly what createDevice() will later be handed back.
 constexpr auto kHandlePrefix = "peak:";
+
+// Qt's peakcan plugin does not expose PCAN_LISTEN_ONLY. PCAN-Basic does, as a
+// preset parameter that can be set before CAN_Initialize. Keep the vendor API
+// optional and dynamically loaded so the regular Qt plugin path still works
+// when the PEAK driver is absent.
+using PcanStatus = std::uint32_t;
+using PcanHandle = unsigned short;
+using PcanParameter = unsigned char;
+using PcanBufferLength = std::uint32_t;
+
+#if defined(Q_OS_WIN)
+#define TORQUEBUS_PCAN_CALL __stdcall
+#else
+#define TORQUEBUS_PCAN_CALL
+#endif
+
+using PcanGetValue = PcanStatus(TORQUEBUS_PCAN_CALL*)(PcanHandle,
+                                                      PcanParameter,
+                                                      void*,
+                                                      PcanBufferLength);
+using PcanSetValue = PcanStatus(TORQUEBUS_PCAN_CALL*)(PcanHandle,
+                                                      PcanParameter,
+                                                      void*,
+                                                      PcanBufferLength);
+
+constexpr PcanParameter kPcanListenOnly = 0x08;
+
+struct PcanBasic final {
+    QLibrary library;
+    PcanGetValue getValue{};
+    PcanSetValue setValue{};
+
+    PcanBasic()
+#if defined(Q_OS_WIN)
+        : library(QStringLiteral("PCANBasic"))
+#else
+        : library(QStringLiteral("pcanbasic"))
+#endif
+    {
+        if (library.load()) {
+            getValue = reinterpret_cast<PcanGetValue>(library.resolve("CAN_GetValue"));
+            setValue = reinterpret_cast<PcanSetValue>(library.resolve("CAN_SetValue"));
+        }
+    }
+
+    [[nodiscard]] bool available() const noexcept
+    {
+        return getValue != nullptr && setValue != nullptr;
+    }
+};
+
+[[nodiscard]] bool pcanChannelFromInterface(const QString& interfaceName, PcanHandle& channel)
+{
+    // Qt names the PCAN USB channels usb0..usb15; PCAN-Basic numbers them
+    // USBBUS1..USBBUS16 (0x51..0x60). Refuse other buses rather than guessing
+    // a vendor handle from an unrelated Qt interface name.
+    if (!interfaceName.startsWith(QStringLiteral("usb"))) {
+        return false;
+    }
+    bool ok = false;
+    const uint index = interfaceName.mid(3).toUInt(&ok);
+    if (!ok || index > 15) {
+        return false;
+    }
+    channel = static_cast<PcanHandle>(0x51U + index);
+    return true;
+}
+
+[[nodiscard]] Result setPcanListenOnly(const QString& interfaceName,
+                                       bool listenOnly,
+                                       std::optional<std::uint8_t>* previous = nullptr)
+{
+    PcanHandle channel = 0;
+    if (!pcanChannelFromInterface(interfaceName, channel)) {
+        return Result::error(ErrorCode::UnsupportedFeature,
+                             "PCAN listen-only is currently supported for PCAN-USB channels "
+                             "(usb0 through usb15) only.");
+    }
+
+    PcanBasic api;
+    if (!api.available()) {
+        return Result::error(ErrorCode::UnsupportedFeature,
+                             "PCAN-Basic with CAN_GetValue and CAN_SetValue is required for "
+                             "listen-only mode. Install or repair the PEAK-System driver.");
+    }
+
+    std::uint8_t value = 0;
+    if (previous != nullptr) {
+        const PcanStatus readStatus = api.getValue(channel, kPcanListenOnly, &value, sizeof(value));
+        if (readStatus != 0) {
+            return Result::error(ErrorCode::Unknown,
+                                 std::format("Could not read the PCAN listen-only preset "
+                                             "(PCAN-Basic status 0x{:08X}).",
+                                             static_cast<unsigned int>(readStatus)));
+        }
+        *previous = value;
+    }
+
+    std::uint8_t requested = listenOnly ? 1 : 0;
+    const PcanStatus status = api.setValue(channel, kPcanListenOnly, &requested, sizeof(requested));
+    if (status != 0) {
+        return Result::error(ErrorCode::Unknown,
+                             std::format("Could not set the PCAN listen-only preset "
+                                         "(PCAN-Basic status 0x{:08X}).",
+                                         static_cast<unsigned int>(status)));
+    }
+    return Result::ok();
+}
+
+void restorePcanListenOnly(const QString& interfaceName, std::uint8_t previous)
+{
+    PcanHandle channel = 0;
+    if (!pcanChannelFromInterface(interfaceName, channel)) {
+        return;
+    }
+    PcanBasic api;
+    if (api.available()) {
+        (void)api.setValue(channel, kPcanListenOnly, &previous, sizeof(previous));
+    }
+}
+
+#undef TORQUEBUS_PCAN_CALL
 
 [[nodiscard]] QString interfaceFromHandle(const std::string& handle)
 {
@@ -192,6 +316,10 @@ struct PeakCanBackend::Impl final {
 
     bool open{false};
 
+    /// PCAN-Basic stores listen-only as a channel preset. Save its prior value
+    /// so closing TorqueBus does not leave the adapter in a changed mode.
+    std::optional<std::uint8_t> previousListenOnly;
+
     /// Where the measurement's clock starts, for the fallback below.
     std::chrono::steady_clock::time_point started;
 
@@ -220,11 +348,8 @@ PeakCanBackend::PeakCanBackend()
     m_impl->capabilities.canClassic = true;
     m_impl->capabilities.errorFrames = true;
     m_impl->capabilities.hardwareTimestamp = true;
-    // Qt SerialBus has no listen-only configuration key, so this route cannot
-    // do it - and listen-only is a safety setting. Advertising a capability the
-    // backend silently ignores is how somebody puts acknowledge bits on a bus
-    // they meant only to watch.
-    m_impl->capabilities.listenOnly = false;
+    PcanBasic pcanBasic;
+    m_impl->capabilities.listenOnly = pcanBasic.available();
 }
 
 PeakCanBackend::~PeakCanBackend()
@@ -280,6 +405,9 @@ CanDeviceInfoList PeakCanBackend::enumerate()
         device.channelIndex = static_cast<std::uint32_t>(info.channel());
 
         device.capabilities = m_impl->capabilities;
+        PcanHandle pcanChannel = 0;
+        device.capabilities.listenOnly =
+            device.capabilities.listenOnly && pcanChannelFromInterface(info.name(), pcanChannel);
         device.capabilities.canFd = info.hasFlexibleDataRate();
         device.capabilities.canFdBrs = info.hasFlexibleDataRate();
         device.capabilities.virtualDevice = info.isVirtual();
@@ -307,19 +435,23 @@ Result PeakCanBackend::open(const CanChannelConfig& config)
                         kPlugin));
     }
 
-    if (config.listenOnly) {
-        return Result::error(
-            ErrorCode::UnsupportedFeature,
-            "Qt SerialBus offers no listen-only mode, so a PEAK channel opened this "
-            "way would acknowledge frames. Refused rather than opened, because that "
-            "is the one setting whose whole purpose is not to disturb the bus.");
-    }
-
     const QString interfaceName = interfaceFromHandle(config.deviceHandle);
     if (interfaceName.isEmpty()) {
         return Result::error(
             ErrorCode::InvalidArgument,
             std::format("'{}' does not name a PEAK interface", config.deviceHandle));
+    }
+
+    std::optional<std::uint8_t> previousListenOnly;
+    PcanBasic pcanBasic;
+    PcanHandle pcanChannel = 0;
+    const bool isPcanUsb = pcanChannelFromInterface(interfaceName, pcanChannel);
+    if (config.listenOnly || (isPcanUsb && pcanBasic.available())) {
+        const Result listenOnlyResult =
+            setPcanListenOnly(interfaceName, config.listenOnly, &previousListenOnly);
+        if (listenOnlyResult.failed()) {
+            return listenOnlyResult;
+        }
     }
 
     // The thread exists before the device does, because the device has to be
@@ -367,6 +499,10 @@ Result PeakCanBackend::open(const CanChannelConfig& config)
         delete anchor;
         delete thread;
 
+        if (previousListenOnly.has_value()) {
+            restorePcanListenOnly(interfaceName, *previousListenOnly);
+        }
+
         return Result::error(
             ErrorCode::DeviceNotFound,
             std::format("Could not open PEAK interface '{}': {}",
@@ -382,6 +518,7 @@ Result PeakCanBackend::open(const CanChannelConfig& config)
         m_impl->anchor = anchor;
         m_impl->device.store(device, std::memory_order_release);
         m_impl->open = true;
+        m_impl->previousListenOnly = previousListenOnly;
         m_impl->hardwareTimestamps = true;
         m_impl->timestampSourceDecided = false;
     }
@@ -518,12 +655,17 @@ void PeakCanBackend::close()
     QThread* thread = nullptr;
     QObject* anchor = nullptr;
     QCanBusDevice* device = nullptr;
+    QString interfaceName;
+    std::optional<std::uint8_t> previousListenOnly;
 
     {
         const std::lock_guard lock{m_impl->mutex};
         thread = m_impl->thread;
         anchor = m_impl->anchor;
         device = m_impl->device.exchange(nullptr, std::memory_order_acq_rel);
+        interfaceName = m_impl->interfaceName;
+        previousListenOnly = m_impl->previousListenOnly;
+        m_impl->previousListenOnly.reset();
 
         m_impl->thread = nullptr;
         m_impl->anchor = nullptr;
@@ -531,6 +673,9 @@ void PeakCanBackend::close()
     }
 
     if (thread == nullptr) {
+        if (previousListenOnly.has_value()) {
+            restorePcanListenOnly(interfaceName, *previousListenOnly);
+        }
         return;
     }
 
@@ -551,6 +696,10 @@ void PeakCanBackend::close()
     thread->quit();
     thread->wait();
     delete thread;
+
+    if (previousListenOnly.has_value()) {
+        restorePcanListenOnly(interfaceName, *previousListenOnly);
+    }
 }
 
 bool PeakCanBackend::isOpen() const noexcept
@@ -673,6 +822,15 @@ Result PeakCanBackend::transmit(const CanFrame& frame)
     if (device == nullptr) {
         return Result::error(ErrorCode::InvalidState,
                              "transmit() called on a PEAK channel that is not open");
+    }
+
+    {
+        const std::lock_guard lock{m_impl->mutex};
+        if (m_impl->config.listenOnly) {
+            return Result::error(ErrorCode::UnsupportedFeature,
+                                 "Transmit is disabled while this PEAK channel is in "
+                                 "listen-only mode.");
+        }
     }
 
     const QCanBusFrame outgoing = toQtFrame(frame);
