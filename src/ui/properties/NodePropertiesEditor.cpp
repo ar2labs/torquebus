@@ -73,7 +73,9 @@ struct FileChoice final {
 
     if (name == "path") {
         return {NodePropertiesEditor::tr("Choose a recording"),
-                NodePropertiesEditor::tr("TorqueBus logs (*.tblog);;All files (*)")};
+                NodePropertiesEditor::tr(
+                    "All supported logs (*.tblog *.asc *.trc);;TorqueBus logs (*.tblog);;Vector "
+                    "ASCII logs (*.asc);;PCAN trace logs (*.trc);;All files (*)")};
     }
 
     if (name == "modelPath") {

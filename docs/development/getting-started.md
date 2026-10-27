@@ -10,7 +10,7 @@ green test suite.
 | Component | Notes |
 |---|---|
 | **Visual Studio 2022** | "Desktop development with C++" workload. MSVC x64 is the only supported Windows compiler. The standalone **Build Tools for Visual Studio 2022** — the same workload, without the IDE — are enough, and a much smaller download. |
-| **Qt 6.11.2** | Install via the Qt Online Installer. Select `MSVC 2022 64-bit` **and** the **Qt Serial Bus** module — the PEAK backend needs it. |
+| **Qt 6.12.0** | Install via the Qt Online Installer. Select `MSVC 2022 64-bit` **and** the **Qt Serial Bus** module — the PEAK backend needs it. |
 | **CMake ≥ 3.25** | Bundled with Visual Studio — the *C++ CMake tools for Windows* component of the C++ workload; 17.14 ships 3.31 — or install separately. |
 | **Ninja** | Bundled with Visual Studio. |
 | **Git** | Needed at configure time: KDDockWidgets and GoogleTest are fetched from GitHub. |
@@ -29,11 +29,11 @@ Without clang-format the pre-push script cannot check formatting. It says so in
 its verdict rather than passing quietly — but the check that matters is CI's, so
 install it.
 
-CMake finds Qt on its own if it is at `C:\Qt\6.11.2\msvc2022_64` (the installer
+CMake finds Qt on its own if it is at `C:\Qt\6.12.0\msvc2022_64` (the installer
 default) or if `QTDIR` is set. Anywhere else, point at it:
 
 ```powershell
-$env:CMAKE_PREFIX_PATH = "C:\Qt\6.11.2\msvc2022_64"
+$env:CMAKE_PREFIX_PATH = "C:\Qt\6.12.0\msvc2022_64"
 ```
 
 …or pass `-DCMAKE_PREFIX_PATH=...` on the configure line. Qt does **not** need to
@@ -61,8 +61,8 @@ what it should print.
 & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * `
     -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property displayName
 
-# Qt 6.11.2 for MSVC 2022 64-bit, and its Serial Bus module. Both must say True.
-$qt = if ($env:QTDIR) { $env:QTDIR } else { "C:\Qt\6.11.2\msvc2022_64" }
+# Qt 6.12.0 for MSVC 2022 64-bit, and its Serial Bus module. Both must say True.
+$qt = if ($env:QTDIR) { $env:QTDIR } else { "C:\Qt\6.12.0\msvc2022_64" }
 Test-Path "$qt\lib\cmake\Qt6\Qt6Config.cmake"
 Test-Path "$qt\lib\cmake\Qt6SerialBus\Qt6SerialBusConfig.cmake"
 
@@ -356,12 +356,12 @@ hand:
 
 ```bat
 cmd /A /Q /K "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" ^
-  && "C:\Qt\6.11.2\msvc2022_64\bin\qtenv2.bat"
+  && "C:\Qt\6.12.0\msvc2022_64\bin\qtenv2.bat"
 ```
 
 The `windows-msvc-vs` preset needs none of this: the Visual Studio generator
 brings its own toolchain, and CMake now finds Qt from `QTDIR` or from
-`C:/Qt/6.11.2/msvc2022_64` without help from `PATH`.
+`C:/Qt/6.12.0/msvc2022_64` without help from `PATH`.
 
 If that was not it, the cause is one of the two below. The tell either way is
 the linker path in the failing command line — `ld.exe` rather than `link.exe`:
@@ -435,4 +435,4 @@ run. Behind a proxy, set `HTTPS_PROXY` before configuring.
 Run with `--reset-layout`.
 
 **`windeployqt` is not recognised** (when packaging) — add
-`C:\Qt\6.11.2\msvc2022_64\bin` to your `PATH`.
+`C:\Qt\6.12.0\msvc2022_64\bin` to your `PATH`.

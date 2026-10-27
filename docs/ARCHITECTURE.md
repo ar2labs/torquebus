@@ -465,12 +465,11 @@ means writing one implementation and adding one line to
                           |
    +--------+-------------+-------------+--------+
    |        |             |             |        |
-Virtual   Kvaser        PEAK        (future)  (plugin)
- built-in  CANlib   Qt SerialBus     Vector    third-party
-                     / PCAN-Basic    IXXAT     .dll
-                                     SocketCAN
-                                     TOSUN
-                                     J2534
+Virtual   J2534         PEAK        (future)  (plugin)
+ built-in Pass-Thru Qt SerialBus     Vector    third-party
+                    / PCAN-Basic    IXXAT     .dll
+                                    SocketCAN
+                                    TOSUN
 ```
 
 ### Lifecycle
@@ -678,7 +677,7 @@ so, loudly, at configure time; `QT_NO_PRIVATE_MODULE_WARNING` silences the
 message but not the constraint. Concretely:
 
 - A TorqueBus binary must run against the **exact** Qt it was built against —
-  6.11.2 today. `windeployqt` copies those DLLs beside the executable, so a
+  6.12.0 today. `windeployqt` copies those DLLs beside the executable, so a
   packaged build is self-consistent; pointing the application at a different Qt
   on `PATH` is what breaks, potentially at an arbitrary point at runtime rather
   than at startup.

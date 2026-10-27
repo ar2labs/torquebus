@@ -213,6 +213,15 @@ end
 -- `send` is the node's binding; it is named here so the documentation has one
 -- place to point at.
 
+-- --- Signals -------------------------------------------------------------
+
+--- Logs a numeric signal sample for the current test case (e.g. EngineSpeed, Voltage).
+--- Associated signal values are automatically plotted as vector charts in the test dossier.
+function log_signal(name, value)
+    __tb_signal(tostring(name), tonumber(value) or 0)
+end
+signal = log_signal
+
 -- --- The run -------------------------------------------------------------
 
 --- Starts the run. Called once by the node, after the sequence has declared

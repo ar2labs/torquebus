@@ -126,6 +126,7 @@ private:
     static int luaTaken(lua_State* state);
 
     static int luaCheck(lua_State* state);
+    static int luaRecordSignal(lua_State* state);
     static int luaCaseStarted(lua_State* state);
     static int luaCaseFinished(lua_State* state);
     static int luaCaseErrored(lua_State* state);
@@ -181,6 +182,8 @@ private:
     std::string m_caseName;
     std::uint64_t m_caseStartedNs{0};
     std::vector<TestCheck> m_caseChecks;
+    std::vector<CanFrame> m_caseFrames;
+    std::vector<TestSignalPoint> m_caseSignals;
     bool m_caseOpen{false};
 
     TestReport* m_report{nullptr};

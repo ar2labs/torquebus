@@ -35,6 +35,12 @@ constexpr std::size_t kMaximumSendsPerPass = 256;
 /// is the failure mode a test tool can least afford.
 constexpr double kMaximumWaitMs = 60'000.0;
 
+/// Bounded buffer for frames captured during a single test case for forensic trace reporting.
+constexpr std::size_t kMaxCapturedFramesPerCase = 100;
+
+/// Upper bound on signal samples logged in one case.
+constexpr std::size_t kMaxCapturedSignalsPerCase = 1000;
+
 } // namespace
 
 LuaTestNode::LuaTestNode(std::string source, std::string name, std::uint8_t transmitChannel)
@@ -69,6 +75,8 @@ Result LuaTestNode::prepare(std::size_t maximumBatchSize)
 
     m_want = Want{};
     m_caseChecks.clear();
+    m_caseFrames.clear();
+    m_caseSignals.clear();
     m_caseName.clear();
     m_caseOpen = false;
 
@@ -106,6 +114,7 @@ Result LuaTestNode::prepare(std::size_t maximumBatchSize)
     m_lua->registerFunction("__tb_taken", &LuaTestNode::luaTaken, this);
 
     m_lua->registerFunction("__tb_check", &LuaTestNode::luaCheck, this);
+    m_lua->registerFunction("__tb_signal", &LuaTestNode::luaRecordSignal, this);
     m_lua->registerFunction("__tb_case_started", &LuaTestNode::luaCaseStarted, this);
     m_lua->registerFunction("__tb_case_finished", &LuaTestNode::luaCaseFinished, this);
     m_lua->registerFunction("__tb_case_errored", &LuaTestNode::luaCaseErrored, this);
@@ -176,6 +185,15 @@ void LuaTestNode::process(NodeContext& context)
     }
 
     m_outgoing.clear();
+
+    // --- Trace capture during test case execution -------------------------
+    if (m_caseOpen) {
+        for (const CanFrame& frame : context.in<CanFrame>(0)) {
+            if (m_caseFrames.size() < kMaxCapturedFramesPerCase) {
+                m_caseFrames.push_back(frame);
+            }
+        }
+    }
 
     // --- Is what the running case is waiting for here yet? -----------------
     //
@@ -293,6 +311,8 @@ void LuaTestNode::closeCase(TestOutcome outcome, std::string message)
     result.startedNs = m_caseStartedNs;
     result.finishedNs = elapsedNs();
     result.checks = std::move(m_caseChecks);
+    result.capturedFrames = std::move(m_caseFrames);
+    result.capturedSignals = std::move(m_caseSignals);
 
     switch (outcome) {
     case TestOutcome::Passed:
@@ -326,6 +346,8 @@ void LuaTestNode::closeCase(TestOutcome outcome, std::string message)
     }
 
     m_caseChecks.clear();
+    m_caseFrames.clear();
+    m_caseSignals.clear();
     m_caseOpen = false;
 
     // A case that ended while waiting leaves nothing behind for the next one.
@@ -400,6 +422,7 @@ int LuaTestNode::luaSend(lua_State* state)
     frame.brs = isFd && bitRateSwitch;
     frame.length = static_cast<std::uint8_t>(length);
     frame.dlc = dlcFromPayloadLength(frame.length, isFd);
+    frame.timestampNs = node->elapsedNs();
 
     if (!isValidIdentifier(frame.identifier, frame.format)) {
         // Formatted here and not by luaL_error. Lua's formatter knows %s %d %I %f %p %c %U and
@@ -419,6 +442,10 @@ int LuaTestNode::luaSend(lua_State* state)
 
     node->m_outgoing.push_back(frame);
     ++node->m_sent;
+
+    if (node->m_caseOpen && node->m_caseFrames.size() < kMaxCapturedFramesPerCase) {
+        node->m_caseFrames.push_back(frame);
+    }
 
     return 0;
 }
@@ -619,6 +646,28 @@ int LuaTestNode::luaCheck(lua_State* state)
     return 0;
 }
 
+int LuaTestNode::luaRecordSignal(lua_State* state)
+{
+    LuaTestNode* node = self(state);
+    if (node == nullptr) {
+        return luaL_error(state, "signal logging called outside a test sequence");
+    }
+
+    if (node->m_caseOpen) {
+        if (node->m_caseSignals.size() < kMaxCapturedSignalsPerCase) {
+            const char* name = luaL_checkstring(state, 1);
+            const lua_Number value = luaL_checknumber(state, 2);
+            node->m_caseSignals.push_back(TestSignalPoint{
+                .name = name,
+                .value = static_cast<double>(value),
+                .timestampNs = node->elapsedNs(),
+            });
+        }
+    }
+
+    return 0;
+}
+
 int LuaTestNode::luaCaseStarted(lua_State* state)
 {
     LuaTestNode* node = self(state);
@@ -629,6 +678,8 @@ int LuaTestNode::luaCaseStarted(lua_State* state)
     node->m_caseName = luaL_checkstring(state, 1);
     node->m_caseStartedNs = node->elapsedNs();
     node->m_caseChecks.clear();
+    node->m_caseFrames.clear();
+    node->m_caseSignals.clear();
     node->m_caseOpen = true;
 
     return 0;

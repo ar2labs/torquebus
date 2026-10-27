@@ -31,7 +31,7 @@ rem Then:   cmake --preset windows-msvc-debug
 
 setlocal EnableDelayedExpansion
 
-set "TORQUEBUS_QT=C:\Qt\6.11.2\msvc2022_64"
+set "TORQUEBUS_QT=C:\Qt\6.12.0\msvc2022_64"
 set "TORQUEBUS_QT_NOTE="
 set "TORQUEBUS_VS="
 
@@ -81,7 +81,7 @@ if not exist "%TORQUEBUS_QT%\bin\qtenv2.bat" (
     echo     !TORQUEBUS_QT!
     if defined TORQUEBUS_QT_NOTE echo   !TORQUEBUS_QT_NOTE!
     echo   Set QTDIR to your Qt 6 installation - the folder that holds bin and lib,
-    echo   for example C:\Qt\6.11.2\msvc2022_64 - or edit TORQUEBUS_QT at the top of
+    echo   for example C:\Qt\6.12.0\msvc2022_64 - or edit TORQUEBUS_QT at the top of
     echo   this file.
     echo.
     exit /b 1
@@ -90,4 +90,4 @@ if not exist "%TORQUEBUS_QT%\bin\qtenv2.bat" (
 endlocal & set "TORQUEBUS_VS=%TORQUEBUS_VS%" & set "TORQUEBUS_QT=%TORQUEBUS_QT%"
 
 rem /K keeps the window open afterwards, which is the point of a prompt.
-%SystemRoot%\System32\cmd.exe /A /Q /K ""%TORQUEBUS_VS%\VC\Auxiliary\Build\vcvars64.bat" ^&^& "%TORQUEBUS_QT%\bin\qtenv2.bat" ^&^& cd /d "%~dp0.." ^&^& echo. ^&^& echo   MSVC x64 + Qt 6.11.2 ready. Next: cmake --preset windows-msvc-debug ^&^& echo."
+%SystemRoot%\System32\cmd.exe /A /Q /K ""%TORQUEBUS_VS%\VC\Auxiliary\Build\vcvars64.bat" ^&^& set "QTDIR=%TORQUEBUS_QT%" ^&^& "%TORQUEBUS_QT%\bin\qtenv2.bat" ^&^& cd /d "%~dp0.." ^&^& echo. ^&^& echo   MSVC x64 + Qt 6.12.0 ready. Next: cmake --preset windows-msvc-debug ^&^& echo."

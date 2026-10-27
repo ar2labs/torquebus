@@ -5,7 +5,6 @@
 # CAN software still goes green.
 
 add_executable(torquebus_hardware_tests
-    KvaserVirtualTests.cpp
     PeakLoopbackTests.cpp
 )
 
@@ -14,7 +13,7 @@ add_executable(torquebus_hardware_tests
 # the static halves gives them that without the application linking either.
 target_link_libraries(torquebus_hardware_tests
     PRIVATE torquebus::drivers
-            torquebus::driver_kvaser
+            torquebus::driver_j2534
             torquebus::driver_peak
             torquebus::warnings
             GTest::gtest_main

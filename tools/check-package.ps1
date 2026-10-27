@@ -61,8 +61,8 @@ Write-Host ""
 
 Require-Path "TorqueBusStudio.exe" "the application"
 
-Require-Path "plugins/torquebus-driver-kvaser.dll" `
-    "the Kvaser backend; without it a package has no Kvaser support at all"
+Require-Path "plugins/torquebus-driver-j2534.dll" `
+    "the SAE J2534 Pass-Thru backend; without it a package has no J2534 support"
 Require-Path "plugins/torquebus-driver-peak.dll" `
     "the PEAK backend; without it a package has no PCAN support at all"
 

@@ -24,7 +24,7 @@ and `qtenv2.bat` for Qt, in that order. A Qt prompt alone is not enough — it
 sets up Qt and nothing else, and the build then fails at link time with errors
 that look like a broken Windows SDK.
 
-**Worked:** the banner ends with `MSVC x64 + Qt 6.11.2 ready`, and `where cl`
+**Worked:** the banner ends with `MSVC x64 + Qt 6.12.0 ready`, and `where cl`
 and `where link` both answer with paths under Visual Studio.
 
 ---
@@ -47,16 +47,16 @@ CMakeLists.txt)
 TorqueBus Studio 0.17.0
   Build type ............ Debug
   Compiler .............. MSVC 19.x
-  Qt .................... 6.11.2
+  Qt .................... 6.12.0
   Docking ............... KDDockWidgets (FetchContent)
   Tests ................. ON
   Scripting ............. Lua 5.5.0 (vendored)
-  Kvaser backend ........ ON
+  J2534 backend ......... ON
   PEAK backend .......... ON
 ```
 
-`Kvaser backend ........ OFF` is fine — it means CANlib was not found, and the
-virtual bus covers everything below except step 6. `PEAK backend` is the build
+`J2534 backend ......... ON` builds the SAE J2534 Pass-Thru plugin, and the
+virtual bus covers everything below except hardware passes. `PEAK backend` is the build
 option (`TORQUEBUS_ENABLE_PEAK`), not a detection: it reads `ON` whether or not
 PCAN-Basic is installed, because the Qt SerialBus plugin loads the DLL at
 runtime.

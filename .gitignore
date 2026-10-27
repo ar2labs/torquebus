@@ -29,7 +29,6 @@ ui_*.h
 CMakeSettings.json
 
 # Vendor SDKs are never committed - see PLAN.md section 31
-/third_party/kvaser/
 /third_party/peak/
 *.dll
 *.lib

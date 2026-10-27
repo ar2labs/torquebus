@@ -559,3 +559,39 @@ TEST(LuaTestSequenceTests, ASequenceCanSendAJ1939Message)
     EXPECT_EQ(frame.data[1], 0xF0U);
     EXPECT_EQ(frame.data[3], 0xFFU);
 }
+
+TEST(LuaTestSequenceTests, SequenceLogsSignalsAndCapturesFrames)
+{
+    Bench bench{R"(
+        test("measures speed and logs signals", function()
+            log_signal("EngineRPM", 1200)
+            send(0x123, "\x01\x02")
+            local frame = expect_frame(0x100, { within = 300 })
+            assert_true(frame ~= nil, "frame arrives")
+            log_signal("EngineRPM", 1500)
+        end)
+    )",
+                R"(
+        function on_enable()
+            cyclic(0x100, 20, "\xAA\xBB")
+        end
+    )"};
+
+    bench.run(500);
+
+    ASSERT_TRUE(bench.sequence->isComplete());
+    const auto results = bench.report.results();
+    ASSERT_EQ(results.size(), 1U);
+    const auto& res = results.front();
+    EXPECT_EQ(res.outcome, TestOutcome::Passed);
+
+    // Verify signals logged
+    ASSERT_GE(res.capturedSignals.size(), 2U);
+    EXPECT_EQ(res.capturedSignals[0].name, "EngineRPM");
+    EXPECT_DOUBLE_EQ(res.capturedSignals[0].value, 1200.0);
+    EXPECT_EQ(res.capturedSignals[1].name, "EngineRPM");
+    EXPECT_DOUBLE_EQ(res.capturedSignals[1].value, 1500.0);
+
+    // Verify frames captured during case execution
+    EXPECT_FALSE(res.capturedFrames.empty());
+}

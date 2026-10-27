@@ -327,7 +327,7 @@ try {
                 # executable, it produced a package whose PEAK plugin could not
                 # load, and nothing said so.
                 #
-                # The Kvaser plugin links no Qt at all, so windeployqt refuses it
+                # Plugins like J2534 link no Qt at all, so windeployqt refuses them
                 # with "does not seem to be a Qt executable". That is the right
                 # answer and not a failure - so the error preference is lowered
                 # for these calls, which otherwise turn a correct refusal into a

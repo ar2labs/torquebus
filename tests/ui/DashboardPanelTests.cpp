@@ -145,7 +145,7 @@ signalsDrag(std::initializer_list<SignalReference> references)
 /// Sends the events a drag makes - enter, then drop - and says whether the drop was taken.
 [[nodiscard]] bool drop(QWidget& target, const QMimeData& mime, const QPoint& where)
 {
-    QDragEnterEvent enter{where, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier};
+    QDragEnterEvent enter{QPointF{where}, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier};
     QApplication::sendEvent(&target, &enter);
 
     if (!enter.isAccepted()) {

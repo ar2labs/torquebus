@@ -27,7 +27,7 @@ Definição inicial da stack:
  Componente          Escolha                             
  ------------------  ----------------------------------- 
  Linguagem           C++23                           
- Qt                  Qt 6.11.2 CommunityOpen Source 
+ Qt                  Qt 6.12.0 CommunityOpen Source 
  UI desktop          Qt Widgets                      
  UI modernaHMI      Qt Quick  QML                  
  Docking             KDDockWidgets                   

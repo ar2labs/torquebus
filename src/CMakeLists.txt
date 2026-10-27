@@ -102,6 +102,8 @@ add_library(torquebus_core STATIC
     core/log/LogNodes.cpp
     core/log/TraceExport.h
     core/log/TraceExport.cpp
+    core/log/TraceImport.h
+    core/log/TraceImport.cpp
 
     core/plot/SignalSeries.h
     core/plot/SignalSeries.cpp
@@ -129,6 +131,8 @@ add_library(torquebus_core STATIC
 
     core/testing/TestReport.h
     core/testing/TestReport.cpp
+    core/testing/TestReportExport.h
+    core/testing/TestReportExport.cpp
 
     core/tinyml/TinyMlModel.h
     core/tinyml/TinyMlModel.cpp
@@ -525,7 +529,7 @@ add_custom_command(TARGET TorqueBusStudio POST_BUILD
 # nothing links them, and without that they would simply never be built.
 # ---------------------------------------------------------------------------
 
-add_subdirectory(plugins/driver-kvaser)
+add_subdirectory(plugins/driver-j2534)
 add_subdirectory(plugins/driver-peak)
 
 target_compile_definitions(TorqueBusStudio
@@ -574,7 +578,7 @@ torquebus_forbid_link(torquebus_drivers
 # now, which is what makes this checkable at all.
 torquebus_forbid_link(torquebus_ui
     RULE "rule 1: no UI code talks to hardware directly"
-    DENY torquebus::driver_kvaser torquebus::driver_peak
+    DENY torquebus::driver_j2534 torquebus::driver_peak
 )
 
 # ---------------------------------------------------------------------------

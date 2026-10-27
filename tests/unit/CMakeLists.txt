@@ -20,6 +20,7 @@ add_executable(torquebus_unit_tests
     NodeStatisticsTests.cpp
     SignalSeriesTests.cpp
     TraceExportTests.cpp
+    TraceImportTests.cpp
     TraceLogTests.cpp
     CanSignalTests.cpp
     DbcDecoderNodeTests.cpp
@@ -40,6 +41,7 @@ add_executable(torquebus_unit_tests
     IsoTpNodeTests.cpp
     IsoTpTests.cpp
     InstrumentThemeTests.cpp
+    J2534BackendTests.cpp
     J1939ExampleProjectTests.cpp
     J1939RequestTests.cpp
     J1939IdTests.cpp
@@ -70,6 +72,7 @@ add_executable(torquebus_unit_tests
     WorkspacesTests.cpp
     RecentProjectsTests.cpp
     SettingsStoreTests.cpp
+    TestReportExportTests.cpp
     TinyMlEcuTests.cpp
 )
 
@@ -78,6 +81,7 @@ add_executable(torquebus_unit_tests
 target_link_libraries(torquebus_unit_tests
     PRIVATE torquebus::core
             torquebus::drivers
+            torquebus::driver_j2534
             torquebus::plugin_host
             torquebus::services
             torquebus::theme

@@ -6,6 +6,7 @@
 #include "ui/testing/TestPanel.h"
 
 #include "core/testing/TestReport.h"
+#include "core/testing/TestReportExport.h"
 #include "ui/theme/Theme.h"
 #include "ui/theme/ThemeManager.h"
 
@@ -17,8 +18,14 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
+#include <QPageLayout>
+#include <QPageSize>
+#include <QPainter>
+#include <QPdfWriter>
 #include <QPushButton>
 #include <QScrollBar>
+#include <QSvgRenderer>
+#include <QTextDocument>
 #include <QTextStream>
 #include <QTimer>
 #include <QTreeWidget>
@@ -100,8 +107,8 @@ void TestPanel::buildUi()
     header->addWidget(m_summary, 1);
 
     m_export = new QPushButton(tr("Export..."));
-    m_export->setToolTip(tr("Writes the whole run as Markdown - a verdict that cannot "
-                            "leave the window is a verdict nobody else can act on."));
+    m_export->setToolTip(
+        tr("Exports the complete test dossier in interactive HTML, PDF or Markdown."));
     connect(m_export, &QPushButton::clicked, this, &TestPanel::onExport);
     header->addWidget(m_export);
 
@@ -286,65 +293,83 @@ QString TestPanel::elapsedText(std::uint64_t nanoseconds)
 
 QString TestPanel::buildMarkdown() const
 {
-    QString text;
-    QTextStream out{&text};
-
-    out << "# Test run\n\n";
-
     if (m_report != nullptr) {
-        const TestSummary summary = m_report->summary();
-
-        out << (summary.complete ? "**Complete.**" : "**Stopped before the end.**") << "  \n";
-        out << summary.passed << " passed, " << summary.failed << " failed, " << summary.errored
-            << " in error, of " << summary.total << " declared.\n\n";
+        return QString::fromStdString(TestReportExport::buildMarkdown(*m_report));
     }
-
-    out << "| Result | Case | Time (s) | Detail |\n";
-    out << "|---|---|---|---|\n";
-
-    for (int index = 0; index < m_cases->topLevelItemCount(); ++index) {
-        const QTreeWidgetItem* item = m_cases->topLevelItem(index);
-
-        out << "| " << item->text(ColumnResult) << " | " << item->text(ColumnCase) << " | "
-            << item->text(ColumnTime) << " | " << item->text(ColumnDetail) << " |\n";
-    }
-
-    // The checks of every case that did not pass, spelled out underneath.
-    // A table row saying "Failed" is where somebody starts; the check that
-    // failed and what it saw is where they finish.
-    for (int index = 0; index < m_cases->topLevelItemCount(); ++index) {
-        const QTreeWidgetItem* item = m_cases->topLevelItem(index);
-
-        if (item->text(ColumnResult) == tr("Passed") || item->childCount() == 0) {
-            continue;
-        }
-
-        out << "\n## " << item->text(ColumnCase) << "\n\n";
-
-        for (int child = 0; child < item->childCount(); ++child) {
-            const QTreeWidgetItem* check = item->child(child);
-
-            out << "- " << check->text(ColumnResult) << ": " << check->text(ColumnCase);
-
-            if (!check->text(ColumnDetail).isEmpty()) {
-                out << " — " << check->text(ColumnDetail);
-            }
-
-            out << "\n";
-        }
-    }
-
-    return text;
+    return {};
 }
 
 void TestPanel::onExport()
 {
+    if (m_report == nullptr) {
+        return;
+    }
+
+    QString selectedFilter;
+    const QString filterString = tr("Interactive HTML Dossier (*.html);;Homologation PDF Report "
+                                    "(*.pdf);;Markdown Report (*.md);;All files (*)");
     const QString path = QFileDialog::getSaveFileName(this,
-                                                      tr("Export Test Report"),
-                                                      QStringLiteral("test-report.md"),
-                                                      tr("Markdown (*.md);;All files (*)"));
+                                                      tr("Export Test Dossier"),
+                                                      QStringLiteral("test-report.html"),
+                                                      filterString,
+                                                      &selectedFilter);
 
     if (path.isEmpty()) {
+        return;
+    }
+
+    DossierMetadata meta;
+    meta.title = "TorqueBus Homologation & Test Dossier";
+    meta.tester = "TorqueBus Studio Automated Suite";
+    meta.systemUnderTest = "CAN Network Bus / ECU SUT";
+
+    if (path.endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive)) {
+        QPdfWriter writer(path);
+        writer.setPageSize(QPageSize(QPageSize::A4));
+        writer.setPageOrientation(QPageLayout::Portrait);
+        writer.setPageMargins(QMarginsF(12, 12, 12, 12), QPageLayout::Millimeter);
+
+        QTextDocument doc;
+
+        const auto results = m_report->results();
+
+        // Render timeline SVG into high-res QImage resource
+        const std::string timelineSvg = TestReportExport::generateTimelineSvg(results);
+        if (!timelineSvg.empty()) {
+            QSvgRenderer renderer(QByteArray::fromStdString(timelineSvg));
+            QImage img(renderer.defaultSize().width() * 2,
+                       renderer.defaultSize().height() * 2,
+                       QImage::Format_ARGB32);
+            img.fill(Qt::white);
+            QPainter painter(&img);
+            renderer.render(&painter);
+            doc.addResource(
+                QTextDocument::ImageResource, QUrl(QStringLiteral("cid:timeline")), img);
+        }
+
+        // Render signal charts for any case with signals
+        for (std::size_t i = 0; i < results.size(); ++i) {
+            if (!results[i].capturedSignals.empty()) {
+                const std::string signalSvg =
+                    TestReportExport::generateSignalChartSvg(results[i].capturedSignals);
+                QSvgRenderer renderer(QByteArray::fromStdString(signalSvg));
+                QImage img(renderer.defaultSize().width() * 2,
+                           renderer.defaultSize().height() * 2,
+                           QImage::Format_ARGB32);
+                img.fill(Qt::white);
+                QPainter painter(&img);
+                renderer.render(&painter);
+                doc.addResource(QTextDocument::ImageResource,
+                                QUrl(QStringLiteral("cid:signals_%1").arg(i)),
+                                img);
+            }
+        }
+
+        const std::string printHtml = TestReportExport::buildPrintHtml(*m_report, meta);
+        doc.setHtml(QString::fromStdString(printHtml));
+        doc.print(&writer);
+
+        Q_EMIT reported(tr("Homologation PDF report written to %1.").arg(path), false);
         return;
     }
 
@@ -356,9 +381,14 @@ void TestPanel::onExport()
     }
 
     QTextStream out{&file};
-    out << buildMarkdown();
 
-    Q_EMIT reported(tr("Test report written to %1.").arg(path), false);
+    if (path.endsWith(QStringLiteral(".md"), Qt::CaseInsensitive)) {
+        out << QString::fromStdString(TestReportExport::buildMarkdown(*m_report));
+        Q_EMIT reported(tr("Markdown test report written to %1.").arg(path), false);
+    } else {
+        out << QString::fromStdString(TestReportExport::buildHtml(*m_report, meta));
+        Q_EMIT reported(tr("Interactive HTML test dossier written to %1.").arg(path), false);
+    }
 }
 
 void TestPanel::onThemeChanged()

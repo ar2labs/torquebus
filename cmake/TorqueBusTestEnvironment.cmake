@@ -9,11 +9,11 @@
 # a controlled list. On the machine this was found on, PATH contained:
 #
 #   C:\ST\STM32CubeCLT\STM32CubeProgrammer\bin\Qt6Core.dll   (Qt 6.10.2)
-#   C:\Qt\6.11.2\msvc2022_64\bin\Qt6Core.dll                 (the right one)
+#   C:\Qt\6.12.0\msvc2022_64\bin\Qt6Core.dll                 (the right one)
 #   ...\MiKTeX\miktex\bin\x64\Qt6Core.dll                    (another one)
 #
 # in that order. STM32CubeProgrammer ships its own Qt, it is earlier on PATH,
-# and the binaries are built against 6.11.2 exactly - the README pins the
+# and the binaries are built against 6.12.0 exactly - the README pins the
 # version and says why. So the loader hands them 6.10.2 and they die with
 # STATUS_ENTRYPOINT_NOT_FOUND before reaching main.
 #

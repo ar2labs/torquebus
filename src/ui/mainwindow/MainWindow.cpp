@@ -8,6 +8,7 @@
 #include "core/dashboard/DashboardAssets.h"
 #include "core/j1939/J1939Request.h"
 #include "core/log/TraceExport.h"
+#include "core/log/TraceImport.h"
 #include "core/pipeline/BusGrouping.h"
 #include "core/trace/TraceStore.h"
 #include "drivers/api/CanBackendRegistry.h"
@@ -930,6 +931,10 @@ void MainWindow::createActions()
     m_actionImportDatabase = new QAction(icon("database"), tr("&Import Database..."), this);
     m_actionImportDatabase->setStatusTip(tr("Load a .dbc file into the DBC Explorer."));
 
+    m_actionImportLog = new QAction(icon("open"), tr("&Import External Log..."), this);
+    m_actionImportLog->setStatusTip(tr("Import a Vector ASCII (.asc) or PEAK-System Trace (.trc) "
+                                       "log as a native TorqueBus log (.tblog)."));
+
     m_actionExportTrace = new QAction(tr("&Export Trace..."), this);
     m_actionExportTrace->setStatusTip(
         tr("Write what the trace is holding as ASC, for another CAN tool, or CSV, "
@@ -1022,6 +1027,7 @@ void MainWindow::createActions()
     connect(m_actionNewProject, &QAction::triggered, this, &MainWindow::onNewProject);
     connect(m_actionOpenProject, &QAction::triggered, this, &MainWindow::onOpenProject);
     connect(m_actionImportDatabase, &QAction::triggered, this, &MainWindow::onImportDatabase);
+    connect(m_actionImportLog, &QAction::triggered, this, &MainWindow::onImportLog);
     connect(m_actionSaveProject, &QAction::triggered, this, &MainWindow::onSaveProject);
     connect(m_actionSaveProjectAs, &QAction::triggered, this, &MainWindow::onSaveProjectAs);
 
@@ -1100,6 +1106,7 @@ void MainWindow::createMenus()
     fileMenu->addAction(m_actionSaveProjectAs);
     fileMenu->addSeparator();
     fileMenu->addAction(m_actionImportDatabase);
+    fileMenu->addAction(m_actionImportLog);
     fileMenu->addAction(m_actionExportTrace);
     fileMenu->addSeparator();
     fileMenu->addAction(m_actionExit);
@@ -2462,6 +2469,57 @@ void MainWindow::onImportDatabase()
             m_databaseDock->setAsCurrentTab();
         }
     }
+}
+
+void MainWindow::onImportLog()
+{
+    const QString filter = tr("External CAN logs (*.asc *.trc);;Vector ASCII logs (*.asc);;PCAN "
+                              "trace logs (*.trc);;All files (*)");
+    const QString inputPath =
+        QFileDialog::getOpenFileName(this, tr("Import External Log"), QString{}, filter);
+    if (inputPath.isEmpty()) {
+        return;
+    }
+
+    const QFileInfo inInfo{inputPath};
+    const QString defaultOut = inInfo.absolutePath() + QLatin1Char('/') + inInfo.completeBaseName()
+                               + QStringLiteral(".tblog");
+
+    const QString outputPath =
+        QFileDialog::getSaveFileName(this,
+                                     tr("Save TorqueBus Log As"),
+                                     defaultOut,
+                                     tr("TorqueBus logs (*.tblog);;All files (*)"));
+
+    if (outputPath.isEmpty()) {
+        return;
+    }
+
+    QGuiApplication::setOverrideCursor(QCursor{Qt::WaitCursor});
+
+    ImportSummary summary{};
+    const Result result =
+        TraceImporter::importToLog(inputPath.toStdString(), outputPath.toStdString(), &summary);
+
+    QGuiApplication::restoreOverrideCursor();
+
+    if (result.failed()) {
+        const std::string_view msg = result.message();
+        m_output->appendError(
+            tr("Import failed: %1")
+                .arg(QString::fromUtf8(msg.data(), static_cast<qsizetype>(msg.size()))));
+        return;
+    }
+
+    const double durSec = static_cast<double>(summary.durationNs) / 1'000'000'000.0;
+    m_output->appendInfo(
+        tr("Imported %L1 frame(s) from %2 to %3 (%4, duration %L5 s).")
+            .arg(summary.frames)
+            .arg(QDir::toNativeSeparators(inputPath))
+            .arg(QDir::toNativeSeparators(outputPath))
+            .arg(QString::fromUtf8(formatName(summary.format).data(),
+                                   static_cast<qsizetype>(formatName(summary.format).size())))
+            .arg(durSec, 0, 'f', 3));
 }
 
 void MainWindow::openProject(const QString& path)

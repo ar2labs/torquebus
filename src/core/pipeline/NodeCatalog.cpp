@@ -13,6 +13,7 @@
 #include "core/isotp/IsoTpNode.h"
 #include "core/j1939/J1939Node.h"
 #include "core/log/LogNodes.h"
+#include "core/log/TraceImport.h"
 #include "core/pipeline/nodes/DbcDecoderNode.h"
 #include "core/pipeline/nodes/FrameMergeNode.h"
 #include "core/pipeline/nodes/FrameNodes.h"
@@ -1450,7 +1451,8 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             .typeName = "log.source",
             .displayName = "Log Replay",
             .category = "Sources",
-            .description = "Replays a .tblog file as though it were a bus.",
+            .description =
+                "Replays a log file (.tblog, Vector .asc, PCAN .trc) as though it were a bus.",
             .inputs = {},
             .outputs = {PortDescriptor{"frames", PortType::Frames}},
             .parameters =
@@ -1459,7 +1461,8 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                         .displayName = "Log file",
                                         .type = ParameterValue::Type::Text,
                                         .required = true,
-                                        .description = "The .tblog to replay."},
+                                        .description =
+                                            "The log file to replay (.tblog, .asc, .trc)."},
                     ParameterDescriptor{.name = "speed",
                                         .displayName = "Speed",
                                         .type = ParameterValue::Type::Real,
@@ -1487,8 +1490,21 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
                                      std::format("Block '{}' needs a log file to replay.", nodeId));
             }
 
+            std::string effectivePath = path;
+            if (TraceImporter::isExternalLog(path)) {
+                if (Result importResult = TraceImporter::autoImport(path, effectivePath);
+                    importResult.failed()) {
+                    return Result::error(
+                        importResult.code(),
+                        std::format("Node '{}': Failed to import external log '{}': {}",
+                                    nodeId,
+                                    path,
+                                    importResult.message()));
+                }
+            }
+
             auto reader = std::make_unique<TraceLogReader>();
-            if (Result result = reader->open(path); result.failed()) {
+            if (Result result = reader->open(effectivePath); result.failed()) {
                 return Result::error(result.code(),
                                      std::format("Node '{}': {}", nodeId, result.message()));
             }
@@ -1504,7 +1520,7 @@ NodeCatalog NodeCatalog::withBuiltinTypes()
             // does not know where it is going.
             if (context.replayControl != nullptr) {
                 TraceLogSummary summary;
-                if (summarize(path, summary).succeeded()) {
+                if (summarize(effectivePath, summary).succeeded()) {
                     context.replayControl->setDurationNs(summary.durationNs);
                 }
             }

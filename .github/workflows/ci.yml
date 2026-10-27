@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
 
 env:
-  QT_VERSION: 6.11.2
+  QT_VERSION: 6.12.0
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -125,7 +125,7 @@ jobs:
           # Qt6::SerialBus - that is the point of PEAK being a plugin. Pointed
           # only at the executable, it packaged a PEAK plugin whose Qt was not
           # there, and the plugin could not load.
-          # The Kvaser plugin links no Qt at all, so windeployqt refuses it with
+          # Plugins like J2534 link no Qt at all, so windeployqt refuses them with
           # "does not seem to be a Qt executable" - the right answer, and not a
           # reason to fail the job.
           $ErrorActionPreference = "Continue"

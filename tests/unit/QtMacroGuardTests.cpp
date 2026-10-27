@@ -64,7 +64,7 @@
 #include "drivers/api/CanBackendRegistry.h"
 #include "drivers/api/ICanBackend.h"
 #include "drivers/virtual/VirtualCanBackend.h"
-#include "plugins/driver-kvaser/KvaserCanBackend.h"
+#include "plugins/driver-j2534/J2534CanBackend.h"
 
 #undef slots
 #undef signals

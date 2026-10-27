@@ -132,6 +132,9 @@ private Q_SLOTS:
     /// File > Import Database. Loads a .dbc into the DBC Explorer.
     void onImportDatabase();
 
+    /// File > Import Log. Converts external Vector .asc or PCAN .trc into a native .tblog.
+    void onImportLog();
+
     /// File > Export Trace. Writes what the trace is holding as ASC or CSV.
     void onExportTrace();
 
@@ -339,6 +342,7 @@ private:
     QAction* m_actionSaveProject{nullptr};
     QAction* m_actionSaveProjectAs{nullptr};
     QAction* m_actionImportDatabase{nullptr};
+    QAction* m_actionImportLog{nullptr};
     QAction* m_actionExportTrace{nullptr};
     QAction* m_actionExit{nullptr};
 

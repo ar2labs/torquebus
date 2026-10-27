@@ -5,7 +5,7 @@
 [![CI](https://github.com/ar2labs/torquebus/actions/workflows/ci.yml/badge.svg)](https://github.com/ar2labs/torquebus/actions/workflows/ci.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
-[![Qt 6.11](https://img.shields.io/badge/Qt-6.11.2-brightgreen.svg)](https://www.qt.io/)
+[![Qt 6.12](https://img.shields.io/badge/Qt-6.12.0-brightgreen.svg)](https://www.qt.io/)
 
 TorqueBus Studio is an open-source workbench for working with automotive
 networks. It brings CAN capture and transmission, database decoding,
@@ -14,12 +14,12 @@ application. The project is a community alternative to tools such as
 TSMaster, CANalyzer/CANoe, and PCAN-Explorer.
 
 The application can run against its built-in virtual CAN bus without physical
-hardware. Kvaser and PEAK interfaces are optional plugins loaded from the
+hardware. SAE J2534 (Pass-Thru) and PEAK interfaces are optional plugins loaded from the
 `plugins` directory beside the executable.
 
 ## What you can do
 
-- Capture, inspect, filter, record, replay, and transmit CAN traffic.
+- Capture, inspect, filter, record, replay, and transmit CAN traffic, including importing and replaying Vector ASCII (.asc) and PEAK-System (.trc) logs.
 - Decode DBC databases and use decoded signals in pipelines and dashboards.
 - Build visual dataflow pipelines from sources, decoders, filters, simulated
   ECUs, and output blocks.
@@ -36,7 +36,7 @@ hardware. Kvaser and PEAK interfaces are optional plugins loaded from the
 | --- | --- |
 | Platform | Windows 11, x64 |
 | Compiler | Visual Studio 2022 / MSVC 2022, x64, C++23 |
-| Qt | Qt 6.11.2 for MSVC 2022 x64, including Qt SerialBus |
+| Qt | Qt 6.12.0 for MSVC 2022 x64, including Qt SerialBus |
 | Build tools | CMake 3.25 or newer and Ninja, or the Visual Studio CMake generator |
 
 KDDockWidgets, GoogleTest, and Lua are provided by the build. See the

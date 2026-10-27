@@ -24,6 +24,8 @@
 
 #pragma once
 
+#include "core/can/CanFrame.h"
+
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -42,6 +44,13 @@ struct TestCheck final {
 
     /// Empty on a pass. On a failure: what was expected and what arrived.
     std::string detail;
+};
+
+/// A recorded signal sample over time during a test case execution.
+struct TestSignalPoint final {
+    std::string name;
+    double value{0.0};
+    std::uint64_t timestampNs{0};
 };
 
 enum class TestOutcome : std::uint8_t {
@@ -75,6 +84,8 @@ struct TestCaseResult final {
     std::uint64_t finishedNs{0};
 
     std::vector<TestCheck> checks;
+    std::vector<CanFrame> capturedFrames;
+    std::vector<TestSignalPoint> capturedSignals;
 };
 
 /// Where a run stands as a whole.

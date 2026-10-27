@@ -6,7 +6,6 @@
 #   KDDockWidgets   - fetched and built from source (FetchContent)
 #   QtNodes         - fetched and built from source (FetchContent), the canvas
 #   GoogleTest      - fetched and built from source (FetchContent), tests only
-#   Kvaser CANlib   - optional, detected on the system
 #   PCAN-Basic      - optional, reached through the Qt SerialBus peakcan plugin
 
 include(FetchContent)
@@ -26,7 +25,7 @@ set(FETCHCONTENT_QUIET OFF)
 #
 # What it actually costs us:
 #
-#   * The binary must run against the Qt 6.11.2 DLLs it was built against.
+#   * The binary must run against the Qt 6.12.0 DLLs it was built against.
 #     windeployqt copies exactly those, so the packaged build is fine; what is
 #     NOT fine is pointing the application at a different Qt on PATH.
 #   * The Qt version is therefore pinned, not merely recommended, in
@@ -59,8 +58,8 @@ if(NOT DEFINED Qt6_DIR)
         # The version is pinned (PLAN.md section 1), so this is a short list of
         # one rather than a glob that might find 6.9 and fail confusingly later.
         list(APPEND _torquebus_qt_hints
-            "C:/Qt/6.11.2/msvc2022_64"
-            "D:/Qt/6.11.2/msvc2022_64"
+            "C:/Qt/6.12.0/msvc2022_64"
+            "D:/Qt/6.12.0/msvc2022_64"
         )
     endif()
 
@@ -76,7 +75,7 @@ if(NOT DEFINED Qt6_DIR)
     unset(_torquebus_qt_hints)
 endif()
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS
+find_package(Qt6 6.12 REQUIRED COMPONENTS
     Core
     Gui
     Widgets
@@ -214,78 +213,6 @@ if(TORQUEBUS_BUILD_TESTS)
     )
     FetchContent_MakeAvailable(googletest)
     include(GoogleTest)
-endif()
-
-# --------------------------------------------------------------------------
-# Kvaser CANlib (optional, runtime-installed SDK)
-# --------------------------------------------------------------------------
-
-set(TORQUEBUS_HAVE_KVASER OFF)
-
-if(TORQUEBUS_ENABLE_KVASER)
-    # The SDK does not install to one canonical place: the official installer
-    # uses Program Files, but people routinely unpack it somewhere else. Rather
-    # than make everyone set an environment variable, search the roots that
-    # actually turn up in practice - and let KVASER_CANLIB_DIR override.
-    set(_torquebus_kvaser_roots
-        "$ENV{KVASER_CANLIB_DIR}"
-        "${KVASER_CANLIB_DIR}"
-        "C:/Tools/Kvaser/Canlib"
-        "C:/Kvaser/Canlib"
-        "$ENV{ProgramFiles}/Kvaser/Canlib"
-        "$ENV{ProgramFiles\(x86\)}/Kvaser/Canlib"
-        "$ENV{SystemDrive}/Program Files/Kvaser/Canlib"
-    )
-
-    set(_torquebus_kvaser_include_hints "")
-    set(_torquebus_kvaser_library_hints "")
-    foreach(_root IN LISTS _torquebus_kvaser_roots)
-        if(_root)
-            list(APPEND _torquebus_kvaser_include_hints "${_root}/INC" "${_root}/inc" "${_root}")
-            list(APPEND _torquebus_kvaser_library_hints
-                 "${_root}/Lib/x64" "${_root}/lib/x64" "${_root}/Lib" "${_root}/lib")
-        endif()
-    endforeach()
-
-    find_path(KVASER_CANLIB_INCLUDE_DIR
-        NAMES canlib.h
-        HINTS ${_torquebus_kvaser_include_hints}
-        PATHS /usr/include
-        DOC "Directory containing canlib.h"
-    )
-
-    # canlib32.lib is the 64-bit import library too - the name is historical and
-    # does not mean 32-bit. Searching for "canlib" as well covers Linux.
-    find_library(KVASER_CANLIB_LIBRARY
-        NAMES canlib32 canlib
-        HINTS ${_torquebus_kvaser_library_hints}
-        PATHS /usr/lib
-        DOC "Kvaser CANlib import library"
-    )
-
-    if(KVASER_CANLIB_INCLUDE_DIR AND KVASER_CANLIB_LIBRARY)
-        set(TORQUEBUS_HAVE_KVASER ON)
-        message(STATUS "Kvaser CANlib headers:  ${KVASER_CANLIB_INCLUDE_DIR}")
-        message(STATUS "Kvaser CANlib library:  ${KVASER_CANLIB_LIBRARY}")
-    elseif(KVASER_CANLIB_INCLUDE_DIR AND NOT KVASER_CANLIB_LIBRARY)
-        # Worth distinguishing: this is a real SDK that is missing its 64-bit
-        # import library, which usually means the 32-bit SDK was installed.
-        message(WARNING
-            "Kvaser CANlib headers were found at ${KVASER_CANLIB_INCLUDE_DIR} but no "
-            "import library was. TorqueBus is x64 - check that Lib/x64/canlib32.lib "
-            "exists, or point KVASER_CANLIB_DIR at the right SDK."
-        )
-    else()
-        message(STATUS
-            "Kvaser CANlib not found - the Kvaser backend will be compiled as a stub "
-            "that reports itself unavailable. Install the Kvaser drivers + CANlib SDK, "
-            "or pass -DKVASER_CANLIB_DIR=<path>."
-        )
-    endif()
-
-    unset(_torquebus_kvaser_roots)
-    unset(_torquebus_kvaser_include_hints)
-    unset(_torquebus_kvaser_library_hints)
 endif()
 
 # --------------------------------------------------------------------------
