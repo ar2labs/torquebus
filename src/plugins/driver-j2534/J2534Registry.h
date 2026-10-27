@@ -13,9 +13,9 @@
 namespace torquebus::j2534 {
 
 struct J2534DeviceInfo {
-    std::string id;          ///< e.g. "0", "1"
-    std::string name;        ///< Display name, e.g. "Tactrix Inc. - OpenPort 2.0"
-    std::string vendor;      ///< Vendor name
+    std::string id; ///< e.g. "0", "1"
+    std::string name; ///< Display name, e.g. "Tactrix Inc. - OpenPort 2.0"
+    std::string vendor; ///< Vendor name
     std::string libraryPath; ///< Full filesystem path to the J2534 DLL
     bool canSupported{true};
 };

@@ -158,8 +158,9 @@ using PtStartMsgFilter = long(CALLBACK*)(unsigned long ChannelID,
                                          PASSTHRU_MSG* pFlowControlMsg,
                                          unsigned long* pFilterID);
 using PtStopMsgFilter = long(CALLBACK*)(unsigned long ChannelID, unsigned long FilterID);
-using PtSetProgVoltage =
-    long(CALLBACK*)(unsigned long DeviceID, unsigned long PinNumber, unsigned long Voltage);
+using PtSetProgVoltage = long(CALLBACK*)(unsigned long DeviceID,
+                                         unsigned long PinNumber,
+                                         unsigned long Voltage);
 using PtReadVersion = long(CALLBACK*)(unsigned long DeviceID,
                                       char* pFirmwareVersion,
                                       char* pDllVersion,
@@ -188,9 +189,9 @@ struct J2534FunctionTable {
     [[nodiscard]] bool isValid() const noexcept
     {
         return PassThruOpen != nullptr && PassThruClose != nullptr && PassThruConnect != nullptr
-            && PassThruDisconnect != nullptr && PassThruReadMsgs != nullptr
-            && PassThruWriteMsgs != nullptr && PassThruStartMsgFilter != nullptr
-            && PassThruStopMsgFilter != nullptr;
+               && PassThruDisconnect != nullptr && PassThruReadMsgs != nullptr
+               && PassThruWriteMsgs != nullptr && PassThruStartMsgFilter != nullptr
+               && PassThruStopMsgFilter != nullptr;
     }
 };
 
@@ -198,34 +199,62 @@ struct J2534FunctionTable {
 [[nodiscard]] constexpr const char* errorString(long errorCode) noexcept
 {
     switch (errorCode) {
-    case STATUS_NOERROR: return "No error";
-    case ERR_NOT_SUPPORTED: return "Function not supported";
-    case ERR_INVALID_CHANNEL_ID: return "Invalid channel ID";
-    case ERR_INVALID_PROTOCOL_ID: return "Invalid protocol ID";
-    case ERR_NULLPARAMETER: return "Null parameter";
-    case ERR_INVALID_IOCTL_VALUE: return "Invalid IOCTL value";
-    case ERR_INVALID_FLAGS: return "Invalid flags";
-    case ERR_FAILED: return "Operation failed";
-    case ERR_DEVICE_NOT_CONNECTED: return "Device not connected";
-    case ERR_TIMEOUT: return "Operation timed out";
-    case ERR_INVALID_MSG: return "Invalid message";
-    case ERR_INVALID_TIME_INTERVAL: return "Invalid time interval";
-    case ERR_EXCEEDED_LIMIT: return "Exceeded limit";
-    case ERR_INVALID_MSG_ID: return "Invalid message ID";
-    case ERR_DEVICE_IN_USE: return "Device in use";
-    case ERR_INVALID_IOCTL_ID: return "Invalid IOCTL ID";
-    case ERR_BUFFER_EMPTY: return "Buffer empty";
-    case ERR_BUFFER_FULL: return "Buffer full";
-    case ERR_BUFFER_OVERFLOW: return "Buffer overflow";
-    case ERR_PIN_INVALID: return "Invalid pin";
-    case ERR_CHANNEL_IN_USE: return "Channel in use";
-    case ERR_MSG_PROTOCOL_ID: return "Message protocol mismatch";
-    case ERR_INVALID_FILTER_ID: return "Invalid filter ID";
-    case ERR_NO_FLOW_CONTROL: return "No flow control filter";
-    case ERR_NOT_UNIQUE: return "Not unique";
-    case ERR_UNTRAINED_ADDR: return "Untrained address";
-    case ERR_INVALID_DEVICE_ID: return "Invalid device ID";
-    default: return "Unknown J2534 error";
+    case STATUS_NOERROR:
+        return "No error";
+    case ERR_NOT_SUPPORTED:
+        return "Function not supported";
+    case ERR_INVALID_CHANNEL_ID:
+        return "Invalid channel ID";
+    case ERR_INVALID_PROTOCOL_ID:
+        return "Invalid protocol ID";
+    case ERR_NULLPARAMETER:
+        return "Null parameter";
+    case ERR_INVALID_IOCTL_VALUE:
+        return "Invalid IOCTL value";
+    case ERR_INVALID_FLAGS:
+        return "Invalid flags";
+    case ERR_FAILED:
+        return "Operation failed";
+    case ERR_DEVICE_NOT_CONNECTED:
+        return "Device not connected";
+    case ERR_TIMEOUT:
+        return "Operation timed out";
+    case ERR_INVALID_MSG:
+        return "Invalid message";
+    case ERR_INVALID_TIME_INTERVAL:
+        return "Invalid time interval";
+    case ERR_EXCEEDED_LIMIT:
+        return "Exceeded limit";
+    case ERR_INVALID_MSG_ID:
+        return "Invalid message ID";
+    case ERR_DEVICE_IN_USE:
+        return "Device in use";
+    case ERR_INVALID_IOCTL_ID:
+        return "Invalid IOCTL ID";
+    case ERR_BUFFER_EMPTY:
+        return "Buffer empty";
+    case ERR_BUFFER_FULL:
+        return "Buffer full";
+    case ERR_BUFFER_OVERFLOW:
+        return "Buffer overflow";
+    case ERR_PIN_INVALID:
+        return "Invalid pin";
+    case ERR_CHANNEL_IN_USE:
+        return "Channel in use";
+    case ERR_MSG_PROTOCOL_ID:
+        return "Message protocol mismatch";
+    case ERR_INVALID_FILTER_ID:
+        return "Invalid filter ID";
+    case ERR_NO_FLOW_CONTROL:
+        return "No flow control filter";
+    case ERR_NOT_UNIQUE:
+        return "Not unique";
+    case ERR_UNTRAINED_ADDR:
+        return "Untrained address";
+    case ERR_INVALID_DEVICE_ID:
+        return "Invalid device ID";
+    default:
+        return "Unknown J2534 error";
     }
 }
 

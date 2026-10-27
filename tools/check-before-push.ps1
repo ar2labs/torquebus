@@ -214,8 +214,6 @@ try {
 
     Write-Heading "Formatting"
 
-    $clangFormat = Get-Command "clang-format" -ErrorAction SilentlyContinue
-
     $pinnedVersion = $null
     $workflow = Join-Path $root ".github/workflows/ci.yml"
     if (Test-Path $workflow) {
@@ -225,13 +223,22 @@ try {
     }
     $pinnedText = if ($pinnedVersion) { $pinnedVersion } else { "the version in ci.yml" }
 
+    # Prefer pip-installed clang-format matching the pinned version if present
+    $pythonScripts = Get-Item "$env:LOCALAPPDATA\Python\*\Scripts\clang-format.exe" -ErrorAction SilentlyContinue
+    $pipClangFormat = $pythonScripts | Select-Object -First 1
+    if ($pipClangFormat -and (Test-Path $pipClangFormat.FullName)) {
+        $clangFormat = Get-Command $pipClangFormat.FullName -ErrorAction SilentlyContinue
+    } else {
+        $clangFormat = Get-Command "clang-format" -ErrorAction SilentlyContinue
+    }
+
     if (-not $clangFormat) {
         Write-Host "  clang-format not found - formatting NOT checked" -ForegroundColor Yellow
         Write-Host "  CI checks it with clang-format $pinnedText; see docs/development/getting-started.md" `
             -ForegroundColor DarkGray
         $advisories += "formatting: not checked, clang-format is not installed (CI runs $pinnedText)"
     } else {
-        $versionText = (& clang-format --version) -join " "
+        $versionText = (& $clangFormat.Source --version) -join " "
         $version = if ($versionText -match 'version ([0-9]+(\.[0-9]+)*)') { $Matches[1] } else { "unknown" }
         $versionGap = $pinnedVersion -and ($version -ne $pinnedVersion)
 
@@ -244,7 +251,7 @@ try {
         # one call only; a real failure is caught by the exit code below.
         $output = & {
             $ErrorActionPreference = "Continue"
-            & clang-format --dry-run $files 2>&1
+            & $clangFormat.Source --dry-run $files 2>&1
         }
 
         $dirty = @($output |

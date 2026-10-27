@@ -30,7 +30,8 @@ public:
 
     [[nodiscard]] std::string_view name() const noexcept override { return "j2534"; }
 
-    /// True when at least one J2534 device is registered in Windows, or when a test table is injected.
+    /// True when at least one J2534 device is registered in Windows, or when a test table is
+    /// injected.
     [[nodiscard]] bool isAvailable() const noexcept override;
 
     [[nodiscard]] CanDeviceInfoList enumerate() override;
@@ -52,7 +53,8 @@ public:
     /// Static query to match backend contract.
     [[nodiscard]] static bool isCompiledIn() noexcept { return true; }
 
-    /// For unit tests: injects mock function pointers without touching the Windows registry or filesystem.
+    /// For unit tests: injects mock function pointers without touching the Windows registry or
+    /// filesystem.
     void setFunctionTableForTesting(const j2534::J2534FunctionTable& table,
                                     std::string mockDeviceName = "Mock J2534 Device");
 

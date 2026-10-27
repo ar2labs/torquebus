@@ -50,12 +50,8 @@ std::wstring readStringValue(HKEY key, const wchar_t* valueName)
     }
 
     std::wstring buffer(bytes / sizeof(wchar_t), L'\0');
-    if (RegQueryValueExW(key,
-                         valueName,
-                         nullptr,
-                         &type,
-                         reinterpret_cast<LPBYTE>(buffer.data()),
-                         &bytes)
+    if (RegQueryValueExW(
+            key, valueName, nullptr, &type, reinterpret_cast<LPBYTE>(buffer.data()), &bytes)
         != ERROR_SUCCESS) {
         return {};
     }
@@ -130,7 +126,8 @@ std::vector<J2534DeviceInfo> enumerateJ2534Devices()
 
     for (DWORD i = 0; i < subkeyCount; ++i) {
         DWORD nameLen = maxSubkeyLen + 1;
-        if (RegEnumKeyExW(rootKey, i, subkeyName.data(), &nameLen, nullptr, nullptr, nullptr, nullptr)
+        if (RegEnumKeyExW(
+                rootKey, i, subkeyName.data(), &nameLen, nullptr, nullptr, nullptr, nullptr)
             != ERROR_SUCCESS) {
             continue;
         }

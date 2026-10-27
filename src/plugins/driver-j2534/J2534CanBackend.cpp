@@ -27,8 +27,8 @@ std::wstring utf8ToWide(const std::string_view utf8)
     if (utf8.empty()) {
         return {};
     }
-    const int len = MultiByteToWideChar(
-        CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
+    const int len =
+        MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
     if (len <= 0) {
         return {};
     }
@@ -55,7 +55,7 @@ J2534CanBackend::~J2534CanBackend()
 }
 
 void J2534CanBackend::setFunctionTableForTesting(const j2534::J2534FunctionTable& table,
-                                                std::string mockDeviceName)
+                                                 std::string mockDeviceName)
 {
     m_api = table;
     m_mockDeviceName = std::move(mockDeviceName);
@@ -114,9 +114,9 @@ bool J2534CanBackend::msgToCanFrame(const j2534::PASSTHRU_MSG& msg,
     outFrame.format = isExt ? CanFrameFormat::Extended : CanFrameFormat::Standard;
 
     const std::uint32_t rawId = (static_cast<std::uint32_t>(msg.Data[0]) << 24)
-        | (static_cast<std::uint32_t>(msg.Data[1]) << 16)
-        | (static_cast<std::uint32_t>(msg.Data[2]) << 8)
-        | static_cast<std::uint32_t>(msg.Data[3]);
+                                | (static_cast<std::uint32_t>(msg.Data[1]) << 16)
+                                | (static_cast<std::uint32_t>(msg.Data[2]) << 8)
+                                | static_cast<std::uint32_t>(msg.Data[3]);
 
     outFrame.identifier = isExt ? (rawId & 0x1FFFFFFF) : (rawId & 0x7FF);
 
@@ -204,7 +204,8 @@ Result J2534CanBackend::open(const CanChannelConfig& config)
 
         m_module = mod;
         m_api.PassThruOpen = reinterpret_cast<j2534::PtOpen>(GetProcAddress(mod, "PassThruOpen"));
-        m_api.PassThruClose = reinterpret_cast<j2534::PtClose>(GetProcAddress(mod, "PassThruClose"));
+        m_api.PassThruClose =
+            reinterpret_cast<j2534::PtClose>(GetProcAddress(mod, "PassThruClose"));
         m_api.PassThruConnect =
             reinterpret_cast<j2534::PtConnect>(GetProcAddress(mod, "PassThruConnect"));
         m_api.PassThruDisconnect =
@@ -223,7 +224,8 @@ Result J2534CanBackend::open(const CanChannelConfig& config)
             reinterpret_cast<j2534::PtReadVersion>(GetProcAddress(mod, "PassThruReadVersion"));
         m_api.PassThruGetLastError =
             reinterpret_cast<j2534::PtGetLastError>(GetProcAddress(mod, "PassThruGetLastError"));
-        m_api.PassThruIoctl = reinterpret_cast<j2534::PtIoctl>(GetProcAddress(mod, "PassThruIoctl"));
+        m_api.PassThruIoctl =
+            reinterpret_cast<j2534::PtIoctl>(GetProcAddress(mod, "PassThruIoctl"));
 
         if (!m_api.isValid()) {
             FreeLibrary(mod);
@@ -264,12 +266,8 @@ Result J2534CanBackend::open(const CanChannelConfig& config)
     patternMsg.ProtocolID = j2534::PROTOCOL_CAN;
     patternMsg.DataSize = 4;
 
-    status = m_api.PassThruStartMsgFilter(m_channelId,
-                                          j2534::PASS_FILTER,
-                                          &maskMsg,
-                                          &patternMsg,
-                                          nullptr,
-                                          &m_filterId);
+    status = m_api.PassThruStartMsgFilter(
+        m_channelId, j2534::PASS_FILTER, &maskMsg, &patternMsg, nullptr, &m_filterId);
     if (status != j2534::STATUS_NOERROR) {
         close();
         return Result::error(ErrorCode::Unknown,
@@ -302,9 +300,7 @@ Result J2534CanBackend::start()
     m_running = true;
     m_rxThread = std::thread{guardThread(
         "the J2534 receive thread",
-        [this](std::string_view /*reason*/) {
-            m_running.store(false, std::memory_order_release);
-        },
+        [this](std::string_view /*reason*/) { m_running.store(false, std::memory_order_release); },
         [this] { rxWorkerLoop(); })};
 
     return Result::ok();

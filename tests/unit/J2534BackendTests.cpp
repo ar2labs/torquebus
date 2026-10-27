@@ -43,10 +43,7 @@ struct MockDeviceState {
     std::vector<j2534::PASSTHRU_MSG> writtenMsgs;
     std::vector<j2534::PASSTHRU_MSG> msgsToRead;
 
-    void reset()
-    {
-        *this = MockDeviceState{};
-    }
+    void reset() { *this = MockDeviceState{}; }
 };
 
 MockDeviceState g_mockState;
@@ -372,7 +369,8 @@ TEST(J2534BackendTests, LifecycleWithMockJ2534Device)
 TEST(J2534BackendTests, OpenFailsCleanlyWhenConnectReturnsError)
 {
     j2534::J2534FunctionTable table = makeMockTable();
-    table.PassThruConnect = [](unsigned long, unsigned long, unsigned long, unsigned long, unsigned long*) -> long {
+    table.PassThruConnect =
+        [](unsigned long, unsigned long, unsigned long, unsigned long, unsigned long*) -> long {
         return j2534::ERR_DEVICE_NOT_CONNECTED;
     };
 

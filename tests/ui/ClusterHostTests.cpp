@@ -1126,7 +1126,7 @@ TEST(J1939ExampleClusterTests, TheExampleProjectDrivesTheRealClusterWithRealValu
         [](const ClusterShown& seen) {
             return settled(seen) && isLit(seen, "low") && isLit(seen, "position");
         },
-        [](GraphDescription&) { });
+        [](GraphDescription&) {});
 
     ASSERT_TRUE(shown.started.succeeded()) << std::string{shown.started.message()};
     ASSERT_TRUE(shown.loaded);
