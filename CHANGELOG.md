@@ -2,17 +2,29 @@
 
 Every notable change to TorqueBus Studio, newest first.
 
-**Nothing has been released yet.** There are no tags and no published builds.
-What follows are development milestones, dated by the day each version number
-landed in `CMakeLists.txt`. They are written down because the work is finished
-and verifiable, not because anybody has downloaded it — and saying so is the
-point. The first release will be v1.0, and what stands between here and it is
-not a feature: it is validation against real hardware
-(`docs/development/validation.md`).
+**No stable release has shipped yet.** Preview builds are available while the
+project works toward its first stable release, v1.0. What remains is validation
+against real hardware (`docs/development/validation.md`). Development milestones
+below are dated by the day each version number landed in `CMakeLists.txt`.
 
 Dates are ISO-8601. Versions follow [semantic versioning](https://semver.org)
 from 1.0 onwards; below 1.0 the minor number is the milestone, as
 `docs/PLAN.md` numbers them.
+
+---
+
+## 0.17.0-preview.1 - Windows Preview - 2026-10-28
+
+- First Windows 11 x64 Preview package, built with MSVC 2022 and Qt 6.12.0.
+- Includes a runnable J1939 virtual-vehicle project, its DBC, Lua ECUs, and
+  dashboard assets; no physical CAN interface is needed for the demo.
+- Explore the visual Pipeline, live instrument-cluster Dashboard, decoded
+  CAN/J1939 Trace, and fault/ECU panels.
+- Includes optional SAE J2534 and PEAK plugins. Vendor drivers, PCAN-Basic,
+  and the licensed J1939 manufacturer-name table are not bundled.
+- The release workflow runs the automated suite and checks the packaged
+  runtime dependencies. Physical adapter validation remains part of the path
+  to the stable v1.0 release.
 
 ---
 

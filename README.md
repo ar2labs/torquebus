@@ -62,6 +62,15 @@ and packaged build.
 
 ## Try the examples
 
+### TorqueBus Studio Preview
+
+The J1939 demo runs on the built-in virtual CAN buses; no adapter or driver is
+needed. The [Preview quick start](docs/PREVIEW.md) explains how to launch it.
+This short capture cycles through the Pipeline, live Dashboard, and decoded
+CAN Trace:
+
+![TorqueBus Studio Pipeline, vehicle dashboard, and CAN Trace](docs/demo/torquebus-preview.gif)
+
 - Open [`examples/projects/virtual-vehicle.tbsproj`](examples/projects/virtual-vehicle.tbsproj)
   to run a virtual vehicle with Lua ECUs and a TinyML ECU.
 - Open [`examples/projects/j1939-vehicle.tbsproj`](examples/projects/j1939-vehicle.tbsproj)
@@ -97,10 +106,10 @@ complete guide catalog. Key references:
 
 ## Project status
 
-The repository is in active development. The current development milestone is
-v0.17, which introduced plugin loading for the Kvaser and PEAK backends. No
-public release has been published yet; the project changelog records completed
-work and the remaining validation goals. See the [changelog](CHANGELOG.md) and
+The repository is in active development. A Windows x64 Preview is available
+from [GitHub Releases](https://github.com/ar2labs/torquebus/releases/tag/v0.17.0-preview.1);
+the first stable release remains planned for v1.0 after validation against
+physical CAN hardware. See the [changelog](CHANGELOG.md) and
 [engineering plan](docs/PLAN.md) for project history and roadmap context.
 
 ## Contributing

@@ -671,6 +671,18 @@ install(DIRECTORY "${CMAKE_SOURCE_DIR}/data/"
     PATTERN "j1939-names.csv" EXCLUDE
 )
 
+# Ship the examples with the application so a Preview user can open a complete
+# virtual vehicle without checking out the source tree or connecting hardware.
+# Keep their relative layout: the project files point into ../databases,
+# ../scripts, and ../images.
+install(DIRECTORY
+    "${CMAKE_SOURCE_DIR}/examples/projects"
+    "${CMAKE_SOURCE_DIR}/examples/databases"
+    "${CMAKE_SOURCE_DIR}/examples/scripts"
+    "${CMAKE_SOURCE_DIR}/examples/images"
+    DESTINATION examples COMPONENT torquebus
+)
+
 # The licence travels with the binary, and it does so from here rather than
 # from a line in a packaging workflow: GPLv3 compliance is a property of the
 # thing we hand people, not a step somebody remembers to keep.
@@ -682,4 +694,13 @@ install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
 install(FILES "${CMAKE_SOURCE_DIR}/README.md"
               "${CMAKE_SOURCE_DIR}/CHANGELOG.md"
     DESTINATION . COMPONENT torquebus
+)
+
+install(FILES "${CMAKE_SOURCE_DIR}/docs/PREVIEW.md"
+    DESTINATION . COMPONENT torquebus
+    RENAME PREVIEW.md
+)
+
+install(FILES "${CMAKE_SOURCE_DIR}/docs/development/validation.md"
+    DESTINATION docs/development COMPONENT torquebus
 )

@@ -69,6 +69,20 @@ Require-Path "plugins/torquebus-driver-peak.dll" `
 Require-Path "data/j1939-names-functions.csv" `
     "J1939 function names; without it the network panel shows bare numbers"
 
+# The release package is useful without a source checkout or a physical CAN
+# adapter only if the J1939 project and its relative-path dependencies travel
+# with it.
+Require-Path "examples/projects/j1939-vehicle.tbsproj" `
+    "the runnable virtual J1939 demo project"
+Require-Path "examples/databases/j1939.dbc" `
+    "the DBC used by the J1939 demo"
+Require-Path "examples/scripts/ecu_engine.lua" `
+    "the engine ECU script used by the J1939 demo"
+Require-Path "examples/images/regime-idle.svg" `
+    "the dashboard assets used by the J1939 demo"
+Require-Path "PREVIEW.md" `
+    "first-run instructions for the Preview package"
+
 # The Dashboard's instrument cluster is QML, and Qt's QML modules are plugins that the engine
 # loads by name: nothing imports them, so the check of imports below cannot see them missing.
 # A package without them starts, shows every other panel, and draws a cluster that is an error
